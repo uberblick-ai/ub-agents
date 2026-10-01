@@ -16,6 +16,25 @@ from tests.support import agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_observe_preserves_valid_dependency_totals_and_falls_back_for_bad_summaries(self):
+        raw = {"number": 1, "title": "Work", "body": None, "state": "open",
+               "labels": [], "user": {"login": "operator"}, "created_at": iso(100)}
+        zero = {"blocked_by": 0, "blocking": 0, "total_blocked_by": 0, "total_blocking": 0}
+        cases = [(zero, 0), (zero | {"total_blocked_by": 1}, 1),
+                 (zero | {"blocked_by": 2, "total_blocked_by": 2}, 2),
+                 (None, None), ([], None), ("unreadable", None), ({}, None),
+                 ({"total_blocked_by": 0}, None), (zero | {"blocked_by": 1}, None),
+                 (zero | {"blocking": 1}, None)]
+        for key in zero:
+            cases.extend((zero | {key: value}, None) for value in (None, True, "0", -1, 0.0))
+        github = GitHub("org/project")
+        for summary, expected in cases:
+            with self.subTest(summary=summary), \
+                    patch.object(github, "request", return_value=[raw | {"issue_dependencies_summary": summary}]):
+                self.assertEqual(github.observe()[0].total_blocked_by, expected)
+        with patch.object(github, "request", return_value=[raw]):
+            self.assertIsNone(github.observe()[0].total_blocked_by)
+
     def test_closing_keywords_accept_local_qualified_and_url_references(self):
         for keyword in ("close", "closes", "closed", "fix", "fixes", "fixed",
                         "resolve", "resolves", "resolved", "CLOSES:"):

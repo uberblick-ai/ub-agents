@@ -313,16 +313,14 @@ class QueueTests(unittest.TestCase):
                          self.github, "operator", output=lambda *_: None)
         self.add(issue(1, ("ready", "urgent"), iso(1), 10),
                  issue(2, ("ready", "urgent"), iso(2), 20),
-                 pr(3, ("needs-changes", "low"), milestone=20),
-                 replace(pr(4, ("needs-changes", "low")), created_at=iso(100)),
-                 replace(pr(5, ("needs-changes", "urgent")), created_at=iso(300)),
-                 replace(pr(6, ("needs-changes", "low")), created_at=iso(100)))
-        # All PRs close urgent issue #1, so their equal effective priority
-        # falls through to creation time and number.
-        self.assertEqual(self.ready("implementer"), [4, 6, 5, 3, 1])
+                 pr(3, ("needs-changes", "low"), body="Unrelated", milestone=20),
+                 replace(pr(4, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)),
+                 replace(pr(5, ("needs-changes", "urgent"), body="Unrelated"), created_at=iso(300)),
+                 replace(pr(6, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)))
+        self.assertEqual(self.ready("implementer"), [5, 4, 6, 3, 1])
         with patch.object(self.loop, "execute", return_value=True) as execute:
             self.assertTrue(self.loop.tick())
-        self.assertEqual(execute.call_args.args[0].item.number, 4)
+        self.assertEqual(execute.call_args.args[0].item.number, 5)
         self.assertIsNotNone(self.loop.coordinator.claim(execute.call_args.args[0]))
 
     def test_default_queue_is_fifo_with_number_ties_for_both_work_classes(self):

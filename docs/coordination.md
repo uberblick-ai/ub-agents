@@ -76,8 +76,13 @@ Concurrent launchers rank the GitHub state each observes and try claims in that
 order. Existing claims resolve contention for the same item. There is no global
 order across machines.
 
-Each selection observes blocked-by links for all open issues in the repository
-to compute inheritance, then claims recheck only the selected new issue's gate.
+When there is work to plan, selection uses the issue list's
+`issue_dependencies_summary` to skip blocked-by reads for issues with a validated
+`total_blocked_by` of zero. All other open issues, including those without workflow
+triggers, have their links read to compute inheritance. Missing or malformed
+summaries fall back to full reads. Claims always recheck the selected new issue's
+blockers, even if its observed summary was zero. Read cost therefore grows with
+issues that have blocker links or unknown summaries, rather than all open issues.
 An unreadable or failed dependency read stops selection rather than being treated
 as an empty list. Like milestone rechecks, this is cooperative observation, not
 an atomic snapshot: dependencies can change between reads and after a claim.

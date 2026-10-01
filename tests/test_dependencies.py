@@ -39,6 +39,45 @@ class DependencyTests(unittest.TestCase):
     def plans(self):
         return {p.item.number: p for p in self.loop.plans() if p.agent == self.worker}
 
+    def test_zero_totals_skip_reads_but_unqueued_dependents_still_propagate(self):
+        self.add(replace(issue(1, ("ready", "priority:low")), total_blocked_by=0),
+                 replace(issue(2, ("priority:urgent",)), total_blocked_by=1),
+                 issue(3, ()), replace(issue(4), total_blocked_by=0))
+        self.github.dependencies[2] = [1]
+        with patch.object(self.github, "blocked_by", wraps=self.github.blocked_by) as read:
+            for _ in range(2):
+                plans = self.plans()
+                self.assertEqual((plans[1].priority, plans[1].priority_source, plans[1].state),
+                                 ("priority:urgent", 2, "ready"))
+                self.assertEqual(plans[4].state, "ready")
+            self.assertEqual([call.args[0] for call in read.call_args_list], [2, 3, 2, 3])
+        # A fresh observation must not reuse the earlier zero summary.
+        self.github.change(1, total_blocked_by=1)
+        self.github.dependencies[1] = [4]
+        self.assertEqual(self.plans()[1].state, "parked")
+
+    def test_positive_total_with_no_open_blockers_still_reads_links(self):
+        self.add(replace(issue(1), total_blocked_by=1),
+                 replace(issue(2, ()), state="closed"))
+        self.github.dependencies[1] = [2]
+        with patch.object(self.github, "blocked_by", wraps=self.github.blocked_by) as read:
+            self.assertEqual(self.plans()[1].state, "ready")
+        read.assert_called_once_with(1)
+
+    def test_empty_plans_skip_dependency_reads(self):
+        self.add(issue(1, ()), issue(2, ()))
+        with patch.object(self.github, "blocked_by", side_effect=AssertionError("no work to rank")):
+            self.assertEqual(self.loop.plans(), [])
+
+    def test_blocker_status_sorts_by_repository_and_number(self):
+        self.add(issue(1))
+        self.github.dependencies[1] = [Dependency("org/project", 10, "open"),
+                                       Dependency("other/project", 10, "open"),
+                                       Dependency("org/project", 9, "open"),
+                                       Dependency("other/project", 9, "open")]
+        self.assertEqual(self.plans()[1].reason,
+                         "Waiting for blockers #9, #10, other/project#9, other/project#10")
+
     def test_one_and_several_open_blockers_gate_preparation_and_implementation(self):
         self.add(issue(1, ("prepare", "ready")), issue(31, ()), issue(32, ()))
         for blockers in ([31], [31, 32]):
@@ -75,8 +114,10 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual(self.plans()[1].state, "ready")
 
     def test_claim_freshly_reads_blockers_before_writing_a_lease(self):
-        self.add(issue(1), issue(31, ()), issue(32, ()))
-        plan = self.plans()[1]
+        self.add(*(replace(issue(n, ("ready",) if n == 1 else ()), total_blocked_by=0)
+                   for n in (1, 31, 32)))
+        with patch.object(self.github, "blocked_by", side_effect=AssertionError("known zero totals")):
+            plan = self.plans()[1]
         self.github.dependencies[1] = [31, 32]
         self.assertIsNone(self.loop.coordinator.claim(plan))
         self.github.change(31, state="closed")

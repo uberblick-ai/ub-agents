@@ -59,6 +59,9 @@ affect neither eligibility nor priority, and dependency reads are skipped.
 PR work, recovery, completion of started runs and draft checkpoint resumption
 remain ungated. With milestone gating, a new issue must pass both gates.
 A failed or unreadable dependency read stops selection visibly.
+Planning skips link reads only when the issue list's dependency summary reliably
+reports zero total blockers; missing or malformed summaries require a full read.
+The claim-time recheck always reads the selected new issue's blocker links.
 
 `ub-agent init` writes `queue: {milestones: ignore, dependencies: wait}`. Without a
 `queue` block, priorities are unconfigured, milestones are ignored and dependency

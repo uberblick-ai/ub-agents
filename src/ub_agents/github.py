@@ -26,6 +26,7 @@ class Item:
     draft: bool = False
     head_repository: str | None = None
     merged: bool = False
+    total_blocked_by: int | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,18 @@ def closing_issues(pr, repository):
             if (match["repo"] or match["url_repo"] or repository).casefold() == repository.casefold()}
 
 
+def dependency_total(data):
+    """Optional read optimization; an absent or invalid summary means unknown."""
+    summary = data.get("issue_dependencies_summary")
+    fields = ("blocked_by", "blocking", "total_blocked_by", "total_blocking")
+    if (not isinstance(summary, dict)
+            or any(type(summary.get(key)) is not int or summary[key] < 0 for key in fields)
+            or summary["blocked_by"] > summary["total_blocked_by"]
+            or summary["blocking"] > summary["total_blocking"]):
+        return None
+    return summary["total_blocked_by"]
+
+
 def parse_item(data, kind):
     try:
         seconds(data["created_at"])
@@ -77,7 +90,8 @@ def parse_item(data, kind):
                     data["head"]["ref"] if kind == "pr" else None, milestone,
                     data["draft"] if kind == "pr" else False,
                     (data["head"].get("repo") or {}).get("full_name") if kind == "pr" else None,
-                    data.get("merged_at") is not None if kind == "pr" else False)
+                    data.get("merged_at") is not None if kind == "pr" else False,
+                    dependency_total(data) if kind == "issue" else None)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise AgentError("Unreadable GitHub work item") from exc
 

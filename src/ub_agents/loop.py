@@ -74,6 +74,8 @@ class Loop:
                     plans.append(Plan(item, agent, None, "blocked",
                         f"{reason}; inspect GitHub and restore a trigger before retrying",
                         len(attempts(history, agent.name, now)) + 1))
+        if not plans:
+            return []
         dependencies = (Dependencies(self.github, items.values(), self.config.queue.priority)
                         if self.config.queue.dependencies == "wait" else None)
         priority_config = self.config.queue.priority
