@@ -16,6 +16,17 @@ git diff --check
 Run them in your own worktree. CI (`.github/workflows/test.yml`) runs the same suite
 on macOS and Linux with Python 3.11 and 3.14.
 
+## Uberblick corpus
+
+- Use the `uberblick` MCP server for current Uberblick product and workflow
+  context when it is relevant. Discover documents through the server rather
+  than relying on copied corpus content.
+- The MCP server is optional context for this standalone framework; it is not a
+  runtime dependency. Repository behavior and the assigned issue define the
+  implementation scope.
+- The project MCP configuration pins the shared workspace. The hub endpoint and
+  credentials remain in each machine's local Uberblick configuration.
+
 The process-supervision tests in `tests/test_execution.py` call `ps`. A sandbox that
 blocks `ps` makes them fail with `Operation not permitted: 'ps'`. That failure is
 environmental: state it with your results and do not change code or tests to avoid it.
