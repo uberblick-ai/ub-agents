@@ -40,7 +40,8 @@ def parse_item(data, kind):
 
 
 class GitHub:
-    def __init__(self, repository):
+    def __init__(self, repository, runner=None):
+        self.runner = runner
         self.repository = repository
         self.prefix = f"repos/{repository}"
         self._comment_cache = {}
@@ -64,12 +65,18 @@ class GitHub:
         if data is not None:
             command += ["--input", "-"]
         try:
-            result = subprocess.run(command, input=json.dumps(data) if data is not None else None,
-                                    capture_output=True, text=True, timeout=20, check=False)
+            result = (self.runner or subprocess.run)(
+                command, input=json.dumps(data) if data is not None else None,
+                capture_output=True, text=True, timeout=20, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise AgentError(f"GitHub {method} {endpoint} failed: {exc}") from exc
+            error = AgentError(f"GitHub {method} {endpoint} failed: {exc}")
+            error.probe_reason = ("timed out (20s)" if isinstance(exc, subprocess.TimeoutExpired)
+                                  else "could not run")
+            raise error from exc
         if result.returncode:
-            raise AgentError(f"GitHub {method} {endpoint} failed: {result.stderr.strip()}")
+            error = AgentError(f"GitHub {method} {endpoint} failed: {result.stderr.strip()}")
+            error.probe_reason = f"exit {result.returncode}"
+            raise error
         try:
             value = json.loads(result.stdout)
             if not isinstance(value, list if array else dict):

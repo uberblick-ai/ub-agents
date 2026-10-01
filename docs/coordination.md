@@ -191,6 +191,10 @@ validation. No earlier-head result automatically satisfies a newer candidate.
 
 ## Execution boundaries
 
+Custom argv adapters expand only `{model}` and `{effort}`, including when checking
+the command executable for runtime selection. Optional adapter `check` argv is
+used only by the read-only `doctor` preflight, never by selection or launch.
+
 Use argv directly; there is no shell interpolation. Runtimes receive a prompt on
 stdin; direct commands receive context through `UB_AGENT_CONTEXT` and run identity
 through `UB_AGENT_*` variables. Operator environment/auth stores are inherited
