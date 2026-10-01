@@ -16,12 +16,13 @@ requirement or unresolved constraint cannot be stated clearly in less space.
 
 Where comments amend or contradict the body, reconcile them into the body's acceptance
 criteria. Remove superseded text and, when traceability matters, link to the relevant
-comment in a short note. Use needs-human only for decisions the body and comments leave
-open.
+comment in a short note. Use the needs-human outcome only for decisions the body and
+comments leave open.
 
-If a human decision is required, explain it on the issue, add needs-human, remove
-needs-preparation, and report blocked with a concise summary.
+If a human decision is required, explain it on the issue and report
+`ub-agent report --outcome needs-human --summary "Decision required: REASON"`.
 
-When requirements can be implemented, remove needs-preparation and add ready.
-Record the outcome with `ub-agent report --status success --summary "Issue prepared"`.
-Customize these labels and rules with the project's owners.
+When requirements can be implemented, report
+`ub-agent report --outcome prepared --summary "Issue prepared"`.
+The runner applies the configured transition. Do not change workflow labels.
+Customize these outcomes and rules with the project's owners.

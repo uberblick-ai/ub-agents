@@ -36,7 +36,9 @@ def parser():
     status = commands.add_parser("status", help="Read current assignments, leases, attempts, and outcomes")
     status.add_argument("--json", action="store_true", help="Emit structured status")
     report = commands.add_parser("report", help="Record a supervised run's explicit outcome on GitHub")
-    report.add_argument("--status", choices=["success", "retry", "blocked"], required=True)
+    verdict = report.add_mutually_exclusive_group(required=True)
+    verdict.add_argument("--status", choices=["success", "retry", "blocked"])
+    verdict.add_argument("--outcome", help="Declared project outcome; reports success")
     report.add_argument("--summary", required=True)
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
     retry = commands.add_parser("retry", help="Record a human-authorized reset of blocked work/attempt limits")
@@ -107,7 +109,8 @@ def report_run(args):
         raise AgentError("Supervised lease was not found on GitHub")
     if lease["actor"].casefold() != coordinator.actor.casefold():
         raise AgentError("Authenticated GitHub actor does not own this run")
-    record = coordinator.report(lease, args.status, args.summary, args.handoff)
+    record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
+                                outcome=args.outcome)
     print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
 
 

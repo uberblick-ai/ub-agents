@@ -15,10 +15,12 @@ effort or resetting the author's conversation does not establish independent rev
 
 Apply any review focus the shared guidance names. Never edit the candidate to fix it
 during review. Publish a GitHub COMMENT review (`gh pr review --comment`) naming the
-assigned SHA, with concrete findings and the checks you ran. Remove needs-review and add
-needs-changes for required corrections, or ready-to-merge if the project's acceptance
-criteria pass. Both are successful review handoffs: use `ub-agent report --status
-success --summary "Review verdict for SHA: ..."` after the label transition.
+assigned SHA, with concrete findings and the checks you ran. Report changes-requested
+for required corrections, or approved if the project's acceptance criteria pass.
+Both are successful review handoffs: use `ub-agent report --outcome NAME
+--summary "Review verdict for SHA: ..."`.
 
 Do not merge. Native GitHub approvals require an eligible reviewer account and remain
 subject to branch protection. Explicit outcomes do not bypass those rules.
+
+The runner applies the configured transition. Do not change workflow labels.

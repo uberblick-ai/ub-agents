@@ -9,6 +9,9 @@ agents:
     runtime: "claude:claude-opus-5-5:high"
     kind: issue
     trigger: needs-preparation
+    outcomes:
+      prepared: {add: [ready]}
+      needs-human: {add: [needs-human]}
     instructions: .agents/issue-preparer.md
     worktree: true
     agent-timeout-minutes: 60
@@ -28,6 +31,8 @@ agents:
   implementer:
     runtime: "codex:gpt-6.1-sol:high"
     trigger: [ready, needs-changes]
+    outcomes:
+      handed-off: {add: [needs-review]}
     instructions: .agents/implementer.md
     worktree: true
     agent-timeout-minutes: 180
@@ -39,6 +44,9 @@ agents:
     runtime: "claude:claude-opus-5-5:high"
     kind: pr
     trigger: needs-review
+    outcomes:
+      approved: {add: [ready-to-merge]}
+      changes-requested: {add: [needs-changes]}
     different-runtime-from: implementer
     instructions: .agents/reviewer.md
     worktree: true
@@ -49,6 +57,9 @@ agents:
     runtime: "claude:claude-opus-5-5:high"
     kind: pr
     trigger: ready-to-merge
+    outcomes:
+      merged: {}
+      maintainer-merge: {add: [needs-human]}
     instructions: .agents/integrator.md
     worktree: true
     agent-timeout-minutes: 60

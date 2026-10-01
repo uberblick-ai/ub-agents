@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import re
 import subprocess
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError
 from .records import iso, seconds, timestamp
@@ -134,6 +134,8 @@ class GitHub:
             error = AgentError(f"GitHub {method} {endpoint} failed: {result.stderr.strip()}")
             error.probe_reason = f"exit {result.returncode}"
             raise error
+        if method == "DELETE" and not result.stdout.strip():
+            return None
         try:
             value = json.loads(result.stdout)
             if not isinstance(value, list if array else dict):
@@ -260,3 +262,9 @@ class GitHub:
         query = urlencode({"state": "open", "head": f"{owner}:{branch}", "per_page": 100})
         return [parse_item(raw, "pr") for raw in
                 self.request(f"{self.prefix}/pulls?{query}", paginate=True)]
+
+    def add_labels(self, number, labels):
+        self.request(f"{self.prefix}/issues/{number}/labels", "POST", {"labels": list(labels)}, array=True)
+
+    def remove_label(self, number, label):
+        self.request(f"{self.prefix}/issues/{number}/labels/{quote(label, safe='')}", "DELETE", array=True)

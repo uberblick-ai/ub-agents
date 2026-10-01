@@ -268,6 +268,12 @@ class Coordinator:
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
+        if not recovery and plan.agent.outcomes is not None:
+            record["outcomes"] = {
+                name: {"add": list(changes["add"]),
+                       "remove": sorted(set(plan.agent.triggers).union(changes["remove"])),
+                       "triggers": list(plan.agent.triggers), "stop_labels": list(stop_labels)}
+                for name, changes in plan.agent.outcomes.items()}
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, now)
             if outcome is None:
@@ -355,7 +361,13 @@ class Coordinator:
             raise RecordError("Run reported conflicting outcomes")
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None):
+    def report(self, lease, status, summary, handoff=None, outcome=None):
+        declarations = lease.get("outcomes")
+        if outcome is not None:
+            if declarations is None or outcome not in declarations or status != "success":
+                raise AgentError("Outcome is not declared by the running agent")
+        elif status == "success" and declarations is not None:
+            raise AgentError("Agent declares outcomes; report --outcome NAME instead of --status success")
         self.assert_owned(lease)
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")
@@ -365,10 +377,19 @@ class Coordinator:
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
+        if outcome is not None:
+            record |= {"outcome": outcome, "transition": declarations[outcome] | {"started": False}}
         if lease.get("resume_pr"):
             record["resume_pr"] = lease["resume_pr"]
         self.assert_owned(lease)
         return records([self.github.create_comment(lease["assignment"], body(record))], self.trusted_actors)[0]
+
+    def update_outcome(self, lease, outcome, **changes):
+        self.assert_owned(lease)
+        updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))],
+                          self.trusted_actors)[0]
+        outcome.clear()
+        outcome.update(updated)
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)

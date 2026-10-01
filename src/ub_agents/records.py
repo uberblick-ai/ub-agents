@@ -110,6 +110,21 @@ def lease_summary(history, lease):
                  and r["lease_id"] == lease["id"]), "")
 
 
+def validate_transition(transition, started=False):
+    keys = {"add", "remove", "triggers", "stop_labels"}
+    if started:
+        keys.add("started")
+    if not isinstance(transition, dict) or set(transition) != keys:
+        raise ValueError("invalid transition")
+    if started and type(transition["started"]) is not bool:
+        raise ValueError("invalid transition start flag")
+    for key in ("add", "remove", "triggers", "stop_labels"):
+        if (not isinstance(transition[key], list)
+                or any(not isinstance(label, str) or not label.strip() or "\x00" in label
+                       for label in transition[key])):
+            raise ValueError("invalid transition labels")
+
+
 def validate(record):
     for field in ("run", "agent", "actor", "runtime", "created"):
         if not isinstance(record.get(field), str) or not record[field]:
@@ -135,6 +150,13 @@ def validate(record):
             raise ValueError("invalid started flag")
         if "cleanup" in record and record["cleanup"] != "unconfirmed":
             raise ValueError("invalid cleanup state")
+        if "outcomes" in record:
+            declarations = record["outcomes"]
+            if (not isinstance(declarations, dict) or not declarations
+                    or any(not isinstance(name, str) or not name.strip() for name in declarations)):
+                raise ValueError("invalid outcome declarations")
+            for transition in declarations.values():
+                validate_transition(transition)
         seconds(record.get("expires"))
         if "retry_after" in record:
             seconds(record["retry_after"])
@@ -145,6 +167,14 @@ def validate(record):
             raise ValueError("missing lease_id")
         if type(record.get("accepted")) is not bool:
             raise ValueError("invalid accepted flag")
+        if "outcome" in record and (not isinstance(record["outcome"], str) or not record["outcome"].strip()):
+            raise ValueError("invalid named outcome")
+        if "transition_complete" in record and type(record["transition_complete"]) is not bool:
+            raise ValueError("invalid transition completion flag")
+        if "rejected" in record and not isinstance(record["rejected"], str):
+            raise ValueError("invalid rejected outcome")
+        if "transition" in record:
+            validate_transition(record["transition"], started=True)
         if record.get("handoff") is not None and (type(record["handoff"]) is not int or record["handoff"] < 1):
             raise ValueError("invalid handoff")
     elif record.get("kind") == "reset":

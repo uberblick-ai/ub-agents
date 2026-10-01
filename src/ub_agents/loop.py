@@ -215,6 +215,23 @@ class Loop:
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
             env["UB_AGENT_PR"] = str(lease.get("resume_pr") or (plan.item.number if plan.item.kind == "pr" else ""))
             instructions = self.instructions[plan.agent.name]
+            if plan.agent.outcomes is not None:
+                workflow_labels = set(self.config.stop_labels)
+                for configured in self.config.agents:
+                    workflow_labels.update(configured.triggers)
+                    for changes in (configured.outcomes or {}).values():
+                        workflow_labels.update(changes["add"])
+                        workflow_labels.update(changes["remove"])
+                reporting = (f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
+                             "Report one with ub-agent report --outcome NAME --summary 'what happened' "
+                             "[--handoff PR_NUMBER]. Do not change workflow labels "
+                             f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
+                             "Use --status retry|blocked for failures; those change no labels. ")
+            else:
+                reporting = ("Remove the triggering labels before reporting success, or close the "
+                             "assignment when policy permits. Record the explicit durable outcome with "
+                             "ub-agent report --status success|retry|blocked --summary 'what happened' "
+                             "[--handoff PR_NUMBER]. ")
             prompt = (f"You are the project-configured agent {plan.agent.name}.\n"
                       f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                       f"Project instructions:\n{instructions}\n\n"
@@ -226,10 +243,8 @@ class Loop:
                       "criteria, current code/diff, and candidate-specific checks on GitHub. "
                       "Use a fresh session; do not consume implementation reasoning transcripts. "
                       "Do not renew claims or start detached heartbeat helpers. The launcher owns renewal. "
-                      "Apply only project-authorized handoffs and permissions. Remove the triggering "
-                      "labels before reporting success, or close the assignment when policy permits. "
-                      "Record the explicit durable outcome with ub-agent report --status "
-                      "success|retry|blocked --summary 'what happened' [--handoff PR_NUMBER]. "
+                      "Apply only project-authorized handoffs and permissions. "
+                      f"{reporting}"
                       "Issue-to-PR handoffs must link the issue in the PR body. "
                       "For candidate acceptance, results and checks must name the assigned SHA.\n")
             diagnostic("started", cwd=str(cwd))
@@ -250,10 +265,12 @@ class Loop:
             else:
                 try:
                     self.validate_success(plan, outcome)
-                except ValidationError:
+                    self.apply_transition(lease, outcome)
+                except ValidationError as exc:
                     result = "blocked"
+                    self.coordinator.update_outcome(lease, outcome, rejected=str(exc))
                     raise
-                except AgentError as exc:
+                except (AgentError, OSError) as exc:
                     raise LostOwnership(f"Cannot observe completion; leave expiry recovery: {exc}") from exc
                 try:
                     self.coordinator.accept(lease, outcome)
@@ -269,6 +286,11 @@ class Loop:
             # Do not renew, report, release, or accept after losing ownership.
             raise
         except KeyboardInterrupt:
+            if outcome and outcome.get("transition", {}).get("started"):
+                diagnostic("transition-interrupted", outcome=outcome["id"])
+                cleanup_workspace()
+                # Leave the durable transition pending for expiry recovery.
+                raise
             interrupted = True
             summary = "Launcher interrupted; attributable execution terminated"
             cleanup_workspace()
@@ -294,7 +316,8 @@ class Loop:
 
     def validate_success(self, plan, outcome):
         current = self.github.item(plan.item.number, plan.item.kind)
-        if (current.state == "open" and current.labels.intersection(plan.agent.triggers)
+        transition = self.validate_report(outcome)
+        if (transition is None and current.state == "open" and current.labels.intersection(plan.agent.triggers)
                 and not (plan.item.kind == "issue" and outcome.get("handoff"))):
             raise ValidationError("Success report left assignment trigger labels in place")
         destination = (self.github.item(outcome["handoff"], "pr")
@@ -312,6 +335,54 @@ class Loop:
             if not links_issue(destination, self.config.repository, plan.item.number):
                 raise ValidationError("Implementation PR body does not link its original issue")
 
+    def validate_report(self, outcome):
+        if outcome.get("rejected"):
+            raise ValidationError(outcome["rejected"])
+        history = self.coordinator.history(outcome["assignment"])
+        source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
+        declarations = source.get("outcomes") if source else None
+        transition = outcome.get("transition")
+        name = outcome.get("outcome")
+        if declarations is not None:
+            if name not in declarations or transition is None:
+                raise ValidationError("Success report must name a declared outcome")
+            if {k: v for k, v in transition.items() if k != "started"} != declarations[name]:
+                raise ValidationError("Reported transition does not match the running agent's declaration")
+        elif name is not None or transition is not None:
+            raise ValidationError("Outcome is not declared by the running agent")
+        return transition
+
+    def apply_transition(self, lease, outcome):
+        transition = outcome.get("transition")
+        if transition is None:
+            return
+        self.coordinator.assert_owned(lease)
+        assignment = self.github.item(outcome["assignment"])
+        target = outcome.get("handoff") or outcome["assignment"]
+        destination = self.github.item(target)
+        if not transition["started"]:
+            stops = set(transition["stop_labels"]).union(self.config.stop_labels)
+            if assignment.labels.union(destination.labels).intersection(stops):
+                raise ValidationError("Transition paused: a stop label is on the assignment or handoff PR; "
+                                      "set workflow labels manually or use ub-agent retry after unpausing")
+            if not assignment.labels.intersection(transition["triggers"]):
+                raise ValidationError("Transition blocked: assignment trigger disappeared before label changes")
+            # Persist intent before the first mutation. Recovery must not mistake
+            # our own trigger removal or human-gate addition for external pausing.
+            self.coordinator.update_outcome(lease, outcome, transition=transition | {"started": True})
+            transition = outcome["transition"]
+        # Consume assignment labels before publishing the next role's trigger.
+        for label in sorted(set(transition["remove"])):
+            self.coordinator.assert_owned(lease)
+            if label in self.github.item(outcome["assignment"]).labels:
+                self.github.remove_label(outcome["assignment"], label)
+        self.coordinator.assert_owned(lease)
+        missing = sorted(set(transition["add"]).difference(self.github.item(target).labels))
+        if missing:
+            self.github.add_labels(target, missing)
+        if not outcome.get("transition_complete"):
+            self.coordinator.update_outcome(lease, outcome, transition_complete=True)
+
     def recover(self, plan):
         history = self.coordinator.history(plan.item.number)
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
@@ -325,15 +396,26 @@ class Loop:
             from dataclasses import replace
             original = replace(plan.item, head=outcome["assignment_sha"])
             try:
-                if plan.item.labels.intersection(self.config.stop_labels):
+                if not outcome.get("transition") and plan.item.labels.intersection(self.config.stop_labels):
                     raise ValidationError("A configured stop label now parks the work")
-                self.validate_success(replace(plan, item=original), outcome)
+                if outcome.get("transition", {}).get("started"):
+                    # Start is durable proof that success validation passed. A
+                    # later head/link edit cannot strand already-applied changes;
+                    # finish the intent while preserving the original provenance.
+                    self.validate_report(outcome)
+                else:
+                    self.validate_success(replace(plan, item=original), outcome)
+                self.apply_transition(recovery, outcome)
             except ValidationError as exc:
+                self.coordinator.update_outcome(recovery, outcome, rejected=str(exc))
                 result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
             except AgentError as exc:
                 raise LostOwnership(f"Cannot observe recovered completion; leave expiry recovery: {exc}") from exc
             else:
-                self.coordinator.accept(recovery, outcome)
+                try:
+                    self.coordinator.accept(recovery, outcome)
+                except AgentError as exc:
+                    raise LostOwnership(f"Cannot finalize recovered outcome; leave expiry recovery: {exc}") from exc
         self.coordinator.update(recovery, recovered_run=outcome["run"],
                                 recovered_lease_id=outcome["lease_id"])
         self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")

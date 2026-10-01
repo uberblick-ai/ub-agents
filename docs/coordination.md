@@ -22,7 +22,8 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   explicit reset, even if its trigger remains on the issue. Other successful issue
   tasks may run again when a human reapplies their trigger. PRs returning to a
   matching label run a new assignment with the accumulated PR budget. Reapplying a
-  trigger does not reset that budget. Projects should still remove old labels.
+  trigger does not reset that budget. Legacy roles should still remove old labels;
+  declared transitions do so in the runner.
 - `ub-agent retry --number N --agent NAME --reason TEXT` posts a durable reset,
   preserving history. It refuses a live lease and never revokes someone else's run.
 
@@ -161,11 +162,12 @@ and inline feedback; follow them or reply explaining the decision. An unresolved
 human decision leaves the PR as a draft and is reported as blocked.
 
 At completion, pass the project checks, push the final work, mark the same PR ready
-(`gh pr ready`), remove `ready` from the issue, add `needs-review` to the PR, and
-report success with the PR handoff. Drafts never receive `needs-review` or
-`ready-to-merge` from the starter workflow. Feedback after readiness follows the
-normal review and `needs-changes` path. Revision runs are unchanged, and labels
-still govern PR-kind pickup; there is no draft filter in trigger matching.
+(`gh pr ready`), and report `--outcome handed-off` with the PR handoff. The runner
+removes the issue triggers and adds `needs-review` to that same PR. Drafts never
+receive `needs-review` or `ready-to-merge` from the starter workflow. Feedback after
+readiness follows the normal review and `needs-changes` path. Revision runs are
+unchanged, and labels still govern PR-kind pickup; there is no draft filter in
+trigger matching.
 
 Issue retry planning checks all branches recorded by earlier leases for the same
 issue and configured agent, including leases before a reset or superseded by a
@@ -201,16 +203,45 @@ reexecuting the implementation.
 ownership and create one versioned outcome comment. Human summaries lead; JSON is
 fenced in `json` blocks. Arbitrary prose is never parsed for routing.
 
-Statuses are `success`, `retry`, and `blocked`. A report is initially `accepted:
-false`. On confirmed process/group termination, the launcher rereads GitHub
-and verifies successful handoff: consumed labels (or closed item), exact reported
-candidate, and issue linkage for an explicit PR handoff. A valid issue-to-PR handoff
-requires a PR that is ready for review: a success handoff to a draft PR blocks with
-an unaccepted outcome in both normal completion and outcome-only recovery. It
-can consume an issue assignment while its starting label remains. The launcher
-marks the outcome accepted, copies its provenance to the handoff PR, and releases
-ownership immediately. It never chooses next labels, runs project checks itself,
-or merges by policy of its own.
+A declared outcome is reported with `--outcome NAME` and has status `success`.
+`--status retry|blocked` retains its failure meaning and changes no labels. Agents
+with declarations cannot report `--status success`; undeclared names are rejected.
+The runner also blocks records that bypass reporting validation. Agents without
+`outcomes` keep `--status success` and their own label changes.
+
+A report is initially `accepted: false`. On confirmed process/group termination,
+the launcher rereads GitHub and validates ownership, exact reported candidate SHA,
+and the original issue link for an explicit PR handoff. A handoff to a draft PR
+blocks in normal completion and before transition start in recovery. A resumed
+issue must hand off its existing PR. For legacy agents it checks
+consumed triggers or a closed assignment; their valid issue-to-PR handoff may leave
+an issue trigger present.
+
+For declared outcomes, the running lease snapshots allowed outcomes and their
+resolved transitions. The outcome names its declaration and stores `add`, `remove`
+(including all agent triggers), `triggers`, `stop_labels` and a `started` flag. It
+must match that run's declaration. Candidate edits or a restarted launcher with
+different configuration cannot replace the recorded changes.
+
+Before starting the transition, reread the assignment and handoff PR. A missing
+assignment trigger blocks with no label changes. A stop label on either item blocks
+as paused, leaves the outcome unaccepted, and records a durable rejection. That
+outcome can never be applied later, including if the runner crashes before releasing
+the blocked lease. After unpausing, a person sets the labels they want or uses
+`ub-agent retry` to rerun the role. The starter preparer's needs-human handoff and
+integrator's maintainer-merge handoff are declared successful human gates.
+
+Persist `started: true` before the first label mutation. Remove every agent trigger
+and configured `remove` label from the assignment, and add configured `add` labels
+to the handoff PR, or assignment if there is none. Reread labels and apply only
+missing changes. Unnamed labels remain unchanged. A stop label added after start
+does not interrupt the transition; it remains and parks subsequent pickup. A
+transition may itself add a stop label.
+
+After all changes, persist `transition_complete: true`, mark the outcome accepted,
+copy provenance to the handoff PR, and release ownership. The launcher applies the
+project's declarations; it does not invent transitions, run project checks itself,
+or grant merge authority.
 
 Exit zero without an outcome is a protocol failure and a bounded retry. Nonzero
 without an explicit retry outcome blocks for operator attention; this includes
@@ -257,7 +288,43 @@ Failed scans stop visibly rather than become empty queues.
 
 An expired, unfinished lease with an explicit outcome reported within its validity
 window gets outcome-only recovery: claim a new bounded recovery assignment,
-revalidate GitHub, accept a still-valid success or record the blockage, and release.
+finish or validate the recorded outcome, accept success or record the blockage,
+and release. For a declared outcome, finish its recorded label transition before
+acceptance. A started transition has already passed success validation; recovery
+checks its declaration against the source lease but does not revalidate the
+candidate SHA or issue link. It also skips trigger-present and stop-label checks:
+prior mutations may have consumed the trigger or added a human gate. An unstarted
+transition still validates the candidate and issue link, checks both items for
+pausing and the assignment for its trigger. A durably rejected paused outcome is
+never applied later.
+
+Transitions create no cross-item reservations. Assignment removals happen before
+handoff or assignment additions. A crash between these steps leaves the consumed
+triggers absent and the next trigger unpublished, so those items stay idle unless
+another trigger is already present. A crash during removals can leave some triggers
+present; existing labels and ordinary live leases still govern pickup. A destination
+trigger may be picked up before acceptance and source release; independent roles
+still require successfully released provenance for their current candidate.
+
+Outcome-only recovery replays the recorded removals, then additions, and accepts the
+outcome without rerunning the role. Removing an absent label or adding a present
+one is a no-op. If an assignment label occurs in both lists, it is removed before
+being added, so `add` determines its final state on completion and replay.
+
+An operator reset (`ub-agent retry --number N --agent NAME --reason TEXT`) supersedes
+the source role's unfinished lease for recovery after it expires. It does not
+complete or undo the transition, and the old outcome remains unaccepted. Inspect
+both items and restore the desired trigger labels to resume the workflow; no
+reservation survives the reset. Restoring a trigger alone does not reset attempts
+or clear a blocked result. Do not reset while expecting automatic completion of
+the old transition; let outcome-only recovery finish instead.
+
+A PR head or issue-link edit after start does not block completion. Provenance still
+names the originally validated SHA: an independent role requiring that provenance
+blocks on a newer head, and a person can set the revision label to obtain a new
+implementation outcome. Label writes, comments and claim elections remain
+cooperative GitHub operations, not atomic transactions.
+
 Do not execute the previous command again. This also repairs a crash between
 acceptance and release. The old expired record is not falsely marked as observed
 terminated; the recovery claim names the recovered run/lease before any finalization,

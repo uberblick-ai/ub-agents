@@ -88,6 +88,7 @@ Each agent has exactly one of `runtime` or `command`.
 | Key | Meaning |
 |---|---|
 | `trigger` | Label, or list of labels, that starts the agent. |
+| `outcomes` | Named successful outcomes and their project-defined label transitions. Optional for legacy agents. |
 | `kind` | `issue`, `pr` or `either` (default). |
 | `runtime` | `cli:model:effort`, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. |
@@ -97,6 +98,68 @@ Each agent has exactly one of `runtime` or `command`.
 | `cwd` | Directory to run in, relative to the repository root. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
+
+## Outcomes and transitions
+
+```yaml
+agents:
+  implementer:
+    runtime: "codex:gpt-6.1-sol:high"
+    trigger: [ready, needs-changes]
+    instructions: .agents/implementer.md
+    outcomes:
+      handed-off: {add: [needs-review], remove: [old-workflow-state]}
+  integrator:
+    runtime: "claude:opus:high"
+    trigger: ready-to-merge
+    instructions: .agents/integrator.md
+    outcomes:
+      merged: {}
+      maintainer-merge: {add: [needs-human]}
+```
+
+`outcomes` must be a nonempty mapping of names to transitions. A transition accepts
+only `add` and `remove`, each a list of nonempty string labels (empty lists are
+allowed). Omitted lists are empty. `check` rejects unknown keys, non-string labels,
+adding the agent's own trigger, and removing a stop label, including through an
+agent's trigger. Adding a stop label is allowed as a human gate.
+
+An agent with outcomes reports `ub-agent report --outcome NAME --summary TEXT
+[--handoff PR]`. This reports success; an unknown name or `--status success` is
+rejected. The prompt lists the declarations and directs the agent to leave workflow
+labels alone. Direct commands follow the same contract. The running lease snapshots
+the declarations; candidate configuration edits do not change the current run.
+
+After ownership, candidate SHA and issue-link validation, the runner removes all
+of this agent's trigger labels and any `remove` labels from the assignment. It adds
+`add` labels to the named handoff PR, or to the assignment if none is named. Labels
+outside those lists stay unchanged. When the destination is the assignment and a
+label appears in both lists, `add` defines its final state. `--status retry|blocked`,
+execution failure, execution timeout, execution interruption and invalid success
+reports cause no transition.
+
+Before starting, the runner rereads the assignment: a vanished trigger blocks the
+transition. A stop label on either the assignment or handoff PR pauses it with no
+label changes. The outcome remains unaccepted and is never applied later. After
+unpausing, a person sets the desired workflow labels or uses `ub-agent retry` to
+rerun the role. A stop label added after transition start stays in place while the
+recorded transition completes, parking the item for subsequent pickup.
+
+The outcome stores its name, resolved changes and start marker. Recovery completes
+only missing changes from that record, even after configuration changes, without
+rerunning the role or spending an attempt. Started transitions have already passed
+success validation, so recovery does not recheck the candidate SHA, issue link,
+trigger or pause state. It finishes the recorded changes even if the PR head moves,
+preserving provenance for the original SHA. Assignment removals precede destination
+additions; incomplete transitions create no cross-item reservations. A crash between
+those steps leaves items idle when no other trigger is present. An operator reset
+supersedes the old recovery; inspect both items and restore the desired triggers to
+resume. See [recovery](coordination.md#recovery) for the operator path.
+
+Without `outcomes`, the agent retains the legacy contract: change labels itself,
+report `--status success`, and let the runner validate trigger consumption (or
+closure). A valid issue-to-PR handoff retains the legacy exception permitting the
+issue trigger to remain. No runner label transition is applied.
 
 ## Limits
 
@@ -188,8 +251,9 @@ variables, as do LLM runtimes:
   `remedy`.
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent status [--json]` shows matching work, claims, attempts and outcomes.
-- `ub-agent report --status success|retry|blocked --summary TEXT [--handoff PR]`
-  records the current run's outcome. It works only inside a supervised run.
+- `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
+  successful outcome. Use `--status retry|blocked` for failures; `--status success`
+  is only for agents without outcomes. It works only inside a supervised run.
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's attempts on
   an item once you have fixed the cause.
 - `--config PATH` selects a different configuration file.

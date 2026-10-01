@@ -106,6 +106,7 @@ class Agent:
     max_attempts: int
     backoff_seconds: float
     max_backoff_seconds: float
+    outcomes: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -190,13 +191,14 @@ def load_config(path):
     definitions = data.get("agents")
     if not isinstance(definitions, dict) or not definitions:
         raise AgentError("agents must be a nonempty mapping")
+    stop = () if data.get("stop-labels") == [] else strings(data.get("stop-labels", ["needs-human"]), "stop-labels")
     agents = []
     for name, definition in definitions.items():
         if not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
             raise AgentError("Agent names must be lowercase slugs")
         item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
             "command", "runtime-args", "different-runtime-from", "kind", "cwd",
-            "worktree"}, f"agent {name}")
+            "worktree", "outcomes"}, f"agent {name}")
         if ("runtime" in item) == ("command" in item):
             raise AgentError(f"{name}: specify exactly one of runtime or command")
         command = argv(item["command"], f"{name} command") if "command" in item else ()
@@ -244,17 +246,34 @@ def load_config(path):
             raise AgentError(f"{name}: renewal interval must be less than half the lease")
         if clocks["max-backoff-seconds"] < clocks["retry-backoff-seconds"]:
             raise AgentError(f"{name}: max-backoff-seconds must cover retry-backoff-seconds")
-        agents.append(Agent(name, strings(item.get("trigger"), f"{name} trigger"), instruction,
+        triggers = strings(item.get("trigger"), f"{name} trigger")
+        outcomes = None
+        if "outcomes" in item:
+            outcomes = item["outcomes"]
+            if not isinstance(outcomes, dict) or not outcomes:
+                raise AgentError(f"{name}: outcomes must be a nonempty mapping")
+            resolved = {}
+            for outcome, transition in outcomes.items():
+                string(outcome, f"{name} outcome")
+                mapping(transition, {"add", "remove"}, f"{name} outcome {outcome}")
+                labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
+                          for key in ("add", "remove")}
+                if set(labels["add"]).intersection(triggers):
+                    raise AgentError(f"{name}: outcome cannot add its own trigger")
+                if set(labels["remove"]).union(triggers).intersection(stop):
+                    raise AgentError(f"{name}: outcome cannot remove a stop label")
+                resolved[outcome] = labels
+            outcomes = resolved
+        agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind,
             project_path(root, item.get("cwd", "."), f"{name} cwd", directory=True), worktree,
             clocks["lease-minutes"] * 60, clocks["renewal-minutes"] * 60,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
-            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"]))
+            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes))
     for agent in agents:
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
-    stop = () if data.get("stop-labels") == [] else strings(data.get("stop-labels", ["needs-human"]), "stop-labels")
     operators = () if data.get("operators", []) == [] else strings(data["operators"], "operators")
     if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login) for login in operators):
         raise AgentError("operators must contain GitHub account logins")

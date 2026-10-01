@@ -25,8 +25,8 @@ Observe GitHub → match a label → claim the item → run the agent → record
   database or service.
 - **The project owns workflow policy.** You choose what labels mean and what should
   happen after each role finishes. The launcher matches triggers, supervises runs,
-  retries and validates handoffs; today, the role follows your instructions to make
-  the label changes before reporting success.
+  retries and validates handoffs, then applies the label transition declared for
+  the role's reported outcome.
 
 ## Use it in your project
 
@@ -48,16 +48,19 @@ Before launching, create the workflow labels on GitHub, give each runtime the
 Customize these parts:
 
 - In `ub-agent.yaml`, set each role's trigger labels, CLI and model, runtime
-  permissions, worktree choice, and any labels that should pause all work.
+  permissions, worktree choice, named outcomes and their label transitions, and
+  any labels that should pause all work.
 - In `.agents/<role>.md` and shared guidance such as `AGENTS.md`, define each role's
-  task, project checks, successful handoff, label changes, and questions that need a
+  task, project checks, successful handoff, and questions that need a
   person. Humans own priority and human-only decisions.
 - In GitHub, create the labels and set branch protection or required reviews that
   match your merge policy.
 
-A trigger selects work; it does not define the whole label lifecycle. Today, roles
-make project-approved label changes before reporting `success`, `retry` or `blocked`;
-the launcher validates and records the result but does not choose the next label.
+A trigger selects work. An agent reports a declared outcome with
+`ub-agent report --outcome NAME --summary TEXT [--handoff PR]`; the launcher validates
+it and applies the project's transition. `--status retry|blocked` changes no labels.
+Agents without `outcomes` retain the earlier contract: they change labels themselves
+and report `--status success`, and the launcher checks that the trigger was consumed.
 Review the [coordination contract](docs/coordination.md) and
 [configuration reference](docs/configuration.md) for recovery and permissions.
 
@@ -81,17 +84,25 @@ agents:
   issue-preparer:
     runtime: "claude:opus:high"
     trigger: needs-preparation
+    outcomes:
+      prepared: {add: [ready]}
+      needs-human: {add: [needs-human]}
     instructions: .agents/issue-preparer.md
 
   implementer:
     runtime: "codex:gpt-6.1-sol:high"
     trigger: [ready, needs-changes]
+    outcomes:
+      handed-off: {add: [needs-review]}
     instructions: .agents/implementer.md
     worktree: true
 
   reviewer:
     runtime: ["claude:opus:high", "codex:gpt-6.1-sol:high"]
     trigger: needs-review
+    outcomes:
+      approved: {add: [ready-to-merge]}
+      changes-requested: {add: [needs-changes]}
     different-runtime-from: implementer
     instructions: .agents/reviewer.md
     worktree: true
@@ -99,11 +110,17 @@ agents:
   integrator:
     runtime: "claude:opus:high"
     trigger: ready-to-merge
+    outcomes:
+      merged: {}
+      maintainer-merge: {add: [needs-human]}
     instructions: .agents/integrator.md
     worktree: true
 ```
 
 - **`trigger`**: the GitHub label, or labels, that start this agent.
+- **`outcomes`**: named successful results with `add` and optional `remove` labels.
+  The runner removes every trigger and any `remove` labels from the assignment,
+  then adds `add` labels to the handoff PR, or to the assignment without a handoff.
 - **`runtime`**: `cli:model:effort`. A list gives alternatives; the first one that is
   installed and allowed runs.
 - **`different-runtime-from`**: run on a different CLI, provider and model from the
@@ -156,6 +173,19 @@ and failures the agent reports as `retry` are retried with backoff, up to
 `max-attempts`. Other failures stop the item until a person runs `ub-agent retry`. A
 success counts only after the launcher has checked the result on GitHub; an exit code
 alone never does.
+
+A stop label on the assignment or handoff PR before a transition starts blocks
+the run without changing labels. Removing it does not revive that outcome: set
+the desired workflow labels or use `ub-agent retry` to rerun the role. A stop label
+added after a transition starts stays in place while the transition completes.
+Interrupted transitions recover their recorded changes without rerunning the role
+or consuming another attempt. Assignment labels are removed before destination
+labels are added; a crash between those steps leaves items idle when no other
+trigger is present. Transitions create no cross-item reservations. If an operator
+reset supersedes recovery, inspect both items and restore the desired triggers.
+Once a transition starts, recovery finishes it even if the PR head or issue link
+changes. Provenance retains the original SHA; a newer head still needs its own
+implementation outcome before an independent review can run.
 
 The exact rules for claims, attempts and recovery are in the
 [coordination contract](docs/coordination.md).
