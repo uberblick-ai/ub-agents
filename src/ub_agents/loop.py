@@ -238,6 +238,8 @@ class Loop:
             raise ValidationError("Success report left assignment trigger labels in place")
         destination = (self.github.item(outcome["handoff"], "pr")
                        if outcome.get("handoff") else current)
+        if outcome.get("handoff") and destination.draft:
+            raise ValidationError(f"Handoff PR #{destination.number} is still a draft")
         if outcome["candidate_sha"] != destination.head:
             raise ValidationError("Outcome candidate SHA does not match the observed PR head")
         if plan.agent.different_from and current.head != plan.item.head:

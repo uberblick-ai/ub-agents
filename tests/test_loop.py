@@ -75,6 +75,50 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "blocked")
         self.assertFalse(self.loop.coordinator.history(1)[1]["accepted"])
 
+    def test_issue_handoff_requires_ready_pr_in_normal_completion(self):
+        for draft in (True, False):
+            with self.subTest(draft=draft):
+                github = FakeGitHub(issue(), pr(labels=("needs-review",), draft=draft))
+                loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
+
+                def execute(*args, **kwargs):
+                    github.change(1, labels=frozenset())
+                    loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", handoff=2)
+                    return 0
+
+                with patch("ub_agents.loop.supervise", side_effect=execute):
+                    self.assertTrue(loop.tick())
+                lease, outcome = loop.coordinator.history(1)
+                self.assertEqual(lease["result"], "blocked" if draft else "success")
+                self.assertEqual(outcome["accepted"], not draft)
+                self.assertEqual(len(loop.coordinator.history(2)), 0 if draft else 1)
+                if draft:
+                    self.assertIn("PR #2 is still a draft", lease["summary"])
+
+    def test_issue_handoff_requires_ready_pr_in_outcome_only_recovery(self):
+        for draft in (True, False):
+            with self.subTest(draft=draft):
+                github = FakeGitHub(issue(), pr(labels=("needs-review",), draft=draft))
+                loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
+                now = 1000
+                loop.coordinator.clock = lambda: now
+                plan = loop.coordinator.plan(github.item(1), self.agent, ())
+                lease = loop.coordinator.claim(plan)
+                loop.coordinator.update(lease, state="running", started=True)
+                github.change(1, labels=frozenset())
+                loop.coordinator.report(lease, "success", "Done", handoff=2)
+                now += 61
+                with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+                    self.assertTrue(loop.tick())
+                source, outcome, recovery, verdict = loop.coordinator.history(1)
+                self.assertEqual(source["state"], "running")
+                self.assertEqual(outcome["accepted"], not draft)
+                self.assertEqual(recovery["result"], "blocked" if draft else "success")
+                self.assertEqual(verdict["status"], recovery["result"])
+                self.assertEqual(len(loop.coordinator.history(2)), 0 if draft else 1)
+                if draft:
+                    self.assertIn("PR #2 is still a draft", verdict["summary"])
+
     def test_unreadable_github_is_not_an_empty_queue(self):
         self.github.unreadable = True
         with self.assertRaises(AgentError):

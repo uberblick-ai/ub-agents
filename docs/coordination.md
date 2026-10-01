@@ -101,6 +101,8 @@ Statuses are `success`, `retry`, and `blocked`. A report is initially `accepted:
 false`. On confirmed process/group termination, the launcher rereads GitHub
 and verifies successful handoff: consumed labels (or closed item), exact reported
 candidate, and issue linkage for an explicit PR handoff. A valid issue-to-PR handoff
+requires a PR that is ready for review: a success handoff to a draft PR blocks with
+an unaccepted outcome in both normal completion and outcome-only recovery. It
 can consume an issue assignment while its starting label remains. The launcher
 marks the outcome accepted, copies its provenance to the handoff PR, and releases
 ownership immediately. It never chooses next labels, runs project checks itself,

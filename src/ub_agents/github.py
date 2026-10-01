@@ -20,6 +20,7 @@ class Item:
     author: str
     head: str | None = None
     branch: str | None = None
+    draft: bool = False
 
 
 def parse_item(data, kind):
@@ -31,10 +32,13 @@ def parse_item(data, kind):
                 or not isinstance(data["user"]["login"], str)
                 or not isinstance(data["labels"], list)):
             raise ValueError("invalid work item fields")
+        if kind == "pr" and type(data["draft"]) is not bool:
+            raise ValueError("invalid PR draft field")
         return Item(data["number"], kind, data["title"], data.get("body") or "",
                     frozenset(x["name"] for x in data["labels"]), data["state"],
                     data["user"]["login"], data["head"]["sha"] if kind == "pr" else None,
-                    data["head"]["ref"] if kind == "pr" else None)
+                    data["head"]["ref"] if kind == "pr" else None,
+                    data["draft"] if kind == "pr" else False)
     except (KeyError, TypeError, ValueError) as exc:
         raise AgentError("Unreadable GitHub work item") from exc
 

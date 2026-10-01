@@ -178,6 +178,10 @@ Those labels and transitions are conventions of the starter workflow. They are n
 
 Issues are the main entry point for work. Most later handoffs happen on the implementation PR, which links back to its issue.
 
+Success handoffs to a draft PR are rejected with a blocked result, during both
+normal completion and outcome-only recovery. The PR must be marked ready before
+reporting a successful handoff; an unaccepted outcome supplies no review provenance.
+
 The starter labels are:
 
 | Location | Label | Next action |
