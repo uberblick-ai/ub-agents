@@ -29,7 +29,7 @@ def parser():
     init.add_argument("--repository", help="GitHub owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="Initial cli:model:effort for starter agents")
     commands.add_parser("check", help="Validate local project configuration without executing agents")
-    doctor = commands.add_parser("doctor", help="Read-only machine and project prerequisite diagnostics")
+    doctor = commands.add_parser("doctor", help="Check machine, GitHub and runtime prerequisites")
     doctor.add_argument("--json", action="store_true", help="Emit versioned prerequisite results")
     launch = commands.add_parser("launch", help="Run the serial foreground loop")
     launch.add_argument("--once", action="store_true", help="Observe once and execute at most one assignment")
