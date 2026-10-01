@@ -14,7 +14,7 @@ Install it on a machine, configure your project, and launch it. ub-agents watche
 
 1. Install ub-agents from a checkout on a machine where your agents will run, such as a remote Mac or Linux host. Python 3.11+ is required; execution uses POSIX process supervision.
 2. Configure the available agents, their runtimes, and their GitHub triggers in a YAML file.
-3. Launch the loop. Agents pick up work, record their outcomes on GitHub, and move it to the next configured step.
+3. Run `ub-agent doctor` as a read-only preflight, then launch the loop. Agents pick up work, record their outcomes on GitHub, and move it to the next configured step.
 
 ```sh
 # In a checkout of this standalone repository:
@@ -23,14 +23,32 @@ pipx install .
 cd your-project
 ub-agent init
 ub-agent check
+ub-agent doctor
 ub-agent launch
 ```
 
 `ub-agent init` writes a starter configuration and role instructions for you to customize. It refuses to overwrite them and adds `.ub-agent/` to `.gitignore`. Use `--repository owner/name` if repository inference through `gh` is unavailable, and `--runtime cli:model:effort` to select another starter runtime. Install and authenticate `git`, `gh`, and the agent CLIs you want to use on the same machine. Create the project's configured GitHub labels and configure runtime permissions explicitly before launching.
 
-Homebrew installation (`brew install uberblick-ai/tap/ub-agents`) and PyPI publication are planned in [#4](https://github.com/uberblick-ai/ub-agents/issues/4); they are not released yet. Prerequisite diagnostics through `ub-agent doctor` are planned in [#5](https://github.com/uberblick-ai/ub-agents/issues/5). `check` currently validates local YAML and instruction paths; it is not a complete machine preflight.
+Homebrew installation (`brew install uberblick-ai/tap/ub-agents`) and PyPI publication are planned in [#4](https://github.com/uberblick-ai/ub-agents/issues/4); they are not released yet. `ub-agent check` validates local YAML and instruction paths. `ub-agent doctor` performs the same validation plus machine, repository, GitHub, runtime, local-state and process-inspection checks before unattended launch.
 
 `ub-agent launch --once` observes once and executes at most one assignment. `ub-agent status` reads open matching work, ownership, attempt counts and reported outcomes; `--json` emits structured status. Use `ub-agent --config path/to/ub-agent.yaml ...` for an explicit configuration path. These commands do not require project-authored Python workflows.
+
+`ub-agent doctor [--json]` reports every prerequisite, with agent/runtime identities
+and concrete remedies. Exit 0 means no required check failed; optional warnings and
+skips still exit 0. Exit 1 means at least one required failure. JSON has `version: 1`,
+`ok` and `checks`; each check carries a stable `id`, `status`, `required`, `agent`,
+`runtime`, `message` and `remedy`. Repeated checks have agent/runtime-qualified IDs.
+A skip means the input is unavailable, not that the prerequisite passed.
+
+Doctor is read-only: it creates no local state, changes no Git refs or permissions,
+and makes only two GitHub reads (`gh api user` and `gh api repos/OWNER/NAME`). It
+never runs an agent command or sends a prompt. Each probe times out within 20
+seconds, and auth/custom-check output is never printed. Built-in probes use
+`codex --version` / `codex login status` and `claude --version` / `claude auth status`,
+checked against installed help and the official
+[Codex CLI reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
+and [Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
+Auth status establishes local credentials, not model entitlement or service health.
 
 The loop runs in the foreground. Use your normal terminal session manager to keep it running on a remote host. Ctrl-C stops the loop and its active agents.
 
@@ -124,9 +142,20 @@ runtimes:
   example:
     provider: example-provider
     command: [example-cli, --model, "{model}", --effort, "{effort}"]
+    check: [example-cli, auth, status]  # Optional, session-free and read-only.
 # Then an agent can use runtime: "example:your-model:high".
 # Its instruction prompt arrives on stdin. Only model/effort placeholders expand.
 ```
+
+`runtimes.<name>.check` is an optional nonempty argv list validated like `command`.
+Only `{model}` and `{effort}` substitutions expand. Doctor runs this operator-declared
+read-only probe in the agent's `cwd` with the launcher's inherited environment;
+exit 0 passes, while nonzero exit or timeout makes the alternative unusable.
+Without a check, custom runtime auth reports `auth not checkable` and the resolved
+executable counts as usable. Launch never runs `check`. When at least one runtime
+alternative is usable, unavailable alternatives are optional warnings. If none is
+usable, doctor reports a required failure. Independent review checks also require
+a usable alternative with a different CLI, provider and model.
 
 ## What belongs in your project repository?
 
@@ -292,5 +321,5 @@ The [milestones](https://github.com/uberblick-ai/ub-agents/milestones) group the
 first slice/doctor work, coding workflow pilot, and distribution. The remaining
 work includes real adapter sessions and host failure evidence, a disposable
 consuming-project pilot ([#3](https://github.com/uberblick-ai/ub-agents/issues/3)),
-`doctor`, and published Homebrew/pipx distribution. Uberblick retirement remains
+and published Homebrew/pipx distribution. Uberblick retirement remains
 in its own repository after a demonstrated standalone cutover.

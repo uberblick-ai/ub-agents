@@ -76,6 +76,7 @@ class Runtime:
     effort: str
     provider: str
     command: tuple[str, ...] = ()
+    check: tuple[str, ...] = ()
 
     @property
     def name(self):
@@ -143,9 +144,11 @@ def load_config(path):
     for name, adapter in adapters.items():
         if not re.fullmatch(r"[a-z][a-z0-9_-]*", name) or name in {"codex", "claude"}:
             raise AgentError("Custom runtime names must be slugs other than codex/claude")
-        mapping(adapter, {"command", "provider"}, f"runtime {name}")
+        mapping(adapter, {"command", "provider", "check"}, f"runtime {name}")
         string(adapter.get("provider"), f"runtime {name} provider")
         argv(adapter.get("command"), f"runtime {name} command")
+        if "check" in adapter:
+            argv(adapter["check"], f"runtime {name} check")
     definitions = data.get("agents")
     if not isinstance(definitions, dict) or not definitions:
         raise AgentError("agents must be a nonempty mapping")
@@ -170,7 +173,8 @@ def load_config(path):
             provider = {"codex": "openai", "claude": "anthropic"}.get(cli)
             adapter = adapters.get(cli, {})
             runtimes.append(Runtime(cli, model, effort, provider or adapter["provider"],
-                                    argv(adapter["command"], cli) if adapter else ()))
+                                    argv(adapter["command"], cli) if adapter else (),
+                                    argv(adapter["check"], cli) if "check" in adapter else ()))
         instruction = (project_path(root, item["instructions"], f"{name} instructions")
                        if "instructions" in item else None)
         if runtimes and instruction is None:

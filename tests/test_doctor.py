@@ -1,0 +1,401 @@
+from contextlib import redirect_stdout, redirect_stderr
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from ub_agents.cli import main
+from ub_agents.config import load_config
+from ub_agents.coordination import Coordinator
+from ub_agents.doctor import diagnose, render
+from ub_agents.errors import AgentError
+from ub_agents.execution import command_for, repository_checks, resolve_executable
+from ub_agents.github import GitHub
+from tests.support import DoctorGitHub, RecordingRunner, issue
+
+
+class DoctorTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.path = self.root / "ub-agent.yaml"
+        self.path.write_text('''repository: org/project
+agents:
+  worker:
+    runtime: codex:model-a:high
+    trigger: ready
+    instructions: instructions.md
+''')
+        (self.root / "instructions.md").write_text("Synthetic instructions")
+        self.runner = RecordingRunner(self.root)
+        self.github = DoctorGitHub()
+        self.missing = set()
+        self.which = lambda name: None if name in self.missing else f"/tools/{name}"
+
+    def diagnose(self, **overrides):
+        return diagnose(self.path, **(dict(runner=self.runner, which=self.which,
+                                          github=self.github) | overrides))
+
+    def checks(self, result, id):
+        return [c for c in result["checks"] if c["id"].split(":")[0] == id]
+
+    def one(self, result, id):
+        values = self.checks(result, id)
+        self.assertEqual(len(values), 1, values)
+        return values[0]
+
+    def capture(self, result, json_output=False):
+        with redirect_stdout(io.StringIO()) as output:
+            render(result, json_output)
+        return output.getvalue()
+
+    def cli(self, json_output=False):
+        with patch("ub_agents.doctor.subprocess.run", self.runner), \
+                patch("ub_agents.doctor.shutil.which", self.which), \
+                patch("ub_agents.doctor.GitHub", return_value=self.github), \
+                redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
+            code = main(["--config", str(self.path), "doctor"] + (["--json"] if json_output else []))
+        self.assertEqual(stderr.getvalue(), "")
+        return code, stdout.getvalue()
+
+    def test_success_json_schema_and_stable_human_order(self):
+        result = self.diagnose()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["version"], 1)
+        self.assertEqual([c["id"] for c in result["checks"]][:4], ["python", "platform", "git", "gh"])
+        self.assertEqual(len({c["id"] for c in result["checks"]}), len(result["checks"]))
+        for check in result["checks"]:
+            self.assertEqual(set(check), {"id", "status", "required", "agent", "runtime", "message", "remedy"})
+            self.assertIn(check["status"], {"ok", "warn", "fail", "skip"})
+            self.assertIsInstance(check["required"], bool)
+        self.assertIn("0 required failures, 0 warnings", self.capture(result))
+        self.assertEqual(self.cli()[0], 0)
+        code, output = self.cli(True)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output), result)
+
+    def test_missing_git_and_gh_continue_and_exit_one(self):
+        for name in ("git", "gh"):
+            with self.subTest(name=name):
+                self.missing = {name}
+                result = self.diagnose()
+                self.assertFalse(result["ok"])
+                check = self.one(result, name)
+                self.assertEqual((check["status"], check["required"]), ("fail", True))
+                self.assertIn(name, check["remedy"])
+                self.assertEqual(self.one(result, "process-inspection")["status"], "ok")
+                self.assertEqual(self.one(result, "runtimes")["status"], "ok")
+                self.assertEqual(self.cli(True)[0], 1)
+
+    def test_missing_only_runtime_is_required_and_names_agent(self):
+        self.missing.add("codex")
+        result = self.diagnose()
+        check = self.one(result, "runtime-executable")
+        self.assertEqual((check["status"], check["required"], check["agent"]), ("fail", True, "worker"))
+        self.assertEqual(self.one(result, "runtime-auth")["status"], "skip")
+        self.assertFalse(result["ok"])
+        self.assertFalse(any(c[0][0] == "codex" for c in self.runner.calls))
+
+    def test_eligible_alternative_warns_and_exits_zero(self):
+        self.path.write_text(self.path.read_text().replace("runtime: codex:model-a:high",
+                                                         "runtime: [codex:model-a:high, claude:model-b:high]"))
+        self.missing.add("codex")
+        result = self.diagnose()
+        missing = self.checks(result, "runtime-executable")[0]
+        self.assertEqual((missing["status"], missing["required"], missing["agent"], missing["runtime"]),
+                         ("warn", False, "worker", "codex:model-a:high"))
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.cli()[0], 0)
+        self.assertIn("  remedy: Install codex", self.capture(result))
+
+    def custom(self, check=True):
+        self.path.write_text('''repository: org/project
+runtimes:
+  custom:
+    provider: other
+    command: [custom-cli, --model, "{model}"]
+''' + ('    check: [custom-check, "{model}", "{effort}"]\n' if check else '') + '''agents:
+  worker:
+    runtime: custom:model-a:high
+    trigger: ready
+    instructions: instructions.md
+''')
+        self.runner.responses[("custom-check", "model-a", "high")] = "sk-custom-secret"
+
+    def test_custom_checks_pass_fail_timeout_and_not_checkable(self):
+        for response in ("secret stdout", subprocess.CompletedProcess([], 7, "sk-secret", "ghp-secret"),
+                         subprocess.TimeoutExpired("custom-check", 20)):
+            with self.subTest(response=response):
+                self.custom()
+                self.runner.responses[("custom-check", "model-a", "high")] = response
+                result = self.diagnose()
+                check = self.one(result, "runtime-auth")
+                self.assertEqual(check["status"], "ok" if isinstance(response, str) else "fail")
+                self.assertEqual(result["ok"], isinstance(response, str))
+                call = next(c for c in reversed(self.runner.calls) if c[0][0] == "custom-check")
+                self.assertEqual(call[1]["cwd"], self.root)
+                self.assertNotIn("env", call[1])  # Launcher environment is inherited.
+        self.custom(False)
+        self.assertEqual(self.one(self.diagnose(), "runtime-auth")["message"], "auth not checkable")
+        self.assertFalse(any(c[0][0] == "custom-cli" for c in self.runner.calls))
+        runtime = load_config(self.path).agents[0].runtimes[0]
+        self.assertEqual(command_for(load_config(self.path).agents[0], runtime), ["custom-cli", "--model", "model-a"])
+
+    def test_bad_custom_check_is_config_error(self):
+        for value in ('[]', 'null', 'check-program', '[false]'):
+            self.custom()
+            self.path.write_text(self.path.read_text().replace('[custom-check, "{model}", "{effort}"]', value))
+            self.assertEqual(self.one(self.diagnose(), "config")["status"], "fail")
+
+    def test_unauthenticated_github_still_reads_repository(self):
+        self.github.auth_error = AgentError("ghp-auth-secret")
+        result = self.diagnose()
+        self.assertFalse(result["ok"])
+        self.assertEqual(self.one(result, "github-auth")["remedy"], "gh auth login")
+        self.assertEqual(self.github.reads, ["user", "repos/org/project"])
+
+    def test_actual_github_actor_uses_read_only_api_and_hides_failure_output(self):
+        for response in ('{"login":"operator"}', subprocess.CompletedProcess([], 4, 'sk-private', 'ghp-private'),
+                         subprocess.TimeoutExpired("gh", 20), '{"login": null}'):
+            with self.subTest(response=response):
+                command = ("gh", "api", "--hostname", "github.com", "--method", "GET", "-H",
+                           "Accept: application/vnd.github+json", "user")
+                repo_command = command[:-1] + ("repos/org/project",)
+                self.runner.responses[command] = response
+                self.runner.responses[repo_command] = json.dumps(self.github.metadata)
+                result = self.diagnose(github=GitHub("org/project", runner=self.runner))
+                output = self.capture(result) + self.capture(result, True)
+                self.assertNotIn("ghp-private", output)
+                self.assertNotIn("sk-private", output)
+                self.assertEqual(self.one(result, "github-auth")["status"], "ok" if response == '{"login":"operator"}' else "fail")
+                if isinstance(response, subprocess.CompletedProcess):
+                    self.assertIn("exit 4", self.one(result, "github-auth")["message"])
+
+    def test_malformed_missing_config_skips_dependencies(self):
+        for content in ('agents: [\n', self.path.read_text() + 'unknown: true\n'):
+            with self.subTest(content=content):
+                self.path.write_text(content)
+                result = self.diagnose()
+                self.assertFalse(result["ok"])
+                self.assertEqual(self.one(result, "config")["status"], "fail")
+                for id in ("instructions", "repository-root", "repository-remote", "runtimes", "local-state", "worktrees"):
+                    self.assertEqual(self.one(result, id)["status"], "skip")
+                for id in ("python", "platform", "git", "gh", "github-auth", "process-inspection"):
+                    self.assertEqual(self.one(result, id)["status"], "ok")
+        self.path.unlink()
+        self.assertIn("ub-agent init", self.one(self.diagnose(), "config")["remedy"])
+
+    def test_instruction_read_failure(self):
+        original = Path.read_text
+        def read(path, *args, **kwargs):
+            if path.name == "instructions.md":
+                raise PermissionError("unreadable")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "read_text", read):
+            self.assertEqual(self.one(self.diagnose(), "instructions")["status"], "fail")
+
+    def test_repository_root_remote_and_github_mismatches(self):
+        config = load_config(self.path)
+        for remote in ('https://github.com/org/project', 'git@github.com:org/project.git',
+                       'ssh://git@github.com/org/project.git'):
+            self.assertTrue(all(error is None for _, error in repository_checks(
+                config, lambda root, *args: str(root) if args[0] == 'rev-parse' else remote)))
+        self.runner.responses[("git", "-C", str(self.root), "rev-parse", "--show-toplevel")] = str(self.root.parent)
+        self.runner.responses[("git", "-C", str(self.root), "remote", "get-url", "origin")] = "https://github.com/wrong/repo"
+        self.github.metadata["full_name"] = "new-owner/new-project"
+        result = self.diagnose()
+        for id in ("repository-root", "repository-remote", "github-repository"):
+            self.assertEqual(self.one(result, id)["status"], "fail")
+        self.assertIn("org/project", self.one(result, "github-repository")["message"])
+        self.assertIn("new-owner/new-project", self.one(result, "github-repository")["message"])
+        self.github.metadata["full_name"] = "ORG/Project"
+        self.github.metadata["permissions"] = {"pull": True}
+        self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "ok")
+        self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "warn")
+        self.github.repository_error = AgentError("sk-repository-secret")
+        self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "fail")
+
+    def test_local_state_permissions_symlink_and_ignore(self):
+        local = self.root / ".ub-agent"
+        self.assertIn("created at launch", self.one(self.diagnose(), "local-state")["message"])
+        self.assertFalse(local.exists())
+        self.assertEqual(self.one(self.diagnose(access=lambda *_: False), "local-state")["status"], "fail")
+        local.mkdir(mode=0o700)
+        self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "ok")
+        self.assertEqual(self.one(self.diagnose(access=lambda *_: False), "local-state")["status"], "fail")
+        local.chmod(0o755)
+        self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "warn")
+        self.assertEqual(local.stat().st_mode & 0o777, 0o755)
+        local.rmdir()
+        local.symlink_to(self.root, target_is_directory=True)
+        self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "fail")
+        local.unlink()
+        local.write_text("not a directory")
+        self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "fail")
+        self.runner.responses[("git", "-C", str(self.root), "check-ignore", "-q", ".ub-agent/")] = subprocess.CompletedProcess([], 1, '', '')
+        self.assertEqual(self.one(self.diagnose(), "local-state-ignored")["status"], "fail")
+
+    def test_worktrees_and_symlink_boundary(self):
+        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "skip")
+        self.path.write_text(self.path.read_text() + "    worktree: true\n")
+        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "ok")
+        (self.root / ".ub-agent").mkdir(mode=0o700)
+        (self.root / ".ub-agent" / "worktrees").symlink_to(self.root, target_is_directory=True)
+        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "fail")
+        self.runner.responses[("git", "-C", str(self.root), "worktree", "list", "--porcelain")] = subprocess.CompletedProcess([], 1, '', '')
+        self.assertIn("worker", self.one(self.diagnose(), "worktrees")["message"])
+
+    def test_different_runtime_no_alternative_and_partial_coverage(self):
+        self.path.write_text(self.path.read_text() + '''  reviewer:
+    runtime: codex:model-a:low
+    trigger: needs-review
+    instructions: instructions.md
+    different-runtime-from: worker
+''')
+        result = self.diagnose()
+        self.assertFalse(result["ok"])
+        independence = self.checks(result, "different-runtime-from")
+        self.assertEqual([c["status"] for c in independence], ["warn", "fail"])
+        self.assertIn("worker", independence[0]["message"])
+        self.assertEqual(independence[0]["agent"], "reviewer")
+        self.path.write_text(self.path.read_text().replace("runtime: codex:model-a:low", "runtime: claude:model-b:low")
+                             .replace("runtime: codex:model-a:high", "runtime: [codex:model-a:high, claude:model-b:high]"))
+        result = self.diagnose()
+        self.assertTrue(result["ok"])
+        self.assertEqual([c["status"] for c in self.checks(result, "different-runtime-from")], ["warn", "ok"])
+        self.missing.add("claude")
+        self.assertFalse(self.diagnose()["ok"])
+
+    def test_ps_unavailable_failure_bad_output_and_missing_self(self):
+        for response in (FileNotFoundError("ps"), subprocess.CompletedProcess([], 9, "", "sk-private"),
+                         "bad output", "bad 1 S\n", "123456789 1 S\n", subprocess.TimeoutExpired("ps", 20)):
+            with self.subTest(response=response):
+                self.runner.responses[("ps", "-axo", "pid=,pgid=,stat=")] = response
+                check = self.one(self.diagnose(), "process-inspection")
+                self.assertEqual((check["status"], check["required"]), ("fail", True))
+                self.assertIn("sandbox", check["remedy"])
+
+    def test_timeouts_continue_and_unsafe_versions_are_not_printed(self):
+        self.runner.responses[("git", "--version")] = subprocess.TimeoutExpired("git", 20)
+        self.runner.responses[("gh", "--version")] = "ghp-only-secret\n2.80.0\n"
+        result = self.diagnose()
+        self.assertIn("timed out", self.one(result, "git")["message"])
+        self.assertEqual(self.one(result, "gh")["message"], "version probe passed")
+        self.assertEqual(self.one(result, "process-inspection")["status"], "ok")
+        self.runner.responses[("codex", "--version")] = subprocess.CompletedProcess([], 8, 'sk-secret', 'ghp-secret')
+        self.assertEqual(self.one(self.diagnose(), "runtime-version")["status"], "warn")
+
+    def test_auth_failure_can_use_second_runtime(self):
+        self.path.write_text(self.path.read_text().replace("runtime: codex:model-a:high", "runtime: [codex:model-a:high, claude:model-b:high]"))
+        self.runner.responses[("codex", "login", "status")] = subprocess.CompletedProcess([], 2, 'sk-secret', 'ghp-secret')
+        result = self.diagnose()
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.checks(result, "runtime-auth")[0]["status"], "warn")
+
+    def test_no_secrets_writes_new_files_or_mutating_commands(self):
+        self.custom()
+        self.github.auth_error = AgentError("ghp-auth-private sk-github-private")
+        self.runner.responses[("custom-check", "model-a", "high")] = subprocess.CompletedProcess([], 6, 'sk-custom-private', 'ghp-custom-private')
+        before = sorted(p.relative_to(self.root) for p in self.root.rglob("*"))
+        result = self.diagnose()
+        output = self.capture(result) + self.capture(result, True)
+        self.assertNotIn("ghp-", output)
+        self.assertNotIn("ghp_", output)
+        self.assertNotIn("sk-", output)
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob("*")))
+        self.assertFalse((self.root / ".ub-agent").exists())
+        allowed = {("rev-parse", "--show-toplevel"), ("remote", "get-url", "origin"),
+                   ("check-ignore", "-q", ".ub-agent/"), ("worktree", "list", "--porcelain")}
+        for command, kwargs in self.runner.calls:
+            self.assertLessEqual(kwargs["timeout"], 20)
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            if command[0] == "git" and command != ("git", "--version"):
+                self.assertIn(command[3:], allowed)
+
+    def test_direct_command_and_shared_executable_selection(self):
+        self.path.write_text('''repository: org/project
+agents:
+  worker:
+    command: [./worker-tool]
+    trigger: ready
+    cwd: subdir
+''')
+        (self.root / "subdir").mkdir()
+        executable = self.root / "subdir" / "worker-tool"
+        self.assertEqual(self.one(self.diagnose(), "command")["status"], "fail")
+        executable.write_text("synthetic executable")
+        executable.chmod(0o700)
+        agent = load_config(self.path).agents[0]
+        self.assertEqual(resolve_executable("./worker-tool", agent.cwd), str(executable))
+        self.assertEqual(self.one(self.diagnose(), "command")["status"], "ok")
+        self.assertIsNone(Coordinator(self.github, "operator").choose_runtime(issue(), agent, []))
+        executable.chmod(0o600)
+        with self.assertRaises(AgentError):
+            Coordinator(self.github, "operator").choose_runtime(issue(), agent, [])
+        self.assertEqual(self.one(self.diagnose(), "command")["status"], "fail")
+
+    def test_custom_executable_substitution_agrees_with_selection(self):
+        self.custom(False)
+        self.path.write_text(self.path.read_text().replace("custom-cli", '"./{model}"'))
+        executable = self.root / "model-a"
+        executable.write_text("synthetic executable")
+        executable.chmod(0o700)
+        agent = load_config(self.path).agents[0]
+        selected = Coordinator(self.github, "operator").choose_runtime(issue(), agent, [])
+        self.assertEqual(selected, agent.runtimes[0])
+        self.assertEqual(self.one(self.diagnose(), "runtime-executable")["status"], "ok")
+
+    def test_launch_shares_repository_validation_and_never_runs_check(self):
+        self.custom()
+        def read_git(root, *args):
+            self.assertEqual(root, self.root)
+            return str(root) if args[0] == "rev-parse" else "git@github.com:org/project.git"
+        with patch("ub_agents.execution.git", side_effect=read_git) as git, \
+                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.Loop") as loop, \
+                patch("ub_agents.doctor.Doctor.probe", side_effect=AssertionError("launch must not probe")):
+            self.assertEqual(main(["--config", str(self.path), "launch", "--once"]), 0)
+            loop.return_value.launch.assert_called_once_with(once=True)
+            self.assertEqual([call.args[1:] for call in git.call_args_list],
+                             [("rev-parse", "--show-toplevel"), ("remote", "get-url", "origin")])
+        for result, expected_calls in ((str(self.root.parent), 1), ("https://github.com/wrong/repo", 2)):
+            def mismatch(root, *args):
+                if expected_calls == 1 or args[0] == "remote":
+                    return result
+                return str(root)
+            with patch("ub_agents.execution.git", side_effect=mismatch) as git, \
+                    patch("ub_agents.cli.GitHub", return_value=self.github), \
+                    patch("ub_agents.cli.Loop") as loop, redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["--config", str(self.path), "launch", "--once"]), 1)
+                loop.return_value.launch.assert_not_called()
+                self.assertEqual(git.call_count, expected_calls)
+
+    def test_version_and_config_credential_forms_are_redacted(self):
+        self.runner.responses[("gh", "--version")] = "gh version 2.80.0 ghp_version-secret sk-version-secret\nsecond line private"
+        output = self.capture(self.diagnose(), True)
+        self.assertNotIn("ghp_version-secret", output)
+        self.assertNotIn("sk-version-secret", output)
+        self.assertNotIn("second line private", output)
+        self.path.write_text("agents: [ghp_yaml-secret, sk-yaml-secret\n")
+        output = self.capture(self.diagnose())
+        self.assertNotIn("ghp_yaml-secret", output)
+        self.assertNotIn("sk-yaml-secret", output)
+
+    def test_environment_failures_and_optional_platform(self):
+        from types import SimpleNamespace
+        class Version(tuple):
+            major, minor, micro = 3, 10, 0
+        with patch("ub_agents.doctor.sys.version_info", Version((3, 10, 0))):
+            self.assertEqual(self.one(self.diagnose(), "python")["status"], "fail")
+        with patch("ub_agents.doctor.sys.platform", "freebsd"):
+            self.assertEqual(self.one(self.diagnose(), "platform")["status"], "warn")
+        platform_os = SimpleNamespace(name="nt", getpid=os.getpid, access=os.access,
+                                      W_OK=os.W_OK, X_OK=os.X_OK)
+        with patch("ub_agents.doctor.os", platform_os):
+            self.assertEqual(self.one(self.diagnose(), "platform")["status"], "fail")

@@ -1,13 +1,12 @@
 """Cooperative leases and durable attempts, deliberately not an atomic lock service."""
 
 from dataclasses import dataclass
-import os
-from pathlib import Path
 import shutil
 import uuid
 
 from .config import Agent, Runtime
 from .errors import AgentError, LostOwnership, RecordError
+from .execution import resolve_executable, runtime_argv
 from .github import Item
 from .records import (MARKER, attempts, body, iso, latest_leases, live_leases,
                       payload, records, seconds, timestamp, trusted_comment)
@@ -95,10 +94,7 @@ class Coordinator:
 
     def choose_runtime(self, item, agent, history):
         def installed(executable):
-            if "/" in executable:
-                path = Path(executable) if Path(executable).is_absolute() else agent.cwd / executable
-                return path.is_file() and os.access(path, os.X_OK)
-            return bool(shutil.which(executable))
+            return resolve_executable(executable, agent.cwd, which=shutil.which)
 
         if agent.command:
             if not installed(agent.command[0]):
@@ -130,7 +126,7 @@ class Coordinator:
             if not eligible:
                 raise AgentError("No runtime has a different CLI, provider, and model from the candidate author")
         for runtime in eligible:
-            executable = runtime.command[0] if runtime.command else runtime.cli
+            executable = runtime_argv(runtime, runtime.command)[0] if runtime.command else runtime.cli
             if installed(executable):
                 return runtime
         raise AgentError("No eligible runtime executable is installed")
