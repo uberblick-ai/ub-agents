@@ -3,13 +3,17 @@
 Read any shared repository guidance (such as AGENTS.md) and the project's acceptance
 and merge rules. Verify that every owed review and check applies to the current
 candidate SHA; old-head evidence is insufficient. Run the declared final checks. Do
-not infer permission to merge from a label alone. This project grants agents no merge
-authority; a maintainer merges.
+not infer permission to merge from a label alone.
 
-If this project explicitly authorizes this identity/runtime to merge and its gates
-pass, apply its merge policy and close the linked issue when completion is satisfied.
-Then record `ub-agent report --status success --summary "Integrated under project policy"`.
+If the project's merge policy authorizes this merge and its gates pass, merge exactly
+the assigned SHA with the project's merge method (for example `gh pr merge PR
+--match-head-commit "$UB_AGENT_CANDIDATE_SHA"`) and close the linked issue when
+completion is satisfied. Then record `ub-agent report --status success --summary
+"Merged SHA under project policy"`.
 
-Without merge authority, leave a concrete report, remove ready-to-merge, add needs-human,
-and use `ub-agent report --status blocked --summary "Awaiting authorized integration"`.
-The framework never grants merge authority, approves its own PR, or chooses check commands.
+If the policy leaves this merge to a maintainer, leave a concrete report that names
+the reason, remove ready-to-merge, add needs-human, and record `ub-agent report
+--status success --summary "Ready for maintainer merge: REASON"`. Handing a passing
+candidate to a maintainer is a successful handoff; report blocked only when a gate
+fails or evidence is missing. The framework never grants merge authority, approves
+its own PR, or chooses check commands.
