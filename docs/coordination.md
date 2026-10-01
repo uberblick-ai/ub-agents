@@ -8,9 +8,19 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 
 - A run has a random unique ID and one assignment: repository, issue/PR number,
   configured agent, matched trigger, and (on PRs) the observed head SHA.
-- Selection orders open issues/PRs by number, then agents in YAML order. Trigger
-  lists mean **any** matching label. A runtime list means alternatives in declared
-  order: select the first eligible installed executable and execute it once.
+- Each issue agent's eligible queue is FIFO by issue creation time, with issue
+  number as the tie-breaker. New issue work (including preparation and implementation)
+  is gated to the oldest open, incomplete milestone by milestone creation time,
+  with milestone number as the tie-breaker. A closed milestone, or one with no
+  open issues or PRs, is complete. While a milestone is active, later-milestone
+  and unmilestoned issues wait even if the active milestone has no eligible issue.
+  With no active milestone, FIFO applies globally, including unmilestoned issues.
+  PR work retains number order; PR reviews, integration, requested changes, and
+  recovery/completion of already claimed runs (including resuming an existing
+  draft PR checkpoint) are never milestone-gated. Agents
+  on the same item retain YAML order. Trigger lists mean **any** matching label.
+  A runtime list means alternatives in declared order: select the first eligible
+  installed executable and execute it once.
 - One live lease excludes every other agent on the same issue/PR. This first
   implementation is serial, including recovery. Different machines cooperate.
 - Attempts are scoped to **item number + configured agent**. Every started run
