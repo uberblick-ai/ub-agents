@@ -135,15 +135,10 @@ class RecordingRunner:
         self.root = Path(root)
         self.calls = []
         self.responses = {
-            ("git", "--version"): "git version 2.49.0\n",
-            ("gh", "--version"): "gh version 2.80.0\n",
             ("git", "-C", str(root), "rev-parse", "--show-toplevel"): str(root),
             ("git", "-C", str(root), "remote", "get-url", "origin"): "git@github.com:org/project.git",
             ("git", "-C", str(root), "check-ignore", "-q", ".ub-agent/"): "",
-            ("git", "-C", str(root), "worktree", "list", "--porcelain"): "worktree fixture\n",
             ("ps", "-axo", "pid=,pgid=,stat="): f"{os.getpid()} {os.getpgrp()} S\n",
-            ("codex", "--version"): "codex-cli 0.120.0\n",
-            ("claude", "--version"): "2.1.268 (Claude Code)\n",
             ("codex", "login", "status"): "sk-auth-secret\n",
             ("claude", "auth", "status"): "sk-auth-secret\n",
         }

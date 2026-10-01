@@ -1,4 +1,4 @@
-"""Read-only prerequisite diagnostics. Probe output is private unless it is a version."""
+"""Read-only prerequisite diagnostics. Probe output stays private."""
 
 from dataclasses import asdict, dataclass
 import json
@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import stat
 import subprocess
 import sys
 
@@ -25,7 +24,7 @@ AUTH_PROBES = {"codex": ("codex", "login", "status"),
 
 
 # Configuration errors can quote YAML. Keep diagnostics on one line and redact
-# recognizable credential forms even there and in otherwise-valid version lines.
+# recognizable credential forms.
 def public(value):
     value = re.sub(r"(?:gh[pousr]_|github_pat_|sk-)[A-Za-z0-9_-]+", "[redacted]", str(value))
     return " ".join(value.split())
@@ -69,21 +68,12 @@ class Doctor:
             raise AgentError(f"probe failed (exit {result.returncode})")
         return result.stdout
 
-    def version(self, command, cwd=None):
-        output = self.probe(command, cwd)
-        first = output.splitlines()[0] if output.splitlines() else ""
-        return public(first) if re.search(r"\d+\.\d+", first) else "version probe passed"
-
     def tool(self, name, remedy):
-        try:
-            if not self.which(name):
-                raise AgentError(f"{name} is not on PATH")
-            message = self.version([name, "--version"])
-            self.add(name, "ok", message)
+        if self.which(name):
+            self.add(name, "ok", f"{name} is on PATH")
             return True
-        except AgentError as exc:
-            self.add(name, "fail", f"{name}: {exc}", remedy)
-            return False
+        self.add(name, "fail", f"{name} is not on PATH", remedy)
+        return False
 
     def run(self, path):
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
@@ -148,14 +138,12 @@ class Doctor:
             self.labels(config, github)
         else:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
-            self.add("github-permissions", "skip", "repository response unavailable", required=False)
             self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
         if config:
             self.agents(config)
             self.local(config, git_ready)
         else:
-            for id in ("commands", "runtimes", "different-runtime-from", "local-state",
-                       "local-state-ignored", "worktrees"):
+            for id in ("commands", "runtimes", "different-runtime-from", "local-state", "local-state-ignored"):
                 self.add(id, "skip", "configuration unavailable")
         try:
             rows = parse_process_table(self.probe(["ps", "-axo", "pid=,pgid=,stat="]))
@@ -187,17 +175,9 @@ class Doctor:
                          "Update the configured repository and origin to the intended repository")
             else:
                 self.add("github-repository", "ok", f"access to {name}")
-            permissions = raw.get("permissions") or {}
-            if not isinstance(permissions, dict) or not any(permissions.get(key) is True for key in
-                                                           ("triage", "push", "maintain", "admin")):
-                self.add("github-permissions", "warn", "label handoffs in project instructions will fail",
-                         f"Ask a maintainer for triage or higher access to {config.repository}", required=False)
-            else:
-                self.add("github-permissions", "ok", "label handoff permission available", required=False)
         except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
             self.add("github-repository", "fail", self.github_failure("repository access", exc),
                      f"Authenticate with gh auth login and obtain access to {config.repository}")
-            self.add("github-permissions", "skip", "repository response unavailable", required=False)
 
     def labels(self, config, github):
         try:
@@ -237,29 +217,22 @@ class Doctor:
             alternatives = []
             for runtime in agent.runtimes:
                 installed = self.which(runtime.cli)
-                version, version_error, auth_error = None, None, None
+                auth_error = None
                 if installed:
-                    try:
-                        version = self.version([runtime.cli, "--version"])
-                    except AgentError as exc:
-                        version_error = str(exc)
                     try:
                         self.probe(AUTH_PROBES[runtime.cli])
                     except AgentError as exc:
                         auth_error = str(exc)
-                alternatives.append((runtime, installed, version, version_error, auth_error))
-            usable[agent.name] = [r for r, installed, _, _, error in alternatives if installed and not error]
+                alternatives.append((runtime, installed, auth_error))
+            usable[agent.name] = [r for r, installed, error in alternatives if installed and not error]
             available = bool(usable[agent.name])
             unavailable_status = "warn" if available else "fail"
-            for runtime, installed, version, version_error, auth_error in alternatives:
+            for runtime, installed, auth_error in alternatives:
                 kwargs = dict(agent=agent, runtime=runtime)
                 self.add("runtime-executable", "ok" if installed else unavailable_status,
                          f"executable {runtime.cli} {'resolves' if installed else 'does not resolve'}",
                          None if installed else f"Install {runtime.cli} or remove {runtime.name} from agent {agent.name}'s runtime",
                          required=not available, **kwargs)
-                self.add("runtime-version", "skip" if not installed else "warn" if version_error else "ok",
-                         "executable unavailable" if not installed else version_error or version,
-                         f"Repair/reinstall {runtime.cli}" if version_error else None, required=False, **kwargs)
                 remedy = None
                 if auth_error:
                     remedy = (("Run codex login" if runtime.cli == "codex" else "Run claude auth login")
@@ -287,26 +260,18 @@ class Doctor:
                          f"Install/authenticate independent runtime alternatives for {agent.name} and {agent.different_from}", agent=agent)
             else:
                 self.add("different-runtime-from", "ok", f"independent execution available after {agent.different_from}", agent=agent)
+
     def local(self, config, git_ready):
         local = config.root / ".ub-agent"
         try:
-            if local.is_symlink():
-                raise AgentError(".ub-agent/ must not be a symlink")
-            if local.exists():
-                if not local.is_dir() or not self.access(local, os.W_OK | os.X_OK):
-                    raise AgentError(".ub-agent/ must be a writable, searchable directory")
-                if stat.S_IMODE(local.stat().st_mode) & 0o077:
-                    self.add("local-state", "warn", ".ub-agent/ has group or world permission bits",
-                             "Run chmod 700 .ub-agent/ to restrict access to the current user", required=False)
-                else:
-                    self.add("local-state", "ok", ".ub-agent/ is a writable, searchable private directory")
-            elif not self.access(config.root, os.W_OK):
+            if local.is_symlink() or (local.exists() and not (local.is_dir() and self.access(local, os.W_OK | os.X_OK))):
+                raise AgentError(".ub-agent/ must be a real, writable directory")
+            if not local.exists() and not self.access(config.root, os.W_OK):
                 raise AgentError("project root is not writable")
-            else:
-                self.add("local-state", "ok", ".ub-agent/ created at launch")
+            self.add("local-state", "ok", ".ub-agent/ is writable" if local.exists() else ".ub-agent/ created at launch")
         except (OSError, AgentError) as exc:
             self.add("local-state", "fail", str(exc) if isinstance(exc, AgentError) else ".ub-agent/ could not be inspected",
-                     "Choose a writable project root; restore .ub-agent/ as a real directory owned by the current user")
+                     "Choose a writable project root and restore .ub-agent/ as a real directory owned by the current user")
         if git_ready:
             try:
                 self.probe(["git", "-C", str(config.root), "check-ignore", "-q", ".ub-agent/"], config.root)
@@ -315,21 +280,6 @@ class Doctor:
                 self.add("local-state-ignored", "fail", f".ub-agent/ ignore check: {exc}", "Add .ub-agent/ to .gitignore (as ub-agent init does)")
         else:
             self.add("local-state-ignored", "skip", "git unavailable")
-        names = ", ".join(a.name for a in config.agents if a.worktree)
-        if not names:
-            self.add("worktrees", "skip", "not configured")
-        else:
-            errors = []
-            if git_ready:
-                try:
-                    self.probe(["git", "-C", str(config.root), "worktree", "list", "--porcelain"], config.root)
-                except AgentError as exc:
-                    errors.append(str(exc))
-            if (local / "worktrees").is_symlink():
-                errors.append(".ub-agent/worktrees must not be a symlink")
-            self.add("worktrees", "fail" if errors else "ok" if git_ready else "skip",
-                     f"agents {names}: " + ("; ".join(errors) if errors else "private worktrees available" if git_ready else "git unavailable"),
-                     "Restore Git worktree support and a real .ub-agent/worktrees directory" if errors else None)
 
 
 def diagnose(path, **kwargs):

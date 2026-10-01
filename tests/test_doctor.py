@@ -223,7 +223,7 @@ agents:
                 result = self.diagnose()
                 self.assertFalse(result["ok"])
                 self.assertEqual(self.one(result, "config")["status"], "fail")
-                for id in ("instructions", "repository-root", "repository-remote", "runtimes", "local-state", "worktrees"):
+                for id in ("instructions", "repository-root", "repository-remote", "runtimes", "local-state"):
                     self.assertEqual(self.one(result, id)["status"], "skip")
                 for id in ("python", "platform", "git", "gh", "github-auth", "process-inspection"):
                     self.assertEqual(self.one(result, id)["status"], "ok")
@@ -254,13 +254,11 @@ agents:
         self.assertIn("org/project", self.one(result, "github-repository")["message"])
         self.assertIn("new-owner/new-project", self.one(result, "github-repository")["message"])
         self.github.metadata["full_name"] = "ORG/Project"
-        self.github.metadata["permissions"] = {"pull": True}
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "ok")
-        self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "warn")
         self.github.repository_error = AgentError("sk-repository-secret")
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "fail")
 
-    def test_local_state_permissions_symlink_and_ignore(self):
+    def test_local_state_symlink_and_ignore(self):
         local = self.root / ".ub-agent"
         self.assertIn("created at launch", self.one(self.diagnose(), "local-state")["message"])
         self.assertFalse(local.exists())
@@ -268,9 +266,6 @@ agents:
         local.mkdir(mode=0o700)
         self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "ok")
         self.assertEqual(self.one(self.diagnose(access=lambda *_: False), "local-state")["status"], "fail")
-        local.chmod(0o755)
-        self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "warn")
-        self.assertEqual(local.stat().st_mode & 0o777, 0o755)
         local.rmdir()
         local.symlink_to(self.root, target_is_directory=True)
         self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "fail")
@@ -279,16 +274,6 @@ agents:
         self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "fail")
         self.runner.responses[("git", "-C", str(self.root), "check-ignore", "-q", ".ub-agent/")] = subprocess.CompletedProcess([], 1, '', '')
         self.assertEqual(self.one(self.diagnose(), "local-state-ignored")["status"], "fail")
-
-    def test_worktrees_and_symlink_boundary(self):
-        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "skip")
-        self.path.write_text(self.path.read_text() + "    worktree: true\n")
-        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "ok")
-        (self.root / ".ub-agent").mkdir(mode=0o700)
-        (self.root / ".ub-agent" / "worktrees").symlink_to(self.root, target_is_directory=True)
-        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "fail")
-        self.runner.responses[("git", "-C", str(self.root), "worktree", "list", "--porcelain")] = subprocess.CompletedProcess([], 1, '', '')
-        self.assertIn("worker", self.one(self.diagnose(), "worktrees")["message"])
 
     def test_different_runtime_no_alternative_and_partial_coverage(self):
         self.path.write_text(self.path.read_text() + '''  reviewer:
@@ -321,16 +306,6 @@ agents:
                 self.assertEqual((check["status"], check["required"]), ("fail", True))
                 self.assertIn("sandbox", check["remedy"])
 
-    def test_timeouts_continue_and_unsafe_versions_are_not_printed(self):
-        self.runner.responses[("git", "--version")] = subprocess.TimeoutExpired("git", 20)
-        self.runner.responses[("gh", "--version")] = "ghp-only-secret\n2.80.0\n"
-        result = self.diagnose()
-        self.assertIn("timed out", self.one(result, "git")["message"])
-        self.assertEqual(self.one(result, "gh")["message"], "version probe passed")
-        self.assertEqual(self.one(result, "process-inspection")["status"], "ok")
-        self.runner.responses[("codex", "--version")] = subprocess.CompletedProcess([], 8, 'sk-secret', 'ghp-secret')
-        self.assertEqual(self.one(self.diagnose(), "runtime-version")["status"], "warn")
-
     def test_auth_failure_can_use_second_runtime(self):
         self.path.write_text(self.path.read_text().replace("runtime: codex:model-a:high", "runtime: [codex:model-a:high, claude:model-b:high]"))
         self.runner.responses[("codex", "login", "status")] = subprocess.CompletedProcess([], 2, 'sk-secret', 'ghp-secret')
@@ -351,11 +326,11 @@ agents:
         self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob("*")))
         self.assertFalse((self.root / ".ub-agent").exists())
         allowed = {("rev-parse", "--show-toplevel"), ("remote", "get-url", "origin"),
-                   ("check-ignore", "-q", ".ub-agent/"), ("worktree", "list", "--porcelain")}
+                   ("check-ignore", "-q", ".ub-agent/")}
         for command, kwargs in self.runner.calls:
             self.assertLessEqual(kwargs["timeout"], 20)
             self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
-            if command[0] == "git" and command != ("git", "--version"):
+            if command[0] == "git":
                 self.assertIn(command[3:], allowed)
 
     def test_direct_command_and_shared_executable_selection(self):
@@ -404,12 +379,7 @@ agents:
                 loop.return_value.launch.assert_not_called()
                 self.assertEqual(git.call_count, expected_calls)
 
-    def test_version_and_config_credential_forms_are_redacted(self):
-        self.runner.responses[("gh", "--version")] = "gh version 2.80.0 ghp_version-secret sk-version-secret\nsecond line private"
-        output = self.capture(self.diagnose(), True)
-        self.assertNotIn("ghp_version-secret", output)
-        self.assertNotIn("sk-version-secret", output)
-        self.assertNotIn("second line private", output)
+    def test_config_credential_forms_are_redacted(self):
         self.path.write_text("agents: [ghp_yaml-secret, sk-yaml-secret\n")
         output = self.capture(self.diagnose())
         self.assertNotIn("ghp_yaml-secret", output)
