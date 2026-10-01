@@ -56,7 +56,7 @@ class Coordinator:
                 invalid.add(number)
         return sorted(history, key=lambda record: record["id"]), invalid
 
-    def plan(self, item, agent, stop_labels, history=None, repository_history=None):
+    def plan(self, item, agent, stop_labels, history=None):
         history = self.history(item.number) if history is None else history
         now = self.clock()
         previous = attempts(history, agent.name, now)
@@ -66,10 +66,7 @@ class Coordinator:
         state, reason = "ready", "Trigger matched"
         runtime = None
         resume_pr = None
-        reservation = self.transition_reservation(item.number, agent.name, repository_history)
-        if reservation:
-            state, reason = "owned", reservation
-        elif live_leases(history, now):
+        if live_leases(history, now):
             state, reason = "owned", "An unexpired assignment owns this work item"
         elif self.pending_completion(history, agent.name, now):
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
@@ -147,8 +144,6 @@ class Coordinator:
                 problem = "PR body does not link the issue"
             elif not agent.worktree:
                 problem = "resuming requires a private worktree"
-            elif self.transition_reservation(pr.number, agent.name):
-                problem = "PR checkpoint has an incomplete label transition"
             elif self.pr_owners(pr.number):
                 problem = "PR checkpoint has conflicting live ownership"
             else:
@@ -163,33 +158,6 @@ class Coordinator:
         raise ValidationError(f"Cannot safely resume recorded PR {numbers}: {problem}; inspect and continue "
                               "the existing PR manually. If abandoned, close it before "
                               f"ub-agent retry --number {item.number} --agent {agent.name} --reason TEXT")
-
-    def transition_reservation(self, number, agent, indexed=None):
-        # The index discovers sources; fresh source history supplies authority.
-        if indexed is None:
-            indexed, _ = self.repository_history()
-        sources = {r["assignment"] for r in indexed if r["kind"] == "outcome"
-                   and r.get("transition") and number in {r["assignment"], r.get("handoff")}
-                   and "recorded_by" not in r}
-        for source_number in sorted(sources):
-            history = self.history(source_number)
-            latest = latest_leases(history)
-            for outcome in history:
-                if (outcome["kind"] != "outcome" or not outcome.get("transition")
-                        or number not in {outcome["assignment"], outcome.get("handoff")}
-                        or "recorded_by" in outcome):
-                    continue
-                lease = latest.get((source_number, outcome["agent"]))
-                pending = (lease and lease["state"] in {"claiming", "running"}
-                           and lease.get("recovered_lease_id", lease["id"]) == outcome["lease_id"])
-                incomplete = (outcome["transition"]["started"]
-                              and not outcome.get("transition_complete") and not outcome["accepted"])
-                # A blocked release or reset cannot discard partly applied work.
-                # Only an unfinished source lease authorizes its own recovery.
-                own_recovery = pending and number == source_number and agent == outcome["agent"]
-                if (pending or incomplete) and not own_recovery:
-                    return f"Incomplete transition from #{source_number} reserves this work item"
-        return None
 
     def choose_runtime(self, item, agent, history):
         def installed(executable):
@@ -317,14 +285,8 @@ class Coordinator:
         if not contenders or contenders[0]["id"] != created["id"]:
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
             return None
-        if self.transition_reservation(current.number, plan.agent.name):
-            self.update(created, state="withdrawn", summary="An incomplete transition reserves this item.")
-            return None
         pr_number = created.get("resume_pr") or (current.number if current.kind == "pr" else None)
         if pr_number:
-            if not recovery and self.transition_reservation(pr_number, plan.agent.name):
-                self.update(created, state="withdrawn", summary="An incomplete transition reserves this checkpoint.")
-                return None
             owners = self.pr_owners(pr_number)
             if owners and owners[0]["id"] != created["id"]:
                 self.update(created, state="withdrawn", summary="Lost the checkpoint claim election.")

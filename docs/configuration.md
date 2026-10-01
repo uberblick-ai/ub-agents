@@ -115,8 +115,11 @@ only missing changes from that record, even after configuration changes, without
 rerunning the role or spending an attempt. Started transitions have already passed
 success validation, so recovery does not recheck the candidate SHA, issue link,
 trigger or pause state. It finishes the recorded changes even if the PR head moves,
-preserving provenance for the original SHA. Both assignment and handoff PR remain
-reserved until completion.
+preserving provenance for the original SHA. Assignment removals precede destination
+additions; incomplete transitions create no cross-item reservations. A crash between
+those steps leaves items idle when no other trigger is present. An operator reset
+supersedes the old recovery; inspect both items and restore the desired triggers to
+resume. See [recovery](coordination.md#recovery) for the operator path.
 
 Without `outcomes`, the agent retains the legacy contract: change labels itself,
 report `--status success`, and let the runner validate trigger consumption (or

@@ -133,16 +133,16 @@ At completion, pass the project checks, push the final work, mark the same PR re
 (`gh pr ready`), and report `--outcome handed-off` with the PR handoff. The runner
 removes the issue triggers and adds `needs-review` to that same PR. Drafts never
 receive `needs-review` or `ready-to-merge` from the starter workflow. Feedback after
-readiness follows the normal review and `needs-changes` path. Revision runs are unchanged, and labels
-still govern PR-kind pickup; there is no draft filter in trigger matching.
+readiness follows the normal review and `needs-changes` path. Revision runs are
+unchanged, and labels still govern PR-kind pickup; there is no draft filter in
+trigger matching.
 
 Issue retry planning checks all branches recorded by earlier leases for the same
 issue and configured agent, including leases before a reset or superseded by a
 newer run. Open PRs are found by head branch, independent of their body or labels.
 Exactly one open draft can resume when it links the issue, has its head in this
 repository on a recorded branch, and has no conflicting live ownership, unconfirmed
-PR cleanup, outcome awaiting recovery, or incomplete label transition. Reuse requires
-a private worktree. The
+PR cleanup, or outcome awaiting recovery. Reuse requires a private worktree. The
 new issue lease records resume_pr, resume_sha, and branch, without changing its
 issue assignment or attempt budget. Existing backoff, blocked-run and attempt-limit
 gates still apply; a settled blocked decision requires a reasoned operator reset.
@@ -266,16 +266,32 @@ transition still validates the candidate and issue link, checks both items for
 pausing and the assignment for its trigger. A durably rejected paused outcome is
 never applied later.
 
-Incomplete transitions reserve both the assignment and its handoff PR, including
-after lease expiry and after a next-role trigger has already been added. Discovery
-uses repository comments to find the source and freshly reads its history before
-planning or claiming either item. Only the source role's outcome recovery proceeds.
-The reservation lasts through acceptance/provenance copying until release. A PR
-head or issue-link edit after start does not block completion or leave either item
-reserved. Provenance still names the originally validated SHA: an independent
-role requiring that provenance blocks on a newer head, and a person can set the
-revision label to obtain a new implementation outcome. Label writes, comments
-and claim elections remain cooperative GitHub operations, not atomic transactions.
+Transitions create no cross-item reservations. Assignment removals happen before
+handoff or assignment additions. A crash between these steps leaves the consumed
+triggers absent and the next trigger unpublished, so those items stay idle unless
+another trigger is already present. A crash during removals can leave some triggers
+present; existing labels and ordinary live leases still govern pickup. A destination
+trigger may be picked up before acceptance and source release; independent roles
+still require successfully released provenance for their current candidate.
+
+Outcome-only recovery replays the recorded removals, then additions, and accepts the
+outcome without rerunning the role. Removing an absent label or adding a present
+one is a no-op. If an assignment label occurs in both lists, it is removed before
+being added, so `add` determines its final state on completion and replay.
+
+An operator reset (`ub-agent retry --number N --agent NAME --reason TEXT`) supersedes
+the source role's unfinished lease for recovery after it expires. It does not
+complete or undo the transition, and the old outcome remains unaccepted. Inspect
+both items and restore the desired trigger labels to resume the workflow; no
+reservation survives the reset. Restoring a trigger alone does not reset attempts
+or clear a blocked result. Do not reset while expecting automatic completion of
+the old transition; let outcome-only recovery finish instead.
+
+A PR head or issue-link edit after start does not block completion. Provenance still
+names the originally validated SHA: an independent role requiring that provenance
+blocks on a newer head, and a person can set the revision label to obtain a new
+implementation outcome. Label writes, comments and claim elections remain
+cooperative GitHub operations, not atomic transactions.
 
 Do not execute the previous command again. This also repairs a crash between
 acceptance and release. The old expired record is not falsely marked as observed

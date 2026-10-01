@@ -13,8 +13,9 @@ completion is satisfied. Then record `ub-agent report --outcome merged --summary
 
 If the policy leaves this merge to a maintainer, leave a concrete report that names
 the reason and record `ub-agent report --outcome maintainer-merge
---summary "Ready for maintainer merge: REASON"`. Handing a passing candidate to a maintainer is a successful handoff; report blocked only when a gate
-fails or evidence is missing. The framework never grants merge authority, approves
-its own PR, or chooses check commands.
+--summary "Ready for maintainer merge: REASON"`. Handing a passing candidate to a
+maintainer is a successful handoff; report blocked only when a gate fails or evidence
+is missing. The framework never grants merge authority, approves its own PR, or
+chooses check commands.
 
 The runner applies the configured transition. Do not change workflow labels.

@@ -71,6 +71,9 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(outcome['accepted'])
         self.assertEqual(outcome['transition']['remove'], ['needs-changes', 'old', 'ready'])
         self.assertTrue(self.loop.coordinator.history(2)[0]['accepted'])
+        self.assertEqual(self.labels_changed(), [('remove-label', 1, 'needs-changes'),
+                                                ('remove-label', 1, 'old'), ('remove-label', 1, 'ready'),
+                                                ('add-labels', 2, ('needs-review',))])
 
     def resumed_checkpoint(self):
         self.agent = replace(self.agent, worktree=True)
@@ -123,8 +126,6 @@ class TransitionTests(unittest.TestCase):
                 self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
                 self.assertTrue(self.loop.coordinator.history(2)[0]['accepted'])
                 self.assertEqual(len(attempts(history, self.agent.name, self.now)), 2)
-                self.assertIsNone(self.loop.coordinator.transition_reservation(1, 'other'))
-                self.assertIsNone(self.loop.coordinator.transition_reservation(2, 'reviewer'))
 
     def test_resumed_declared_outcome_rejects_wrong_or_draft_handoff_before_changes(self):
         for recovery in (False, True):
@@ -155,38 +156,6 @@ class TransitionTests(unittest.TestCase):
                     self.assertFalse(outcome['transition']['started'])
                     self.assertIn('existing PR' if handoff == 3 else 'still a draft', outcome['rejected'])
                     self.assertEqual(self.labels_changed(), [])
-
-    def test_resumed_checkpoint_checks_transition_reservation_before_execution(self):
-        for stage in ('plan', 'claim', 'execute'):
-            with self.subTest(stage=stage):
-                self.setUp()
-                plan = self.resumed_checkpoint()
-                # Another source can reserve the same PR without a live PR lease.
-                self.github.items[3] = issue(3)
-                source_plan = self.loop.coordinator.plan(self.github.item(3), self.agent, ())
-                source = self.loop.coordinator.claim(source_plan)
-                self.loop.coordinator.update(source, state='running', started=True)
-                if stage == 'execute':
-                    lease = self.loop.coordinator.claim(plan)
-                    # Publish the other handoff during worktree preparation.
-                    def prepare(*args):
-                        self.loop.coordinator.report(source, 'success', 'Handoff', 2, outcome='handed-off')
-                        return self.root
-                    with patch('ub_agents.loop.Workspace.prepare', side_effect=prepare), \
-                            patch('ub_agents.loop.Workspace.cleanup'), \
-                            patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')), \
-                            patch.object(self.loop.coordinator, 'claim', return_value=lease):
-                        self.loop.execute(plan)
-                    self.assertIn('reserved this checkpoint', self.loop.coordinator.history(1)[-1]['summary'])
-                else:
-                    self.loop.coordinator.report(source, 'success', 'Handoff', 2, outcome='handed-off')
-                    if stage == 'plan':
-                        fresh = self.loop.coordinator.plan(self.github.item(1), self.agent, ())
-                        self.assertEqual(fresh.state, 'blocked')
-                        self.assertIn('incomplete label transition', fresh.reason)
-                    else:
-                        self.assertIsNone(self.loop.coordinator.claim(plan))
-                self.assertEqual(self.labels_changed(), [])
 
     def test_issue_outcome_without_handoff_adds_to_assignment(self):
         self.execute()
@@ -294,10 +263,10 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(restarted.coordinator.history(1)[1]['accepted'])
         self.assertEqual(len(attempts(restarted.coordinator.history(1), self.agent.name, self.now)), 1)
 
-    def test_queue_gate_and_priority_preserve_transition_recovery_and_reservations(self):
+    def test_queue_gate_and_priority_preserve_transition_recovery(self):
         self.claim_and_report(handoff=2)
         self.github.change(1, milestone=20, labels=self.github.item(1).labels | {'low'})
-        self.github.change(2, labels=frozenset({'needs-review', 'low'}))
+        self.github.change(2, labels=frozenset({'low'}))
         self.github.items[3] = issue(3, labels=('ready', 'urgent'), milestone=10)
         self.github.milestones = [{'number': 10, 'state': 'open', 'created_at': iso(100)}]
         self.now += 61
@@ -308,11 +277,10 @@ class TransitionTests(unittest.TestCase):
         restarted.coordinator.clock = lambda: self.now
         plans = restarted.plans()
         recovery = next(p for p in plans if p.item.number == 1 and p.agent.name == self.agent.name)
-        reserved = next(p for p in plans if p.item.number == 2 and p.agent.name == reviewer.name)
         new_work = next(p for p in plans if p.item.number == 3)
-        self.assertEqual((recovery.state, reserved.state, new_work.state), ('recover', 'owned', 'ready'))
+        self.assertEqual((recovery.state, new_work.state), ('recover', 'ready'))
+        self.assertFalse(any(p.item.number == 2 for p in plans))
         self.assertLess(plans.index(recovery), plans.index(new_work))
-        self.assertIsNone(restarted.coordinator.claim(reserved))
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
@@ -320,7 +288,6 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'low'})
         self.assertEqual(self.github.item(2).labels, {'needs-review', 'low'})
-        self.assertIsNone(restarted.coordinator.transition_reservation(2, reviewer.name))
 
     def test_interrupt_during_transition_keeps_it_pending_for_recovery(self):
         remove = self.github.remove_label
@@ -336,16 +303,63 @@ class TransitionTests(unittest.TestCase):
             self.new_loop().tick()
         self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
 
-    def test_overlapping_add_and_remove_replay_preserves_completed_final_label(self):
+    def test_retry_after_interrupted_transition_leaves_items_available_to_triggers(self):
+        for stage in ('remove', 'before-add', 'after-add'):
+            with self.subTest(stage=stage):
+                self.setUp()
+                method = 'remove_label' if stage == 'remove' else 'add_labels'
+                original = getattr(self.github, method)
+                def fail(*args):
+                    if stage != 'before-add':
+                        original(*args)
+                    raise AgentError('Connection dropped during transition')
+                with patch.object(self.github, method, side_effect=fail), self.assertRaises(LostOwnership):
+                    self.execute(handoff=2)
+                self.now += 61
+                # Exercise the operator command after the source lease expires.
+                with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
+                        patch('ub_agents.cli.GitHub', return_value=self.github), \
+                        patch('ub_agents.cli.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
+                    self.assertEqual(main(['retry', '--number', '1', '--agent', self.agent.name,
+                                           '--reason', 'Restore workflow manually']), 0)
+                reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
+                restarted = self.new_loop(self.agent, reviewer)
+                history = restarted.coordinator.history(1)
+                self.assertIsNone(restarted.coordinator.pending_completion(history, self.agent.name, self.now))
+                self.assertFalse(history[1]['accepted'])
+                if stage != 'remove':
+                    self.assertEqual(self.github.item(1).labels, {'unrelated'})
+                if stage == 'before-add':
+                    self.assertEqual(self.github.item(2).labels, {'unrelated'})
+                    self.assertEqual(restarted.plans(), [])
+                    with patch('ub_agents.loop.supervise', side_effect=AssertionError('idle items must not run')):
+                        self.assertFalse(restarted.tick())
+                # Remaining or manually restored triggers authorize pickup. The
+                # abandoned transition imposes no extra lock on either item.
+                self.github.add_labels(1, ['ready'])
+                self.github.add_labels(2, ['needs-review'])
+                plans = restarted.plans()
+                source = next(p for p in plans if p.item.number == 1)
+                target = next(p for p in plans if p.item.number == 2)
+                self.assertEqual((source.state, target.state), ('ready', 'ready'))
+                self.assertEqual(source.attempt, 1)
+                self.assertIsNotNone(restarted.coordinator.claim(source))
+                self.assertIsNotNone(restarted.coordinator.claim(target))
+
+    def test_overlapping_labels_are_removed_before_addition_and_recover_to_final_state(self):
         self.agent = replace(self.agent, outcomes={'done': {'add': ('old',), 'remove': ('old',)}})
         self.loop = self.new_loop()
         with patch.object(self.loop.coordinator, 'accept', side_effect=AgentError('Cannot accept')):
             with self.assertRaises(LostOwnership):
                 self.execute(name='done')
         previous_writes = self.labels_changed()
+        self.assertEqual(previous_writes, [('remove-label', 1, 'needs-changes'),
+                                          ('remove-label', 1, 'old'), ('remove-label', 1, 'ready'),
+                                          ('add-labels', 1, ('old',))])
         self.now += 61
         self.new_loop().tick()
-        self.assertEqual(self.labels_changed(), previous_writes)
+        self.assertEqual(self.labels_changed(), previous_writes +
+                         [('remove-label', 1, 'old'), ('add-labels', 1, ('old',))])
         self.assertEqual(self.github.item(1).labels, {'old', 'unrelated'})
 
     def test_fully_applied_transition_before_acceptance_is_idempotent(self):
@@ -357,20 +371,6 @@ class TransitionTests(unittest.TestCase):
         self.new_loop().tick()
         self.assertEqual(self.labels_changed(), previous_writes)
         self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
-
-    def test_incomplete_handoff_reserves_both_items_and_rechecks_stale_claim(self):
-        reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
-        self.loop = self.new_loop(self.agent, reviewer)
-        self.github.change(2, labels=frozenset({'needs-review'}))
-        stale_plan = next(p for p in self.loop.plans() if p.item.number == 2)
-        self.claim_and_report(handoff=2)
-        self.now += 61
-        plans = self.loop.plans()
-        self.assertEqual(next(p for p in plans if p.item.number == 1).state, 'recover')
-        self.assertEqual(next(p for p in plans if p.item.number == 2).state, 'owned')
-        self.assertIsNone(self.loop.coordinator.claim(stale_plan))
-        other = agent(self.root, name='other', triggers=('ready',))
-        self.assertEqual(self.loop.coordinator.plan(self.github.item(1), other, ()).state, 'owned')
 
     def test_started_handoff_recovers_after_head_or_issue_link_changes(self):
         for stage in ('remove', 'add', 'complete'):
@@ -393,8 +393,6 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(LostOwnership):
                 self.execute(handoff=2)
         self.github.change(2, **changes)
-        self.assertIsNotNone(self.loop.coordinator.transition_reservation(1, 'other'))
-        self.assertIsNotNone(self.loop.coordinator.transition_reservation(2, reviewer.name))
         previous_writes = self.labels_changed()
         self.now += 61
         restarted = self.new_loop(self.agent, reviewer)
@@ -409,8 +407,6 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, {'unrelated'})
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
         self.assertEqual(restarted.coordinator.history(2)[0]['candidate_sha'], 'a' * 40)
-        self.assertIsNone(restarted.coordinator.transition_reservation(1, 'other'))
-        self.assertIsNone(restarted.coordinator.transition_reservation(2, reviewer.name))
         if stage != 'remove':
             self.assertEqual(self.labels_changed(), previous_writes)
         plan = next(p for p in self.loop.plans() if p.item.number == 2)
@@ -464,7 +460,6 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(history[-2]['result'], 'success')
         self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
         self.assertEqual(self.github.item(1).labels, {'ready-to-merge', 'unrelated'})
-        self.assertIsNone(restarted.coordinator.transition_reservation(1, 'integrator'))
 
     def test_invalid_success_records_block_without_labels(self):
         for change in ({'outcome': 'undeclared'}, {'outcome': None, 'transition': None},

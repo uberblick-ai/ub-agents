@@ -60,7 +60,7 @@ class Loop:
                     continue
                 if (agent in matched or pending or (record and record["state"] in {"claiming", "running"}
                                                     and seconds(record["expires"]) > now)):
-                    plan = self.coordinator.plan(item, agent, self.config.stop_labels, history, history_index)
+                    plan = self.coordinator.plan(item, agent, self.config.stop_labels, history)
                     if (plan.state == "ready" and item.kind == "issue" and plan.resume_pr is None
                             and active_milestone is not None and item.milestone != active_milestone):
                         plan = replace(plan, state="parked", runtime=None,
@@ -159,12 +159,8 @@ class Loop:
                     or not fresh.labels.intersection(plan.agent.triggers)
                     or fresh.labels.intersection(self.config.stop_labels)):
                 raise AgentError("Trigger or candidate changed before execution")
-            if self.coordinator.transition_reservation(plan.item.number, plan.agent.name):
-                raise AgentError("An incomplete transition reserved this item before execution")
             self.coordinator.assert_owned(lease)
             if lease.get("resume_pr"):
-                if self.coordinator.transition_reservation(lease["resume_pr"], plan.agent.name):
-                    raise AgentError("An incomplete transition reserved this checkpoint before execution")
                 checkpoint = self.github.item(lease["resume_pr"], "pr")
                 if (checkpoint.state != "open" or checkpoint.merged or not checkpoint.draft
                         or checkpoint.head != lease["resume_sha"] or checkpoint.branch != lease["branch"]
@@ -263,7 +259,7 @@ class Loop:
             if outcome and outcome.get("transition", {}).get("started"):
                 diagnostic("transition-interrupted", outcome=outcome["id"])
                 cleanup_workspace()
-                # Transition intent is durable; keep it reserved for expiry recovery.
+                # Leave the durable transition pending for expiry recovery.
                 raise
             interrupted = True
             summary = "Launcher interrupted; attributable execution terminated"
@@ -345,12 +341,8 @@ class Loop:
             # our own trigger removal or human-gate addition for external pausing.
             self.coordinator.update_outcome(lease, outcome, transition=transition | {"started": True})
             transition = outcome["transition"]
-        removals = set(transition["remove"])
-        if target == outcome["assignment"]:
-            # Add wins when the same assignment label is in both lists. Avoid
-            # removing an already-complete final label during replay.
-            removals.difference_update(transition["add"])
-        for label in sorted(removals):
+        # Consume assignment labels before publishing the next role's trigger.
+        for label in sorted(set(transition["remove"])):
             self.coordinator.assert_owned(lease)
             if label in self.github.item(outcome["assignment"]).labels:
                 self.github.remove_label(outcome["assignment"], label)

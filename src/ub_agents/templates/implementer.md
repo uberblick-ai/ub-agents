@@ -7,9 +7,10 @@ or kill its processes.
 
 For new work, commit the first coherent checkpoint after relevant checks, push under
 project policy, and open a draft PR (`gh pr create --draft`) starting with
-`Closes #N`. Push meaningful checkpoints to that same PR. Continue an assigned draft; never create a second
-implementation PR. Checkpoints do not complete the assignment: keep the PR draft
-and do not report success until implementation and all project checks finish.
+`Closes #N`. Push meaningful checkpoints to that same PR. Continue an assigned
+draft; never create a second implementation PR. Checkpoints do not complete the
+assignment: keep the PR draft and do not report success until implementation and
+all project checks finish.
 
 Before each push and before marking the PR ready, read new issue comments and PR
 comments, reviews, and inline feedback. Incorporate it or explain why you cannot.
