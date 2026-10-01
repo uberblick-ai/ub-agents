@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.config import Runtime
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
@@ -293,6 +293,34 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
         self.assertTrue(restarted.coordinator.history(1)[1]['accepted'])
         self.assertEqual(len(attempts(restarted.coordinator.history(1), self.agent.name, self.now)), 1)
+
+    def test_queue_gate_and_priority_preserve_transition_recovery_and_reservations(self):
+        self.claim_and_report(handoff=2)
+        self.github.change(1, milestone=20, labels=self.github.item(1).labels | {'low'})
+        self.github.change(2, labels=frozenset({'needs-review', 'low'}))
+        self.github.items[3] = issue(3, labels=('ready', 'urgent'), milestone=10)
+        self.github.milestones = [{'number': 10, 'state': 'open', 'created_at': iso(100)}]
+        self.now += 61
+        reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
+        restarted = Loop(config(self.root, self.agent, reviewer,
+                                queue=Queue('gate', Priority(('urgent', 'low')))),
+                         self.github, 'operator', output=lambda *_: None)
+        restarted.coordinator.clock = lambda: self.now
+        plans = restarted.plans()
+        recovery = next(p for p in plans if p.item.number == 1 and p.agent.name == self.agent.name)
+        reserved = next(p for p in plans if p.item.number == 2 and p.agent.name == reviewer.name)
+        new_work = next(p for p in plans if p.item.number == 3)
+        self.assertEqual((recovery.state, reserved.state, new_work.state), ('recover', 'owned', 'ready'))
+        self.assertLess(plans.index(recovery), plans.index(new_work))
+        self.assertIsNone(restarted.coordinator.claim(reserved))
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.assertTrue(restarted.tick())
+        history = restarted.coordinator.history(1)
+        self.assertTrue(history[1]['accepted'])
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
+        self.assertEqual(self.github.item(1).labels, {'unrelated', 'low'})
+        self.assertEqual(self.github.item(2).labels, {'needs-review', 'low'})
+        self.assertIsNone(restarted.coordinator.transition_reservation(2, reviewer.name))
 
     def test_interrupt_during_transition_keeps_it_pending_for_recovery(self):
         remove = self.github.remove_label

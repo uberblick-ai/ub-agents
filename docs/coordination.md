@@ -8,17 +8,7 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 
 - A run has a random unique ID and one assignment: repository, issue/PR number,
   configured agent, matched trigger, and (on PRs) the observed head SHA.
-- Each issue agent's eligible queue is FIFO by issue creation time, with issue
-  number as the tie-breaker. New issue work (including preparation and implementation)
-  is gated to the oldest open, incomplete milestone by milestone creation time,
-  with milestone number as the tie-breaker. A closed milestone, or one with no
-  open issues or PRs, is complete. While a milestone is active, later-milestone
-  and unmilestoned issues wait even if the active milestone has no eligible issue.
-  With no active milestone, FIFO applies globally, including unmilestoned issues.
-  PR work retains number order; PR reviews, integration, requested changes, and
-  recovery/completion of already claimed runs (including resuming an existing
-  draft PR checkpoint) are never milestone-gated. Agents
-  on the same item retain YAML order. Trigger lists mean **any** matching label.
+- Trigger lists mean **any** matching label.
   A runtime list means alternatives in declared order: select the first eligible
   installed executable and execute it once.
 - One live lease excludes every other agent on the same issue/PR. This first
@@ -36,6 +26,36 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   declared transitions do so in the runner.
 - `ub-agent retry --number N --agent NAME --reason TEXT` posts a durable reset,
   preserving history. It refuses a live lease and never revokes someone else's run.
+
+## Selection order
+
+1. Eligibility checks run as usual: existing claims, stop labels, retry backoff and
+   attempt limits still apply.
+2. PR work comes before new issue starts. This includes PR assignments, recovery
+   and completion of already-started runs, and resumption of an existing draft PR
+   checkpoint, even when its assignment is an issue. Milestones never gate this
+   work.
+3. With `queue.milestones: gate`, only new issues in the active milestone can
+   start. The active milestone is the oldest open milestone with open issues or
+   PRs, by creation time with milestone number as the tie-breaker. Later-milestone
+   and unmilestoned issues wait until it closes or empties, even if it has no
+   eligible work. With no active milestone, all issues are eligible. Planning and
+   the fresh claim-time milestone recheck enforce this same policy. In the default
+   `ignore` mode, neither consults milestones.
+4. Within PR work and within issue work, rank by effective priority label (highest
+   configured label, or the configured default for an unlabeled item), then item
+   creation time, then item number. Without a default, unlabeled items rank below
+   all configured priority labels. Without priority configuration, ranking is FIFO
+   with number as the tie-breaker. Agents on the same item retain YAML order
+   within each work class. Priority labels are read without modification.
+
+`ub-agent status` and `status --json` list rows in this rank order, show effective
+priority and name the active milestone for waiting issues. See the
+[queue configuration](configuration.md#queue).
+
+Concurrent launchers rank the GitHub state each observes and try claims in that
+order. Existing claims resolve contention for the same item. There is no global
+order across machines.
 
 ## Trusted operators
 

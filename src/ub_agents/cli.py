@@ -125,6 +125,7 @@ def status_rows(loop):
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == plan.agent.name]
         rows.append({"number": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
+                     "priority": loop.config.queue.priority.effective(plan.item.labels),
                      "state": plan.state, "reason": plan.reason, "attempts": plan.attempt - 1,
                      "runtime": plan.runtime.name if plan.runtime else None,
                      "candidate_sha": plan.item.head,
@@ -186,7 +187,8 @@ def run(args):
                     acceptance = " (unaccepted)" if reported["status"] == "success" and not reported["accepted"] else ""
                     outcome = f" · reported: {reported['status']}{acceptance}"
                 verdict = f" · last result: {row['result']}" if row["result"] else ""
-                print(f"#{row['number']} {row['agent']}: {row['state']} · attempts {row['attempts']}{owner}{verdict}{outcome}")
+                priority = row["priority"] or "none"
+                print(f"#{row['number']} {row['agent']}: {row['state']} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['reason']}")
         return
     for _, error in repository_checks(config):

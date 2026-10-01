@@ -110,6 +110,25 @@ class Agent:
 
 
 @dataclass(frozen=True)
+class Priority:
+    labels: tuple[str, ...] = ()
+    default: str | None = None
+
+    def effective(self, labels):
+        return next((label for label in self.labels if label in labels), self.default)
+
+    def rank(self, labels):
+        label = self.effective(labels)
+        return self.labels.index(label) if label is not None else len(self.labels)
+
+
+@dataclass(frozen=True)
+class Queue:
+    milestones: str = "ignore"
+    priority: Priority = Priority()
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     repository: str
@@ -117,6 +136,7 @@ class Config:
     poll_seconds: float
     stop_labels: tuple[str, ...]
     operators: tuple[str, ...] = ()
+    queue: Queue = Queue()
 
 
 CLOCKS = {"lease-minutes", "renewal-minutes", "agent-timeout-minutes",
@@ -134,7 +154,21 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "runtimes",
-                          "poll-seconds", "stop-labels", "operators"}, "configuration")
+                          "poll-seconds", "stop-labels", "operators", "queue"}, "configuration")
+    queue = mapping(data.get("queue", {}), {"milestones", "priority"}, "queue")
+    milestones = queue.get("milestones", "ignore")
+    if milestones not in ("gate", "ignore"):
+        raise AgentError("queue milestones must be gate or ignore")
+    priority = Priority()
+    if "priority" in queue:
+        settings = mapping(queue["priority"], {"labels", "default"}, "queue priority")
+        labels = argv(settings.get("labels"), "queue priority labels")
+        if len(set(labels)) != len(labels):
+            raise AgentError("queue priority labels must be unique")
+        default = settings.get("default")
+        if "default" in settings and default not in labels:
+            raise AgentError("queue priority default must be one of labels")
+        priority = Priority(labels, default)
     repo = string(data.get("repository"), "repository")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise AgentError("repository must be owner/name")
@@ -239,7 +273,7 @@ def load_config(path):
     operators = () if data.get("operators", []) == [] else strings(data["operators"], "operators")
     if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login) for login in operators):
         raise AgentError("operators must contain GitHub account logins")
-    return Config(root, repo, tuple(agents), poll, stop, operators)
+    return Config(root, repo, tuple(agents), poll, stop, operators, Queue(milestones, priority))
 
 
 def argv(value, where, empty=False):

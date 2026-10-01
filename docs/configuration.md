@@ -14,6 +14,37 @@ errors; `ub-agent check` validates the file.
 | `poll-seconds` | How often an idle loop checks GitHub (default 30). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `operators` | Other GitHub accounts whose claims and outcomes this launcher trusts. Only the authenticated account is trusted by default. |
+| `queue` | Optional priority ranking and milestone gate (defaults to FIFO with milestones ignored). |
+
+## Queue
+
+```yaml
+queue:
+  priority:
+    labels: [priority:urgent, priority:high, priority:normal, priority:low]
+    default: priority:normal
+  milestones: gate
+```
+
+`priority.labels` is a nonempty list of unique, nonempty label names, highest first.
+An item with several configured labels takes the highest. An item with none takes
+`priority.default`, which must be one of the configured labels. If `default` is
+omitted, unlabeled items rank below every configured label. Without `priority`, all
+items have equal priority. Unknown keys in `queue` or `priority` are errors.
+The launcher reads priority labels and never changes them.
+
+`milestones` accepts only `gate` or `ignore` and defaults to `ignore`. In `gate`
+mode, new issues wait for the oldest open milestone with open issues or PRs to
+close or empty; PR work, recovery and draft checkpoint resumption remain eligible.
+In `ignore` mode, planning and claiming do not read milestones. This repository
+explicitly sets `gate`; `ub-agent init` writes `queue: {milestones: ignore}`.
+Without a `queue` block, priorities are unconfigured and milestones are ignored.
+
+Within each work class, priority is followed by item creation time and then item
+number. See [selection order](coordination.md#selection-order) for eligibility and
+PR precedence. `ub-agent status` and `status --json` use the same rank order and
+show each item's effective priority (`none` in text, `null` in JSON when no label
+or default applies). Waiting issues name the active milestone number.
 
 ## Agents
 

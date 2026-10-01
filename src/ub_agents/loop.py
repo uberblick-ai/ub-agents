@@ -17,7 +17,8 @@ class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print):
         self.config = config
         self.github = github
-        self.coordinator = Coordinator(github, actor, trusted_actors=config.operators)
+        self.coordinator = Coordinator(github, actor, trusted_actors=config.operators,
+                                       queue=config.queue)
         self.stop_event = stop_event or threading.Event()
         self.output = output
         # The candidate cannot rewrite the operator's configured task policy.
@@ -27,7 +28,8 @@ class Loop:
     def plans(self):
         plans = []
         items = {item.number: item for item in self.github.observe()}
-        active_milestone = self.github.active_milestone()
+        active_milestone = (self.github.active_milestone()
+                            if self.config.queue.milestones == "gate" else None)
         history_index, invalid = self.coordinator.repository_history()
         now = self.coordinator.clock()
         unfinished = {r["assignment"] for r in latest_leases(history_index).values()
@@ -36,13 +38,7 @@ class Loop:
             if number not in items:
                 item = self.github.item(number)
                 items[item.number] = item
-        # Reorder the issue slots only: each issue agent sees FIFO, while PRs
-        # retain their number order and agents on the same item retain YAML order.
-        ordered = sorted(items.values(), key=lambda item: item.number)
-        issues = iter(sorted((i for i in ordered if i.kind == "issue"),
-                             key=lambda i: (seconds(i.created_at), i.number)))
-        ordered = [next(issues) if i.kind == "issue" else i for i in ordered]
-        for item in ordered:
+        for item in items.values():
             matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
                        and a.kind in {"either", item.kind} and item.state == "open"]
             if not matched and item.number not in (unfinished | invalid):
@@ -81,7 +77,14 @@ class Loop:
                     plans.append(Plan(item, agent, None, "blocked",
                         f"{reason}; inspect GitHub and restore a trigger before retrying",
                         len(attempts(history, agent.name, now)) + 1))
-        return plans
+        # Rank after checkpoint/recovery discovery: these are PR work even when
+        # their durable assignment is an issue. Stable sorting keeps YAML order
+        # for agents on the same item within each work class.
+        return sorted(plans, key=lambda plan: (
+            0 if (plan.item.kind == "pr" or plan.state in {"owned", "recover"}
+                  or plan.resume_pr is not None) else 1,
+            self.config.queue.priority.rank(plan.item.labels),
+            seconds(plan.item.created_at), plan.item.number))
 
     def tick(self):
         for plan in self.plans():

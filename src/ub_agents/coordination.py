@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import shutil
 import uuid
 
-from .config import Agent, Runtime
+from .config import Agent, Queue, Runtime
 from .errors import AgentError, LostOwnership, RecordError, ValidationError
 from .execution import resolve_executable, runtime_argv
 from .github import Item, links_issue
@@ -24,10 +24,11 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, trusted_actors=()):
+    def __init__(self, github, actor, clock=timestamp, trusted_actors=(), queue=Queue()):
         self.github = github
         self.actor = actor
         self.clock = clock
+        self.queue = queue
         self.trusted_actors = {login.casefold() for login in (*trusted_actors, actor)}
 
     def history(self, number):
@@ -276,7 +277,8 @@ class Coordinator:
         if fresh.state != ("recover" if recovery else "ready") or (not recovery and
                 (fresh.runtime != plan.runtime or fresh.resume_pr != plan.resume_pr)):
             return None
-        if not recovery and current.kind == "issue" and fresh.resume_pr is None:
+        if (self.queue.milestones == "gate" and not recovery
+                and current.kind == "issue" and fresh.resume_pr is None):
             active_milestone = self.github.active_milestone()
             if active_milestone is not None and current.milestone != active_milestone:
                 return None

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from ub_agents.cli import main
-from ub_agents.config import load_config
+from ub_agents.config import Priority, Queue, load_config
 from ub_agents.errors import AgentError
 
 
@@ -95,7 +95,61 @@ stop-labels: []
             self.assertIn('--outcome', instructions)
             self.assertIn('Do not change workflow labels', instructions)
             self.assertNotIn('--status success', instructions)
+        self.assertIn("queue:\n  milestones: ignore\n", original)
+        self.assertEqual(load_config(self.path).queue, Queue())
         self.assertIn(".ub-agent/", (self.root / ".gitignore").read_text())
+
+    def test_queue_defaults_and_configured_priority(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        for extra in ("", "queue: {}\n", "queue:\n  milestones: ignore\n"):
+            with self.subTest(extra=extra):
+                self.assertEqual(self.load(base + extra).queue, Queue())
+        self.assertEqual(self.load(base + "queue:\n  milestones: gate\n").queue, Queue("gate"))
+        extra = "queue:\n  priority:\n    labels: [urgent, normal, low]\n"
+        self.assertEqual(self.load(base + extra).queue.priority, Priority(("urgent", "normal", "low")))
+        self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
+
+    def test_queue_validation_through_check(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        for extra in ("queue: null", "queue: []", "queue:\n  unknown: true",
+                      "queue:\n  milestones: oldest", "queue:\n  milestones: null",
+                      "queue:\n  milestones: []", "queue:\n  milestones: false",
+                      "queue:\n  priority: null", "queue:\n  priority: []",
+                      "queue:\n  priority:\n    unknown: true",
+                      "queue:\n  priority: {}", "queue:\n  priority:\n    labels: []",
+                      "queue:\n  priority:\n    labels: normal",
+                      "queue:\n  priority:\n    labels: [normal, normal]",
+                      "queue:\n  priority:\n    labels: ['']",
+                      "queue:\n  priority:\n    labels: ['   ']",
+                      "queue:\n  priority:\n    labels: [null]",
+                      "queue:\n  priority:\n    labels: [normal]\n    default: low",
+                      "queue:\n  priority:\n    labels: [normal]\n    default: null"):
+            with self.subTest(extra=extra):
+                self.path.write_text(base + extra + "\n")
+                with self.assertRaises(AgentError):
+                    load_config(self.path)
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+
+    def test_queue_and_outcomes_can_be_configured_together(self):
+        configured = self.load('''repository: org/project
+queue:
+  milestones: gate
+  priority:
+    labels: [urgent, normal]
+    default: normal
+agents:
+  task:
+    command: [echo]
+    trigger: ready
+    outcomes:
+      handed-off: {add: [needs-review], remove: [old]}
+''')
+        self.assertEqual(configured.queue, Queue("gate", Priority(("urgent", "normal"), "normal")))
+        self.assertEqual(configured.agents[0].outcomes,
+                         {"handed-off": {"add": ("needs-review",), "remove": ("old",)}})
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["--config", str(self.path), "check"]), 0)
 
     def test_operator_allowlist_is_explicit_and_strict(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"

@@ -422,7 +422,8 @@ class CoordinationTests(unittest.TestCase):
         self.assertNotIn("summary", written)
         self.assertIn("Result: blocked; reported in the outcome.", comment)
         self.github.change(1, labels=frozenset())
-        self.assertIn("Last run blocked: Need a decision", loop.plans()[0].reason)
+        plan = next(p for p in loop.plans() if p.item.number == 1)
+        self.assertIn("Last run blocked: Need a decision", plan.reason)
 
     def test_expired_unlabelled_run_without_outcome_is_visible_for_operator_attention(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
@@ -430,7 +431,7 @@ class CoordinationTests(unittest.TestCase):
         self.start()
         self.github.change(1, labels=frozenset())
         self.now += 61
-        plan = loop.plans()[0]
+        plan = next(p for p in loop.plans() if p.item.number == 1)
         self.assertEqual(plan.state, "blocked")
         self.assertIn("no outcome", plan.reason)
 
