@@ -1,0 +1,8 @@
+# In this repository `ub-agent` runs this checkout's code, never an installed
+# release. Run `mise run setup` once: .venv holds an editable install.
+[env]
+_.python.venv = ".venv"
+
+[tasks.setup]
+description = "Install this checkout into .venv in editable mode"
+run = "python3 -m venv .venv && .venv/bin/python -m pip install -q -e ."
