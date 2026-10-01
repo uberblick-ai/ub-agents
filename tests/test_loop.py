@@ -323,6 +323,57 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(execute.call_args.args[0].item.number, 5)
         self.assertIsNotNone(self.loop.coordinator.claim(execute.call_args.args[0]))
 
+    def test_default_queue_is_fifo_with_number_ties_for_both_work_classes(self):
+        self.loop = Loop(config(self.root, self.implementer), self.github,
+                         "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready",), iso(300)), issue(8, ("ready",), iso(100)),
+                 issue(9, ("ready",), iso(100)),
+                 replace(pr(2), created_at=iso(300)),
+                 replace(pr(3), created_at=iso(100)),
+                 replace(pr(4), created_at=iso(100)))
+        self.assertEqual(self.ready("implementer"), [3, 4, 2, 8, 9, 1])
+        self.assertTrue(all(row["priority"] is None for row in status_rows(self.loop)))
+
+    def test_priority_does_not_bypass_stop_labels_backoff_or_attempt_limits(self):
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue(priority=Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent")), issue(2, ("ready", "low")))
+        co = self.loop.coordinator
+        now = timestamp()
+        co.clock = lambda: now
+        old = co.claim(co.plan(self.github.item(1), self.implementer, ()))
+        co.update(old, state="running", started=True)
+        co.release(old, "retry", "Retry later", 60)
+        self.assertEqual(self.ready("implementer"), [2])
+        self.assertEqual(self.loop.plans()[0].state, "backoff")
+        now += 61
+        self.github.change(1, labels=frozenset({"ready", "urgent", "needs-human"}))
+        self.assertEqual(self.ready("implementer"), [2])
+        self.assertEqual(self.loop.plans()[0].state, "parked")
+        self.github.change(1, labels=frozenset({"ready", "urgent"}))
+        worker = replace(self.implementer, max_attempts=1)
+        limited = Loop(config(self.root, worker, queue=self.loop.config.queue),
+                       self.github, "operator", output=lambda *_: None)
+        limited.coordinator.clock = lambda: now
+        self.assertEqual(limited.plans()[0].state, "blocked")
+        self.assertIn("Attempt limit", limited.plans()[0].reason)
+        with patch.object(limited, "execute", return_value=True) as execute:
+            self.assertTrue(limited.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 2)
+
+    def test_priority_never_allows_later_or_unmilestoned_issue_to_start(self):
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue("gate", Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent"), iso(1), 20),
+                 issue(2, ("ready", "urgent"), iso(2)),
+                 issue(3, ("ready", "low"), iso(300), 10))
+        self.assertEqual(self.ready("implementer"), [3])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 3)
+
     def test_agents_on_same_item_keep_yaml_order(self):
         self.add(issue(30, ("prepare", "ready"), iso(100), 10),
                  issue(2, ("prepare", "ready"), iso(100), 10))
@@ -427,7 +478,11 @@ class QueueTests(unittest.TestCase):
             self.github.change(number, labels=frozenset())
 
     def test_recovery_outside_active_milestone_runs_without_execution(self):
-        self.add(issue(1, (), milestone=10), issue(2, ("ready",), milestone=20))
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue("gate", Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent"), iso(1), 10),
+                 issue(2, ("ready", "low"), iso(300), 20))
         co = self.loop.coordinator
         now = timestamp()
         co.clock = lambda: now
@@ -439,8 +494,14 @@ class QueueTests(unittest.TestCase):
         self.github.milestones[1]["state"] = "open"
         self.github.change(2, labels=frozenset())
         co.report(lease, "success", "Existing work completed")
-        self.assertEqual(next(p for p in self.loop.plans() if p.item.number == 2).state, "owned")
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(2, "owned"), (1, "ready")])
+        # Recovery remains ahead of a higher-priority new start after expiry,
+        # even when the old item closed and lost its trigger.
+        self.github.change(2, state="closed")
         now += 61
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(2, "recover"), (1, "ready")])
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(self.loop.tick())
         self.assertTrue(co.history(2)[1]["accepted"])
@@ -488,6 +549,25 @@ class QueueTests(unittest.TestCase):
                 self.assertEqual((lease["resume_pr"], lease["resume_sha"], lease["branch"]),
                                  (2, "a" * 40, "feature/test"))
                 self.loop.coordinator.assert_owned(lease)
+
+    def test_draft_resume_runs_before_higher_priority_new_issue(self):
+        self.checkpoint(20)
+        self.github.change(1, labels=frozenset({"prepare", "ready", "low"}))
+        self.add(issue(4, ("prepare", "ready", "urgent"), iso(1), 10))
+        self.loop = Loop(config(self.root, self.preparer, self.implementer,
+                                queue=Queue("gate", Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.assertEqual(self.ready("implementer"), [1, 4])
+        self.assertEqual(self.ready("preparer"), [4])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        plan = execute.call_args.args[0]
+        self.assertEqual((plan.item.number, plan.resume_pr.number), (1, 2))
+        # Once the plan is known to resume, neither claim nor recovery rechecks
+        # milestones; only fresh issue starts do.
+        with patch.object(self.github, "active_milestone",
+                          side_effect=AssertionError("resume is ungated")):
+            self.assertIsNotNone(self.loop.coordinator.claim(plan))
 
     def test_retry_without_open_checkpoint_remains_milestone_gated(self):
         self.checkpoint(20)
