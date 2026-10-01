@@ -163,10 +163,12 @@ class InitTests(unittest.TestCase):
                 self.assertEqual(self.github.writes, [])
 
     def test_matching_commented_permissions_for_each_runtime(self):
-        for runtime, expected in (
-            ('codex:model:high', ['--sandbox', 'danger-full-access']),
+        for runtime, expected, grant in (
+            ('codex:model:high', ['--sandbox', 'danger-full-access'],
+             'Grants full access without the Codex sandbox'),
             ('claude:model:high', ['--permission-mode', 'acceptEdits', '--permission-prompts', 'none',
-                                   '--allowedTools', 'Bash(git *)', 'Bash(gh *)', 'Bash(ub-agent *)'])):
+                                   '--allowedTools', 'Bash(git *)', 'Bash(gh *)', 'Bash(ub-agent *)'],
+             'Grants unattended edits and git/gh/report commands')):
             with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'ub-agent.yaml'
                 self.assertEqual(self.init(runtime=runtime)[0], 0)
@@ -174,7 +176,11 @@ class InitTests(unittest.TestCase):
                 self.assertTrue(all(not agent.runtime_args for agent in config.agents))
                 text = self.path.read_text()
                 self.assertEqual(text.count('# runtime-args:'), 4)
-                self.assertEqual(text.count('applies to every runtime alternative:'), 4)
+                comment = (f'# {grant}; applies to every runtime alternative: '
+                           'https://github.com/uberblick-ai/ub-agents/blob/main/docs/'
+                           'configuration.md#runtime-permissions')
+                for agent_text in text.split('\n    runtime: ')[1:]:
+                    self.assertIn(comment + '\n    # runtime-args:', agent_text)
                 enabled = yaml.safe_load(text.replace('# runtime-args:', 'runtime-args:'))
                 for agent in enabled['agents'].values():
                     self.assertEqual(agent['runtime-args'], expected)

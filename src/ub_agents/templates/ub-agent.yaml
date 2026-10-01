@@ -7,7 +7,7 @@ queue:
 agents:
   issue-preparer:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants unattended edits and git/gh/report commands; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
+    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
     # runtime-args: [--sandbox, danger-full-access]
     kind: issue
     trigger: needs-preparation
@@ -19,7 +19,7 @@ agents:
 
   implementer:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants unattended edits and git/gh/report commands; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
+    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
     # runtime-args: [--sandbox, danger-full-access]
     trigger: [ready, needs-changes]
     outcomes:
@@ -30,7 +30,7 @@ agents:
 
   reviewer:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants unattended edits and git/gh/report commands; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
+    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
     # runtime-args: [--sandbox, danger-full-access]
     kind: pr
     trigger: needs-review
@@ -47,7 +47,7 @@ agents:
 
   integrator:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants unattended edits and git/gh/report commands; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
+    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
     # runtime-args: [--sandbox, danger-full-access]
     kind: pr
     trigger: ready-to-merge

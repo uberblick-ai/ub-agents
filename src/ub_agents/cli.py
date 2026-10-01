@@ -71,7 +71,9 @@ def init_project(args):
         targets[config_path] = targets[config_path].replace(
             "[--sandbox, danger-full-access]",
             '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
-            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agent *)"]')
+            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agent *)"]').replace(
+            "Grants full access without the Codex sandbox",
+            "Grants unattended edits and git/gh/report commands")
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
         targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
     existing = [str(p) for p in targets if p.exists()]
