@@ -1,5 +1,7 @@
 # Project-owned starter. Customize models, checks, instructions, and merge authority.
 repository: your-org/your-project
+queue:
+  milestones: ignore
 
 agents:
   issue-preparer:
