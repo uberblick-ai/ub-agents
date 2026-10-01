@@ -7,7 +7,9 @@ import subprocess
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError
-from .records import iso, seconds, timestamp
+from .records import iso, positive_int, seconds, timestamp
+
+REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
 
 
 @dataclass(frozen=True)
@@ -45,10 +47,8 @@ def links_issue(pr, repository, number):
 def closing_issues(pr, repository):
     """Local closing references, requiring a supported keyword for each issue."""
     pattern = (r"\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?):?\s+"
-               r"(?:(?P<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#"
-               r"(?P<number>[1-9][0-9]*)\b|https://github\.com/"
-               r"(?P<url_repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/"
-               r"(?P<url_number>[1-9][0-9]*)\b)")
+               rf"(?:(?P<repo>{REPOSITORY})?#(?P<number>[1-9][0-9]*)\b"
+               rf"|https://github\.com/(?P<url_repo>{REPOSITORY})/issues/(?P<url_number>[1-9][0-9]*)\b)")
     return {int(match["number"] or match["url_number"])
             for match in re.finditer(pattern, pr.body, re.IGNORECASE)
             if (match["repo"] or match["url_repo"] or repository).casefold() == repository.casefold()}
@@ -70,12 +70,12 @@ def parse_item(data, kind):
     try:
         seconds(data["created_at"])
         milestone = data["milestone"]["number"] if data.get("milestone") is not None else None
-        if (type(data["number"]) is not int or data["number"] < 1
+        if (not positive_int(data["number"])
                 or not isinstance(data["title"], str)
                 or not isinstance(data.get("body") or "", str)
                 or data["state"] not in {"open", "closed"}
                 or not isinstance(data["labels"], list)
-                or (milestone is not None and (type(milestone) is not int or milestone < 1))):
+                or (milestone is not None and not positive_int(milestone))):
             raise ValueError("invalid work item fields")
         if kind == "pr" and type(data["draft"]) is not bool:
             raise ValueError("invalid PR draft field")
@@ -181,8 +181,7 @@ class GitHub:
         for raw in data:
             try:
                 created = seconds(raw["created_at"])
-                if (type(raw["number"]) is not int or raw["number"] < 1
-                        or raw["state"] not in {"open", "closed"}
+                if (not positive_int(raw["number"]) or raw["state"] not in {"open", "closed"}
                         or type(raw["open_issues"]) is not int or raw["open_issues"] < 0):
                     raise ValueError("invalid milestone fields")
                 # GitHub's milestone count includes open issues and pull requests.
@@ -199,10 +198,9 @@ class GitHub:
         blockers = []
         for raw in data:
             try:
-                match = re.fullmatch(
-                    r"https://api\.github\.com/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)",
-                    raw["url"])
-                if (type(raw["number"]) is not int or raw["number"] < 1
+                match = re.fullmatch(rf"https://api\.github\.com/repos/({REPOSITORY})/issues/([1-9][0-9]*)",
+                                     raw["url"])
+                if (not positive_int(raw["number"])
                         or raw["state"] not in {"open", "closed"} or match is None
                         or int(match[2]) != raw["number"] or "pull_request" in raw):
                     raise ValueError("invalid dependency fields")

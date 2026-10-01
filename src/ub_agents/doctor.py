@@ -13,7 +13,7 @@ import sys
 from .config import load_config
 from .errors import AgentError
 from .execution import parse_process_table, repository_checks
-from .github import GitHub
+from .github import REPOSITORY, GitHub
 from .labels import configured_labels
 
 
@@ -180,7 +180,7 @@ class Doctor:
         try:
             raw = github.request(f"repos/{config.repository}")
             name = raw.get("full_name")
-            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", name):
+            if not isinstance(name, str) or not re.fullmatch(REPOSITORY, name):
                 raise AgentError("no repository name")
             if name.casefold() != config.repository.casefold():
                 self.add("github-repository", "fail", f"configured {config.repository}, GitHub returned {name}",

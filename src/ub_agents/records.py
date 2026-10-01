@@ -8,6 +8,20 @@ from .errors import AgentError, RecordError
 MARKER = "<!-- ub-agent:v1 -->"
 LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
 OUTCOMES = {"success", "retry", "blocked"}
+# Fields that tie an outcome, a recovery or a contender to the run that owns it.
+PROVENANCE = ("run", "agent", "actor", "runtime", "assignment", "assignment_sha")
+
+
+def same_run(record, lease):
+    return all(record.get(k) == lease.get(k) for k in PROVENANCE)
+
+
+def lease_by_id(history, lease_id):
+    return next((r for r in history if r["kind"] == "lease" and r["id"] == lease_id), None)
+
+
+def positive_int(value):
+    return type(value) is int and value >= 1
 
 
 def timestamp():
@@ -122,7 +136,7 @@ def validate(record):
     for field in ("run", "agent", "actor", "runtime", "created"):
         if not isinstance(record.get(field), str) or not record[field]:
             raise ValueError(f"missing {field}")
-    if type(record.get("assignment")) is not int or record["assignment"] < 1:
+    if not positive_int(record.get("assignment")):
         raise ValueError("invalid assignment")
     for field in ("assignment_sha", "candidate_sha"):
         value = record.get(field)
@@ -132,7 +146,7 @@ def validate(record):
     if record.get("kind") == "lease":
         if record.get("state") not in LEASE_STATES:
             raise ValueError("invalid lease state")
-        if type(record.get("attempt")) is not int or record["attempt"] < 1:
+        if not positive_int(record.get("attempt")):
             raise ValueError("invalid attempt")
         if type(record.get("started")) is not bool:
             raise ValueError("invalid started flag")
@@ -163,7 +177,7 @@ def validate(record):
             raise ValueError("invalid rejected outcome")
         if "transition" in record:
             validate_transition(record["transition"], started=True)
-        if record.get("handoff") is not None and (type(record["handoff"]) is not int or record["handoff"] < 1):
+        if record.get("handoff") is not None and not positive_int(record["handoff"]):
             raise ValueError("invalid handoff")
     elif record.get("kind") == "reset":
         if not isinstance(record.get("summary"), str) or not record["summary"].strip():

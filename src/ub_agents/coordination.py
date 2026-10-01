@@ -7,8 +7,8 @@ import uuid
 from .config import Agent, Queue, Runtime
 from .errors import AgentError, LostOwnership, RecordError
 from .github import Item
-from .records import (MARKER, attempts, body, iso, latest_leases, live_leases,
-                      own_comment, payload, records, seconds, timestamp)
+from .records import (MARKER, attempts, body, iso, latest_leases, lease_by_id, live_leases,
+                      own_comment, payload, records, same_run, seconds, timestamp)
 
 
 @dataclass(frozen=True)
@@ -103,9 +103,8 @@ class Coordinator:
                 raise AgentError(f"No accepted {agent.different_from} provenance for candidate {item.head}")
             source = source[-1]
             origin = self.history(source["assignment"])
-            lease = next((r for r in origin if r["kind"] == "lease" and r["id"] == source["lease_id"]), None)
-            if lease and any(lease.get(k) != source.get(k) for k in
-                             ("run", "agent", "actor", "runtime", "assignment", "assignment_sha")):
+            lease = lease_by_id(origin, source["lease_id"])
+            if lease and not same_run(source, lease):
                 raise AgentError("Candidate provenance does not match its source lease")
             if not self.released_success(origin, source):
                 raise AgentError("Candidate provenance has no successfully released source lease")
@@ -120,12 +119,11 @@ class Coordinator:
             if shutil.which(runtime.cli):
                 return runtime
         raise AgentError("No eligible runtime executable is installed")
+
     @staticmethod
     def released_success(history, outcome):
-        source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
-        if (source is None or source.get("cleanup") == "unconfirmed"
-                or any(source.get(k) != outcome.get(k) for k in
-                       ("run", "agent", "actor", "runtime", "assignment", "assignment_sha"))):
+        source = lease_by_id(history, outcome["lease_id"])
+        if source is None or source.get("cleanup") == "unconfirmed" or not same_run(outcome, source):
             return False
         return ((source["state"] == "released" and source.get("result") == "success")
                 or any(r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
@@ -139,14 +137,11 @@ class Coordinator:
         if lease["state"] not in {"running", "claiming"} or seconds(lease["expires"]) > now:
             return None
         source_id = lease.get("recovered_lease_id", lease["id"])
-        source = next((r for r in history if r["kind"] == "lease" and r["id"] == source_id), None)
+        source = lease_by_id(history, source_id)
         if source is None or source["state"] not in {"running", "claiming"} or source.get("cleanup") == "unconfirmed":
             return None
-        matches = [outcome for outcome in history
-                   if (outcome["kind"] == "outcome" and outcome["lease_id"] == source_id
-                    and all(outcome.get(k) == source.get(k) for k in
-                            ("run", "agent", "actor", "runtime", "assignment", "assignment_sha"))
-                    and seconds(outcome["created"]) <= seconds(source["expires"]))]
+        matches = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == source_id
+                   and same_run(r, source) and seconds(r["created"]) <= seconds(source["expires"])]
         if len(matches) > 1:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
         return matches[0] if matches else None
@@ -213,11 +208,7 @@ class Coordinator:
             contenders = live_leases(self.history(lease["assignment"]), self.clock())
         except AgentError as exc:
             raise LostOwnership(f"Cannot establish ownership: {exc}") from exc
-        if (not contenders or contenders[0]["id"] != lease["id"]
-                or contenders[0]["run"] != lease["run"]
-                or contenders[0]["actor"].casefold() != self.actor.casefold()
-                or any(contenders[0].get(k) != lease.get(k) for k in
-                       ("agent", "runtime", "assignment", "assignment_sha"))):
+        if not contenders or contenders[0]["id"] != lease["id"] or not same_run(contenders[0], lease):
             raise LostOwnership("Assignment ownership was lost or expired")
         return contenders[0]
 
@@ -233,10 +224,7 @@ class Coordinator:
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])
-                   if r["kind"] == "outcome" and r["run"] == lease["run"]
-                   and r["lease_id"] == lease["id"] and r["actor"] == lease["actor"]
-                   and r["assignment_sha"] == lease["assignment_sha"]
-                   and r["agent"] == lease["agent"] and r["runtime"] == lease["runtime"]]
+                   if r["kind"] == "outcome" and r["lease_id"] == lease["id"] and same_run(r, lease)]
         if len(matches) > 1:
             raise RecordError("Run reported conflicting outcomes")
         return matches[0] if matches else None

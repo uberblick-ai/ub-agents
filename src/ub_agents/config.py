@@ -8,6 +8,7 @@ import re
 import yaml
 
 from .errors import AgentError
+from .github import REPOSITORY
 
 
 class UniqueLoader(yaml.SafeLoader):
@@ -170,7 +171,7 @@ def load_config(path):
             raise AgentError("queue priority default must be one of labels")
         priority = Priority(labels, default)
     repo = string(data.get("repository"), "repository")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+    if not re.fullmatch(REPOSITORY, repo):
         raise AgentError("repository must be owner/name")
     limits = DEFAULTS | mapping(data.get("limits", {}), CLOCKS, "limits")
     definitions = data.get("agents")

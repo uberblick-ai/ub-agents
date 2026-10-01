@@ -10,7 +10,12 @@ from .dependencies import Dependencies
 from .errors import AgentError, CleanupError, LostOwnership, RecordError, ValidationError
 from .execution import Workspace, command_for, supervise
 from .github import closing_issues, links_issue
-from .records import attempts, iso, latest_leases, lease_summary, seconds, timestamp
+from .records import attempts, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
+
+
+def backoff(agent, attempt):
+    """Retry delay before the given attempt: the configured base, doubling, capped."""
+    return min(agent.max_backoff_seconds, agent.backoff_seconds * 2 ** min(attempt - 1, 32))
 
 
 class Loop:
@@ -188,31 +193,10 @@ class Loop:
                         "UB_AGENT_CONTEXT": str(context_path),
                         "UB_AGENT_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
-            instructions = self.instructions[plan.agent.name]
-            workflow_labels = set(self.config.stop_labels)
-            for configured in self.config.agents:
-                workflow_labels.update(configured.triggers)
-                for changes in configured.outcomes.values():
-                    workflow_labels.update(changes["add"])
-                    workflow_labels.update(changes["remove"])
-            reporting = (f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
-                         "Report one with ub-agent report --outcome NAME --summary 'what happened' "
-                         "[--handoff PR_NUMBER]. Do not change workflow labels "
-                         f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
-                         "Use --status retry|blocked for failures; those change no labels. ")
-            prompt = (f"You are the project-configured agent {plan.agent.name}.\n"
-                      f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
-                      f"Project instructions:\n{instructions}\n\n"
-                      "Read shared repository guidance and the original issue requirements, acceptance "
-                      "criteria, current code/diff, and candidate-specific checks on GitHub. "
-                      "Use a fresh session; do not consume implementation reasoning transcripts. "
-                      "Apply only project-authorized handoffs and permissions. "
-                      f"{reporting}"
-                      "Issue-to-PR handoffs must link the issue in the PR body. "
-                      "For candidate acceptance, results and checks must name the assigned SHA.\n")
             diagnostic("started", cwd=str(cwd))
             code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
-                             plan.agent.timeout_seconds, self.stop_event, prompt if plan.runtime else None)
+                             plan.agent.timeout_seconds, self.stop_event,
+                             self.prompt_for(plan, lease, context) if plan.runtime else None)
             # No acceptance or release until all attributable execution has ended.
             workspace.cleanup()
             self.coordinator.assert_owned(lease)
@@ -226,18 +210,10 @@ class Loop:
                 result, summary = "blocked", f"Success report conflicts with execution exit {code}"
             else:
                 try:
-                    self.validate_success(plan, outcome)
-                    self.apply_transition(lease, outcome)
-                except ValidationError as exc:
+                    self.finalize(lease, plan, outcome, "completion")
+                except ValidationError:
                     result = "blocked"
-                    self.coordinator.update_outcome(lease, outcome, rejected=str(exc))
                     raise
-                except (AgentError, OSError) as exc:
-                    raise LostOwnership(f"Cannot observe completion; leave expiry recovery: {exc}") from exc
-                try:
-                    self.coordinator.accept(lease, outcome)
-                except AgentError as exc:
-                    raise LostOwnership(f"Cannot finalize durable outcome; leave expiry recovery: {exc}") from exc
                 result, summary = "success", outcome["summary"]
         except CleanupError as exc:
             record_uncertainty(exc)
@@ -259,8 +235,7 @@ class Loop:
         except (AgentError, OSError) as exc:
             summary = str(exc)
             cleanup_workspace()
-        delay = min(plan.agent.max_backoff_seconds,
-                    plan.agent.backoff_seconds * (2 ** min(lease["attempt"] - 1, 32))) if result == "retry" else 0
+        delay = backoff(plan.agent, lease["attempt"]) if result == "retry" else 0
         # Framework failures are themselves explicit durable outcomes. If GitHub is
         # unreadable, this fails closed and the last lease expires without a lie.
         if outcome is None:
@@ -275,6 +250,52 @@ class Loop:
         if interrupted:
             raise KeyboardInterrupt
         return True
+
+    def prompt_for(self, plan, lease, context):
+        workflow_labels = set(self.config.stop_labels)
+        for configured in self.config.agents:
+            workflow_labels.update(configured.triggers)
+            for changes in configured.outcomes.values():
+                workflow_labels.update(changes["add"])
+                workflow_labels.update(changes["remove"])
+        return (f"You are the project-configured agent {plan.agent.name}.\n"
+                f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
+                f"Project instructions:\n{self.instructions[plan.agent.name]}\n\n"
+                "Read shared repository guidance and the original issue requirements, acceptance "
+                "criteria, current code/diff, and candidate-specific checks on GitHub. "
+                "Use a fresh session; do not consume implementation reasoning transcripts. "
+                "Apply only project-authorized handoffs and permissions. "
+                f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
+                "Report one with ub-agent report --outcome NAME --summary 'what happened' "
+                "[--handoff PR_NUMBER]. Do not change workflow labels "
+                f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
+                "Use --status retry|blocked for failures; those change no labels. "
+                "Issue-to-PR handoffs must link the issue in the PR body. "
+                "For candidate acceptance, results and checks must name the assigned SHA.\n")
+
+    def finalize(self, lease, plan, outcome, what):
+        """Validate a success report, apply its transition and accept it.
+
+        A rejected report is recorded on the outcome and raised as ValidationError.
+        A GitHub read or write failure becomes LostOwnership, so expiry recovery
+        finishes the job instead of this run guessing."""
+        try:
+            if outcome.get("transition", {}).get("started"):
+                # Start is durable proof that success validation passed. A later
+                # head or link edit cannot strand already-applied changes.
+                self.validate_report(outcome)
+            else:
+                self.validate_success(plan, outcome)
+            self.apply_transition(lease, outcome)
+        except ValidationError as exc:
+            self.coordinator.update_outcome(lease, outcome, rejected=str(exc))
+            raise
+        except (AgentError, OSError) as exc:
+            raise LostOwnership(f"Cannot observe {what}; leave expiry recovery: {exc}") from exc
+        try:
+            self.coordinator.accept(lease, outcome)
+        except AgentError as exc:
+            raise LostOwnership(f"Cannot finalize {what}; leave expiry recovery: {exc}") from exc
 
     def validate_success(self, plan, outcome):
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -295,7 +316,7 @@ class Loop:
         if outcome.get("rejected"):
             raise ValidationError(outcome["rejected"])
         history = self.coordinator.history(outcome["assignment"])
-        source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
+        source = lease_by_id(history, outcome["lease_id"])
         declarations = source.get("outcomes", {}) if source else {}
         transition = outcome.get("transition")
         name = outcome.get("outcome")
@@ -344,33 +365,17 @@ class Loop:
             return False
         result, summary = outcome["status"], outcome["summary"]
         if result == "success":
-            from dataclasses import replace
-            original = replace(plan.item, head=outcome["assignment_sha"])
+            # Validate against the originally assigned candidate, not today's head.
+            original = replace(plan, item=replace(plan.item, head=outcome["assignment_sha"]))
             try:
-                if outcome.get("transition", {}).get("started"):
-                    # Start is durable proof that success validation passed. A
-                    # later head/link edit cannot strand already-applied changes;
-                    # finish the intent while preserving the original provenance.
-                    self.validate_report(outcome)
-                else:
-                    self.validate_success(replace(plan, item=original), outcome)
-                self.apply_transition(recovery, outcome)
+                self.finalize(recovery, original, outcome, "recovered completion")
             except ValidationError as exc:
-                self.coordinator.update_outcome(recovery, outcome, rejected=str(exc))
                 result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
-            except AgentError as exc:
-                raise LostOwnership(f"Cannot observe recovered completion; leave expiry recovery: {exc}") from exc
-            else:
-                try:
-                    self.coordinator.accept(recovery, outcome)
-                except AgentError as exc:
-                    raise LostOwnership(f"Cannot finalize recovered outcome; leave expiry recovery: {exc}") from exc
         self.coordinator.update(recovery, recovered_run=outcome["run"],
                                 recovered_lease_id=outcome["lease_id"])
         self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
         # Expiry permits recovery; it is not positive proof of the old process's death.
-        delay = min(plan.agent.max_backoff_seconds, plan.agent.backoff_seconds
-                    * (2 ** min(max(0, plan.attempt - 2), 32))) if result == "retry" else 0
+        delay = backoff(plan.agent, max(1, plan.attempt - 1)) if result == "retry" else 0
         self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
