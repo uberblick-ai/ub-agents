@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import re
 import subprocess
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -22,6 +23,14 @@ class Item:
     head: str | None = None
     branch: str | None = None
     milestone: int | None = None
+    draft: bool = False
+    head_repository: str | None = None
+    merged: bool = False
+
+
+def links_issue(pr, repository, number):
+    link = f"https://github.com/{repository}/issues/{number}"
+    return bool(re.search(rf"(?<![\w/])#{number}\b", pr.body) or link in pr.body)
 
 
 def parse_item(data, kind):
@@ -36,12 +45,17 @@ def parse_item(data, kind):
                 or not isinstance(data["labels"], list)
                 or (milestone is not None and (type(milestone) is not int or milestone < 1))):
             raise ValueError("invalid work item fields")
+        if kind == "pr" and type(data["draft"]) is not bool:
+            raise ValueError("invalid PR draft field")
         return Item(data["number"], kind, data["title"], data.get("body") or "",
                     frozenset(x["name"] for x in data["labels"]), data["state"],
                     data["user"]["login"], data["created_at"],
                     data["head"]["sha"] if kind == "pr" else None,
-                    data["head"]["ref"] if kind == "pr" else None, milestone)
-    except (KeyError, TypeError, ValueError) as exc:
+                    data["head"]["ref"] if kind == "pr" else None, milestone,
+                    data["draft"] if kind == "pr" else False,
+                    (data["head"].get("repo") or {}).get("full_name") if kind == "pr" else None,
+                    data.get("merged_at") is not None if kind == "pr" else False)
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise AgentError("Unreadable GitHub work item") from exc
 
 

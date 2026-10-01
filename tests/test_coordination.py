@@ -173,12 +173,220 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual((self.plan().state, self.plan().attempt), ("ready", 1))
         self.assertEqual(len(self.co.history(1)), 2)
 
+    def test_unsafe_retry_checks_all_prior_branches_even_before_reset_without_execution(self):
+        for result in ("expired", "retry", "blocked"):
+            for reset in (False, True):
+                for draft in (False, True):
+                    with self.subTest(result=result, reset=reset, draft=draft):
+                        self.github = FakeGitHub(issue(), pr(labels=(), draft=draft))
+                        self.co = Coordinator(self.github, "operator", lambda: self.now)
+                        oldest = self.start()
+                        self.co.update(oldest, branch="oldest/checkpoint")
+                        self.co.release(oldest, "retry", "Interrupted")
+                        newer = self.start()
+                        self.co.update(newer, branch="newer/no-pr")
+                        if result == "expired":
+                            self.now += 61
+                        else:
+                            self.co.release(newer, result, "Interrupted")
+                        if reset:
+                            self.github.create_comment(1, body({
+                                "kind": "reset", "run": "operator-reset", "agent": self.agent.name,
+                                "actor": "operator", "runtime": "operator", "created": iso(self.now),
+                                "assignment": 1, "summary": "Inspect retry after interruption"}))
+                        # The PR is on the oldest branch, not the latest lease's,
+                        # and its body does not link the issue: discovery uses head.
+                        self.github.change(2, branch="oldest/checkpoint", body="Checkpoint")
+                        loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
+                        loop.coordinator = self.co
+                        writes = list(self.github.writes)
+                        plan = loop.plans()[0]
+                        self.assertEqual(plan.state, "blocked")
+                        self.assertIn("#2", plan.reason)
+                        self.assertIn("continue the existing PR manually", plan.reason)
+                        self.assertIn("close it before ub-agent retry --number 1 --agent worker", plan.reason)
+                        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not duplicate PR")):
+                            self.assertFalse(loop.tick())
+                        self.assertIsNone(self.co.claim(plan))
+                        self.assertEqual(self.github.writes, writes)
+                        self.assertEqual(set(self.github.items), {1, 2})
+
+    def test_retry_resumes_historical_draft_with_normal_budget_backoff_and_reset_gates(self):
+        for result in ("expired", "retry", "blocked"):
+            for reset in (False, True):
+                with self.subTest(result=result, reset=reset):
+                    self.github = FakeGitHub(issue(), pr(labels=(), draft=True))
+                    self.co = Coordinator(self.github, "operator", lambda: self.now)
+                    worker = replace(self.agent, worktree=True)
+                    old = self.start(agent=worker)
+                    self.co.update(old, branch="feature/test")
+                    self.co.release(old, "retry", "Interrupted")
+                    # Discover an older checkpoint even after a newer run/reset.
+                    self.github.change(2, state="closed")
+                    newer = self.start(agent=worker)
+                    self.co.update(newer, branch="newer/no-pr")
+                    if result == "expired":
+                        self.now += 61
+                    else:
+                        self.co.release(newer, result, "Interrupted", 10 if result == "retry" else 0)
+                    self.github.change(2, state="open")
+                    if reset:
+                        self.github.create_comment(1, body({
+                            "kind": "reset", "run": "reset", "agent": worker.name,
+                            "actor": "operator", "runtime": "operator", "created": iso(self.now),
+                            "assignment": 1, "summary": "Decision settled"}))
+                    plan = self.plan(agent=worker)
+                    expected = "ready" if reset or result == "expired" else (
+                        "blocked" if result == "blocked" else "backoff")
+                    self.assertEqual(plan.state, expected)
+                    self.assertEqual(plan.attempt, 1 if reset else 3)
+                    if expected != "ready":
+                        self.assertIsNone(self.co.claim(plan))
+                        continue
+                    self.assertEqual(plan.resume_pr.number, 2)
+                    lease = self.co.claim(plan)
+                    self.assertEqual((lease["assignment"], lease["resume_pr"], lease["branch"], lease["resume_sha"]),
+                                     (1, 2, "feature/test", "a" * 40))
+                    self.assertIsNone(lease["assignment_sha"])
+                    self.assertEqual(self.plan(self.github.item(2)).state, "blocked")
+                    self.co.assert_owned(lease)
+                    self.assertEqual(set(self.github.items), {1, 2})
+
+    def test_resume_blocks_unsafe_prs_and_rechecks_changed_head_before_claim(self):
+        worker = replace(self.agent, worktree=True)
+        old = self.start(agent=worker)
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, labels=frozenset(), draft=True)
+        ready = self.plan(agent=worker)
+        self.assertEqual(ready.state, "ready")
+        for change in ({"body": "No link"}, {"head_repository": "fork/project"},
+                       {"head_repository": None}, {"draft": False}, {"merged": True}):
+            with self.subTest(change=change):
+                self.github.items[2] = replace(ready.resume_pr, **change)
+                blocked = self.plan(agent=worker)
+                self.assertEqual(blocked.state, "blocked")
+                self.assertIn("#2", blocked.reason)
+                self.assertIsNone(self.co.claim(ready))
+        self.github.items[2] = replace(ready.resume_pr, head="b" * 40)
+        writes = list(self.github.writes)
+        self.assertIsNone(self.co.claim(ready))
+        self.assertEqual(self.github.writes, writes)
+        self.assertEqual(self.plan(agent=worker).resume_pr.head, "b" * 40)
+        self.github.items[3] = replace(ready.resume_pr, number=3)
+        self.assertIn("multiple open PRs", self.plan(agent=worker).reason)
+
+    def test_resume_excludes_active_pr_run_and_pending_recovery_or_cleanup(self):
+        worker = replace(self.agent, worktree=True)
+        old = self.start(agent=worker)
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, draft=True)
+        revision = self.start(self.github.item(2))
+        self.assertIn("conflicting live ownership", self.plan(agent=worker).reason)
+        self.co.report(revision, "blocked", "Parked")
+        self.now += 61
+        self.assertIn("awaiting recovery", self.plan(agent=worker).reason)
+        self.co.update(revision, cleanup="unconfirmed")
+        self.assertIn("cleanup is unconfirmed", self.plan(agent=worker).reason)
+
+    def test_pr_and_resume_claim_race_elects_one_checkpoint_owner(self):
+        worker = replace(self.agent, worktree=True)
+        old = self.start(agent=worker)
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, draft=True)
+        issue_plan = self.plan(agent=worker)
+        pr_plan = self.plan(self.github.item(2))
+        self.github.claim_barrier = threading.Barrier(2)
+        # Both plans reobserve before either publishes its tentative claim.
+        barrier = threading.Barrier(2)
+        original = self.co.plan
+        def synchronized(*args, **kwargs):
+            plan = original(*args, **kwargs)
+            barrier.wait(timeout=5)
+            return plan
+        with patch.object(self.co, "plan", side_effect=synchronized), ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(self.co.claim, [issue_plan, pr_plan]))
+        self.assertEqual(sum(r is not None for r in results), 1)
+        winner = next(r for r in results if r)
+        self.co.assert_owned(winner)
+
+    def test_reuse_does_not_bypass_attempt_limit_or_failed_ownership_reads(self):
+        worker = replace(self.agent, worktree=True, max_attempts=1)
+        old = self.start(agent=worker)
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, draft=True)
+        self.assertIn("Attempt limit", self.plan(agent=worker).reason)
+        with patch.object(self.github, "repository_comments", side_effect=AgentError("GitHub unavailable")), \
+                self.assertRaisesRegex(AgentError, "GitHub unavailable"):
+            self.plan(agent=worker)
+
+    def test_existing_pr_guard_is_fresh_at_claim_and_clears_when_pr_closed(self):
+        lease = self.start()
+        self.co.update(lease, branch="feature/test")
+        self.co.release(lease, "retry", "Interrupted")
+        self.github.change(2, state="closed")
+        ready = self.plan()
+        self.assertEqual(ready.state, "ready")
+        self.github.change(2, state="open", draft=True)
+        writes = list(self.github.writes)
+        self.assertIsNone(self.co.claim(ready))
+        self.assertEqual(self.github.writes, writes)
+        self.github.change(2, state="closed")
+        self.assertIsNotNone(self.co.claim(self.plan()))
+
+    def test_prior_branches_are_scoped_to_same_issue_agent_and_reads_fail_closed(self):
+        other = self.start(agent=replace(self.agent, name="preparer"))
+        self.co.update(other, branch="feature/test")
+        self.co.release(other, "success", "Prepared")
+        self.assertEqual(self.plan().state, "ready")
+        lease = self.start()
+        self.co.update(lease, branch="feature/test")
+        self.co.release(lease, "retry", "Interrupted")
+        with patch.object(self.github, "prs_for_branch", side_effect=AgentError("GitHub unavailable")), \
+                self.assertRaisesRegex(AgentError, "GitHub unavailable"):
+            self.plan()
+
+    def test_checkpoint_publication_keeps_issue_owned_without_outcome(self):
+        lease = self.start()
+        self.co.update(lease, branch="feature/test")
+        self.github.change(2, labels=frozenset(), draft=True)
+        self.assertEqual(self.plan().state, "owned")
+        self.assertIsNone(self.co.outcome(lease))
+        self.assertEqual(self.github.item(1).labels, frozenset({"ready"}))
+        self.now += 10
+        self.co.renew(lease, 60)
+        self.assertEqual(self.plan().state, "owned")
+
+    def test_draft_pr_labels_still_govern_pr_kind_pickup(self):
+        self.github.change(2, draft=True)
+        self.assertEqual(self.plan(self.github.item(2)).state, "ready")
+
     def test_relative_command_is_checked_in_its_configured_cwd(self):
         script = self.root / "script"
         script.write_text("#!/bin/sh\nexit 0\n")
         script.chmod(0o755)
         configured = replace(self.agent, command=("./script",))
         self.assertEqual(self.plan(agent=configured).state, "ready")
+
+    def test_resume_selects_relative_custom_runtime_from_configured_cwd(self):
+        script = self.root / "adapter"
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+        old = self.start()
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, labels=frozenset(), draft=True)
+        runtime = Runtime("custom", "adapter", "high", "custom-provider",
+                          ("./{model}", "--effort", "{effort}"))
+        worker = replace(self.agent, worktree=True, command=(), runtimes=(runtime,))
+        plan = self.plan(agent=worker)
+        self.assertEqual((plan.state, plan.runtime, plan.resume_pr.number), ("ready", runtime, 2))
+        lease = self.co.claim(plan)
+        self.assertEqual((lease["runtime"], lease["provider"], lease["resume_pr"], lease["branch"]),
+                         (runtime.name, runtime.provider, 2, "feature/test"))
 
     def test_recovered_blocked_outcome_stays_blocked_without_reexecution(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
