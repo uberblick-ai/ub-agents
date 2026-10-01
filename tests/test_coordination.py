@@ -371,6 +371,23 @@ class CoordinationTests(unittest.TestCase):
         configured = replace(self.agent, command=("./script",))
         self.assertEqual(self.plan(agent=configured).state, "ready")
 
+    def test_resume_selects_relative_custom_runtime_from_configured_cwd(self):
+        script = self.root / "adapter"
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+        old = self.start()
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, labels=frozenset(), draft=True)
+        runtime = Runtime("custom", "adapter", "high", "custom-provider",
+                          ("./{model}", "--effort", "{effort}"))
+        worker = replace(self.agent, worktree=True, command=(), runtimes=(runtime,))
+        plan = self.plan(agent=worker)
+        self.assertEqual((plan.state, plan.runtime, plan.resume_pr.number), ("ready", runtime, 2))
+        lease = self.co.claim(plan)
+        self.assertEqual((lease["runtime"], lease["provider"], lease["resume_pr"], lease["branch"]),
+                         (runtime.name, runtime.provider, 2, "feature/test"))
+
     def test_recovered_blocked_outcome_stays_blocked_without_reexecution(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         loop.coordinator = self.co

@@ -4,19 +4,32 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import time
 
 from .errors import AgentError, CleanupError
 
 
+def resolve_executable(executable, cwd, which=None):
+    """Match runtime selection: slash paths are relative to the agent cwd."""
+    if "/" in executable:
+        path = Path(executable) if Path(executable).is_absolute() else Path(cwd) / executable
+        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
+    return (which or shutil.which)(executable)
+
+
+def runtime_argv(runtime, argv):
+    # Only these two literal substitutions are supported; never use a shell.
+    return [arg.replace("{model}", runtime.model).replace("{effort}", runtime.effort)
+            for arg in argv]
+
+
 def command_for(agent, runtime):
     if agent.command:
         return list(agent.command)
     if runtime.command:
-        # Only these two literal substitutions are supported; never use a shell.
-        command = [arg.replace("{model}", runtime.model).replace("{effort}", runtime.effort)
-                   for arg in runtime.command]
+        command = runtime_argv(runtime, runtime.command)
     elif runtime.cli == "codex":
         command = ["codex", "exec", "--model", runtime.model,
                    "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}"]
@@ -35,6 +48,27 @@ def git(root, *arguments):
     if result.returncode:
         raise AgentError(f"Git operation failed: {result.stderr.strip()}")
     return result.stdout.strip()
+
+
+def repository_checks(config, read_git=None):
+    """Shared root/remote rules; consume all results to diagnose both failures."""
+    read_git = read_git or git
+    try:
+        if Path(read_git(config.root, "rev-parse", "--show-toplevel")).resolve() != config.root:
+            raise AgentError("Configuration must be at the consuming repository root")
+        yield "repository-root", None
+    except AgentError as exc:
+        yield "repository-root", exc
+    try:
+        remote = read_git(config.root, "remote", "get-url", "origin")
+        normalized = remote.removesuffix(".git").rstrip("/")
+        if normalized not in {f"https://github.com/{config.repository}",
+                              f"git@github.com:{config.repository}",
+                              f"ssh://git@github.com/{config.repository}"}:
+            raise AgentError("origin must point to the configured GitHub repository")
+        yield "repository-remote", None
+    except AgentError as exc:
+        yield "repository-remote", exc
 
 
 class Workspace:
@@ -103,17 +137,22 @@ def group_members(group):
         raise CleanupError(f"Cannot inspect owned process group: {exc}") from exc
     if result.returncode:
         raise CleanupError(f"Cannot inspect owned process group: {result.stderr.strip()}")
-    members = []
-    for line in result.stdout.splitlines():
+    return [pid for pid, pgid, state in parse_process_table(result.stdout)
+            if pgid == group and not state.startswith("Z")]
+
+
+def parse_process_table(output):
+    """Parse the process table used by supervision and the read-only preflight."""
+    rows = []
+    for line in output.splitlines():
         fields = line.split()
         if len(fields) != 3:
             raise CleanupError("Unreadable process table")
         try:
-            if int(fields[1]) == group and not fields[2].startswith("Z"):
-                members.append(int(fields[0]))
+            rows.append((int(fields[0]), int(fields[1]), fields[2]))
         except ValueError as exc:
             raise CleanupError("Unreadable process ids") from exc
-    return members
+    return rows
 
 
 def stop_group(process, grace=2):

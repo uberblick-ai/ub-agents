@@ -43,14 +43,26 @@ environmental: state it with your results and do not change code or tests to avo
 - Read an issue's comments as well as its body (`gh issue view N --comments`).
   Maintainers often amend scope in comments.
 - Implementation PR bodies start with `Closes #N`.
-- Agents never merge, enable auto-merge, approve their own PRs, change branch
-  protection or publish releases. Maintainers merge.
+- Agents never enable auto-merge, approve their own PRs, change branch protection or
+  publish releases. Only the integrator merges, under the merge policy below.
 - Do not copy credentials, change global settings, or disable commit signing to get
   past a blocked operation. Report blocked with the evidence instead.
 
+## Merging
+
+The integrator squash-merges a PR once every owed review and check applies to its
+current head, with `--match-head-commit` set to the assigned SHA. It leaves the merge
+to a maintainer, and says why, when the PR:
+
+- changes the `ub-agent` command-line experience: adds, removes or renames commands
+  or options, or changes what existing commands do or print. A change that the
+  issue the PR closes explicitly asks for is authorized by that issue.
+- changes `README.md` or other public documentation under `docs/`, or needs such a
+  change to stay accurate.
+
 ## Changes
 
-- Keep `README.md` and `docs/coordination.md` accurate for any behavior you change,
+- Keep `README.md` and the docs under `docs/` accurate for any behavior you change,
   and change tests with the code.
 - Match the surrounding code: small modules, the standard library plus PyYAML, `gh`
   as the GitHub client, `unittest` with the recording fakes in `tests/support.py`.

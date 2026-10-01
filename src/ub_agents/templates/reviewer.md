@@ -6,9 +6,8 @@ candidate-specific check evidence. Start fresh and do not read the implementatio
 reasoning transcript. Check the current PR head against UB_AGENT_CANDIDATE_SHA
 before recording a verdict.
 
-If the assigned PR is still a draft, report blocked with that reason; the
-implementer must mark it ready before review handoff. Never add ready-to-merge to
-a draft PR.
+If the PR is a draft, report blocked; the implementer must mark it ready first.
+Never add ready-to-merge to a draft.
 
 This starter uses the configured runtime without claiming independent authorship.
 If the project requires independent cross-provider review, configure

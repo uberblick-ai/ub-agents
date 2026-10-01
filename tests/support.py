@@ -102,3 +102,55 @@ class FakeGitHub:
                         self.writes.append(("update", comment_id))
                         return deepcopy(comment)
         raise AssertionError(f"Unknown comment {comment_id}")
+
+
+class RecordingRunner:
+    """Read-only doctor probes: explicit responses, no real tool execution."""
+    def __init__(self, root):
+        import os
+        self.root = Path(root)
+        self.calls = []
+        self.responses = {
+            ("git", "--version"): "git version 2.49.0\n",
+            ("gh", "--version"): "gh version 2.80.0\n",
+            ("git", "-C", str(root), "rev-parse", "--show-toplevel"): str(root),
+            ("git", "-C", str(root), "remote", "get-url", "origin"): "git@github.com:org/project.git",
+            ("git", "-C", str(root), "check-ignore", "-q", ".ub-agent/"): "",
+            ("git", "-C", str(root), "worktree", "list", "--porcelain"): "worktree fixture\n",
+            ("ps", "-axo", "pid=,pgid=,stat="): f"{os.getpid()} {os.getpgrp()} S\n",
+            ("codex", "--version"): "codex-cli 0.120.0\n",
+            ("claude", "--version"): "2.1.268 (Claude Code)\n",
+            ("codex", "login", "status"): "sk-auth-secret\n",
+            ("claude", "auth", "status"): "sk-auth-secret\n",
+        }
+
+    def __call__(self, command, **kwargs):
+        import subprocess
+        self.calls.append((tuple(command), kwargs))
+        response = self.responses[tuple(command)]
+        if isinstance(response, Exception):
+            raise response
+        if isinstance(response, subprocess.CompletedProcess):
+            return response
+        return subprocess.CompletedProcess(command, 0, response, "ghp-private-stderr")
+
+
+class DoctorGitHub(FakeGitHub):
+    def __init__(self):
+        super().__init__()
+        self.reads = []
+        self.auth_error = None
+        self.repository_error = None
+        self.metadata = {"full_name": "org/project", "permissions": {"triage": True}}
+
+    def actor(self):
+        self.reads.append("user")
+        if self.auth_error:
+            raise self.auth_error
+        return self.login
+
+    def request(self, endpoint):
+        self.reads.append(endpoint)
+        if self.repository_error:
+            raise self.repository_error
+        return self.metadata

@@ -75,6 +75,36 @@ expiry, attempt, input candidate SHA, and branch when known. The claim is tied t
 the observed candidate; a changed head or vanished trigger before execution fails
 the assignment. Branches created for private issue worktrees are recorded on the
 lease and retained for possible human recovery.
+
+This election is tested with concurrent contenders, but GitHub comment reads and
+writes are not compare-and-swap. It does **not** establish exactly-once execution,
+strict consistency, instantaneous loss detection, or write fencing. Other launchers
+and runtimes must obey the contract. Clocks must be reasonably synchronized.
+
+Renewal first verifies ownership and then updates/rechecks it. Expired leases are
+never resurrected. A failed ownership read or renewal stops the supervised process
+group; the launcher does not report, accept, renew, or release after losing ownership.
+Between observations, an agent with GitHub credentials can still write: comments
+cannot prevent this. Loss is detected at the renewal cadence or local lease expiry.
+
+## Draft checkpoints
+
+The starter implementer publishes the first coherent, buildable checkpoint as a
+draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the
+same branch and PR. Checkpoints are not outcomes: no `ub-agent report`, issue
+label changes, or workflow trigger labels on the draft. The issue lease remains
+live and launcher-renewed for the whole run. Before each checkpoint push and
+before marking the PR ready, read new issue comments and PR comments, reviews,
+and inline feedback; follow them or reply explaining the decision. An unresolved
+human decision leaves the PR as a draft and is reported as blocked.
+
+At completion, pass the project checks, push the final work, mark the same PR ready
+(`gh pr ready`), remove `ready` from the issue, add `needs-review` to the PR, and
+report success with the PR handoff. Drafts never receive `needs-review` or
+`ready-to-merge` from the starter workflow. Feedback after readiness follows the
+normal review and `needs-changes` path. Revision runs are unchanged, and labels
+still govern PR-kind pickup; there is no draft filter in trigger matching.
+
 Issue retry planning checks all branches recorded by earlier leases for the same
 issue and configured agent, including leases before a reset or superseded by a
 newer run. Open PRs are found by head branch, independent of their body or labels.
@@ -102,33 +132,6 @@ comment ID wins across related claims; renewal checks this ownership too. This i
 cooperative observation, with the same consistency limits as ordinary leases.
 A success report whose GitHub handoff fails validation also blocks rather than
 reexecuting the implementation.
-
-The starter implementer publishes the first coherent, buildable checkpoint as a
-draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the
-same branch and PR. Checkpoints are not outcomes: no `ub-agent report`, issue
-label changes, or workflow trigger labels on the draft. The issue lease remains
-live and launcher-renewed for the whole run. Before each checkpoint push and
-before marking the PR ready, read new issue comments and PR comments, reviews,
-and inline feedback; follow them or reply explaining the decision. An unresolved
-human decision leaves the PR as a draft and is reported as blocked.
-
-At completion, pass the project checks, push the final work, mark the same PR ready
-(`gh pr ready`), remove `ready` from the issue, add `needs-review` to the PR, and
-report success with the PR handoff. Drafts never receive `needs-review` or
-`ready-to-merge` from the starter workflow. Feedback after readiness follows the
-normal review and `needs-changes` path. Revision runs are unchanged, and labels
-still govern PR-kind pickup; there is no draft filter in trigger matching.
-
-This election is tested with concurrent contenders, but GitHub comment reads and
-writes are not compare-and-swap. It does **not** establish exactly-once execution,
-strict consistency, instantaneous loss detection, or write fencing. Other launchers
-and runtimes must obey the contract. Clocks must be reasonably synchronized.
-
-Renewal first verifies ownership and then updates/rechecks it. Expired leases are
-never resurrected. A failed ownership read or renewal stops the supervised process
-group; the launcher does not report, accept, renew, or release after losing ownership.
-Between observations, an agent with GitHub credentials can still write: comments
-cannot prevent this. Loss is detected at the renewal cadence or local lease expiry.
 
 ## Explicit outcomes
 
@@ -231,6 +234,10 @@ reasoning transcripts. If the assigned head moves, the independent result fails
 validation. No earlier-head result automatically satisfies a newer candidate.
 
 ## Execution boundaries
+
+Custom argv adapters expand only `{model}` and `{effort}`, including when checking
+the command executable for runtime selection. Optional adapter `check` argv is
+used only by the read-only `doctor` preflight, never by selection or launch.
 
 Use argv directly; there is no shell interpolation. Runtimes receive a prompt on
 stdin; direct commands receive context through `UB_AGENT_CONTEXT` and run identity

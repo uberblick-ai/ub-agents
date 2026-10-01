@@ -14,7 +14,7 @@ from . import __version__
 from .config import load_config
 from .coordination import Coordinator
 from .errors import AgentError, RecordError
-from .execution import git
+from .execution import repository_checks
 from .github import GitHub
 from .loop import Loop
 from .records import body, iso, latest_leases, live_leases, records, timestamp
@@ -29,6 +29,8 @@ def parser():
     init.add_argument("--repository", help="GitHub owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="Initial cli:model:effort for starter agents")
     commands.add_parser("check", help="Validate local project configuration without executing agents")
+    doctor = commands.add_parser("doctor", help="Check machine, GitHub and runtime prerequisites")
+    doctor.add_argument("--json", action="store_true", help="Emit versioned prerequisite results")
     launch = commands.add_parser("launch", help="Run the serial foreground loop")
     launch.add_argument("--once", action="store_true", help="Observe once and execute at most one assignment")
     status = commands.add_parser("status", help="Read current assignments, leases, attempts, and outcomes")
@@ -136,6 +138,11 @@ def run(args):
     if args.command == "report":
         report_run(args)
         return
+    if args.command == "doctor":
+        from .doctor import diagnose, render
+        result = diagnose(args.config)
+        render(result, json_output=args.json)
+        return 0 if result["ok"] else 1
     config = load_config(args.config)
     if args.command == "check":
         print(f"Valid configuration: {config.repository}, {len(config.agents)} agents")
@@ -179,13 +186,9 @@ def run(args):
                 print(f"#{row['number']} {row['agent']}: {row['state']} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['reason']}")
         return
-    if Path(git(config.root, "rev-parse", "--show-toplevel")).resolve() != config.root:
-        raise AgentError("Configuration must be at the consuming repository root")
-    remote = git(config.root, "remote", "get-url", "origin")
-    normalized = remote.removesuffix(".git").rstrip("/")
-    if normalized not in {f"https://github.com/{config.repository}", f"git@github.com:{config.repository}",
-                          f"ssh://git@github.com/{config.repository}"}:
-        raise AgentError("origin must point to the configured GitHub repository")
+    for _, error in repository_checks(config):
+        if error is not None:
+            raise error
     local = config.root / ".ub-agent"
     local.mkdir(mode=0o700, exist_ok=True)
     handlers = {sig: signal.signal(sig, lambda *_: stop.set())
@@ -199,8 +202,7 @@ def run(args):
 
 def main(argv=None):
     try:
-        run(parser().parse_args(argv))
-        return 0
+        return run(parser().parse_args(argv)) or 0
     except KeyboardInterrupt:
         print("Stopped; supervised execution terminated", file=sys.stderr)
         return 130
