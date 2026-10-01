@@ -262,7 +262,8 @@ class ReviewRegressionTests(unittest.TestCase):
                                 expires=iso(timestamp() - 1))
         plan = loop.plans()[0]
         self.assertEqual(plan.state, "blocked")
-        self.assertIn("already has an open PR", plan.reason)
+        self.assertIn("Cannot safely resume recorded PR #2", plan.reason)
+        self.assertIn("no longer a reusable draft", plan.reason)
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not duplicate PR")):
             self.assertFalse(loop.tick())
 

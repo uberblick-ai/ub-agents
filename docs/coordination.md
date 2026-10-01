@@ -75,10 +75,6 @@ expiry, attempt, input candidate SHA, and branch when known. The claim is tied t
 the observed candidate; a changed head or vanished trigger before execution fails
 the assignment. Branches created for private issue worktrees are recorded on the
 lease and retained for possible human recovery.
-If a retry's previous recorded issue branch already has an open PR, park the issue
-for handoff inspection instead of opening another initial implementation. A success
-report whose GitHub handoff fails validation also blocks rather than blindly
-reexecuting the implementation. Stable branch reuse remains a pilot design topic.
 
 This election is tested with concurrent contenders, but GitHub comment reads and
 writes are not compare-and-swap. It does **not** establish exactly-once execution,
@@ -91,6 +87,52 @@ group; the launcher does not report, accept, renew, or release after losing owne
 Between observations, an agent with GitHub credentials can still write: comments
 cannot prevent this. Loss is detected at the renewal cadence or local lease expiry.
 
+## Draft checkpoints
+
+The starter implementer publishes the first coherent, buildable checkpoint as a
+draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the
+same branch and PR. Checkpoints are not outcomes: no `ub-agent report`, issue
+label changes, or workflow trigger labels on the draft. The issue lease remains
+live and launcher-renewed for the whole run. Before each checkpoint push and
+before marking the PR ready, read new issue comments and PR comments, reviews,
+and inline feedback; follow them or reply explaining the decision. An unresolved
+human decision leaves the PR as a draft and is reported as blocked.
+
+At completion, pass the project checks, push the final work, mark the same PR ready
+(`gh pr ready`), remove `ready` from the issue, add `needs-review` to the PR, and
+report success with the PR handoff. Drafts never receive `needs-review` or
+`ready-to-merge` from the starter workflow. Feedback after readiness follows the
+normal review and `needs-changes` path. Revision runs are unchanged, and labels
+still govern PR-kind pickup; there is no draft filter in trigger matching.
+
+Issue retry planning checks all branches recorded by earlier leases for the same
+issue and configured agent, including leases before a reset or superseded by a
+newer run. Open PRs are found by head branch, independent of their body or labels.
+Exactly one open draft can resume when it links the issue, has its head in this
+repository on a recorded branch, and has no conflicting live ownership, unconfirmed
+PR cleanup, or outcome awaiting recovery. Reuse requires a private worktree. The
+new issue lease records resume_pr, resume_sha, and branch, without changing its
+issue assignment or attempt budget. Existing backoff, blocked-run and attempt-limit
+gates still apply; a settled blocked decision requires a reasoned operator reset.
+
+The retry fetches the existing remote branch into a fresh detached worktree at the
+observed SHA. It never resets a local branch or removes an earlier worktree. Context
+and prompt name the existing PR; UB_AGENT_PR is its number, UB_AGENT_BRANCH is its
+branch, and UB_AGENT_CANDIDATE_SHA is the starting checkpoint. Push HEAD explicitly
+to the remote branch and hand off the same PR. A resumed success naming another PR
+is rejected in completion and recovery.
+
+Multiple PRs, missing issue linkage, foreign heads, ready PRs, or unsafe ownership
+block with PR numbers and the reason. Inspect and continue manually; close abandoned
+PRs before a reasoned reset. A reset changes attempt/completion gates but never hides
+historical branches. Checks repeat at claim and before execution; a changed PR/head
+costs no claim or prevents execution. Live issue-resume leases also exclude PR runs,
+and both claim paths recheck related ownership after election. The lowest live
+comment ID wins across related claims; renewal checks this ownership too. This is
+cooperative observation, with the same consistency limits as ordinary leases.
+A success report whose GitHub handoff fails validation also blocks rather than
+reexecuting the implementation.
+
 ## Explicit outcomes
 
 `ub-agent report` uses the supervised environment to verify the run's current
@@ -101,6 +143,8 @@ Statuses are `success`, `retry`, and `blocked`. A report is initially `accepted:
 false`. On confirmed process/group termination, the launcher rereads GitHub
 and verifies successful handoff: consumed labels (or closed item), exact reported
 candidate, and issue linkage for an explicit PR handoff. A valid issue-to-PR handoff
+requires a PR that is ready for review: a success handoff to a draft PR blocks with
+an unaccepted outcome in both normal completion and outcome-only recovery. It
 can consume an issue assignment while its starting label remains. The launcher
 marks the outcome accepted, copies its provenance to the handoff PR, and releases
 ownership immediately. It never chooses next labels, runs project checks itself,

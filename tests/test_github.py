@@ -9,13 +9,28 @@ from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from ub_agents.errors import AgentError
-from ub_agents.github import GitHub
+from ub_agents.github import GitHub, parse_item
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, seconds, timestamp
 from tests.support import agent, config, issue
 
 
 class GitHubTests(unittest.TestCase):
+    def test_pr_draft_state_is_required_and_preserved(self):
+        raw = {"number": 2, "title": "Candidate", "body": "Closes #1", "labels": [],
+               "state": "open", "user": {"login": "operator"},
+               "head": {"sha": "a" * 40, "ref": "feature/test", "repo": {"full_name": "org/project"}}}
+        for draft in (True, False):
+            parsed = parse_item(raw | {"draft": draft}, "pr")
+            self.assertEqual(parsed.draft, draft)
+            self.assertEqual(parsed.head_repository, "org/project")
+            self.assertFalse(parsed.merged)
+        self.assertTrue(parse_item(raw | {"draft": False, "merged_at": iso(1000)}, "pr").merged)
+        for fields in ({}, {"draft": None}, {"draft": "false"}, {"draft": 0}):
+            with self.subTest(fields=fields), self.assertRaises(AgentError):
+                parse_item(raw | fields, "pr")
+        self.assertFalse(parse_item(raw, "issue").draft)
+
     def test_reads_all_pages_without_indexed_search(self):
         pages = [[{"id": i} for i in range(100)], [{"id": 100}]]
         results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
