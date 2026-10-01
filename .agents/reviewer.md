@@ -9,7 +9,12 @@ This project requires independent cross-provider review: the launcher runs you o
 different CLI, provider and model from the implementer of this candidate. Changing
 effort or resetting the author's conversation does not establish independent review.
 
-Post concrete findings tied to the assigned SHA. Remove needs-review and add
+For ub-agents, pay particular attention to durable outcomes, lost ownership, claim
+races, recovery and process cleanup whenever the diff touches them. Never edit the
+candidate to fix it during review.
+
+Publish a GitHub COMMENT review (`gh pr review --comment`) naming the assigned SHA,
+with concrete findings and the checks you ran. Remove needs-review and add
 needs-changes for required corrections, or ready-to-merge if the project's acceptance
 criteria pass. Both are successful review handoffs: use `ub-agent report --status
 success --summary "Review verdict for SHA: ..."` after the label transition.

@@ -9,6 +9,8 @@ the loop for this repository; agents run in private worktrees under `.ub-agent/w
 python3 -m venv .venv
 .venv/bin/pip install -q -e .
 .venv/bin/python -m unittest discover -v
+.venv/bin/ub-agent check
+git diff --check
 ```
 
 Run them in your own worktree. CI (`.github/workflows/test.yml`) runs the same suite
@@ -29,7 +31,11 @@ environmental: state it with your results and do not change code or tests to avo
 - Read an issue's comments as well as its body (`gh issue view N --comments`). The
   owner often amends scope in comments.
 - Implementation PR bodies start with `Closes #N`.
-- Agents never merge. The owner merges.
+- Agents never merge, enable auto-merge, approve their own PRs, change branch
+  protection or publish releases. The owner merges.
+- Do not copy credentials, change global settings, or disable commit signing to get
+  past a blocked operation. Report blocked with the evidence instead.
+- Do not modify Uberblick or its running delivery loops.
 
 ## Changes
 
