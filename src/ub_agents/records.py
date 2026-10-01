@@ -38,8 +38,10 @@ def body(record):
         description = f"{record['status']}: {record['summary']}"
     else:
         description = f"Attempt budget reset: {record['summary']}"
-    # One line keeps the comment short; leases are rewritten on every renewal.
-    return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(record, sort_keys=True)}\n```\n"
+    # The comment author is the actor, except on a handoff copy; empty fields are omitted.
+    shown = {k: v for k, v in record.items()
+             if v is not None and (k != "actor" or "recorded_by" in record)}
+    return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n"
 
 
 def records(comments, trusted_actors=None):
@@ -57,6 +59,11 @@ def records(comments, trusted_actors=None):
             if not payload.endswith("\n```"):
                 raise ValueError("missing JSON fence")
             record = json.loads(payload[:-4])
+            if not isinstance(record, dict):
+                raise ValueError("record must be a JSON object")
+            if "recorded_by" not in record:
+                record.setdefault("actor", comment["user"]["login"])
+            record = {"assignment_sha": None, "candidate_sha": None, "handoff": None} | record
             validate(record)
             if "recorded_by" in record and (record["kind"] != "outcome" or not record.get("handoff")):
                 raise ValueError("recorded_by is only valid for mirrored handoff outcomes")
@@ -101,8 +108,6 @@ def validate(record):
             raise ValueError(f"missing {field}")
     if type(record.get("assignment")) is not int or record["assignment"] < 1:
         raise ValueError("invalid assignment")
-    if record.get("assignment_kind") not in {"issue", "pr"}:
-        raise ValueError("invalid assignment kind")
     for field in ("assignment_sha", "candidate_sha"):
         value = record.get(field)
         if value is not None and (not isinstance(value, str) or not value):
@@ -118,8 +123,6 @@ def validate(record):
         if "cleanup" in record and record["cleanup"] != "unconfirmed":
             raise ValueError("invalid cleanup state")
         seconds(record.get("expires"))
-        if "finished" in record:
-            seconds(record["finished"])
         if "retry_after" in record:
             seconds(record["retry_after"])
     elif record.get("kind") == "outcome":

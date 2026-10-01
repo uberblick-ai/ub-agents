@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import json
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -92,8 +93,11 @@ class CoordinationTests(unittest.TestCase):
         record = self.start()
         comment = self.github.store[1][0]
         self.assertIn("```json\n", comment["body"])
-        self.assertEqual(comment["body"].split("```json\n", 1)[1].count("\n"), 2)
-        self.assertEqual(records([comment])[0]["run"], record["run"])
+        written = json.loads(comment["body"].rsplit("```json\n", 1)[1].removesuffix("\n```\n"))
+        self.assertFalse(written.keys() & {"actor", "assignment_kind", "assignment_sha", "handoff"})
+        parsed = records([comment])[0]
+        self.assertEqual((parsed["run"], parsed["actor"]), (record["run"], "operator"))
+        self.assertIsNone(parsed["assignment_sha"])
         self.assertEqual(records([{"body": "Done!", "id": 9}]), [])
         comment["body"] = "<!-- ub-agent:v1 -->\nbad json"
         with self.assertRaises(AgentError):
@@ -164,7 +168,7 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual(self.plan().state, "blocked")
         reset = {"version": 1, "kind": "reset", "run": "operator-reset", "agent": self.agent.name,
                  "actor": "operator", "runtime": "operator", "created": iso(self.now),
-                 "assignment": 1, "assignment_kind": "issue", "summary": "Fixed authentication"}
+                 "assignment": 1, "summary": "Fixed authentication"}
         self.github.create_comment(1, body(reset))
         self.assertEqual((self.plan().state, self.plan().attempt), ("ready", 1))
         self.assertEqual(len(self.co.history(1)), 2)
@@ -213,6 +217,7 @@ class CoordinationTests(unittest.TestCase):
         lease = self.start()
         self.co.report(lease, "success", "PR opened", handoff=2)
         self.now += 61
+        self.github.login = "review-operator"
         loop = Loop(config(self.root, self.agent), self.github, "review-operator", output=lambda *_: None)
         loop.coordinator = Coordinator(self.github, "review-operator", lambda: self.now, trusted_actors=("operator",))
         self.assertTrue(loop.recover(loop.plans()[0]))

@@ -184,19 +184,19 @@ class Coordinator:
         now = self.clock()
         record = {"version": 1, "kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,
-                  "assignment_kind": current.kind, "assignment_sha": current.head,
+                  "assignment_sha": current.head,
                   "branch": current.branch, "runtime": plan.runtime.name if plan.runtime else "direct",
                   "triggers": sorted(current.labels.intersection(plan.agent.triggers)),
                   "provider": plan.runtime.provider if plan.runtime else "direct",
                   "actor": self.actor, "created": iso(now),
-                  "mode": "recovery" if recovery else "execute",
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, now)
             if outcome is None:
                 return None
-            record |= {"recovered_lease_id": outcome["lease_id"], "recovered_run": outcome["run"]}
+            record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
+                       "recovered_run": outcome["run"]}
         created = records([self.github.create_comment(current.number, body(record))], self.trusted_actors)[0]
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
@@ -240,8 +240,9 @@ class Coordinator:
     def release(self, lease, result, summary, backoff=0):
         self.assert_owned(lease)
         now = self.clock()
-        self.update(lease, state="released", result=result, summary=summary,
-                    expires=iso(now), finished=iso(now), retry_after=iso(now + backoff))
+        # A released lease expires now; retry_after is only needed for a backoff.
+        self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
+                    retry_after=iso(now + backoff) if backoff else None)
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])
@@ -258,9 +259,9 @@ class Coordinator:
         self.assert_owned(lease)
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")
-        destination = self.github.item(handoff, "pr") if handoff else self.github.item(lease["assignment"], lease["assignment_kind"])
-        record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_kind",
-                  "assignment_sha", "runtime", "provider", "actor")}
+        destination = self.github.item(handoff, "pr") if handoff else self.github.item(lease["assignment"])
+        record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_sha",
+                                        "runtime", "provider", "actor")}
         record |= {"version": 1, "kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}

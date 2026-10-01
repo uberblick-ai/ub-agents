@@ -44,9 +44,10 @@ class FakeGitHub:
         self.claim_read_barrier = None
         self.unreadable = False
         self.writes = []
+        self.login = "operator"
 
     def actor(self):
-        return "operator"
+        return self.login
 
     def default_branch(self):
         return "main"
@@ -81,7 +82,7 @@ class FakeGitHub:
     def create_comment(self, number, body):
         data = json.loads(body.rsplit("\n```json\n", 1)[1].removesuffix("\n```\n")) if body.startswith(MARKER) else {}
         with self.lock:
-            comment = {"id": self.next_id, "body": body, "user": {"login": data.get("recorded_by", data.get("actor", "operator"))},
+            comment = {"id": self.next_id, "body": body, "user": {"login": self.login},
                        "issue_url": f"https://api.github.com/repos/org/project/issues/{number}",
                        "html_url": f"https://github.com/org/project/issues/{number}#issuecomment-{self.next_id}"}
             self.next_id += 1
