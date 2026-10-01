@@ -77,21 +77,33 @@ class Coordinator:
                 and r.get("handoff") and self.released_success(history, r)
                 and r["id"] > self.reset_boundary(history, agent.name) for r in history):
             state, reason = "completed", "Issue assignment completed; durable handoff suppresses duplicate pickup"
+        elif item.kind == "issue" and (prs := self.prior_issue_prs(item, agent, history)):
+            numbers = ", ".join(f"#{pr.number}" for pr in prs)
+            state, reason = "blocked", (
+                f"Recorded issue branch already has an open PR: {numbers}; inspect and continue "
+                "the existing PR manually. If abandoned, close it before "
+                f"ub-agent retry --number {item.number} --agent {agent.name} --reason TEXT")
         elif finished and finished[-1].get("result") == "blocked":
             state, reason = "blocked", "Previous assignment stopped; inspect outcome and use ub-agent retry"
         elif attempt > agent.max_attempts:
             state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agent retry"
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
             state, reason = "backoff", "Durable retry backoff has not elapsed"
-        elif (item.kind == "issue" and latest and latest[-1].get("branch")
-              and self.github.prs_for_branch(latest[-1]["branch"])):
-            state, reason = "blocked", "Previous run branch already has an open PR; inspect its handoff before retrying"
         else:
             try:
                 runtime = self.choose_runtime(item, agent, history)
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
         return Plan(item, agent, runtime, state, reason, attempt)
+
+    def prior_issue_prs(self, item, agent, history):
+        # Resets clear attempt/completion gates, not branch history. Check every
+        # recorded branch for this issue/agent, even if a newer lease superseded it.
+        branches = sorted({r["branch"] for r in history if r["kind"] == "lease"
+                           and r["assignment"] == item.number and r["agent"] == agent.name
+                           and r.get("branch")})
+        prs = {pr.number: pr for branch in branches for pr in self.github.prs_for_branch(branch)}
+        return sorted(prs.values(), key=lambda pr: pr.number)
 
     def choose_runtime(self, item, agent, history):
         def installed(executable):

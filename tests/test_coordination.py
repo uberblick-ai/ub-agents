@@ -173,6 +173,85 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual((self.plan().state, self.plan().attempt), ("ready", 1))
         self.assertEqual(len(self.co.history(1)), 2)
 
+    def test_retry_checks_all_prior_branches_even_before_reset_without_execution(self):
+        for result in ("expired", "retry", "blocked"):
+            for reset in (False, True):
+                for draft in (False, True):
+                    with self.subTest(result=result, reset=reset, draft=draft):
+                        self.github = FakeGitHub(issue(), pr(labels=(), draft=draft))
+                        self.co = Coordinator(self.github, "operator", lambda: self.now)
+                        oldest = self.start()
+                        self.co.update(oldest, branch="oldest/checkpoint")
+                        self.co.release(oldest, "retry", "Interrupted")
+                        newer = self.start()
+                        self.co.update(newer, branch="newer/no-pr")
+                        if result == "expired":
+                            self.now += 61
+                        else:
+                            self.co.release(newer, result, "Interrupted")
+                        if reset:
+                            self.github.create_comment(1, body({
+                                "kind": "reset", "run": "operator-reset", "agent": self.agent.name,
+                                "actor": "operator", "runtime": "operator", "created": iso(self.now),
+                                "assignment": 1, "summary": "Inspect retry after interruption"}))
+                        # The PR is on the oldest branch, not the latest lease's,
+                        # and its body does not link the issue: discovery uses head.
+                        self.github.change(2, branch="oldest/checkpoint", body="Checkpoint")
+                        loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
+                        loop.coordinator = self.co
+                        writes = list(self.github.writes)
+                        plan = loop.plans()[0]
+                        self.assertEqual(plan.state, "blocked")
+                        self.assertIn("#2", plan.reason)
+                        self.assertIn("continue the existing PR manually", plan.reason)
+                        self.assertIn("close it before ub-agent retry --number 1 --agent worker", plan.reason)
+                        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not duplicate PR")):
+                            self.assertFalse(loop.tick())
+                        self.assertIsNone(self.co.claim(plan))
+                        self.assertEqual(self.github.writes, writes)
+                        self.assertEqual(set(self.github.items), {1, 2})
+
+    def test_existing_pr_guard_is_fresh_at_claim_and_clears_when_pr_closed(self):
+        lease = self.start()
+        self.co.update(lease, branch="feature/test")
+        self.co.release(lease, "retry", "Interrupted")
+        self.github.change(2, state="closed")
+        ready = self.plan()
+        self.assertEqual(ready.state, "ready")
+        self.github.change(2, state="open", draft=True)
+        writes = list(self.github.writes)
+        self.assertIsNone(self.co.claim(ready))
+        self.assertEqual(self.github.writes, writes)
+        self.github.change(2, state="closed")
+        self.assertIsNotNone(self.co.claim(self.plan()))
+
+    def test_prior_branches_are_scoped_to_same_issue_agent_and_reads_fail_closed(self):
+        other = self.start(agent=replace(self.agent, name="preparer"))
+        self.co.update(other, branch="feature/test")
+        self.co.release(other, "success", "Prepared")
+        self.assertEqual(self.plan().state, "ready")
+        lease = self.start()
+        self.co.update(lease, branch="feature/test")
+        self.co.release(lease, "retry", "Interrupted")
+        with patch.object(self.github, "prs_for_branch", side_effect=AgentError("GitHub unavailable")), \
+                self.assertRaisesRegex(AgentError, "GitHub unavailable"):
+            self.plan()
+
+    def test_checkpoint_publication_keeps_issue_owned_without_outcome(self):
+        lease = self.start()
+        self.co.update(lease, branch="feature/test")
+        self.github.change(2, labels=frozenset(), draft=True)
+        self.assertEqual(self.plan().state, "owned")
+        self.assertIsNone(self.co.outcome(lease))
+        self.assertEqual(self.github.item(1).labels, frozenset({"ready"}))
+        self.now += 10
+        self.co.renew(lease, 60)
+        self.assertEqual(self.plan().state, "owned")
+
+    def test_draft_pr_labels_still_govern_pr_kind_pickup(self):
+        self.github.change(2, draft=True)
+        self.assertEqual(self.plan(self.github.item(2)).state, "ready")
+
     def test_relative_command_is_checked_in_its_configured_cwd(self):
         script = self.root / "script"
         script.write_text("#!/bin/sh\nexit 0\n")

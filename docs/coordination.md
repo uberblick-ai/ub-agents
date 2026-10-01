@@ -75,10 +75,31 @@ expiry, attempt, input candidate SHA, and branch when known. The claim is tied t
 the observed candidate; a changed head or vanished trigger before execution fails
 the assignment. Branches created for private issue worktrees are recorded on the
 lease and retained for possible human recovery.
-If a retry's previous recorded issue branch already has an open PR, park the issue
-for handoff inspection instead of opening another initial implementation. A success
-report whose GitHub handoff fails validation also blocks rather than blindly
-reexecuting the implementation. Stable branch reuse remains a pilot design topic.
+Issue retry planning checks all branches recorded by earlier leases for the same
+issue and configured agent, including leases before a reset or superseded by a
+newer run. Open PRs are found by head branch, independent of their body or labels.
+The policy is **stop**: block planning with the open PR number(s) and tell the
+operator to inspect and continue the existing PR manually. If abandoned, close
+it before a reasoned `ub-agent retry` reset. A reset changes attempt/completion
+gates but never hides historical branches; there is no automatic branch reuse.
+This check runs again immediately before claiming. A success report whose GitHub
+handoff fails validation also blocks rather than reexecuting the implementation.
+
+The starter implementer publishes the first coherent, buildable checkpoint as a
+draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the
+same branch and PR. Checkpoints are not outcomes: no `ub-agent report`, issue
+label changes, or workflow trigger labels on the draft. The issue lease remains
+live and launcher-renewed for the whole run. Before each checkpoint push and
+before marking the PR ready, read new issue comments and PR comments, reviews,
+and inline feedback; follow them or reply explaining the decision. An unresolved
+human decision leaves the PR as a draft and is reported as blocked.
+
+At completion, pass the project checks, push the final work, mark the same PR ready
+(`gh pr ready`), remove `ready` from the issue, add `needs-review` to the PR, and
+report success with the PR handoff. Drafts never receive `needs-review` or
+`ready-to-merge` from the starter workflow. Feedback after readiness follows the
+normal review and `needs-changes` path. Revision runs are unchanged, and labels
+still govern PR-kind pickup; there is no draft filter in trigger matching.
 
 This election is tested with concurrent contenders, but GitHub comment reads and
 writes are not compare-and-swap. It does **not** establish exactly-once execution,

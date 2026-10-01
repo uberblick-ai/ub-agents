@@ -178,6 +178,23 @@ Those labels and transitions are conventions of the starter workflow. They are n
 
 Issues are the main entry point for work. Most later handoffs happen on the implementation PR, which links back to its issue.
 
+The starter implementer pushes its first coherent, reviewable checkpoint as a
+draft PR with a body starting `Closes #N`. Later meaningful checkpoints use the
+same branch and PR. A checkpoint leaves the issue labels unchanged, adds no
+workflow trigger labels to the draft, and does not call `ub-agent report`. The
+launcher keeps renewing the issue lease throughout implementation. Before each
+checkpoint push and before marking the PR ready, the implementer reads new issue
+and PR comments and reviews, then follows them or explains its decision. An
+unsettled human decision leaves the PR as a draft and produces a blocked report.
+
+Once implementation is complete and project checks pass, the implementer pushes
+the final work, marks the same PR ready with `gh pr ready`, removes `ready` from
+the issue, adds `needs-review` to the PR, then reports success with that PR handoff.
+Drafts never receive `needs-review` or `ready-to-merge` from the starter workflow.
+Feedback after readiness follows the normal review and `needs-changes` path;
+revision runs continue on their existing PR as before. Labels still govern PR
+pickup; the framework does not filter draft PRs out of trigger matching.
+
 Success handoffs to a draft PR are rejected with a blocked result, during both
 normal completion and outcome-only recovery. The PR must be marked ready before
 reporting a successful handoff; an unaccepted outcome supplies no review provenance.
@@ -195,7 +212,7 @@ The starter labels are:
 
 Labels describe the next action. Leases record who owns the current assignment. The implementer claims the issue before starting new work; subsequent review, revision, and integration assignments are claimed on the PR.
 
-A lease is a GitHub record identifying the agent, run, runtime/model, expiry, and branch or PR where applicable. A live agent renews the same record, then releases or completes it at handoff. Expired leases can be recovered under the configured rules. An `in-progress` label is not required to establish ownership.
+A lease is a GitHub record identifying the agent, run, runtime/model, expiry, and branch or PR where applicable. The launcher renews the same record while the agent runs, then releases or completes it at handoff. The model does not renew or release it. Expired leases can be recovered under the configured rules. An `in-progress` label is not required to establish ownership.
 
 Review assignments and verdicts name the PR head SHA. A result for an older head cannot silently satisfy review of a newer candidate. The issue closes when the project's completion policy is satisfied.
 
@@ -247,7 +264,14 @@ work after addressing its cause, explicitly record a reasoned reset:
 ub-agent retry --number 42 --agent implementer --reason "Fixed the failing tool authentication"
 ```
 
-This preserves history and refuses an unexpired claim. Uncertain process cleanup
+This preserves history and refuses an unexpired claim. For issue retries, planning checks
+every branch recorded by earlier leases for the same issue and configured agent,
+including before a reset, for an open PR by head branch. If one exists, planning
+blocks and names it: inspect and continue that PR manually, or close it if
+abandoned before a reasoned retry reset. There is no automatic branch reuse, and
+a reset alone does not bypass this guard.
+
+Uncertain process cleanup
 stops the loop and preserves private artifacts. While ownership can still be
 verified, the launcher durably marks cleanup as unconfirmed; expiry cannot promote
 an earlier success report from that run. Released failures remain visible even
