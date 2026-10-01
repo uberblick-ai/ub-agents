@@ -97,9 +97,9 @@ agents:
                 self.assertEqual(self.cli(True)[0], 1)
 
     def test_missing_trigger_and_add_remove_transition_labels_are_required(self):
-        self.path.write_text(self.path.read_text() + '''    outcomes:
+        self.path.write_text(self.path.read_text().replace('    outcomes: {done: {}}\n', '''    outcomes:
       done: {add: [review-next], remove: [old-state]}
-''')
+'''))
         self.github.label_names = ['needs-human']
         result = self.diagnose()
         labels = self.checks(result, 'github-label')
@@ -127,9 +127,9 @@ agents:
         self.assertEqual(self.github.writes, [])
 
     def test_stop_label_used_by_a_transition_has_both_required_and_stop_checks(self):
-        self.path.write_text(self.path.read_text() + '''    outcomes:
+        self.path.write_text(self.path.read_text().replace('    outcomes: {done: {}}\n', '''    outcomes:
       needs-human: {add: [needs-human]}
-''')
+'''))
         self.github.label_names = ['ready']
         result = self.diagnose()
         self.assertFalse(result['ok'])
@@ -151,10 +151,12 @@ agents:
         self.path.write_text(self.path.read_text().replace('    runtime-args: [--sandbox, danger-full-access]\n', '') + '''  reviewer:
     runtime: [codex:model-a:high, claude:model-b:high]
     trigger: needs-review
+    outcomes: {done: {}}
     instructions: instructions.md
   command:
     command: [git, --version]
     trigger: ready
+    outcomes: {done: {}}
 ''')
         result = self.diagnose()
         self.assertTrue(result['ok'])
