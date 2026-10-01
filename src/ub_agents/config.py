@@ -114,6 +114,7 @@ class Config:
     agents: tuple[Agent, ...]
     poll_seconds: float
     stop_labels: tuple[str, ...]
+    operators: tuple[str, ...] = ()
 
 
 CLOCKS = {"lease-minutes", "renewal-minutes", "agent-timeout-minutes",
@@ -131,7 +132,7 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "runtimes",
-                          "poll-seconds", "stop-labels"}, "configuration")
+                          "poll-seconds", "stop-labels", "operators"}, "configuration")
     repo = string(data.get("repository"), "repository")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise AgentError("repository must be owner/name")
@@ -212,7 +213,10 @@ def load_config(path):
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     stop = () if data.get("stop-labels") == [] else strings(data.get("stop-labels", ["needs-human"]), "stop-labels")
-    return Config(root, repo, tuple(agents), poll, stop)
+    operators = () if data.get("operators", []) == [] else strings(data["operators"], "operators")
+    if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login) for login in operators):
+        raise AgentError("operators must contain GitHub account logins")
+    return Config(root, repo, tuple(agents), poll, stop, operators)
 
 
 def argv(value, where, empty=False):

@@ -72,3 +72,11 @@ stop-labels: []
         self.assertEqual(self.path.read_text(), original)
         self.assertEqual(len(load_config(self.path).agents), 4)
         self.assertIn(".ub-agent/", (self.root / ".gitignore").read_text())
+
+    def test_operator_allowlist_is_explicit_and_strict(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        self.assertEqual(self.load(base + "operators: [Operator, automation-bot]\n").operators,
+                         ("Operator", "automation-bot"))
+        for value in ("false", "0", "{}", "[anonymous/user]", "[null]"):
+            with self.subTest(value=value), self.assertRaises(AgentError):
+                self.load(base + f"operators: {value}\n")

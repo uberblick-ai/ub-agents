@@ -213,7 +213,7 @@ class CoordinationTests(unittest.TestCase):
         self.co.report(lease, "success", "PR opened", handoff=2)
         self.now += 61
         loop = Loop(config(self.root, self.agent), self.github, "review-operator", output=lambda *_: None)
-        loop.coordinator = Coordinator(self.github, "review-operator", lambda: self.now)
+        loop.coordinator = Coordinator(self.github, "review-operator", lambda: self.now, trusted_actors=("operator",))
         self.assertTrue(loop.recover(loop.plans()[0]))
         mirrored = loop.coordinator.history(2)[0]
         self.assertEqual(mirrored["actor"], "operator")

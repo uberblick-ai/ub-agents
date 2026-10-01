@@ -91,6 +91,16 @@ true` requests a private checkout of the exact PR candidate (or a fresh issue br
 `runtime-args` is an argv list for explicitly configured tool permissions/settings;
 the framework never silently expands grants.
 
+Coordination comments are trusted only from the authenticated GitHub account by
+default. For machines using different accounts, explicitly list trusted peer logins
+with `operators: [engineering-bot, review-bot]`. Public commenters cannot claim work,
+reset budgets or supply candidate provenance. Malformed records from a trusted
+operator block the affected item and remain visible in `status`.
+
+Task instruction files are loaded from the operator's configuration checkout when
+the launcher starts. A private PR candidate supplies the code to execute or inspect;
+its edited instruction files cannot replace the configured task policy in that run.
+
 Direct commands need no LLM session or instruction file:
 
 ```yaml
@@ -106,6 +116,7 @@ The command receives `UB_AGENT_CONTEXT` (a disposable JSON context path),
 `UB_AGENT_REPOSITORY`, `UB_AGENT_ASSIGNMENT`, `UB_AGENT_RUN`, `UB_AGENT_LEASE_ID`,
 `UB_AGENT_CANDIDATE_SHA`, and `UB_AGENT_BRANCH`. It performs project-authorized
 GitHub transitions and calls `ub-agent report`. There is no shell interpolation.
+`UB_AGENT_OPERATORS` carries the configured coordination trust scope into `report`.
 Other authenticated CLIs can use a thin custom argv adapter:
 
 ```yaml
@@ -203,7 +214,8 @@ A completed issue-to-PR handoff suppresses duplicate initial work even if its
 starting label remains. A PR returning to `needs-changes` runs a fresh assignment;
 its existing item/agent attempt budget continues across head changes. An expired
 run with an already-written outcome receives outcome-only recovery before any
-command is reexecuted. Full record, assignment, race and recovery rules are in
+command is reexecuted. Success without a PR handoff can run again when its trigger
+is reapplied, using the existing attempt budget. Full record, assignment, race and recovery rules are in
 [the coordination contract](docs/coordination.md).
 
 ## Recovery and retries
@@ -229,12 +241,22 @@ ub-agent retry --number 42 --agent implementer --reason "Fixed the failing tool 
 ```
 
 This preserves history and refuses an unexpired claim. Uncertain process cleanup
-stops the loop and preserves private artifacts. Recovery after machine/launcher
+stops the loop and preserves private artifacts. While ownership can still be
+verified, the launcher durably marks cleanup as unconfirmed; expiry cannot promote
+an earlier success report from that run. Released failures remain visible even
+after their trigger is removed or the item closes. Restore an appropriate trigger
+after inspecting the failure, and use a reasoned reset for blocked/exhausted work.
+Recovery after machine/launcher
 loss relies on expiry; expiry does not positively prove a surviving remote process
 is dead. Cleanup covers the owned process group. Detached helpers that escape that group
 are outside this first slice's attribution boundary; it does not perform cross-process
 cwd sweeps. Broader host/runtime
 evidence is tracked in [#2](https://github.com/uberblick-ai/ub-agents/issues/2).
+
+Recovery discovery scans repository comments once at startup, then follows
+updated/new comments with an overlapping `since` cursor. Each page has its own
+20-second deadline. The in-memory index is disposable; ownership, attempts and
+acceptance always reread the item's GitHub comments. Restarting rebuilds the index.
 
 ## Standalone
 

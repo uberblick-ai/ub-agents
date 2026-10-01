@@ -72,7 +72,7 @@ class LoopTests(unittest.TestCase):
             return 0
         with patch("ub_agents.loop.supervise", side_effect=execute):
             self.loop.tick()
-        self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "retry")
+        self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "blocked")
         self.assertFalse(self.loop.coordinator.history(1)[1]["accepted"])
 
     def test_unreadable_github_is_not_an_empty_queue(self):

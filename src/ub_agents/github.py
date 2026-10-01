@@ -3,8 +3,10 @@
 from dataclasses import dataclass
 import json
 import subprocess
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError
+from .records import iso, timestamp
 
 
 @dataclass(frozen=True)
@@ -41,12 +43,24 @@ class GitHub:
     def __init__(self, repository):
         self.repository = repository
         self.prefix = f"repos/{repository}"
+        self._comment_cache = {}
+        self._comment_since = None
 
-    def request(self, endpoint, method="GET", data=None, paginate=False):
+    def request(self, endpoint, method="GET", data=None, paginate=False, array=False):
+        if paginate:
+            parts = urlsplit(endpoint)
+            query = dict(parse_qsl(parts.query)) | {"per_page": "100"}
+            items, page = [], 1
+            while True:
+                query["page"] = str(page)
+                address = urlunsplit(parts._replace(query=urlencode(query)))
+                batch = self.request(address, array=True)
+                items.extend(batch)
+                if len(batch) < 100:
+                    return items
+                page += 1
         command = ["gh", "api", "--hostname", "github.com", "--method", method,
                    "-H", "Accept: application/vnd.github+json", endpoint]
-        if paginate:
-            command += ["--paginate", "--slurp"]
         if data is not None:
             command += ["--input", "-"]
         try:
@@ -58,12 +72,8 @@ class GitHub:
             raise AgentError(f"GitHub {method} {endpoint} failed: {result.stderr.strip()}")
         try:
             value = json.loads(result.stdout)
-            if paginate:
-                if not isinstance(value, list) or any(not isinstance(p, list) for p in value):
-                    raise ValueError("expected arrays of pages")
-                return [item for page in value for item in page]
-            if not isinstance(value, dict):
-                raise ValueError("expected an object")
+            if not isinstance(value, list if array else dict):
+                raise ValueError("expected an array" if array else "expected an object")
             return value
         except (ValueError, TypeError) as exc:
             raise AgentError(f"Unreadable GitHub response for {endpoint}: {exc}") from exc
@@ -98,12 +108,23 @@ class GitHub:
     def comments(self, number):
         return self.request(f"{self.prefix}/issues/{number}/comments?per_page=100", paginate=True)
 
-    def repository_records(self):
-        from .records import records
+    def repository_comments(self):
         # Recovery must not depend on a trigger still being present or an item
-        # still being open. No indexed search, time window, or result cap.
-        comments = self.request(f"{self.prefix}/issues/comments?per_page=100", paginate=True)
-        return records(comments)
+        # still being open. Rebuild from GitHub on startup, then read edits/new
+        # comments incrementally. Capture the cursor BEFORE scanning, with overlap.
+        cursor = iso(int(timestamp()) - 60)
+        endpoint = f"{self.prefix}/issues/comments?sort=updated&direction=asc&per_page=100"
+        if self._comment_since is not None:
+            endpoint += "&" + urlencode({"since": self._comment_since})
+        comments = self.request(endpoint, paginate=True)
+        for comment in comments:
+            if not isinstance(comment, dict) or type(comment.get("id")) is not int:
+                raise AgentError("Unreadable repository comment")
+        self._comment_cache.update((comment["id"], comment) for comment in comments)
+        self._comment_since = cursor
+        # Cached records only discover item numbers. Claims/status reread the
+        # item's comments, so a deleted cached record never supplies authority.
+        return sorted(self._comment_cache.values(), key=lambda comment: comment["id"])
 
     def create_comment(self, number, body):
         return self.request(f"{self.prefix}/issues/{number}/comments", "POST", {"body": body})
@@ -116,3 +137,9 @@ class GitHub:
         if not isinstance(raw.get("default_branch"), str):
             raise AgentError("GitHub returned no default branch")
         return raw["default_branch"]
+
+    def prs_for_branch(self, branch):
+        owner = self.repository.split("/", 1)[0]
+        query = urlencode({"state": "open", "head": f"{owner}:{branch}", "per_page": 100})
+        return [parse_item(raw, "pr") for raw in
+                self.request(f"{self.prefix}/pulls?{query}", paginate=True)]

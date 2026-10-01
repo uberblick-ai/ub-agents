@@ -18,12 +18,28 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   budget. Issue-to-PR handoff starts the PR's own budget while retaining source
   provenance. A crashed expired tentative claim counts conservatively. A contender
   that confirms withdrawal does not. Outcome-only recovery does not cost a start.
-- A completed issue assignment is consumed until `ub-agent retry` explicitly
-  resets it. An accepted issue-to-PR handoff suppresses duplicate initial work even
-  if its trigger remains on the issue. PRs returning to a matching label run a new
-  assignment with the accumulated PR budget. Projects should still remove old labels.
+- An accepted issue-to-PR handoff suppresses duplicate initial work until an
+  explicit reset, even if its trigger remains on the issue. Other successful issue
+  tasks may run again when a human reapplies their trigger. PRs returning to a
+  matching label run a new assignment with the accumulated PR budget. Reapplying a
+  trigger does not reset that budget. Projects should still remove old labels.
 - `ub-agent retry --number N --agent NAME --reason TEXT` posts a durable reset,
   preserving history. It refuses a live lease and never revokes someone else's run.
+
+## Trusted operators
+
+Only the authenticated GitHub account's comments supply coordination authority by
+default. `operators: [LOGIN, ...]` extends trust to explicit peer accounts; machines
+with different credentials must list one another to cooperate. `report` inherits
+that scope through `UB_AGENT_OPERATORS`. No credentials or GitHub permissions change.
+
+Ignore markers and records from all other comment authors before parsing them.
+Payload fields cannot grant trust. `recorded_by` is allowed only on a mirrored
+handoff outcome: both the original actor and publisher must be trusted, and the
+comment must be on the handoff PR. A lease or reset cannot impersonate another
+actor through `recorded_by`. Malformed/contradictory trusted records park their item
+visibly without stopping unrelated work. Transport/read failures still stop the
+loop; they never become an empty queue.
 
 ## Distinct clocks
 
@@ -37,7 +53,8 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 | `max-attempts` | 5 | Durable starts allowed per item/agent |
 
 Every setting can be overridden on an agent. Renewal must be less than half the
-lease. GitHub requests are bounded to 20 seconds and Git operations to 120 seconds.
+lease. Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
+scan may take longer overall. Git operations are bounded to 120 seconds.
 Worktree preparation precedes the runtime execution deadline; ownership is checked
 again before execution. Default clocks leave ample margin for those reads. Very
 short test leases are unsuitable for real network execution.
@@ -56,6 +73,10 @@ expiry, attempt, input candidate SHA, and branch when known. The claim is tied t
 the observed candidate; a changed head or vanished trigger before execution fails
 the assignment. Branches created for private issue worktrees are recorded on the
 lease and retained for possible human recovery.
+If a retry's previous recorded issue branch already has an open PR, park the issue
+for handoff inspection instead of opening another initial implementation. A success
+report whose GitHub handoff fails validation also blocks rather than blindly
+reexecuting the implementation. Stable branch reuse remains a pilot design topic.
 
 This election is tested with concurrent contenders, but GitHub comment reads and
 writes are not compare-and-swap. It does **not** establish exactly-once execution,
@@ -90,26 +111,43 @@ Timeouts and interruptions produce durable retry outcomes after confirmed cleanu
 Explicit blocked outcomes and exhausted budgets require a reasoned operator reset.
 The lease's released `result` records the launcher's final verdict; a reported
 success with failed validation remains unaccepted and does not establish completion.
+If a timeout/interruption follows an early report, reconcile that existing report
+and release with the supervision failure; do not post a second outcome or accept
+the early report. Known unconfirmed cleanup is marked on the owned lease when
+GitHub remains available, preserves its ownership until expiry, and blocks automatic
+acceptance/reexecution pending positive termination evidence and an operator reset.
+If GitHub is unavailable or ownership is lost, that verdict cannot be guaranteed
+durable; no comment protocol eliminates the crash/write-failure window.
 
 ## Recovery
 
 An unexpired lease always excludes pickup. Expiry permits a new fresh run, never
 conversation resumption. Durable attempts/backoff survive restarts.
 
-Recovery discovery reads all repository issue-comment pages directly, including
-records on closed items and items whose trigger was removed. This deliberately
-naive scan avoids indexing lag and hidden completion. Large repositories may incur
-substantial API/read cost; production-scale polling needs pilot evidence before
-claiming a cutover. Failed scans stop visibly rather than become empty queues.
-An expired run with no outcome and no remaining trigger is shown as blocked for
-operator inspection, rather than silently disappearing or blindly reexecuting.
+Recovery discovery reads all repository issue-comment pages directly at startup,
+including records on closed items and items whose trigger was removed. Later polls
+read updated/new comments using `sort=updated` and `since`, with a 60-second overlap
+and a cursor captured before the scan. Page requests have separate deadlines. The
+cache/cursor live only in memory; restart rebuilds them from GitHub. A failed page
+never advances the cursor. Item comments are always read freshly before planning
+or claiming, so deleted/stale cached records do not supply authority. This avoids
+indexed search and a full historical scan every poll. Initial large-repository
+read cost and sustained polling still need pilot evidence before a cutover.
+
+Discovery follows the latest non-withdrawn lease after the last reset for each
+item/agent pair. A released retry/blocked result or expired run without an outcome
+stays visible on closed/unlabelled items as blocked for operator inspection; a
+missing trigger never authorizes automatic reexecution. Later released success
+supersedes older crashed contenders/runs without resetting attempt history.
+Failed scans stop visibly rather than become empty queues.
 
 An expired, unfinished lease with an explicit outcome reported within its validity
 window gets outcome-only recovery: claim a new bounded recovery assignment,
 revalidate GitHub, accept a still-valid success or record the blockage, and release.
 Do not execute the previous command again. This also repairs a crash between
 acceptance and release. The old expired record is not falsely marked as observed
-terminated; the recovery record names the recovered run/lease. Expiry itself is not
+terminated; the recovery claim names the recovered run/lease before any finalization,
+so a crash during recovery also recovers the outcome without execution. Expiry itself is not
 positive evidence that an old process on another host has died.
 
 ## Runtime independence and candidate provenance
@@ -145,7 +183,12 @@ Use argv directly; there is no shell interpolation. Runtimes receive a prompt on
 stdin; direct commands receive context through `UB_AGENT_CONTEXT` and run identity
 through `UB_AGENT_*` variables. Operator environment/auth stores are inherited
 normally; no credentials or grants are copied or added. `runtime-args` is the
-operator's explicit extension. All sessions start fresh.
+operator's explicit extension. All sessions start fresh. Task instructions are
+snapshotted from the operator's configuration checkout at launcher startup,
+including for private PR executions. Candidate edits to those files are changes
+to inspect, not replacement policy for the assignment. Shared candidate guidance
+is still task input; an independent agent is directed to use the configured task
+instructions to judge it.
 
 Each process owns a new POSIX session/group. Termination sends TERM then KILL and
 checks that no live owned group members remain. Even failed process inspection

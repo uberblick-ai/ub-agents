@@ -5,51 +5,68 @@ import os
 import threading
 import time
 
-from .coordination import Coordinator
-from .errors import AgentError, CleanupError, LostOwnership
+from .coordination import Coordinator, Plan
+from .errors import AgentError, CleanupError, LostOwnership, RecordError
 from .execution import Workspace, command_for, supervise
-from .records import iso, seconds, timestamp
+from .records import attempts, iso, latest_leases, seconds, timestamp
 
 
 class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print):
         self.config = config
         self.github = github
-        self.coordinator = Coordinator(github, actor)
+        self.coordinator = Coordinator(github, actor, trusted_actors=config.operators)
         self.stop_event = stop_event or threading.Event()
         self.output = output
+        # The candidate cannot rewrite the operator's configured task policy.
+        self.instructions = {a.name: a.instructions.read_text() if a.instructions else ""
+                             for a in config.agents}
 
     def plans(self):
         plans = []
         items = {item.number: item for item in self.github.observe()}
-        history_index = self.github.repository_records()
+        history_index, invalid = self.coordinator.repository_history()
         now = self.coordinator.clock()
-        handled = {r.get("recovered_lease_id") for r in history_index
-                   if r["kind"] == "lease" and r["state"] == "released"}
-        expired = [r for r in history_index if r["kind"] == "lease"
-                   and r["state"] in {"claiming", "running"} and seconds(r["expires"]) <= now
-                   and r["id"] not in handled and r["id"] > max((reset["id"] for reset in history_index
-                       if reset["kind"] == "reset" and reset["agent"] == r["agent"]
-                       and reset["assignment"] == r["assignment"]), default=0)]
-        for record in expired:
-            if record["assignment"] not in items:
-                item = self.github.item(record["assignment"], record["assignment_kind"])
+        unfinished = {r["assignment"] for r in latest_leases(history_index).values()
+                      if r["state"] in {"claiming", "running"} or r.get("result") in {"retry", "blocked"}}
+        for number in sorted(unfinished | invalid):
+            if number not in items:
+                item = self.github.item(number)
                 items[item.number] = item
         for item in sorted(items.values(), key=lambda item: item.number):
             matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
                        and a.kind in {"either", item.kind} and item.state == "open"]
-            unfinished = [r for r in expired if r["assignment"] == item.number]
-            if not matched and not unfinished:
+            if not matched and item.number not in (unfinished | invalid):
                 continue
-            history = self.coordinator.history(item.number)
+            # Discovery is cached, but authority always comes from a fresh item read.
+            try:
+                history = self.coordinator.history(item.number)
+            except RecordError as exc:
+                plans.extend(Plan(item, a, None, "blocked", str(exc), 1)
+                             for a in matched or self.config.agents)
+                continue
+            latest = latest_leases(history)
             for agent in self.config.agents:
-                pending = self.coordinator.pending_completion(history, agent.name, now)
-                if agent in matched or pending:
+                record = latest.get((item.number, agent.name))
+                try:
+                    pending = self.coordinator.pending_completion(history, agent.name, now)
+                except RecordError as exc:
+                    plans.append(Plan(item, agent, None, "blocked", str(exc), 1))
+                    continue
+                if (agent in matched or pending or (record and record["state"] in {"claiming", "running"}
+                                                    and seconds(record["expires"]) > now)):
                     plans.append(self.coordinator.plan(item, agent, self.config.stop_labels, history))
-                elif any(r["agent"] == agent.name for r in unfinished):
-                    from .coordination import Plan
+                elif record and (record["state"] in {"claiming", "running"}
+                                 or record.get("result") in {"retry", "blocked"}):
+                    if record.get("cleanup") == "unconfirmed":
+                        reason = f"Previous cleanup was unconfirmed: {record.get('summary', '')}"
+                    elif record["state"] == "released":
+                        reason = f"Last run {record['result']}: {record.get('summary', '')}"
+                    else:
+                        reason = "Expired run has no outcome or matching trigger"
                     plans.append(Plan(item, agent, None, "blocked",
-                        "Expired run has no outcome or matching trigger; inspect GitHub before resetting", 1))
+                        f"{reason}; inspect GitHub and restore a trigger before retrying",
+                        len(attempts(history, agent.name, now)) + 1))
         return plans
 
     def tick(self):
@@ -79,6 +96,27 @@ class Loop:
         def diagnostic(event, **details):
             with (run_dir / "events.jsonl").open("a") as stream:
                 stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
+
+        def record_uncertainty(exc):
+            diagnostic("cleanup-unconfirmed", error=str(exc))
+            cause = exc
+            while cause is not None:
+                if isinstance(cause, LostOwnership):
+                    return  # Even a transient ownership loss forbids further writes.
+                cause = cause.__context__
+            try:
+                self.coordinator.assert_owned(lease)
+                self.coordinator.update(lease, cleanup="unconfirmed", summary=str(exc))
+            except AgentError as failure:
+                diagnostic("cleanup-verdict-unrecorded", error=str(failure))
+
+        def cleanup_workspace(record=True):
+            try:
+                workspace.cleanup()
+            except CleanupError as exc:
+                if record:
+                    record_uncertainty(exc)
+                raise
 
         next_renewal = time.monotonic() + plan.agent.renewal_seconds
 
@@ -116,12 +154,10 @@ class Loop:
                         "UB_AGENT_ASSIGNMENT": str(plan.item.number),
                         "UB_AGENT_RUN": lease["run"], "UB_AGENT_LEASE_ID": str(lease["id"]),
                         "UB_AGENT_CONTEXT": str(context_path),
+                        "UB_AGENT_OPERATORS": json.dumps(sorted(self.coordinator.trusted_actors)),
                         "UB_AGENT_CANDIDATE_SHA": plan.item.head or "",
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
-            instruction_path = plan.agent.instructions
-            if instruction_path and workspace.created:
-                instruction_path = workspace.private / instruction_path.relative_to(self.config.root)
-            instructions = instruction_path.read_text() if instruction_path else ""
+            instructions = self.instructions[plan.agent.name]
             prompt = (f"You are the project-configured agent {plan.agent.name}.\n"
                       f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                       f"Project instructions:\n{instructions}\n\n"
@@ -151,31 +187,39 @@ class Loop:
             elif code != 0:
                 result, summary = "blocked", f"Success report conflicts with execution exit {code}"
             else:
-                self.validate_success(plan, outcome)
+                try:
+                    self.validate_success(plan, outcome)
+                except AgentError:
+                    result = "blocked"
+                    raise
                 try:
                     self.coordinator.accept(lease, outcome)
                 except AgentError as exc:
                     raise LostOwnership(f"Cannot finalize durable outcome; leave expiry recovery: {exc}") from exc
                 result, summary = "success", outcome["summary"]
         except CleanupError as exc:
-            diagnostic("cleanup-unconfirmed", error=str(exc))
+            record_uncertainty(exc)
             raise
         except LostOwnership as exc:
             diagnostic("ownership-lost", error=str(exc))
-            workspace.cleanup()
+            cleanup_workspace(record=False)
             # Do not renew, report, release, or accept after losing ownership.
             raise
         except KeyboardInterrupt:
             interrupted = True
             summary = "Launcher interrupted; attributable execution terminated"
-            workspace.cleanup()
+            cleanup_workspace()
         except (AgentError, OSError) as exc:
             summary = str(exc)
-            workspace.cleanup()
+            cleanup_workspace()
         delay = min(plan.agent.max_backoff_seconds,
                     plan.agent.backoff_seconds * (2 ** min(lease["attempt"] - 1, 32))) if result == "retry" else 0
         # Framework failures are themselves explicit durable outcomes. If GitHub is
         # unreadable, this fails closed and the last lease expires without a lie.
+        if outcome is None:
+            # A report can precede a timeout/interruption. Keep that report
+            # unaccepted and persist the supervisor's actual verdict on the lease.
+            outcome = self.coordinator.outcome(lease)
         if outcome is None:
             self.coordinator.report(lease, result, summary)
         self.coordinator.release(lease, result, summary, delay)

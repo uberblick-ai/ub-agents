@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import json
 
-from .errors import AgentError
+from .errors import AgentError, RecordError
 
 MARKER = "<!-- ub-agent:v1 -->"
 LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
@@ -41,11 +41,13 @@ def body(record):
     return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(record, indent=2, sort_keys=True)}\n```\n"
 
 
-def records(comments):
+def records(comments, trusted_actors=None):
     result = []
     for comment in comments:
         if not isinstance(comment, dict):
             raise AgentError("Unreadable GitHub comment")
+        if trusted_actors is not None and not trusted_comment(comment, trusted_actors):
+            continue
         try:
             text = comment["body"] or ""
             if not text.startswith(MARKER):
@@ -55,12 +57,39 @@ def records(comments):
                 raise ValueError("missing JSON fence")
             record = json.loads(payload[:-4])
             validate(record)
+            if "recorded_by" in record and (record["kind"] != "outcome" or not record.get("handoff")):
+                raise ValueError("recorded_by is only valid for mirrored handoff outcomes")
+            if trusted_actors is not None and record["actor"].casefold() not in trusted_actors:
+                raise ValueError("source actor is not a configured operator")
             if record.get("recorded_by", record["actor"]).casefold() != comment["user"]["login"].casefold():
                 raise ValueError("record actor does not match GitHub comment author")
+            if comment.get("issue_url"):
+                number = int(comment["issue_url"].rsplit("/", 1)[1])
+                destination = record["handoff"] if "recorded_by" in record else record["assignment"]
+                if destination != number:
+                    raise ValueError("record is posted on the wrong assignment")
             result.append(record | {"id": comment["id"], "url": comment.get("html_url", "")})
-        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
-            raise AgentError(f"Malformed ub-agent comment {comment.get('id', '?')}: {exc}") from exc
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError, AgentError) as exc:
+            raise RecordError(f"Malformed ub-agent comment {comment.get('id', '?')}: {exc}") from exc
     return sorted(result, key=lambda record: record["id"])
+
+
+def trusted_comment(comment, trusted_actors):
+    user = comment.get("user")
+    login = user.get("login") if isinstance(user, dict) else None
+    return isinstance(login, str) and login.casefold() in trusted_actors
+
+
+def latest_leases(history):
+    """Latest non-withdrawn lease after each item/agent's last explicit reset."""
+    resets = {(r["assignment"], r["agent"]): r["id"] for r in history if r["kind"] == "reset"}
+    latest = {}
+    for record in history:
+        key = record["assignment"], record["agent"]
+        if (record["kind"] == "lease" and record["state"] != "withdrawn"
+                and record["id"] > resets.get(key, 0)):
+            latest[key] = record
+    return latest
 
 
 def validate(record):
@@ -85,6 +114,8 @@ def validate(record):
             raise ValueError("invalid attempt")
         if type(record.get("started")) is not bool:
             raise ValueError("invalid started flag")
+        if "cleanup" in record and record["cleanup"] != "unconfirmed":
+            raise ValueError("invalid cleanup state")
         seconds(record.get("expires"))
         if "finished" in record:
             seconds(record["finished"])

@@ -51,6 +51,10 @@ class FakeGitHub:
     def default_branch(self):
         return "main"
 
+    def prs_for_branch(self, branch):
+        return [item for item in self.items.values()
+                if item.kind == "pr" and item.branch == branch and item.state == "open"]
+
     def observe(self):
         return [item for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
 
@@ -70,14 +74,15 @@ class FakeGitHub:
             self.claim_read_barrier.wait(timeout=5)
         return snapshot
 
-    def repository_records(self):
+    def repository_comments(self):
         with self.lock:
-            return records(deepcopy([comment for comments in self.store.values() for comment in comments]))
+            return deepcopy([comment for comments in self.store.values() for comment in comments])
 
     def create_comment(self, number, body):
         data = json.loads(body.rsplit("\n```json\n", 1)[1].removesuffix("\n```\n")) if body.startswith(MARKER) else {}
         with self.lock:
             comment = {"id": self.next_id, "body": body, "user": {"login": data.get("recorded_by", data.get("actor", "operator"))},
+                       "issue_url": f"https://api.github.com/repos/org/project/issues/{number}",
                        "html_url": f"https://github.com/org/project/issues/{number}#issuecomment-{self.next_id}"}
             self.next_id += 1
             self.store.setdefault(number, []).append(comment)

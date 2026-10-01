@@ -7,9 +7,10 @@ import shutil
 import uuid
 
 from .config import Agent, Runtime
-from .errors import AgentError, LostOwnership
+from .errors import AgentError, LostOwnership, RecordError
 from .github import Item
-from .records import attempts, body, iso, live_leases, payload, records, seconds, timestamp
+from .records import (MARKER, attempts, body, iso, latest_leases, live_leases,
+                      payload, records, seconds, timestamp, trusted_comment)
 
 
 @dataclass(frozen=True)
@@ -23,20 +24,43 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp):
+    def __init__(self, github, actor, clock=timestamp, trusted_actors=()):
         self.github = github
         self.actor = actor
         self.clock = clock
+        self.trusted_actors = {login.casefold() for login in (*trusted_actors, actor)}
 
     def history(self, number):
-        return records(self.github.comments(number))
+        return records(self.github.comments(number), self.trusted_actors)
+
+    def repository_history(self):
+        groups = {}
+        for comment in self.github.repository_comments():
+            if not isinstance(comment, dict):
+                raise AgentError("Unreadable repository comment")
+            if not trusted_comment(comment, self.trusted_actors):
+                continue
+            if not isinstance(comment.get("body"), str) or not comment["body"].startswith(MARKER):
+                continue
+            try:
+                number = int(comment["issue_url"].rsplit("/", 1)[1])
+            except (KeyError, ValueError, AttributeError) as exc:
+                raise AgentError("Coordination comment has no GitHub assignment URL") from exc
+            groups.setdefault(number, []).append(comment)
+        history, invalid = [], set()
+        for number, comments in groups.items():
+            try:
+                history.extend(records(comments, self.trusted_actors))
+            except RecordError:
+                invalid.add(number)
+        return sorted(history, key=lambda record: record["id"]), invalid
 
     def plan(self, item, agent, stop_labels, history=None):
         history = self.history(item.number) if history is None else history
         now = self.clock()
         previous = attempts(history, agent.name, now)
-        finished = [r for r in history if r["kind"] == "lease" and r["agent"] == agent.name
-                    and r["state"] == "released" and r["id"] > self.reset_boundary(history, agent.name)]
+        latest = [r for r in latest_leases(history).values() if r["agent"] == agent.name]
+        finished = [r for r in latest if r["state"] == "released"]
         attempt = len(previous) + 1
         state, reason = "ready", "Trigger matched"
         runtime = None
@@ -44,10 +68,13 @@ class Coordinator:
             state, reason = "owned", "An unexpired assignment owns this work item"
         elif self.pending_completion(history, agent.name, now):
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
+        elif latest and latest[-1].get("cleanup") == "unconfirmed":
+            state, reason = "blocked", "Previous cleanup was unconfirmed; establish termination before an operator reset"
         elif item.labels.intersection(stop_labels):
             state, reason = "parked", "Configured stop label is present"
         elif item.kind == "issue" and any(r["kind"] == "outcome" and r["agent"] == agent.name
                 and r.get("accepted") is True and r["status"] == "success"
+                and r.get("handoff") and self.released_success(history, r)
                 and r["id"] > self.reset_boundary(history, agent.name) for r in history):
             state, reason = "completed", "Issue assignment completed; durable handoff suppresses duplicate pickup"
         elif finished and finished[-1].get("result") == "blocked":
@@ -56,6 +83,9 @@ class Coordinator:
             state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agent retry"
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
             state, reason = "backoff", "Durable retry backoff has not elapsed"
+        elif (item.kind == "issue" and latest and latest[-1].get("branch")
+              and self.github.prs_for_branch(latest[-1]["branch"])):
+            state, reason = "blocked", "Previous run branch already has an open PR; inspect its handoff before retrying"
         else:
             try:
                 runtime = self.choose_runtime(item, agent, history)
@@ -89,10 +119,7 @@ class Coordinator:
             if lease and any(lease.get(k) != source.get(k) for k in
                              ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha")):
                 raise AgentError("Candidate provenance does not match its source lease")
-            recovered = any(r["kind"] == "lease" and r["state"] == "released"
-                            and r.get("result") == "success" and r.get("recovered_lease_id") == source["lease_id"]
-                            for r in origin)
-            if not lease or not ((lease["state"] == "released" and lease.get("result") == "success") or recovered):
+            if not self.released_success(origin, source):
                 raise AgentError("Candidate provenance has no successfully released source lease")
             try:
                 cli, model, effort = source["runtime"].split(":")
@@ -112,20 +139,36 @@ class Coordinator:
     def reset_boundary(history, agent):
         return max((r["id"] for r in history if r["kind"] == "reset" and r["agent"] == agent), default=0)
 
+    @staticmethod
+    def released_success(history, outcome):
+        source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
+        if (source is None or source.get("cleanup") == "unconfirmed"
+                or any(source.get(k) != outcome.get(k) for k in
+                       ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha"))):
+            return False
+        return ((source["state"] == "released" and source.get("result") == "success")
+                or any(r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
+                       and r.get("recovered_lease_id") == source["id"] for r in history))
+
     def pending_completion(self, history, agent, now):
-        boundary = self.reset_boundary(history, agent)
-        for outcome in reversed(history):
-            if (outcome["kind"] != "outcome" or outcome["agent"] != agent or outcome["id"] <= boundary):
-                continue
-            if any(r["kind"] == "lease" and r.get("recovered_run") == outcome["run"]
-                   and r["state"] == "released" for r in history):
-                continue
-            lease = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
-            if (lease and lease["state"] in {"running", "claiming"} and lease["run"] == outcome["run"]
-                    and seconds(lease["expires"]) <= now
-                    and seconds(outcome["created"]) <= seconds(lease["expires"])):
-                return outcome
-        return None
+        latest = [r for r in latest_leases(history).values() if r["agent"] == agent]
+        if not latest:
+            return None
+        lease = latest[-1]
+        if lease["state"] not in {"running", "claiming"} or seconds(lease["expires"]) > now:
+            return None
+        source_id = lease.get("recovered_lease_id", lease["id"])
+        source = next((r for r in history if r["kind"] == "lease" and r["id"] == source_id), None)
+        if source is None or source["state"] not in {"running", "claiming"} or source.get("cleanup") == "unconfirmed":
+            return None
+        matches = [outcome for outcome in history
+                   if (outcome["kind"] == "outcome" and outcome["lease_id"] == source_id
+                    and all(outcome.get(k) == source.get(k) for k in
+                            ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha"))
+                    and seconds(outcome["created"]) <= seconds(source["expires"]))]
+        if len(matches) > 1:
+            raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
+        return matches[0] if matches else None
 
     def claim(self, plan, stop_labels=(), recovery=False):
         # Reobserve state immediately before claiming. This also handles a label/head
@@ -149,7 +192,12 @@ class Coordinator:
                   "mode": "recovery" if recovery else "execute",
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
-        created = records([self.github.create_comment(current.number, body(record))])[0]
+        if recovery:
+            outcome = self.pending_completion(history, plan.agent.name, now)
+            if outcome is None:
+                return None
+            record |= {"recovered_lease_id": outcome["lease_id"], "recovered_run": outcome["run"]}
+        created = records([self.github.create_comment(current.number, body(record))], self.trusted_actors)[0]
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.
@@ -162,7 +210,7 @@ class Coordinator:
 
     def update(self, lease, **changes):
         updated = payload(lease) | changes
-        result = records([self.github.update_comment(lease["id"], body(updated))])[0]
+        result = records([self.github.update_comment(lease["id"], body(updated))], self.trusted_actors)[0]
         lease.clear()
         lease.update(result)
         return lease
@@ -203,7 +251,7 @@ class Coordinator:
                    and r["agent"] == lease["agent"] and r["runtime"] == lease["runtime"]
                    and r.get("provider") == lease["provider"]]
         if len(matches) > 1:
-            raise AgentError("Run reported conflicting outcomes")
+            raise RecordError("Run reported conflicting outcomes")
         return matches[0] if matches else None
 
     def report(self, lease, status, summary, handoff=None):
@@ -217,7 +265,7 @@ class Coordinator:
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         self.assert_owned(lease)
-        return records([self.github.create_comment(lease["assignment"], body(record))])[0]
+        return records([self.github.create_comment(lease["assignment"], body(record))], self.trusted_actors)[0]
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)

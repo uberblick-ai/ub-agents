@@ -13,11 +13,11 @@ import uuid
 from . import __version__
 from .config import load_config
 from .coordination import Coordinator
-from .errors import AgentError
+from .errors import AgentError, RecordError
 from .execution import git
 from .github import GitHub
 from .loop import Loop
-from .records import body, iso, live_leases, records, timestamp
+from .records import body, iso, latest_leases, live_leases, records, timestamp
 
 
 def parser():
@@ -92,7 +92,13 @@ def report_run(args):
     except ValueError as exc:
         raise AgentError("Invalid supervised assignment environment") from exc
     github = GitHub(os.environ["UB_AGENT_REPOSITORY"])
-    coordinator = Coordinator(github, github.actor())
+    try:
+        operators = json.loads(os.environ.get("UB_AGENT_OPERATORS", "[]"))
+        if not isinstance(operators, list) or any(not isinstance(login, str) for login in operators):
+            raise ValueError("expected operator logins")
+    except ValueError as exc:
+        raise AgentError("Invalid supervised operator environment") from exc
+    coordinator = Coordinator(github, github.actor(), trusted_actors=operators)
     lease = next((r for r in coordinator.history(number) if r["kind"] == "lease"
                   and r["id"] == lease_id and r["run"] == os.environ["UB_AGENT_RUN"]), None)
     if lease is None:
@@ -106,13 +112,18 @@ def report_run(args):
 def status_rows(loop):
     rows = []
     for plan in loop.plans():
-        history = loop.coordinator.history(plan.item.number)
+        try:
+            history = loop.coordinator.history(plan.item.number)
+        except RecordError:
+            history = []  # The plan already displays the item's coordination error.
         active = live_leases(history, timestamp())
+        latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == plan.agent.name]
         rows.append({"number": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
                      "state": plan.state, "reason": plan.reason, "attempts": plan.attempt - 1,
                      "runtime": plan.runtime.name if plan.runtime else None,
                      "candidate_sha": plan.item.head,
+                     "result": latest.get("result") if latest else None,
                      "lease": active[0] if active else None,
                      "outcome": outcomes[-1] if outcomes else None})
     return rows
@@ -131,7 +142,7 @@ def run(args):
         return
     github = GitHub(config.repository)
     actor = github.actor()
-    coordinator = Coordinator(github, actor)
+    coordinator = Coordinator(github, actor, trusted_actors=config.operators)
     if args.command == "retry":
         if args.agent not in {agent.name for agent in config.agents}:
             raise AgentError("Unknown configured agent")
@@ -160,8 +171,13 @@ def run(args):
             for row in rows:
                 owner = (f" · @{row['lease']['actor']} until {row['lease']['expires']}"
                          if row["lease"] else "")
-                outcome = f" · last outcome: {row['outcome']['status']}" if row["outcome"] else ""
-                print(f"#{row['number']} {row['agent']}: {row['state']} · attempts {row['attempts']}{owner}{outcome}")
+                outcome = ""
+                if row["outcome"]:
+                    reported = row["outcome"]
+                    acceptance = " (unaccepted)" if reported["status"] == "success" and not reported["accepted"] else ""
+                    outcome = f" · reported: {reported['status']}{acceptance}"
+                verdict = f" · last result: {row['result']}" if row["result"] else ""
+                print(f"#{row['number']} {row['agent']}: {row['state']} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['reason']}")
         return
     if Path(git(config.root, "rev-parse", "--show-toplevel")).resolve() != config.root:
