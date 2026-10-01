@@ -35,6 +35,8 @@ def parser():
     launch.add_argument("--once", action="store_true", help="Observe once and execute at most one assignment")
     status = commands.add_parser("status", help="Read current assignments, leases, attempts, and outcomes")
     status.add_argument("--json", action="store_true", help="Emit structured status")
+    cleanup = commands.add_parser("cleanup", help="Preview stale owned worktrees and local branches")
+    cleanup.add_argument("--apply", action="store_true", help="Remove eligible artifacts after rechecking")
     report = commands.add_parser("report", help="Record a supervised run's explicit outcome on GitHub")
     verdict = report.add_mutually_exclusive_group(required=True)
     verdict.add_argument("--status", choices=["success", "retry", "blocked"])
@@ -156,6 +158,13 @@ def run(args):
     github = GitHub(config.repository)
     actor = github.actor()
     coordinator = Coordinator(github, actor, trusted_actors=config.operators)
+    if args.command == "cleanup":
+        from .cleanup import Cleaner
+        for _, error in repository_checks(config):
+            if error is not None:
+                raise error
+        Cleaner(config, github, actor).clean(apply=args.apply)
+        return
     if args.command == "retry":
         if args.agent not in {agent.name for agent in config.agents}:
             raise AgentError("Unknown configured agent")

@@ -90,7 +90,7 @@ class TransitionTests(unittest.TestCase):
                 self.setUp()
                 plan = self.resumed_checkpoint()
                 self.assertEqual(plan.resume_pr.number, 2)
-                def execute(*args):
+                def execute(*args, **kwargs):
                     self.github.change(2, draft=False)
                     self.report(handoff=2)
                     return 0
@@ -134,7 +134,7 @@ class TransitionTests(unittest.TestCase):
                     self.setUp()
                     plan = self.resumed_checkpoint()
                     self.github.items[3] = replace(pr(3), branch='other')
-                    def execute(*args):
+                    def execute(*args, **kwargs):
                         self.github.change(2, draft=draft)
                         self.report(handoff=handoff)
                         return 0

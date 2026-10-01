@@ -155,7 +155,7 @@ class LoopTests(unittest.TestCase):
                 {"number": 20, "state": "open", "created_at": iso(200)},
             ]
             branches = git(self.root, "for-each-ref", "refs/heads")
-            def execute(command, cwd, env, *args):
+            def execute(command, cwd, env, *args, **kwargs):
                 context = json.loads(Path(env["UB_AGENT_CONTEXT"]).read_text())
                 self.assertEqual((context["assignment"], context["resume_pr"], context["candidate_sha"]), (1, 2, head))
                 self.assertEqual((env["UB_AGENT_BRANCH"], env["UB_AGENT_PR"], env["UB_AGENT_CANDIDATE_SHA"]),

@@ -150,6 +150,10 @@ def validate(record):
             raise ValueError("invalid started flag")
         if "cleanup" in record and record["cleanup"] != "unconfirmed":
             raise ValueError("invalid cleanup state")
+        if "process_group" in record and (type(record["process_group"]) is not int or record["process_group"] < 1):
+            raise ValueError("invalid process group")
+        if "cleanup_hook_error" in record and not isinstance(record["cleanup_hook_error"], str):
+            raise ValueError("invalid cleanup hook diagnostic")
         if "outcomes" in record:
             declarations = record["outcomes"]
             if (not isinstance(declarations, dict) or not declarations

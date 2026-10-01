@@ -14,7 +14,83 @@ errors; `ub-agent check` validates the file.
 | `poll-seconds` | How often an idle loop checks GitHub (default 30). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `operators` | Other GitHub accounts whose claims and outcomes this launcher trusts. Only the authenticated account is trusted by default. |
+| `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
+
+## Project cleanup hook
+
+```yaml
+cleanup:
+  command: [./scripts/cleanup-agent-worktree]
+  timeout-seconds: 60
+```
+
+Without `cleanup`, no hook runs. `command` must be a nonempty argv list; no shell
+or substitutions are used. The timeout defaults to 60 seconds and must be finite,
+positive and at most 3600 seconds. `ub-agent check` rejects unknown keys and invalid
+values. The command runs with the operator's configuration checkout as its working
+directory, so `./scripts/...` resolves there, even when a candidate changes its own
+configuration or scripts.
+
+The hook runs before launcher removal of an owned private worktree, including
+execution timeout, interruption and lost ownership, and before `cleanup --apply`
+removal. It runs only after agent execution has been confirmed stopped. Shared
+agent working directories have no hook. The hook gets its own process group,
+log directory and deadline; surviving helpers are terminated and checked using
+the same supervision as agent processes. An already requested launcher stop does
+not skip the cleanup hook.
+
+`UB_AGENT_CLEANUP_CONTEXT` points to a JSON file with `repository`, `run`, `agent`,
+`assignment`, `kind` (`issue` or `pr`), `handoff`, `resume_pr`, `status`, `outcome`
+(the named outcome, if any), `worktree` (absolute path) and `branch`. Unavailable
+fields are `null`. `status` is the released lease's result during later maintenance,
+otherwise the reported status known before removal, or `null`. `handoff` and
+`resume_pr` identify the related PRs. The hook also gets `UB_AGENT_REPOSITORY`,
+`UB_AGENT_RUN`, `UB_AGENT_AGENT`, `UB_AGENT_ASSIGNMENT`, `UB_AGENT_WORKTREE` and
+`UB_AGENT_BRANCH` (empty when unknown). It gets no reporting lease environment.
+
+Exit zero permits removal. A nonzero exit, start failure or timeout with confirmed
+termination keeps the worktree and branch, logs `cleanup-hook-failed` in the run's
+`events.jsonl`, and records `cleanup_hook_error` on the lease if ownership remains.
+The agent outcome, label transitions and queue remain unchanged. Later maintenance
+can retry the hook. Unconfirmed hook termination preserves artifacts and stops the
+loop or cleanup command; local diagnostics and, while owned, the lease record
+`cleanup: unconfirmed`. Such artifacts remain ineligible until an operator has
+established termination and resolved the uncertainty records.
+
+Use the hook for project resources such as test services tied to the run. Document
+operator-only cleanup or recovery steps in a project operations document and link
+it from `AGENTS.md`; keep those steps out of agent task instructions. Make the hook
+safe to retry, because a crash after hook success can leave a worktree to clean later.
+
+## Stale artifact cleanup
+
+`ub-agent cleanup` previews every registered worktree directly under this checkout's
+`.ub-agent/worktrees/<run>` and local branch named `ub-agent/<agent>/<number>/<run>`.
+It reports `would remove` or `kept` with a reason. Unregistered entries under the
+worktree directory are reported as uncertain and kept. Other tools' worktrees,
+remote branches and run logs are outside its deletion scope.
+
+`ub-agent cleanup --apply` rechecks each eligible artifact before deletion and
+reports `removed` or `kept`. Worktrees are considered before branches, so a branch
+can be removed after its worktree. Preview assumes an eligible worktree's hook
+succeeds; apply preserves both artifacts if it fails. Locked worktrees and tracked
+changes or untracked files that are not ignored keep a worktree. Launcher release
+retains its existing removal behavior and always keeps local branches.
+
+Every artifact needs an unambiguous GitHub run lease owned by the authenticated
+actor. A released lease is eligible; an expired lease requires a recorded process
+group and confirmed absence of its members. Older leases without that record stay
+uncertain. Live leases, unreadable state, redirected paths, unconfirmed cleanup and
+outcomes awaiting recovery keep artifacts. A later run resuming the same branch
+must also be eligible before branch deletion.
+
+Branches stay when checked out in a kept worktree, used by an open PR, or when the
+tip is not known remotely. The command fetches `origin` branch history (including
+in preview), and proves tip reachability from those fetched branches or from a
+fetched PR head from the same branch and repository. Closed PR heads can preserve
+checkpoint commits after a squash merge deletes the remote branch. Fetch/read
+failures keep artifacts. No GitHub branches are deleted.
 
 ## Queue
 
@@ -250,6 +326,8 @@ variables, as do LLM runtimes:
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
 - `ub-agent launch [--once]` runs the loop in the foreground.
+- `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
+  removes eligible worktrees and local branches, running the project hook first.
 - `ub-agent status [--json]` shows matching work, claims, attempts and outcomes.
 - `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures; `--status success`

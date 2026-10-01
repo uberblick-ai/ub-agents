@@ -130,6 +130,12 @@ class Queue:
 
 
 @dataclass(frozen=True)
+class CleanupHook:
+    command: tuple[str, ...]
+    timeout_seconds: float = 60
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     repository: str
@@ -138,6 +144,7 @@ class Config:
     stop_labels: tuple[str, ...]
     operators: tuple[str, ...] = ()
     queue: Queue = Queue()
+    cleanup: CleanupHook | None = None
 
 
 CLOCKS = {"lease-minutes", "renewal-minutes", "agent-timeout-minutes",
@@ -155,7 +162,14 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "runtimes",
-                          "poll-seconds", "stop-labels", "operators", "queue"}, "configuration")
+                          "poll-seconds", "stop-labels", "operators", "queue", "cleanup"}, "configuration")
+    cleanup = None
+    if "cleanup" in data:
+        hook = mapping(data["cleanup"], {"command", "timeout-seconds"}, "cleanup")
+        cleanup = CleanupHook(argv(hook.get("command"), "cleanup command"),
+                              number(hook.get("timeout-seconds", 60), "cleanup timeout-seconds"))
+        if cleanup.timeout_seconds > 3600:
+            raise AgentError("cleanup timeout-seconds must be at most 3600")
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
     if milestones not in ("gate", "ignore"):
@@ -278,7 +292,7 @@ def load_config(path):
     if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login) for login in operators):
         raise AgentError("operators must contain GitHub account logins")
     return Config(root, repo, tuple(agents), poll, stop, operators,
-                  Queue(milestones, priority, dependencies))
+                  Queue(milestones, priority, dependencies), cleanup)
 
 
 def argv(value, where, empty=False):
