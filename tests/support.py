@@ -28,7 +28,8 @@ def issue(number=1, labels=("ready",)):
 
 
 def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1", draft=False):
-    return Item(number, "pr", "Candidate", body, frozenset(labels), "open", "operator", head, "feature/test", draft)
+    return Item(number, "pr", "Candidate", body, frozenset(labels), "open", "operator", head, "feature/test", draft,
+                "org/project")
 
 
 class FakeGitHub:

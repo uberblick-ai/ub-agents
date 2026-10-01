@@ -58,6 +58,14 @@ class Workspace:
             if head != self.item.head:
                 raise AgentError("Candidate changed while preparing its private worktree")
             git(self.root, "worktree", "add", "--detach", str(self.private), head)
+        elif self.lease.get("resume_pr"):
+            git(self.root, "fetch", "origin", f"refs/heads/{self.lease['branch']}")
+            head = git(self.root, "rev-parse", "FETCH_HEAD")
+            if head != self.lease["resume_sha"]:
+                raise AgentError("Checkpoint changed while preparing its private worktree")
+            # A prior worktree may still have the local branch checked out. Never
+            # reset it or remove it; push HEAD explicitly to the recorded branch.
+            git(self.root, "worktree", "add", "--detach", str(self.private), head)
         else:
             base = self.github.default_branch()
             git(self.root, "fetch", "origin", base)

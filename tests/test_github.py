@@ -19,9 +19,13 @@ class GitHubTests(unittest.TestCase):
     def test_pr_draft_state_is_required_and_preserved(self):
         raw = {"number": 2, "title": "Candidate", "body": "Closes #1", "labels": [],
                "state": "open", "user": {"login": "operator"},
-               "head": {"sha": "a" * 40, "ref": "feature/test"}}
+               "head": {"sha": "a" * 40, "ref": "feature/test", "repo": {"full_name": "org/project"}}}
         for draft in (True, False):
-            self.assertEqual(parse_item(raw | {"draft": draft}, "pr").draft, draft)
+            parsed = parse_item(raw | {"draft": draft}, "pr")
+            self.assertEqual(parsed.draft, draft)
+            self.assertEqual(parsed.head_repository, "org/project")
+            self.assertFalse(parsed.merged)
+        self.assertTrue(parse_item(raw | {"draft": False, "merged_at": iso(1000)}, "pr").merged)
         for fields in ({}, {"draft": None}, {"draft": "false"}, {"draft": 0}):
             with self.subTest(fields=fields), self.assertRaises(AgentError):
                 parse_item(raw | fields, "pr")

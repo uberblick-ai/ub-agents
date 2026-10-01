@@ -114,7 +114,8 @@ agents:
 
 The command receives `UB_AGENT_CONTEXT` (a disposable JSON context path),
 `UB_AGENT_REPOSITORY`, `UB_AGENT_ASSIGNMENT`, `UB_AGENT_RUN`, `UB_AGENT_LEASE_ID`,
-`UB_AGENT_CANDIDATE_SHA`, and `UB_AGENT_BRANCH`. It performs project-authorized
+`UB_AGENT_CANDIDATE_SHA`, `UB_AGENT_BRANCH`, and `UB_AGENT_PR` (the existing PR
+number on resumed issues or PR assignments, otherwise empty). It performs project-authorized
 GitHub transitions and calls `ub-agent report`. There is no shell interpolation.
 `UB_AGENT_OPERATORS` carries the configured coordination trust scope into `report`.
 Other authenticated CLIs can use a thin custom argv adapter:
@@ -266,10 +267,16 @@ ub-agent retry --number 42 --agent implementer --reason "Fixed the failing tool 
 
 This preserves history and refuses an unexpired claim. For issue retries, planning checks
 every branch recorded by earlier leases for the same issue and configured agent,
-including before a reset, for an open PR by head branch. If one exists, planning
-blocks and names it: inspect and continue that PR manually, or close it if
-abandoned before a reasoned retry reset. There is no automatic branch reuse, and
-a reset alone does not bypass this guard.
+including before a reset, for open PRs by head branch. Exactly one linked draft
+with its head in this repository can resume when it has no conflicting ownership,
+unconfirmed PR cleanup, or outcome awaiting recovery. The new issue lease records
+its PR number, branch, and head. A fresh detached worktree starts at that remote
+branch, and the task context directs the implementer to continue the same PR and
+push HEAD explicitly to UB_AGENT_BRANCH. Earlier worktrees are left alone. Normal
+backoff, attempt limits, and blocked-run reset requirements still apply. Multiple,
+unlinked, foreign-head, ready, or otherwise unsafe PRs block with their numbers and
+reason: inspect and continue manually, or close abandoned PRs before a reasoned
+reset. A reset never hides historical PRs or authorizes a duplicate.
 
 Uncertain process cleanup
 stops the loop and preserves private artifacts. While ownership can still be

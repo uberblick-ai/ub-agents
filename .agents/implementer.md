@@ -28,10 +28,16 @@ the normal review and needs-changes path.
 
 On an interrupted or failed issue run, the launcher checks all earlier branches
 recorded by this issue's implementer leases, including before an operator retry
-reset. If any has an open PR, planning blocks and names the PR. The operator must
-inspect and continue that PR manually; if it is abandoned, close it before a
-reasoned `ub-agent retry` reset. A reset alone does not bypass the existing PR
-guard. Do not open a second PR or assume automatic branch reuse.
+reset. When exactly one open draft PR links the issue, has its head in this
+repository, and has no conflicting ownership or pending recovery, the retry resumes
+that PR in a fresh private worktree. The context names resume_pr and the observed
+candidate SHA; UB_AGENT_BRANCH names the existing remote branch. The checkout is
+detached: push explicitly with `git push origin HEAD:refs/heads/$UB_AGENT_BRANCH`.
+Read the issue and existing PR's feedback, continue that PR, and hand off its number;
+never create a second PR. Blocked runs and exhausted budgets still require a
+reasoned `ub-agent retry` reset after the cause is resolved. Unsafe reuse blocks
+with the PR number and reason; inspect and continue manually, or close it if
+abandoned before a reset. A reset never hides an existing PR.
 
 When implementation is complete, run all project checks, commit and push the final
 work to the same branch, read feedback again, and mark that same PR ready

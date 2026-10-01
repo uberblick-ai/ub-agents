@@ -78,12 +78,30 @@ lease and retained for possible human recovery.
 Issue retry planning checks all branches recorded by earlier leases for the same
 issue and configured agent, including leases before a reset or superseded by a
 newer run. Open PRs are found by head branch, independent of their body or labels.
-The policy is **stop**: block planning with the open PR number(s) and tell the
-operator to inspect and continue the existing PR manually. If abandoned, close
-it before a reasoned `ub-agent retry` reset. A reset changes attempt/completion
-gates but never hides historical branches; there is no automatic branch reuse.
-This check runs again immediately before claiming. A success report whose GitHub
-handoff fails validation also blocks rather than reexecuting the implementation.
+Exactly one open draft can resume when it links the issue, has its head in this
+repository on a recorded branch, and has no conflicting live ownership, unconfirmed
+PR cleanup, or outcome awaiting recovery. Reuse requires a private worktree. The
+new issue lease records resume_pr, resume_sha, and branch, without changing its
+issue assignment or attempt budget. Existing backoff, blocked-run and attempt-limit
+gates still apply; a settled blocked decision requires a reasoned operator reset.
+
+The retry fetches the existing remote branch into a fresh detached worktree at the
+observed SHA. It never resets a local branch or removes an earlier worktree. Context
+and prompt name the existing PR; UB_AGENT_PR is its number, UB_AGENT_BRANCH is its
+branch, and UB_AGENT_CANDIDATE_SHA is the starting checkpoint. Push HEAD explicitly
+to the remote branch and hand off the same PR. A resumed success naming another PR
+is rejected in completion and recovery.
+
+Multiple PRs, missing issue linkage, foreign heads, ready PRs, or unsafe ownership
+block with PR numbers and the reason. Inspect and continue manually; close abandoned
+PRs before a reasoned reset. A reset changes attempt/completion gates but never hides
+historical branches. Checks repeat at claim and before execution; a changed PR/head
+costs no claim or prevents execution. Live issue-resume leases also exclude PR runs,
+and both claim paths recheck related ownership after election. The lowest live
+comment ID wins across related claims; renewal checks this ownership too. This is
+cooperative observation, with the same consistency limits as ordinary leases.
+A success report whose GitHub handoff fails validation also blocks rather than
+reexecuting the implementation.
 
 The starter implementer publishes the first coherent, buildable checkpoint as a
 draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the

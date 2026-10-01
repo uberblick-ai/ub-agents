@@ -116,6 +116,11 @@ def validate(record):
             raise ValueError(f"missing {field}")
     if type(record.get("assignment")) is not int or record["assignment"] < 1:
         raise ValueError("invalid assignment")
+    if record.get("resume_pr") is not None and (type(record["resume_pr"]) is not int or record["resume_pr"] < 1):
+        raise ValueError("invalid resume_pr")
+    if record.get("resume_pr") and record.get("kind") == "lease":
+        if not all(isinstance(record.get(k), str) and record[k] for k in ("branch", "resume_sha")):
+            raise ValueError("resumed lease requires branch and resume_sha")
     for field in ("assignment_sha", "candidate_sha"):
         value = record.get(field)
         if value is not None and (not isinstance(value, str) or not value):
