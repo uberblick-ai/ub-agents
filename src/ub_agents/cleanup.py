@@ -8,7 +8,7 @@ import re
 from .coordination import Coordinator
 from .errors import AgentError, CleanupError
 from .execution import git, group_members
-from .hooks import diagnostic, run_hook
+from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
 from .records import seconds
 
 BRANCH = re.compile(r"ub-agent/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
@@ -123,6 +123,10 @@ class Cleaner:
                     raise AgentError("Run cleanup is unconfirmed in local diagnostics")
             except (OSError, ValueError, AttributeError) as exc:
                 raise AgentError("Run diagnostics are unreadable") from exc
+        try:
+            confirm_hook_groups_stopped(self.config, lease["run"])
+        except CleanupError as exc:
+            raise AgentError(str(exc)) from exc
         if lease["state"] == "released":
             return
         if lease["state"] not in {"running", "claiming"}:

@@ -81,6 +81,53 @@ class HookTests(unittest.TestCase):
                 self.assertIn("cleanup-hook-failed", events)
                 group = int(next((run_dir / "cleanup").glob("*/pid")).read_text())
                 self.assertEqual(group_members(group), [])
+                self.assertEqual(next((run_dir / "cleanup").glob("*/stopped")).read_text(), "confirmed\n")
+
+    def test_long_hook_renews_lease_and_success_is_accepted(self):
+        loop = self.loop()
+        now = timestamp()
+        elapsed = 0
+        loop.coordinator.clock = lambda: now + elapsed
+
+        def slow_hook(command, cwd, env, directory, timeout, heartbeat, stop_event):
+            nonlocal elapsed
+            original_deadline = loop.coordinator.history(1)[0]["expires"]
+            # Simulate a hook spanning two original leases. Renewal uses the
+            # same launcher heartbeat as agent execution, on each interval.
+            for elapsed in range(10, 121, 10):
+                heartbeat()
+            self.assertNotEqual(loop.coordinator.history(1)[0]["expires"], original_deadline)
+            return 0
+
+        with patch("ub_agents.loop.timestamp", side_effect=lambda: now + elapsed), \
+                patch("ub_agents.loop.time.monotonic", side_effect=lambda: elapsed), \
+                patch("ub_agents.hooks.supervise", side_effect=slow_hook):
+            self.assertTrue(self.execute(loop))
+        lease, outcome = loop.coordinator.history(1)
+        self.assertEqual(lease["result"], "success")
+        self.assertTrue(outcome["accepted"])
+        self.assertEqual(len(self.removed), 1)
+
+    def test_ownership_loss_during_hook_stops_real_group_and_retains_artifacts(self):
+        loop = self.loop("import time; time.sleep(30)")
+        self.agent = replace(self.agent, renewal_seconds=0)
+        loop.config = replace(loop.config, agents=(self.agent,))
+
+        def lose(lease, duration):
+            self.last_writes = self.github.writes.copy()
+            raise LostOwnership("renewal lost during hook")
+
+        with patch.object(loop.coordinator, "renew", side_effect=lose):
+            with self.assertRaisesRegex(LostOwnership, "renewal lost during hook"):
+                self.execute(loop)
+        self.assertFalse(self.removed)
+        self.assertEqual(self.github.writes, self.last_writes)
+        lease, outcome = loop.coordinator.history(1)
+        self.assertFalse(outcome["accepted"])
+        self.assertEqual(lease["state"], "running")
+        directory = next((self.root / ".ub-agent" / "runs" / lease["run"] / "cleanup").iterdir())
+        self.assertEqual(group_members(int((directory / "pid").read_text())), [])
+        self.assertEqual((directory / "stopped").read_text(), "confirmed\n")
 
     def test_hook_runs_after_agent_timeout_interruption_and_lost_ownership(self):
         for mode in ("timeout", "interrupt", "lost"):
@@ -138,6 +185,8 @@ class HookTests(unittest.TestCase):
                 self.execute(loop)
         self.assertFalse(self.removed)
         self.assertEqual(loop.coordinator.history(1)[0]["cleanup"], "unconfirmed")
+        directory = next((self.root / ".ub-agent" / "runs" / self.workspace.lease["run"] / "cleanup").iterdir())
+        self.assertFalse((directory / "stopped").exists())
 
     def test_shared_agent_never_runs_hook(self):
         self.agent = replace(self.agent, worktree=False)

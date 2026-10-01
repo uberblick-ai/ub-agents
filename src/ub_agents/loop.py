@@ -170,7 +170,8 @@ class Loop:
                     reported = self.coordinator.outcome(lease)
                 except AgentError:
                     reported = outcome
-                failure = run_hook(self.config, lease, workspace.private, reported)
+                failure = run_hook(self.config, lease, workspace.private, reported,
+                                   heartbeat=heartbeat if record else None)
                 if failure:
                     if record:
                         try:

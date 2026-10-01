@@ -40,6 +40,11 @@ log directory and deadline; surviving helpers are terminated and checked using
 the same supervision as agent processes. An already requested launcher stop does
 not skip the cleanup hook.
 
+While it still owns the run, the launcher continues lease renewal during the hook.
+Loss of ownership stops the supervised hook and preserves the worktree for recovery;
+it is not treated as a normal hook failure. Cleanup after ownership has already been
+lost runs without lease writes.
+
 `UB_AGENT_CLEANUP_CONTEXT` points to a JSON file with `repository`, `run`, `agent`,
 `assignment`, `kind` (`issue` or `pr`), `handoff`, `resume_pr`, `status`, `outcome`
 (the named outcome, if any), `worktree` (absolute path) and `branch`. Unavailable
@@ -84,6 +89,15 @@ group and confirmed absence of its members. Older leases without that record sta
 uncertain. Live leases, unreadable state, redirected paths, unconfirmed cleanup and
 outcomes awaiting recovery keep artifacts. A later run resuming the same branch
 must also be eligible before branch deletion.
+
+Local hook diagnostics are checked for released and expired runs, including when
+no hook is currently configured. Each hook directory records its process-group
+`pid` and a `stopped` marker after confirmed termination. An unfinished hook's group
+must be confirmed absent before a retry or deletion. A missing or unreadable pid,
+redirected diagnostics, or an inconclusive process check keeps artifacts. This also
+covers a launcher crash between spawning the hook and recording its pid. Operators
+must establish termination before resolving uncertain hook records; cleanup never
+signals a previous run's processes.
 
 Branches stay when checked out in a kept worktree, used by an open PR, or when the
 tip is not known remotely. The command fetches `origin` branch history (including

@@ -2,6 +2,7 @@ from copy import deepcopy
 from dataclasses import replace
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from ub_agents.cleanup import Cleaner
 from ub_agents.config import CleanupHook
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError
-from ub_agents.execution import git
+from ub_agents.execution import git, stop_group
 from ub_agents.records import iso, timestamp
 from tests.support import FakeGitHub, config, issue, pr
 
@@ -139,6 +140,71 @@ class CleanupTests(unittest.TestCase):
         self.update(expires=iso(timestamp() - 1), process_group=123456)
         with patch("ub_agents.cleanup.group_members", return_value=[]):
             self.assertIn("awaiting recovery", self.actions(True)["worktree"]["reason"])
+
+    def hook_record(self, pid=None):
+        directory = self.root / ".ub-agent" / "runs" / self.lease["run"] / "cleanup" / "crashed"
+        directory.mkdir(parents=True)
+        if pid is not None:
+            (directory / "pid").write_text(str(pid))
+        return directory
+
+    def test_orphaned_real_hook_keeps_expired_run_until_group_is_gone(self):
+        self.update(state="running", expires=iso(timestamp() - 1), process_group=123456)
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                                   start_new_session=True)
+        self.addCleanup(stop_group, process)
+        directory = self.hook_record(process.pid)
+        self.hook("pass")
+        with patch("ub_agents.cleanup.group_members", return_value=[]), \
+                patch("ub_agents.cleanup.run_hook") as hook:
+            for apply in (False, True):
+                rows = self.actions(apply)
+                self.assertTrue(all(r["action"] == "kept" for r in rows.values()))
+                self.assertIn("hook process group", rows["worktree"]["reason"])
+            hook.assert_not_called()
+        self.assertTrue(self.path.exists())
+        self.assertEqual(len(list(directory.parent.iterdir())), 1)
+        stop_group(process)
+        with patch("ub_agents.cleanup.group_members", return_value=[]):
+            self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
+
+    def test_released_branch_without_tree_still_checks_unfinished_hook(self):
+        git(self.root, "worktree", "remove", str(self.path))
+        self.hook_record(123456)
+        with patch("ub_agents.hooks.group_members", return_value=[123456]):
+            self.assertIn("hook process group", self.actions(True)["branch"]["reason"])
+
+    def test_missing_malformed_and_redirected_hook_records_keep_artifacts(self):
+        directory = self.hook_record()
+        for value in (None, "not-a-pid", "0", "-1"):
+            with self.subTest(value=value):
+                if value is not None:
+                    (directory / "pid").write_text(value)
+                self.assertIn("cannot be confirmed", self.actions(True)["worktree"]["reason"])
+        (directory / "pid").unlink()
+        (self.root / "outside-pid").write_text("123456")
+        (directory / "pid").symlink_to(self.root / "outside-pid")
+        self.assertIn("redirected", self.actions(True)["worktree"]["reason"])
+        (directory / "pid").unlink()
+        directory.rmdir()
+        directory.symlink_to(self.root, target_is_directory=True)
+        self.assertIn("uncertain hook", self.actions(True)["worktree"]["reason"])
+
+    def test_unfinished_hook_process_inspection_failure_keeps_artifacts(self):
+        self.hook_record(123456)
+        with patch("ub_agents.hooks.group_members", side_effect=CleanupError("cannot inspect group")):
+            self.assertIn("cannot inspect group", self.actions(True)["worktree"]["reason"])
+
+    def test_confirmed_stop_marker_allows_retry_without_checking_reused_pid(self):
+        directory = self.hook_record(123456)
+        (directory / "stopped").write_text("confirmed\n")
+        with patch("ub_agents.hooks.group_members", side_effect=AssertionError("already confirmed stopped")):
+            self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
+
+    def test_unreadable_stop_marker_keeps_artifacts(self):
+        directory = self.hook_record(123456)
+        (directory / "stopped").write_text("partial")
+        self.assertIn("unreadable hook stop", self.actions(True)["worktree"]["reason"])
 
     def test_unregistered_and_redirected_paths_are_never_removed(self):
         extra = self.path.parent / "unknown"
