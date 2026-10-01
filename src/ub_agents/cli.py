@@ -123,6 +123,7 @@ def status_rows(loop):
         outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == plan.agent.name]
         rows.append({"number": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
                      "priority": plan.priority, "priority_inherited_from": plan.priority_source,
+                     "priority_from_issue": plan.priority_from_issue,
                      "open_blockers": list(plan.blockers),
                      "state": plan.state, "reason": plan.reason, "attempts": plan.attempt - 1,
                      "runtime": plan.runtime.name if plan.runtime else None,
@@ -188,6 +189,8 @@ def run(args):
                 priority = row["priority"] or "none"
                 if row["priority_inherited_from"] is not None:
                     priority += f" (inherited from #{row['priority_inherited_from']})"
+                elif row["priority_from_issue"] is not None:
+                    priority += f" (from closed issue #{row['priority_from_issue']})"
                 print(f"#{row['number']} {row['agent']}: {row['state']} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['reason']}")
         return

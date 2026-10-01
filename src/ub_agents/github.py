@@ -44,6 +44,18 @@ def links_issue(pr, repository, number):
     return bool(re.search(rf"(?<![\w/])#{number}\b", pr.body) or link in pr.body)
 
 
+def closing_issues(pr, repository):
+    """Local closing references, requiring a supported keyword for each issue."""
+    pattern = (r"\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?):?\s+"
+               r"(?:(?P<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#"
+               r"(?P<number>[1-9][0-9]*)\b|https://github\.com/"
+               r"(?P<url_repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/"
+               r"(?P<url_number>[1-9][0-9]*)\b)")
+    return {int(match["number"] or match["url_number"])
+            for match in re.finditer(pattern, pr.body, re.IGNORECASE)
+            if (match["repo"] or match["url_repo"] or repository).casefold() == repository.casefold()}
+
+
 def parse_item(data, kind):
     try:
         seconds(data["created_at"])

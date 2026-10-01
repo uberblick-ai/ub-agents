@@ -32,8 +32,8 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
    attempt limits still apply.
 2. PR work comes before new issue starts. This includes PR assignments, recovery
    and completion of already-started runs, and resumption of an existing draft PR
-   checkpoint, even when its assignment is an issue. Neither queue gate holds back this
-   work.
+   checkpoint, even when its assignment is an issue. Neither queue gate holds
+   back this work.
 3. With `queue.milestones: gate`, only new issues in the active milestone can
    start. The active milestone is the oldest open milestone with open issues or
    PRs, by creation time with milestone number as the tie-breaker. Later-milestone
@@ -54,7 +54,14 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
    priority; external blockers gate but do not inherit local priority. Traversal
    terminates even in cycles: every member receives the highest priority reachable
    from the cycle and its open dependents. The launcher never changes labels.
-6. Within PR work and within issue work, rank by effective priority, then item
+6. A PR's effective priority is the highest of its own configured priority and
+   the effective priority of each open local issue it closes, as named by closing
+   keywords in its body. It includes the issue's inherited priority in `wait`
+   mode, and its own configured priority in `ignore` mode. Review, revision and
+   integration therefore inherit urgent work's priority without label changes.
+   Each closing issue requires its own keyword; ordinary mentions, closed issues,
+   PR references and foreign repository references do not supply priority.
+7. Within PR work and within issue work, rank by effective priority, then item
    creation time, then item number. Without a default, unlabeled items rank below
    all configured priority labels. Without priority configuration, ranking is FIFO
    with number as the tie-breaker. Agents on the same item retain YAML order

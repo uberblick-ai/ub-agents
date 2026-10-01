@@ -10,7 +10,7 @@ from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .errors import AgentError, CleanupError, LostOwnership, RecordError, ValidationError
 from .execution import Workspace, command_for, supervise
-from .github import links_issue
+from .github import closing_issues, links_issue
 from .records import attempts, iso, latest_leases, lease_summary, seconds, timestamp
 
 
@@ -76,13 +76,24 @@ class Loop:
                         len(attempts(history, agent.name, now)) + 1))
         dependencies = (Dependencies(self.github, items.values(), self.config.queue.priority)
                         if self.config.queue.dependencies == "wait" else None)
+        priority_config = self.config.queue.priority
+        issue_priorities = {i.number: priority_config.effective(i.labels) for i in items.values()
+                            if i.kind == "issue" and i.state == "open"}
+        if dependencies:
+            issue_priorities.update({n: label for n, (label, _) in dependencies.priorities.items()})
         ranked = []
         for plan in plans:
-            priority = self.config.queue.priority.effective(plan.item.labels)
-            source, blockers = None, ()
+            priority = priority_config.effective(plan.item.labels)
+            source, from_issue, blockers = None, None, ()
             if dependencies and plan.item.kind == "issue":
                 priority, source = dependencies.priorities.get(plan.item.number, (priority, None))
                 blockers = dependencies.blockers.get(plan.item.number, ())
+            elif plan.item.kind == "pr":
+                for number in sorted(closing_issues(plan.item, self.config.repository)):
+                    label = issue_priorities.get(number)
+                    if label is not None and (priority is None or
+                            priority_config.labels.index(label) < priority_config.labels.index(priority)):
+                        priority, from_issue = label, number
             reasons = []
             if plan.state == "ready" and plan.item.kind == "issue" and plan.resume_pr is None:
                 if active_milestone is not None and plan.item.milestone != active_milestone:
@@ -91,15 +102,16 @@ class Loop:
                     reasons.append(f"Waiting for blockers {', '.join(blockers)}")
             if reasons:
                 plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons))
-            ranked.append(replace(plan, priority=priority, priority_source=source, blockers=blockers))
+            ranked.append(replace(plan, priority=priority, priority_source=source,
+                                  priority_from_issue=from_issue, blockers=blockers))
         # Rank after checkpoint/recovery discovery: these are PR work even when
         # their durable assignment is an issue. Stable sorting keeps YAML order
         # for agents on the same item within each work class.
         return sorted(ranked, key=lambda plan: (
             0 if (plan.item.kind == "pr" or plan.state in {"owned", "recover"}
                   or plan.resume_pr is not None) else 1,
-            (self.config.queue.priority.labels.index(plan.priority) if plan.priority is not None
-             else len(self.config.queue.priority.labels)),
+            (priority_config.labels.index(plan.priority) if plan.priority is not None
+             else len(priority_config.labels)),
             seconds(plan.item.created_at), plan.item.number))
 
     def tick(self):

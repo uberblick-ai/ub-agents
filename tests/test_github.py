@@ -9,13 +9,24 @@ from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from ub_agents.errors import AgentError
-from ub_agents.github import Dependency, GitHub, parse_item
+from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, seconds, timestamp
-from tests.support import agent, config, issue
+from tests.support import agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_closing_keywords_accept_local_qualified_and_url_references(self):
+        for keyword in ("close", "closes", "closed", "fix", "fixes", "fixed",
+                        "resolve", "resolves", "resolved", "CLOSES:"):
+            for reference in ("#21", "ORG/Project#21", "https://github.com/org/project/issues/21"):
+                with self.subTest(keyword=keyword, reference=reference):
+                    self.assertEqual(closing_issues(pr(body=f"{keyword} {reference}"), "org/project"), {21})
+        body = ("Closes #21, fixes #22; resolves org/project#23; closes #21; "
+                "fixes other/project#24; relates to #25; forecloses #26; "
+                "resolves #27, #28; Closes #0")
+        self.assertEqual(closing_issues(pr(body=body), "org/project"), {21, 22, 23, 27})
+
     def test_dependency_reads_all_pages_and_preserves_repository_and_closed_state(self):
         def row(number, repository="org/project", state="open"):
             return {"number": number, "state": state,

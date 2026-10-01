@@ -34,6 +34,14 @@ omitted, unlabeled items rank below every configured label. Without `priority`, 
 items have equal priority. Unknown keys in `queue` or `priority` are errors.
 The launcher reads priority labels and never changes them.
 
+A PR's effective priority is the highest of its own configured priority and the
+effective priority of the open local issues it closes. Closing keywords in its
+body (such as `Closes #21`, `Fixes: owner/repo#21` or `Resolves` followed by a local
+issue URL) identify those issues; each reference requires a keyword. Closed issues,
+PR references and references to other repositories do not contribute. This PR
+rule applies in both dependency modes: `ignore` disables issue dependency
+inheritance, but PRs still inherit their closing issues' own configured priority.
+
 `milestones` accepts only `gate` or `ignore` and defaults to `ignore`. In `gate`
 mode, new issues wait for the oldest open milestone with open issues or PRs to
 close or empty; PR work, recovery and draft checkpoint resumption remain eligible.
@@ -64,7 +72,10 @@ or default applies). Waiting issues name the active milestone number and open
 blockers, using `owner/repo#N` for external blockers. Inherited priority names its
 origin, for example `priority:urgent (inherited from #21)`. JSON includes
 `priority_inherited_from` (the source issue number, or `null`) and `open_blockers`
-(a list of issue references). An item's own priority wins ties; among equally
+(a list of issue references). PRs name the issue they close, for example
+`priority:urgent (from closed issue #21)`; that wording identifies a closing
+reference to an issue that is still open. JSON records it as `priority_from_issue`
+(the issue number, or `null`). An item's own priority wins ties; among equally
 urgent inherited sources the lowest issue number is shown.
 
 ## Agents

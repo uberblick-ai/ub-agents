@@ -158,7 +158,7 @@ class DependencyTests(unittest.TestCase):
         self.github.change(2, state="closed")
         self.assertEqual(self.plans()[1].state, "ready")
 
-    def test_pr_assignments_are_ungated_and_do_not_inherit_issue_priority(self):
+    def test_pr_assignments_are_ungated_and_unrelated_issues_do_not_raise_priority(self):
         self.add(pr(2, ("needs-changes", "priority:low")),
                  issue(21, ("ready", "priority:urgent")))
         self.github.dependencies[2] = [21]
@@ -167,6 +167,52 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual((plans[0].priority, plans[0].priority_source), ("priority:low", None))
         with patch.object(self.github, "blocked_by", side_effect=AssertionError("PR claim is ungated")):
             self.assertIsNotNone(self.loop.coordinator.claim(plans[0]))
+
+    def test_pr_inherits_effective_priority_of_issue_it_closes(self):
+        self.add(issue(1, ("priority:low",)), issue(21, ("priority:urgent",)),
+                 pr(2, ("needs-changes",), body="Closes #1"),
+                 pr(3, ("needs-changes", "priority:high"), body="Unrelated #21"))
+        self.github.dependencies[21] = [1]
+        plans = self.loop.plans()
+        self.assertEqual([p.item.number for p in plans], [2, 3])
+        self.assertEqual((plans[0].priority, plans[0].priority_from_issue), ("priority:urgent", 1))
+        self.assertEqual((plans[1].priority, plans[1].priority_from_issue), ("priority:high", None))
+
+    def test_pr_inheritance_also_applies_in_dependency_ignore_mode(self):
+        self.add(issue(1, ("priority:urgent",)), pr(2, ("needs-changes",), body="Fixes #1"))
+        self.loop = self.make_loop(dependencies="ignore")
+        with patch.object(self.github, "blocked_by", side_effect=AssertionError("ignore must not read")):
+            plan = self.loop.plans()[0]
+            self.assertEqual((plan.priority, plan.priority_from_issue), ("priority:urgent", 1))
+
+    def test_pr_closing_several_issues_takes_highest_and_own_priority_wins_ties(self):
+        self.add(issue(1, ("priority:normal",)), issue(21, ("priority:high",)),
+                 pr(2, ("needs-changes",), body="Closes #1, resolves #21"))
+        self.assertEqual((self.plans()[2].priority, self.plans()[2].priority_from_issue),
+                         ("priority:high", 21))
+        for label in ("priority:high", "priority:urgent"):
+            self.github.change(2, labels=frozenset({"needs-changes", label}))
+            self.assertEqual((self.plans()[2].priority, self.plans()[2].priority_from_issue),
+                             (label, None))
+
+    def test_pr_inheritance_ignores_closed_and_foreign_issues_and_pr_references(self):
+        self.add(replace(issue(1, ("priority:urgent",)), state="closed"),
+                 issue(21, ("priority:urgent",)),
+                 pr(2, ("needs-changes",), body="Closes #1; fixes other/project#21; resolves #3"),
+                 pr(3, ("priority:urgent",)))
+        self.assertEqual((self.plans()[2].priority, self.plans()[2].priority_from_issue),
+                         ("priority:normal", None))
+
+    def test_pr_status_names_closing_issue_in_text_and_json(self):
+        self.add(issue(21, ("priority:urgent",)), pr(2, ("needs-changes",), body="Closes #21"))
+        rows = status_rows(self.loop)
+        self.assertEqual(rows[0]["priority_from_issue"], 21)
+        with patch("ub_agents.cli.Loop", return_value=self.loop), \
+                patch("ub_agents.cli.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(["status"]), 0)
+        self.assertIn("priority:urgent (from closed issue #21)", output.getvalue())
 
     def test_started_run_completes_when_a_new_blocker_appears(self):
         self.add(issue(1), issue(31, ()))

@@ -317,10 +317,12 @@ class QueueTests(unittest.TestCase):
                  replace(pr(4, ("needs-changes", "low")), created_at=iso(100)),
                  replace(pr(5, ("needs-changes", "urgent")), created_at=iso(300)),
                  replace(pr(6, ("needs-changes", "low")), created_at=iso(100)))
-        self.assertEqual(self.ready("implementer"), [5, 4, 6, 3, 1])
+        # All PRs close urgent issue #1, so their equal effective priority
+        # falls through to creation time and number.
+        self.assertEqual(self.ready("implementer"), [4, 6, 5, 3, 1])
         with patch.object(self.loop, "execute", return_value=True) as execute:
             self.assertTrue(self.loop.tick())
-        self.assertEqual(execute.call_args.args[0].item.number, 5)
+        self.assertEqual(execute.call_args.args[0].item.number, 4)
         self.assertIsNotNone(self.loop.coordinator.claim(execute.call_args.args[0]))
 
     def test_default_queue_is_fifo_with_number_ties_for_both_work_classes(self):
@@ -390,7 +392,8 @@ class QueueTests(unittest.TestCase):
                  issue(3, (), iso(300), 10), pr(4, ("needs-changes", "low"), milestone=20))
         rows = status_rows(self.loop)
         self.assertEqual([r["number"] for r in rows], [4, 1, 2])
-        self.assertEqual([r["priority"] for r in rows], ["low", "urgent", "normal"])
+        self.assertEqual([r["priority"] for r in rows], ["urgent", "urgent", "normal"])
+        self.assertEqual(rows[0]["priority_from_issue"], 1)
         for row in rows[1:]:
             self.assertEqual(row["state"], "parked")
             self.assertEqual(row["reason"], "Waiting for active milestone #10")
@@ -406,8 +409,9 @@ class QueueTests(unittest.TestCase):
         output = plain.getvalue()
         self.assertLess(output.index("#4 implementer"), output.index("#1 implementer"))
         self.assertLess(output.index("#1 implementer"), output.index("#2 implementer"))
-        for priority in ("low", "urgent", "normal"):
+        for priority in ("urgent", "normal"):
             self.assertIn(f"priority {priority}", output)
+        self.assertIn("urgent (from closed issue #1)", output)
         self.assertEqual(output.count("Waiting for active milestone #10"), 2)
         self.assertEqual(self.github.writes, [])
 

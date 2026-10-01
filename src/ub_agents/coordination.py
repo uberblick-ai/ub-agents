@@ -23,6 +23,7 @@ class Plan:
     resume_pr: Item | None = None
     priority: str | None = None
     priority_source: int | None = None
+    priority_from_issue: int | None = None
     blockers: tuple[str, ...] = ()
 
 
