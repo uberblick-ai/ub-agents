@@ -32,6 +32,8 @@ Only the authenticated GitHub account's comments supply coordination authority b
 default. `operators: [LOGIN, ...]` extends trust to explicit peer accounts; machines
 with different credentials must list one another to cooperate. `report` inherits
 that scope through `UB_AGENT_OPERATORS`. No credentials or GitHub permissions change.
+Agents using the operator's GitHub credentials can write trusted records themselves;
+author filtering is not a security boundary against a compromised agent session.
 
 Ignore markers and records from all other comment authors before parsing them.
 Payload fields cannot grant trust. `recorded_by` is allowed only on a mirrored
@@ -127,9 +129,15 @@ conversation resumption. Durable attempts/backoff survive restarts.
 Recovery discovery reads all repository issue-comment pages directly at startup,
 including records on closed items and items whose trigger was removed. Later polls
 read updated/new comments using `sort=updated` and `since`, with a 60-second overlap
-and a cursor captured before the scan. Page requests have separate deadlines. The
-cache/cursor live only in memory; restart rebuilds them from GitHub. A failed page
-never advances the cursor. Item comments are always read freshly before planning
+and a cursor captured before the scan. Within each scan, advance `since` to one
+second before the previous page's last update and deduplicate by comment ID; page
+offsets would silently skip records when earlier comments move or disappear.
+GitHub exposes second-resolution timestamps and at most 100 comments per page.
+If a full page cannot advance the timestamp boundary, stop visibly: that bucket
+cannot be paginated safely with this API. Page requests have separate deadlines.
+The cache/cursor live only in memory; restart rebuilds them from GitHub. A failed
+or ambiguous page commits neither cache changes nor the cursor. Item comments
+are always read freshly before planning
 or claiming, so deleted/stale cached records do not supply authority. This avoids
 indexed search and a full historical scan every poll. Initial large-repository
 read cost and sustained polling still need pilot evidence before a cutover.
@@ -147,8 +155,12 @@ revalidate GitHub, accept a still-valid success or record the blockage, and rele
 Do not execute the previous command again. This also repairs a crash between
 acceptance and release. The old expired record is not falsely marked as observed
 terminated; the recovery claim names the recovered run/lease before any finalization,
-so a crash during recovery also recovers the outcome without execution. Expiry itself is not
-positive evidence that an old process on another host has died.
+so a crash during recovery also recovers the outcome without execution. A failed
+acceptance check records a blockage, but unavailable GitHub reads leave the lease
+unreleased and outcome pending for validation after expiry. This applies during
+normal completion and recovery; repeated recovery claims consume no execution
+attempts. Expiry itself is not positive evidence that an old process on another
+host has died.
 
 ## Runtime independence and candidate provenance
 

@@ -116,7 +116,8 @@ else:
         source = self.root / "file.txt"
         source.write_text("original")
         git(self.root, "add", "file.txt")
-        git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture")
+        git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+            "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
         head = git(self.root, "rev-parse", "HEAD")
         git(self.root, "remote", "add", "origin", str(self.root))
         git(self.root, "update-ref", "refs/pull/2/head", head)

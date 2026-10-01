@@ -148,8 +148,8 @@ def live_leases(history, now):
 
 def attempts(history, agent, now):
     # Count all starts across PR revisions. An expired tentative claim is conservative
-    # crash evidence; losing contenders that confirm withdrawal cost no attempt.
+    # crash evidence; confirmed withdrawals and outcome-only recovery cost no start.
     boundary = max((r["id"] for r in history if r["kind"] == "reset" and r["agent"] == agent), default=0)
     return [r for r in history if r["id"] > boundary and r["kind"] == "lease" and r["agent"] == agent
-            and r["state"] != "withdrawn"
+            and r["state"] != "withdrawn" and r.get("mode") != "recovery"
             and (r["started"] or (r["state"] == "claiming" and seconds(r["expires"]) <= now))]

@@ -6,7 +6,7 @@ import threading
 import time
 
 from .coordination import Coordinator, Plan
-from .errors import AgentError, CleanupError, LostOwnership, RecordError
+from .errors import AgentError, CleanupError, LostOwnership, RecordError, ValidationError
 from .execution import Workspace, command_for, supervise
 from .records import attempts, iso, latest_leases, seconds, timestamp
 
@@ -189,9 +189,11 @@ class Loop:
             else:
                 try:
                     self.validate_success(plan, outcome)
-                except AgentError:
+                except ValidationError:
                     result = "blocked"
                     raise
+                except AgentError as exc:
+                    raise LostOwnership(f"Cannot observe completion; leave expiry recovery: {exc}") from exc
                 try:
                     self.coordinator.accept(lease, outcome)
                 except AgentError as exc:
@@ -233,19 +235,19 @@ class Loop:
         current = self.github.item(plan.item.number, plan.item.kind)
         if (current.state == "open" and current.labels.intersection(plan.agent.triggers)
                 and not (plan.item.kind == "issue" and outcome.get("handoff"))):
-            raise AgentError("Success report left assignment trigger labels in place")
+            raise ValidationError("Success report left assignment trigger labels in place")
         destination = (self.github.item(outcome["handoff"], "pr")
                        if outcome.get("handoff") else current)
         if outcome["candidate_sha"] != destination.head:
-            raise AgentError("Outcome candidate SHA does not match the observed PR head")
+            raise ValidationError("Outcome candidate SHA does not match the observed PR head")
         if plan.agent.different_from and current.head != plan.item.head:
-            raise AgentError("Independent result is stale: the assigned candidate moved")
+            raise ValidationError("Independent result is stale: the assigned candidate moved")
         if outcome.get("handoff") and plan.item.kind == "issue":
             import re
             issue = plan.item.number
             link = f"https://github.com/{self.config.repository}/issues/{issue}"
             if not re.search(rf"(?<![\w/])#{issue}\b", destination.body) and link not in destination.body:
-                raise AgentError("Implementation PR body does not link its original issue")
+                raise ValidationError("Implementation PR body does not link its original issue")
 
     def recover(self, plan):
         history = self.coordinator.history(plan.item.number)
@@ -261,10 +263,12 @@ class Loop:
             original = replace(plan.item, head=outcome["assignment_sha"])
             try:
                 if plan.item.labels.intersection(self.config.stop_labels):
-                    raise AgentError("A configured stop label now parks the work")
+                    raise ValidationError("A configured stop label now parks the work")
                 self.validate_success(replace(plan, item=original), outcome)
-            except AgentError as exc:
+            except ValidationError as exc:
                 result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
+            except AgentError as exc:
+                raise LostOwnership(f"Cannot observe recovered completion; leave expiry recovery: {exc}") from exc
             else:
                 self.coordinator.accept(recovery, outcome)
         self.coordinator.update(recovery, recovered_run=outcome["run"],

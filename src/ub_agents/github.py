@@ -6,7 +6,7 @@ import subprocess
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError
-from .records import iso, timestamp
+from .records import iso, seconds, timestamp
 
 
 @dataclass(frozen=True)
@@ -113,14 +113,31 @@ class GitHub:
         # still being open. Rebuild from GitHub on startup, then read edits/new
         # comments incrementally. Capture the cursor BEFORE scanning, with overlap.
         cursor = iso(int(timestamp()) - 60)
-        endpoint = f"{self.prefix}/issues/comments?sort=updated&direction=asc&per_page=100"
-        if self._comment_since is not None:
-            endpoint += "&" + urlencode({"since": self._comment_since})
-        comments = self.request(endpoint, paginate=True)
-        for comment in comments:
-            if not isinstance(comment, dict) or type(comment.get("id")) is not int:
-                raise AgentError("Unreadable repository comment")
-        self._comment_cache.update((comment["id"], comment) for comment in comments)
+        since, comments = self._comment_since, {}
+        while True:
+            query = {"sort": "updated", "direction": "asc", "per_page": 100}
+            if since is not None:
+                query["since"] = since
+            # Page offsets over update order skip rows when earlier comments move
+            # or disappear. Always read the first page beyond this timestamp.
+            batch = self.request(f"{self.prefix}/issues/comments?{urlencode(query)}", array=True)
+            updated = []
+            for comment in batch:
+                if not isinstance(comment, dict) or type(comment.get("id")) is not int:
+                    raise AgentError("Unreadable repository comment")
+                updated.append(seconds(comment.get("updated_at")))
+                comments[comment["id"]] = comment
+            if len(batch) > 100 or updated != sorted(updated):
+                raise AgentError("Repository comment page has invalid size or update ordering")
+            if len(batch) < 100:
+                break
+            boundary = int(updated[-1]) - 1
+            if since is not None and boundary <= seconds(since):
+                raise AgentError("Cannot safely paginate a full comment page within one update second; "
+                                 "discovery cursor retained")
+            since = iso(boundary)
+        # Commit the index and cursor only after the entire scan completes.
+        self._comment_cache.update(comments)
         self._comment_since = cursor
         # Cached records only discover item numbers. Claims/status reread the
         # item's comments, so a deleted cached record never supplies authority.

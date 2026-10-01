@@ -11,7 +11,7 @@ from ub_agents.config import Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError, LostOwnership
 from ub_agents.loop import Loop
-from ub_agents.records import MARKER, body, iso, timestamp
+from ub_agents.records import MARKER, attempts, body, iso, timestamp
 from tests.support import FakeGitHub, agent, config, issue, pr
 
 
@@ -82,6 +82,68 @@ class ReviewRegressionTests(unittest.TestCase):
             loop.tick()
         self.assertEqual(loop.plans()[0].state, "blocked")
         self.assertIn("Need a decision", loop.plans()[0].reason)
+
+    def test_transient_success_validation_read_recovers_without_reexecution_or_release(self):
+        github = FakeGitHub(issue())
+        loop = self.loop(github)
+        original_item = github.item
+        failed_read = False
+
+        def read(number, kind=None):
+            if failed_read:
+                raise AgentError("GitHub 502")
+            return original_item(number, kind)
+
+        def execute(*args, **kwargs):
+            nonlocal failed_read
+            github.change(1, labels=frozenset())
+            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Work completed")
+            self.last_writes = list(github.writes)
+            failed_read = True
+            return 0
+
+        with patch.object(github, "item", side_effect=read), \
+                patch("ub_agents.loop.supervise", side_effect=execute):
+            with self.assertRaisesRegex(LostOwnership, "Cannot observe completion"):
+                loop.tick()
+        lease, outcome = loop.coordinator.history(1)
+        self.assertEqual(lease["state"], "running")
+        self.assertNotIn("result", lease)
+        self.assertFalse(outcome["accepted"])
+        self.assertEqual(github.writes, self.last_writes)
+        restarted = self.loop(github)
+        restarted.coordinator.clock = lambda: timestamp() + 120
+        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+            self.assertTrue(restarted.tick())
+        history = restarted.coordinator.history(1)
+        self.assertTrue(history[1]["accepted"])
+        self.assertEqual((history[2]["state"], history[2]["result"]), ("released", "success"))
+        self.assertEqual(restarted.plans(), [])
+
+    def test_repeated_recovery_read_failure_keeps_outcome_pending_and_preserves_start_budget(self):
+        github = FakeGitHub(issue())
+        loop = self.loop(github)
+        now = timestamp()
+        loop.coordinator.clock = lambda: now
+        source = loop.coordinator.claim(loop.plans()[0])
+        loop.coordinator.update(source, state="running", started=True)
+        github.change(1, labels=frozenset())
+        loop.coordinator.report(source, "success", "Completed before outage")
+        for _ in range(self.agent.max_attempts):
+            now += 61
+            with patch.object(loop, "validate_success", side_effect=AgentError("GitHub timeout")):
+                with self.assertRaisesRegex(LostOwnership, "Cannot observe recovered completion"):
+                    loop.tick()
+            history = loop.coordinator.history(1)
+            self.assertEqual((history[-1]["state"], history[-1]["mode"]), ("claiming", "recovery"))
+            self.assertNotIn("result", history[-1])
+            self.assertFalse(history[1]["accepted"])
+        now += 61
+        self.assertEqual(len(attempts(history, self.agent.name, now)), 1)
+        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+            self.assertTrue(loop.tick())
+        self.assertTrue(loop.coordinator.history(1)[1]["accepted"])
+        self.assertEqual(loop.plans(), [])
 
     def test_later_success_supersedes_old_crash_without_resetting_attempts(self):
         github = FakeGitHub(issue())

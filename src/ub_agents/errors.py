@@ -6,6 +6,10 @@ class RecordError(AgentError):
     """A trusted item's coordination record is malformed or contradictory."""
 
 
+class ValidationError(AgentError):
+    """Observed GitHub state fails the assignment's acceptance contract."""
+
+
 class LostOwnership(AgentError):
     """The launcher must terminate its execution before doing anything else."""
 

@@ -215,7 +215,10 @@ starting label remains. A PR returning to `needs-changes` runs a fresh assignmen
 its existing item/agent attempt budget continues across head changes. An expired
 run with an already-written outcome receives outcome-only recovery before any
 command is reexecuted. Success without a PR handoff can run again when its trigger
-is reapplied, using the existing attempt budget. Full record, assignment, race and recovery rules are in
+is reapplied, using the existing attempt budget. Unavailable GitHub validation
+reads leave the reported outcome pending for recovery after lease expiry; they
+do not turn it into a failed acceptance check. Recovery does not consume command
+attempts. Full record, assignment, race and recovery rules are in
 [the coordination contract](docs/coordination.md).
 
 ## Recovery and retries
