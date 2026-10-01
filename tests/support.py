@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import threading
 
-from ub_agents.config import Agent, Config
+from ub_agents.config import Agent, Config, Queue
 from ub_agents.github import Item
 from ub_agents.records import MARKER, records
 
@@ -19,8 +19,9 @@ def agent(root, **overrides):
     return Agent(**(defaults | overrides))
 
 
-def config(root, *agents):
-    return Config(Path(root), "org/project", agents or (agent(root),), 1, ("needs-human",))
+def config(root, *agents, queue=Queue()):
+    return Config(Path(root), "org/project", agents or (agent(root),), 1, ("needs-human",),
+                  queue=queue)
 
 
 def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milestone=None):

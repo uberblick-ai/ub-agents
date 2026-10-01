@@ -1,11 +1,14 @@
 from dataclasses import replace
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.config import Runtime
+from ub_agents.cli import main, status_rows
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.execution import git
 from ub_agents.loop import Loop
@@ -18,7 +21,7 @@ class LoopTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.agent = agent(self.root)
+        self.agent = agent(self.root, kind="issue")
         self.github = FakeGitHub(issue(), pr())
         self.loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
 
@@ -228,7 +231,7 @@ class QueueTests(unittest.TestCase):
         # An either-kind implementer also handles requested changes on PRs.
         self.implementer = agent(self.root, name="implementer", triggers=("ready", "needs-changes"))
         self.github = FakeGitHub()
-        self.loop = Loop(config(self.root, self.preparer, self.implementer), self.github,
+        self.loop = Loop(config(self.root, self.preparer, self.implementer, queue=Queue("gate")), self.github,
                          "operator", output=lambda *_: None)
         self.github.milestones = [
             {"number": 20, "state": "open", "created_at": iso(200)},
@@ -257,6 +260,156 @@ class QueueTests(unittest.TestCase):
                  issue(2, ("prepare", "ready"), iso(100), 10))
         self.assertEqual(self.ready("preparer"), [2, 30])
         self.assertEqual(self.ready("implementer"), [2, 30])
+
+    def test_ignore_mode_never_reads_milestones_in_planning_or_claiming(self):
+        for queue in (Queue(), Queue("ignore")):
+            with self.subTest(queue=queue):
+                self.github = FakeGitHub(issue(1, ("ready",), iso(300), 20),
+                                         issue(2, ("ready",), iso(200)),
+                                         issue(3, ("ready",), iso(100), 10))
+                self.loop = Loop(config(self.root, self.implementer, queue=queue),
+                                 self.github, "operator", output=lambda *_: None)
+                with patch.object(self.github, "active_milestone",
+                                  side_effect=AssertionError("ignore must not read milestones")):
+                    self.assertEqual(self.ready("implementer"), [3, 2, 1])
+                    for plan in self.loop.plans():
+                        self.assertIsNotNone(self.loop.coordinator.claim(plan))
+
+    def test_priority_highest_multiple_labels_default_and_fifo(self):
+        priority = Priority(("urgent", "high", "normal", "low"), "normal")
+        self.loop = Loop(config(self.root, self.preparer, self.implementer,
+                                queue=Queue(priority=priority)),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "low"), iso(1)),
+                 issue(2, ("ready",), iso(200)),
+                 issue(3, ("ready", "normal"), iso(100)),
+                 issue(4, ("ready", "low", "urgent"), iso(400)),
+                 issue(5, ("ready", "high"), iso(300)),
+                 issue(6, ("ready", "normal"), iso(100)),
+                 issue(7, ("ready", "unconfigured"), iso(150)))
+        self.assertEqual(self.ready("implementer"), [4, 5, 3, 6, 7, 2, 1])
+        labels = {n: item.labels for n, item in self.github.items.items()}
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 4)
+        self.assertEqual({n: item.labels for n, item in self.github.items.items()}, labels)
+        self.assertEqual(self.github.writes, [])
+
+    def test_omitted_priority_default_ranks_unlabeled_last(self):
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue(priority=Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready",), iso(1)),
+                 issue(2, ("ready", "low"), iso(200)),
+                 issue(3, ("ready", "urgent"), iso(300)),
+                 issue(4, ("ready", "other"), iso(2)))
+        self.assertEqual(self.ready("implementer"), [3, 2, 1, 4])
+        self.assertEqual([r["priority"] for r in status_rows(self.loop)],
+                         ["urgent", "low", None, None])
+
+    def test_pr_work_runs_before_issues_and_uses_same_priority_fifo_rank(self):
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue("gate", Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent"), iso(1), 10),
+                 issue(2, ("ready", "urgent"), iso(2), 20),
+                 pr(3, ("needs-changes", "low"), milestone=20),
+                 replace(pr(4, ("needs-changes", "low")), created_at=iso(100)),
+                 replace(pr(5, ("needs-changes", "urgent")), created_at=iso(300)),
+                 replace(pr(6, ("needs-changes", "low")), created_at=iso(100)))
+        self.assertEqual(self.ready("implementer"), [5, 4, 6, 3, 1])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 5)
+        self.assertIsNotNone(self.loop.coordinator.claim(execute.call_args.args[0]))
+
+    def test_default_queue_is_fifo_with_number_ties_for_both_work_classes(self):
+        self.loop = Loop(config(self.root, self.implementer), self.github,
+                         "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready",), iso(300)), issue(8, ("ready",), iso(100)),
+                 issue(9, ("ready",), iso(100)),
+                 replace(pr(2), created_at=iso(300)),
+                 replace(pr(3), created_at=iso(100)),
+                 replace(pr(4), created_at=iso(100)))
+        self.assertEqual(self.ready("implementer"), [3, 4, 2, 8, 9, 1])
+        self.assertTrue(all(row["priority"] is None for row in status_rows(self.loop)))
+
+    def test_priority_does_not_bypass_stop_labels_backoff_or_attempt_limits(self):
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue(priority=Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent")), issue(2, ("ready", "low")))
+        co = self.loop.coordinator
+        now = timestamp()
+        co.clock = lambda: now
+        old = co.claim(co.plan(self.github.item(1), self.implementer, ()))
+        co.update(old, state="running", started=True)
+        co.release(old, "retry", "Retry later", 60)
+        self.assertEqual(self.ready("implementer"), [2])
+        self.assertEqual(self.loop.plans()[0].state, "backoff")
+        now += 61
+        self.github.change(1, labels=frozenset({"ready", "urgent", "needs-human"}))
+        self.assertEqual(self.ready("implementer"), [2])
+        self.assertEqual(self.loop.plans()[0].state, "parked")
+        self.github.change(1, labels=frozenset({"ready", "urgent"}))
+        worker = replace(self.implementer, max_attempts=1)
+        limited = Loop(config(self.root, worker, queue=self.loop.config.queue),
+                       self.github, "operator", output=lambda *_: None)
+        limited.coordinator.clock = lambda: now
+        self.assertEqual(limited.plans()[0].state, "blocked")
+        self.assertIn("Attempt limit", limited.plans()[0].reason)
+        with patch.object(limited, "execute", return_value=True) as execute:
+            self.assertTrue(limited.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 2)
+
+    def test_priority_never_allows_later_or_unmilestoned_issue_to_start(self):
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue("gate", Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent"), iso(1), 20),
+                 issue(2, ("ready", "urgent"), iso(2)),
+                 issue(3, ("ready", "low"), iso(300), 10))
+        self.assertEqual(self.ready("implementer"), [3])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 3)
+
+    def test_agents_on_same_item_keep_yaml_order(self):
+        self.add(issue(30, ("prepare", "ready"), iso(100), 10),
+                 issue(2, ("prepare", "ready"), iso(100), 10))
+        self.assertEqual([(p.item.number, p.agent.name) for p in self.loop.plans()],
+                         [(2, "preparer"), (2, "implementer"),
+                          (30, "preparer"), (30, "implementer")])
+
+    def test_status_text_and_json_share_rank_priority_and_milestone_wait(self):
+        settings = config(self.root, self.implementer,
+                          queue=Queue("gate", Priority(("urgent", "normal", "low"), "normal")))
+        self.loop = Loop(settings, self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent"), iso(1), 20),
+                 issue(2, ("ready",), iso(2)),
+                 issue(3, (), iso(300), 10), pr(4, ("needs-changes", "low"), milestone=20))
+        rows = status_rows(self.loop)
+        self.assertEqual([r["number"] for r in rows], [4, 1, 2])
+        self.assertEqual([r["priority"] for r in rows], ["low", "urgent", "normal"])
+        for row in rows[1:]:
+            self.assertEqual(row["state"], "parked")
+            self.assertEqual(row["reason"], "Waiting for active milestone #10")
+        with patch("ub_agents.cli.load_config", return_value=settings), \
+                patch("ub_agents.cli.GitHub", return_value=self.github):
+            structured = io.StringIO()
+            with redirect_stdout(structured):
+                self.assertEqual(main(["status", "--json"]), 0)
+            self.assertEqual(json.loads(structured.getvalue()), rows)
+            plain = io.StringIO()
+            with redirect_stdout(plain):
+                self.assertEqual(main(["status"]), 0)
+        output = plain.getvalue()
+        self.assertLess(output.index("#4 implementer"), output.index("#1 implementer"))
+        self.assertLess(output.index("#1 implementer"), output.index("#2 implementer"))
+        for priority in ("low", "urgent", "normal"):
+            self.assertIn(f"priority {priority}", output)
+        self.assertEqual(output.count("Waiting for active milestone #10"), 2)
+        self.assertEqual(self.github.writes, [])
 
     def test_later_and_unmilestoned_issues_wait_when_active_has_no_eligible_issue(self):
         self.add(issue(1, ("prepare", "ready"), iso(1), 20),
@@ -305,10 +458,11 @@ class QueueTests(unittest.TestCase):
                 self.assertEqual(self.ready("preparer"), [10, 20, 1])
                 self.assertEqual(self.ready("implementer"), [10, 20, 1])
 
-    def test_pr_agents_are_ungated_and_keep_number_order(self):
+    def test_pr_agents_are_ungated_and_use_creation_time_then_number(self):
         reviewer = agent(self.root, name="reviewer", kind="pr", triggers=("review",))
         integrator = agent(self.root, name="integrator", kind="pr", triggers=("merge",))
-        self.loop = Loop(config(self.root, self.preparer, self.implementer, reviewer, integrator),
+        self.loop = Loop(config(self.root, self.preparer, self.implementer, reviewer, integrator,
+                                queue=Queue("gate")),
                          self.github, "operator", output=lambda *_: None)
         self.add(issue(1, (), milestone=10), pr(2, ("review",), milestone=20),
                  pr(3, ("merge",)), pr(4, ("needs-changes",), milestone=20))
@@ -324,7 +478,11 @@ class QueueTests(unittest.TestCase):
             self.github.change(number, labels=frozenset())
 
     def test_recovery_outside_active_milestone_runs_without_execution(self):
-        self.add(issue(1, (), milestone=10), issue(2, ("ready",), milestone=20))
+        self.loop = Loop(config(self.root, self.implementer,
+                                queue=Queue("gate", Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.add(issue(1, ("ready", "urgent"), iso(1), 10),
+                 issue(2, ("ready", "low"), iso(300), 20))
         co = self.loop.coordinator
         now = timestamp()
         co.clock = lambda: now
@@ -336,8 +494,14 @@ class QueueTests(unittest.TestCase):
         self.github.milestones[1]["state"] = "open"
         self.github.change(2, labels=frozenset())
         co.report(lease, "success", "Existing work completed")
-        self.assertEqual(next(p for p in self.loop.plans() if p.item.number == 2).state, "owned")
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(2, "owned"), (1, "ready")])
+        # Recovery remains ahead of a higher-priority new start after expiry,
+        # even when the old item closed and lost its trigger.
+        self.github.change(2, state="closed")
         now += 61
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(2, "recover"), (1, "ready")])
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(self.loop.tick())
         self.assertTrue(co.history(2)[1]["accepted"])
@@ -357,7 +521,7 @@ class QueueTests(unittest.TestCase):
 
     def checkpoint(self, milestone):
         self.implementer = replace(self.implementer, worktree=True)
-        self.loop = Loop(config(self.root, self.preparer, self.implementer), self.github,
+        self.loop = Loop(config(self.root, self.preparer, self.implementer, queue=Queue("gate")), self.github,
                          "operator", output=lambda *_: None)
         self.add(issue(1, ("prepare", "ready"), milestone=milestone), pr(2, (), draft=True))
         co = self.loop.coordinator
@@ -385,6 +549,25 @@ class QueueTests(unittest.TestCase):
                 self.assertEqual((lease["resume_pr"], lease["resume_sha"], lease["branch"]),
                                  (2, "a" * 40, "feature/test"))
                 self.loop.coordinator.assert_owned(lease)
+
+    def test_draft_resume_runs_before_higher_priority_new_issue(self):
+        self.checkpoint(20)
+        self.github.change(1, labels=frozenset({"prepare", "ready", "low"}))
+        self.add(issue(4, ("prepare", "ready", "urgent"), iso(1), 10))
+        self.loop = Loop(config(self.root, self.preparer, self.implementer,
+                                queue=Queue("gate", Priority(("urgent", "low")))),
+                         self.github, "operator", output=lambda *_: None)
+        self.assertEqual(self.ready("implementer"), [1, 4])
+        self.assertEqual(self.ready("preparer"), [4])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        plan = execute.call_args.args[0]
+        self.assertEqual((plan.item.number, plan.resume_pr.number), (1, 2))
+        # Once the plan is known to resume, neither claim nor recovery rechecks
+        # milestones; only fresh issue starts do.
+        with patch.object(self.github, "active_milestone",
+                          side_effect=AssertionError("resume is ungated")):
+            self.assertIsNotNone(self.loop.coordinator.claim(plan))
 
     def test_retry_without_open_checkpoint_remains_milestone_gated(self):
         self.checkpoint(20)
