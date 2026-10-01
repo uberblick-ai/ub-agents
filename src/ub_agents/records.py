@@ -38,7 +38,8 @@ def body(record):
         description = f"{record['status']}: {record['summary']}"
     else:
         description = f"Attempt budget reset: {record['summary']}"
-    return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(record, indent=2, sort_keys=True)}\n```\n"
+    # One line keeps the comment short; leases are rewritten on every renewal.
+    return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(record, sort_keys=True)}\n```\n"
 
 
 def records(comments, trusted_actors=None):

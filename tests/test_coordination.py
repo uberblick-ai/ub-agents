@@ -92,6 +92,7 @@ class CoordinationTests(unittest.TestCase):
         record = self.start()
         comment = self.github.store[1][0]
         self.assertIn("```json\n", comment["body"])
+        self.assertEqual(comment["body"].split("```json\n", 1)[1].count("\n"), 2)
         self.assertEqual(records([comment])[0]["run"], record["run"])
         self.assertEqual(records([{"body": "Done!", "id": 9}]), [])
         comment["body"] = "<!-- ub-agent:v1 -->\nbad json"
