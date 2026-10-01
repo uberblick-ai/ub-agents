@@ -175,6 +175,9 @@ the desired workflow labels or use `ub-agent retry` to rerun the role. A stop la
 added after a transition starts stays in place while the transition completes.
 Interrupted transitions recover their recorded changes without rerunning the role
 or consuming another attempt; both items remain reserved until completion.
+Once a transition starts, recovery finishes it even if the PR head or issue link
+changes. Provenance retains the original SHA; a newer head still needs its own
+implementation outcome before an independent review can run.
 
 The exact rules for claims, attempts and recovery are in the
 [coordination contract](docs/coordination.md).

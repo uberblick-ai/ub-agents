@@ -228,30 +228,99 @@ class TransitionTests(unittest.TestCase):
         other = agent(self.root, name='other', triggers=('ready',))
         self.assertEqual(self.loop.coordinator.plan(self.github.item(1), other, ()).state, 'owned')
 
-    def test_blocked_partial_recovery_keeps_handoff_reserved_even_after_reset(self):
+    def test_started_handoff_recovers_after_head_or_issue_link_changes(self):
+        for stage in ('remove', 'add', 'complete'):
+            for changes in ({'head': 'b' * 40}, {'body': 'Issue link edited after start'}):
+                with self.subTest(stage=stage, changes=changes):
+                    self.setUp()
+                    self.check_started_handoff_recovery(stage, changes)
+
+    def check_started_handoff_recovery(self, stage, changes):
         reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
         self.loop = self.new_loop(self.agent, reviewer)
-        add = self.github.add_labels
-        def fail_after_add(number, labels):
-            add(number, labels)
-            raise AgentError('Connection dropped after adding next trigger')
-        with patch.object(self.github, 'add_labels', side_effect=fail_after_add):
+        method = {'remove': 'remove_label', 'add': 'add_labels', 'complete': 'accept'}[stage]
+        owner = self.loop.coordinator if stage == 'complete' else self.github
+        original = getattr(owner, method)
+        def fail(*args):
+            if stage != 'complete':
+                original(*args)
+            raise AgentError('Connection dropped during completion')
+        with patch.object(owner, method, side_effect=fail):
             with self.assertRaises(LostOwnership):
                 self.execute(handoff=2)
-        self.github.change(2, head='b' * 40)
+        self.github.change(2, **changes)
+        self.assertIsNotNone(self.loop.coordinator.transition_reservation(1, 'other'))
+        self.assertIsNotNone(self.loop.coordinator.transition_reservation(2, reviewer.name))
+        previous_writes = self.labels_changed()
         self.now += 61
-        self.loop.tick()
-        outcome = self.loop.coordinator.history(1)[1]
-        self.assertFalse(outcome.get('transition_complete', False))
-        self.assertFalse(outcome['accepted'])
+        restarted = self.new_loop(self.agent, reviewer)
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.assertTrue(restarted.tick())
+        history = restarted.coordinator.history(1)
+        outcome = history[1]
+        self.assertTrue(outcome['transition_complete'])
+        self.assertTrue(outcome['accepted'])
+        self.assertEqual(history[-2]['result'], 'success')
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
+        self.assertEqual(self.github.item(1).labels, {'unrelated'})
+        self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
+        self.assertEqual(restarted.coordinator.history(2)[0]['candidate_sha'], 'a' * 40)
+        self.assertIsNone(restarted.coordinator.transition_reservation(1, 'other'))
+        self.assertIsNone(restarted.coordinator.transition_reservation(2, reviewer.name))
+        if stage != 'remove':
+            self.assertEqual(self.labels_changed(), previous_writes)
         plan = next(p for p in self.loop.plans() if p.item.number == 2)
-        self.assertEqual(plan.state, 'owned')
-        reset = {'kind': 'reset', 'run': 'human-reset', 'agent': self.agent.name,
-                 'actor': 'operator', 'runtime': 'operator', 'assignment': 1,
-                 'created': iso(self.now), 'summary': 'Inspect partial transition'}
-        self.github.create_comment(1, body(reset))
-        plan = next(p for p in self.loop.plans() if p.item.number == 2)
-        self.assertEqual(plan.state, 'owned')
+        self.assertEqual(plan.state, 'ready')
+        if 'head' in changes:
+            independent = replace(reviewer, command=(), different_from=self.agent.name)
+            independent_plan = restarted.coordinator.plan(self.github.item(2), independent, ())
+            self.assertEqual(independent_plan.state, 'blocked')
+            self.assertIn('No accepted worker provenance for candidate', independent_plan.reason)
+            self.github.change(2, labels=frozenset({'needs-changes'}))
+            revision = next(p for p in restarted.plans()
+                            if p.item.number == 2 and p.agent.name == self.agent.name)
+            self.assertEqual(revision.state, 'ready')
+
+    def test_unstarted_recovery_still_validates_candidate_and_issue_link(self):
+        for changes in ({'head': 'b' * 40}, {'body': 'No issue link'}):
+            with self.subTest(changes=changes):
+                self.setUp()
+                self.claim_and_report(handoff=2)
+                self.github.change(2, **changes)
+                self.now += 61
+                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                    self.new_loop().tick()
+                history = self.loop.coordinator.history(1)
+                self.assertEqual(history[-2]['result'], 'blocked')
+                self.assertFalse(history[1]['transition']['started'])
+                self.assertFalse(history[1]['accepted'])
+                self.assertEqual(self.labels_changed(), [])
+
+    def test_started_independent_pr_transition_recovers_after_head_moves(self):
+        self.agent = replace(self.agent, triggers=('needs-review',), different_from='builder',
+                             outcomes={'approved': {'add': ('ready-to-merge',), 'remove': ()}})
+        self.github.items = {1: pr(1, labels=('needs-review', 'unrelated'))}
+        self.loop = self.new_loop()
+        remove = self.github.remove_label
+        def fail_after_remove(number, label):
+            remove(number, label)
+            raise AgentError('Connection dropped after removing review trigger')
+        with patch.object(self.github, 'remove_label', side_effect=fail_after_remove):
+            with self.assertRaises(LostOwnership):
+                self.execute(name='approved')
+        self.github.change(1, head='b' * 40)
+        self.now += 61
+        restarted = self.new_loop()
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.assertTrue(restarted.tick())
+        history = restarted.coordinator.history(1)
+        self.assertTrue(history[1]['accepted'])
+        self.assertEqual(history[1]['candidate_sha'], 'a' * 40)
+        self.assertEqual(history[1]['assignment_sha'], 'a' * 40)
+        self.assertEqual(history[-2]['result'], 'success')
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
+        self.assertEqual(self.github.item(1).labels, {'ready-to-merge', 'unrelated'})
+        self.assertIsNone(restarted.coordinator.transition_reservation(1, 'integrator'))
 
     def test_invalid_success_records_block_without_labels(self):
         for change in ({'outcome': 'undeclared'}, {'outcome': None, 'transition': None},

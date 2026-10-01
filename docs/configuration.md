@@ -68,8 +68,9 @@ After ownership, candidate SHA and issue-link validation, the runner removes all
 of this agent's trigger labels and any `remove` labels from the assignment. It adds
 `add` labels to the named handoff PR, or to the assignment if none is named. Labels
 outside those lists stay unchanged. When the destination is the assignment and a
-label appears in both lists, `add` defines its final state. `--status retry|blocked`, execution failure,
-execution timeout, execution interruption and invalid success reports cause no transition.
+label appears in both lists, `add` defines its final state. `--status retry|blocked`,
+execution failure, execution timeout, execution interruption and invalid success
+reports cause no transition.
 
 Before starting, the runner rereads the assignment: a vanished trigger blocks the
 transition. A stop label on either the assignment or handoff PR pauses it with no
@@ -80,9 +81,11 @@ recorded transition completes, parking the item for subsequent pickup.
 
 The outcome stores its name, resolved changes and start marker. Recovery completes
 only missing changes from that record, even after configuration changes, without
-rerunning the role or spending an attempt. Started transitions skip the trigger
-and pause checks; the runner may already have removed the trigger or added a human
-gate. Both assignment and handoff PR remain reserved until completion.
+rerunning the role or spending an attempt. Started transitions have already passed
+success validation, so recovery does not recheck the candidate SHA, issue link,
+trigger or pause state. It finishes the recorded changes even if the PR head moves,
+preserving provenance for the original SHA. Both assignment and handoff PR remain
+reserved until completion.
 
 Without `outcomes`, the agent retains the legacy contract: change labels itself,
 report `--status success`, and let the runner validate trigger consumption (or

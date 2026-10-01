@@ -131,9 +131,10 @@ missing changes. Unnamed labels remain unchanged. A stop label added after start
 does not interrupt the transition; it remains and parks subsequent pickup. A
 transition may itself add a stop label.
 
-After all changes, persist `transition_complete: true`, mark the outcome accepted, copy provenance to the handoff PR,
-and release ownership. The launcher applies the project's declarations; it does
-not invent transitions, run project checks itself, or grant merge authority.
+After all changes, persist `transition_complete: true`, mark the outcome accepted,
+copy provenance to the handoff PR, and release ownership. The launcher applies the
+project's declarations; it does not invent transitions, run project checks itself,
+or grant merge authority.
 
 Exit zero without an outcome is a protocol failure and a bounded retry. Nonzero
 without an explicit retry outcome blocks for operator attention; this includes
@@ -180,21 +181,26 @@ Failed scans stop visibly rather than become empty queues.
 
 An expired, unfinished lease with an explicit outcome reported within its validity
 window gets outcome-only recovery: claim a new bounded recovery assignment,
-revalidate GitHub, accept a still-valid success or record the blockage, and release.
-For a declared outcome, finish its recorded label transition before acceptance.
-A started transition skips trigger-present and stop-label checks: prior mutations
-may have consumed the trigger or added a human gate. An unstarted transition still
-checks both items for pausing and the assignment for its trigger. A durably rejected
-paused outcome is never applied later.
+finish or validate the recorded outcome, accept success or record the blockage,
+and release. For a declared outcome, finish its recorded label transition before
+acceptance. A started transition has already passed success validation; recovery
+checks its declaration against the source lease but does not revalidate the
+candidate SHA or issue link. It also skips trigger-present and stop-label checks:
+prior mutations may have consumed the trigger or added a human gate. An unstarted
+transition still validates the candidate and issue link, checks both items for
+pausing and the assignment for its trigger. A durably rejected paused outcome is
+never applied later.
 
 Incomplete transitions reserve both the assignment and its handoff PR, including
 after lease expiry and after a next-role trigger has already been added. Discovery
 uses repository comments to find the source and freshly reads its history before
 planning or claiming either item. Only the source role's outcome recovery proceeds.
-The reservation lasts through acceptance/provenance copying until release. A
-partly applied transition blocked by later validation still reserves both items
-for human inspection; releasing or resetting its lease cannot discard those changes. Label writes, comments and
-claim elections remain cooperative GitHub operations, not atomic transactions.
+The reservation lasts through acceptance/provenance copying until release. A PR
+head or issue-link edit after start does not block completion or leave either item
+reserved. Provenance still names the originally validated SHA: an independent
+role requiring that provenance blocks on a newer head, and a person can set the
+revision label to obtain a new implementation outcome. Label writes, comments
+and claim elections remain cooperative GitHub operations, not atomic transactions.
 
 Do not execute the previous command again. This also repairs a crash between
 acceptance and release. The old expired record is not falsely marked as observed

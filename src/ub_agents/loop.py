@@ -341,7 +341,13 @@ class Loop:
             try:
                 if not outcome.get("transition") and plan.item.labels.intersection(self.config.stop_labels):
                     raise ValidationError("A configured stop label now parks the work")
-                self.validate_success(replace(plan, item=original), outcome)
+                if outcome.get("transition", {}).get("started"):
+                    # Start is durable proof that success validation passed. A
+                    # later head/link edit cannot strand already-applied changes;
+                    # finish the intent while preserving the original provenance.
+                    self.validate_report(outcome)
+                else:
+                    self.validate_success(replace(plan, item=original), outcome)
                 self.apply_transition(recovery, outcome)
             except ValidationError as exc:
                 self.coordinator.update_outcome(recovery, outcome, rejected=str(exc))
