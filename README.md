@@ -134,7 +134,7 @@ lists every option.
 | Label | On | Next step |
 |---|---|---|
 | `needs-preparation` | Issue | Turn the request into clear requirements. |
-| `ready` | Issue | Implement it and open a PR. |
+| `ready` | Issue | Implement it, publish draft checkpoints, then hand off the ready PR. |
 | `needs-review` | PR | Review the current commit. |
 | `needs-changes` | PR | Revise the implementation. |
 | `ready-to-merge` | PR | Run final checks and merge under the project's policy. |

@@ -28,7 +28,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `instructions` | The agent's task file. Required with `runtime`. |
 | `command` | An argv list to run instead of an LLM session. |
 | `different-runtime-from` | Another agent's name. This agent must run on a different CLI, provider and model from the one that produced the PR's current commit; a different effort doesn't count. |
-| `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
+| `worktree` | `true` runs in a private checkout: the PR's exact commit, a fresh issue branch, or its safely reusable draft checkpoint (see [coordination](coordination.md#draft-checkpoints)). |
 | `cwd` | Directory to run in, relative to the repository root. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
@@ -164,8 +164,9 @@ variables, as do LLM runtimes:
 | `UB_AGENT_ASSIGNMENT` | Issue or PR number |
 | `UB_AGENT_RUN` | Run id |
 | `UB_AGENT_LEASE_ID` | The claim's comment id |
-| `UB_AGENT_CANDIDATE_SHA` | The PR's head commit; empty for issues |
+| `UB_AGENT_CANDIDATE_SHA` | The PR's head commit or resumed draft checkpoint; empty for fresh issue work |
 | `UB_AGENT_BRANCH` | The branch to work on, when known |
+| `UB_AGENT_PR` | PR number for a PR assignment or resumed issue draft; empty otherwise |
 | `UB_AGENT_OPERATORS` | Trusted accounts, for `report` |
 
 ## Commands

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import re
 import subprocess
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
@@ -18,24 +19,43 @@ class Item:
     labels: frozenset[str]
     state: str
     author: str
+    created_at: str
     head: str | None = None
     branch: str | None = None
+    milestone: int | None = None
+    draft: bool = False
+    head_repository: str | None = None
+    merged: bool = False
+
+
+def links_issue(pr, repository, number):
+    link = f"https://github.com/{repository}/issues/{number}"
+    return bool(re.search(rf"(?<![\w/])#{number}\b", pr.body) or link in pr.body)
 
 
 def parse_item(data, kind):
     try:
+        seconds(data["created_at"])
+        milestone = data["milestone"]["number"] if data.get("milestone") is not None else None
         if (type(data["number"]) is not int or data["number"] < 1
                 or not isinstance(data["title"], str)
                 or not isinstance(data.get("body") or "", str)
                 or data["state"] not in {"open", "closed"}
                 or not isinstance(data["user"]["login"], str)
-                or not isinstance(data["labels"], list)):
+                or not isinstance(data["labels"], list)
+                or (milestone is not None and (type(milestone) is not int or milestone < 1))):
             raise ValueError("invalid work item fields")
+        if kind == "pr" and type(data["draft"]) is not bool:
+            raise ValueError("invalid PR draft field")
         return Item(data["number"], kind, data["title"], data.get("body") or "",
                     frozenset(x["name"] for x in data["labels"]), data["state"],
-                    data["user"]["login"], data["head"]["sha"] if kind == "pr" else None,
-                    data["head"]["ref"] if kind == "pr" else None)
-    except (KeyError, TypeError, ValueError) as exc:
+                    data["user"]["login"], data["created_at"],
+                    data["head"]["sha"] if kind == "pr" else None,
+                    data["head"]["ref"] if kind == "pr" else None, milestone,
+                    data["draft"] if kind == "pr" else False,
+                    (data["head"].get("repo") or {}).get("full_name") if kind == "pr" else None,
+                    data.get("merged_at") is not None if kind == "pr" else False)
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise AgentError("Unreadable GitHub work item") from exc
 
 
@@ -113,6 +133,23 @@ class GitHub:
             return parse_item(self.request(f"{self.prefix}/pulls/{number}"), "pr")
         raw = self.request(f"{self.prefix}/issues/{number}")
         return self.item(number, "pr") if "pull_request" in raw else parse_item(raw, "issue")
+
+    def active_milestone(self):
+        data = self.request(f"{self.prefix}/milestones?state=open&per_page=100", paginate=True)
+        active = []
+        for raw in data:
+            try:
+                created = seconds(raw["created_at"])
+                if (type(raw["number"]) is not int or raw["number"] < 1
+                        or raw["state"] not in {"open", "closed"}
+                        or type(raw["open_issues"]) is not int or raw["open_issues"] < 0):
+                    raise ValueError("invalid milestone fields")
+                # GitHub's milestone count includes open issues and pull requests.
+                if raw["state"] == "open" and raw["open_issues"]:
+                    active.append((created, raw["number"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise AgentError("Unreadable GitHub milestone") from exc
+        return min(active)[1] if active else None
 
     def comments(self, number):
         return self.request(f"{self.prefix}/issues/{number}/comments?per_page=100", paginate=True)
