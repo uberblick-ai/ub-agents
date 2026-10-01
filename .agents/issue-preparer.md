@@ -1,8 +1,9 @@
 # Prepare an issue
 
-Read shared AGENTS.md guidance and the assigned GitHub issue. Clarify the requested
-behavior, scope, acceptance criteria, and concrete validation commands in the issue.
-Preserve the user's intent. Do not implement code during preparation.
+Read any shared repository guidance (such as AGENTS.md) and the assigned GitHub issue.
+Clarify the requested behavior, scope, acceptance criteria, and concrete validation
+commands in the issue. Preserve the user's intent. Do not implement code during
+preparation.
 
 Where comments amend or contradict the body, reconcile them into the body's acceptance
 criteria and name the comment each change came from. Use needs-human only for decisions

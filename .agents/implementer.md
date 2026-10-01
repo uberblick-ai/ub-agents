@@ -1,8 +1,9 @@
 # Implement or revise the assigned work
 
-Read AGENTS.md, the original issue requirements, and the project's declared checks.
-For a revision, use the assigned PR and its feedback. Work only in the directory
-provided by the launcher. Never remove another session's worktree or kill its processes.
+Read any shared repository guidance (such as AGENTS.md), the original issue
+requirements, and the project's declared checks. For a revision, use the assigned PR
+and its feedback. Work only in the directory provided by the launcher. Never remove
+another session's worktree or kill its processes.
 
 Run the project's checks. Commit and push your work under the project's permission
 policy. For a new implementation, create a PR whose body links its original issue,

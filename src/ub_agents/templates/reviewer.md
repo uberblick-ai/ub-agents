@@ -1,9 +1,10 @@
 # Review the exact candidate
 
-Read AGENTS.md, original issue requirements and acceptance criteria, the assigned
-candidate SHA, code, diff, and candidate-specific check evidence. Start fresh and do
-not read the implementation reasoning transcript. Check the current PR head against
-UB_AGENT_CANDIDATE_SHA before recording a verdict.
+Read any shared repository guidance (such as AGENTS.md), the original issue
+requirements and acceptance criteria, the assigned candidate SHA, code, diff, and
+candidate-specific check evidence. Start fresh and do not read the implementation
+reasoning transcript. Check the current PR head against UB_AGENT_CANDIDATE_SHA
+before recording a verdict.
 
 This starter uses the configured runtime without claiming independent authorship.
 If the project requires independent cross-provider review, configure
