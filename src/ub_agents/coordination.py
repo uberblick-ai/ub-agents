@@ -21,6 +21,9 @@ class Plan:
     reason: str
     attempt: int
     resume_pr: Item | None = None
+    priority: str | None = None
+    priority_source: int | None = None
+    blockers: tuple[str, ...] = ()
 
 
 class Coordinator:
@@ -250,6 +253,10 @@ class Coordinator:
             active_milestone = self.github.active_milestone()
             if active_milestone is not None and current.milestone != active_milestone:
                 return None
+        if (self.queue.dependencies == "wait" and not recovery
+                and current.kind == "issue" and fresh.resume_pr is None
+                and any(b.state == "open" for b in self.github.blocked_by(current.number))):
+            return None
         now = self.clock()
         record = {"kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,

@@ -122,7 +122,8 @@ def status_rows(loop):
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == plan.agent.name]
         rows.append({"number": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
-                     "priority": loop.config.queue.priority.effective(plan.item.labels),
+                     "priority": plan.priority, "priority_inherited_from": plan.priority_source,
+                     "open_blockers": list(plan.blockers),
                      "state": plan.state, "reason": plan.reason, "attempts": plan.attempt - 1,
                      "runtime": plan.runtime.name if plan.runtime else None,
                      "candidate_sha": plan.item.head,
@@ -185,6 +186,8 @@ def run(args):
                     outcome = f" · reported: {reported['status']}{acceptance}"
                 verdict = f" · last result: {row['result']}" if row["result"] else ""
                 priority = row["priority"] or "none"
+                if row["priority_inherited_from"] is not None:
+                    priority += f" (inherited from #{row['priority_inherited_from']})"
                 print(f"#{row['number']} {row['agent']}: {row['state']} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['reason']}")
         return

@@ -32,7 +32,7 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
    attempt limits still apply.
 2. PR work comes before new issue starts. This includes PR assignments, recovery
    and completion of already-started runs, and resumption of an existing draft PR
-   checkpoint, even when its assignment is an issue. Milestones never gate this
+   checkpoint, even when its assignment is an issue. Neither queue gate holds back this
    work.
 3. With `queue.milestones: gate`, only new issues in the active milestone can
    start. The active milestone is the oldest open milestone with open issues or
@@ -41,20 +41,40 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
    eligible work. With no active milestone, all issues are eligible. Planning and
    the fresh claim-time milestone recheck enforce this same policy. In the default
    `ignore` mode, neither consults milestones.
-4. Within PR work and within issue work, rank by effective priority label (highest
-   configured label, or the configured default for an unlabeled item), then item
+4. With `queue.dependencies: wait` (the default, even without a `queue` block),
+   a new issue waits while any GitHub blocked-by issue is open. All blockers must
+   close, including blockers in other repositories. Planning and a fresh
+   claim-time dependency read enforce this gate. When milestone gating is also
+   enabled, a new issue must pass both gates. With `ignore`, links affect neither
+   eligibility nor priority and dependency reads are skipped.
+5. An open issue's effective priority is the highest of its configured priority
+   (label or default) and the effective priority of every open local issue it
+   blocks, directly or transitively. Inheritance includes issues without workflow
+   triggers and issues waiting at either gate. Closed issues do not propagate
+   priority; external blockers gate but do not inherit local priority. Traversal
+   terminates even in cycles: every member receives the highest priority reachable
+   from the cycle and its open dependents. The launcher never changes labels.
+6. Within PR work and within issue work, rank by effective priority, then item
    creation time, then item number. Without a default, unlabeled items rank below
    all configured priority labels. Without priority configuration, ranking is FIFO
    with number as the tie-breaker. Agents on the same item retain YAML order
    within each work class. Priority labels are read without modification.
 
 `ub-agent status` and `status --json` list rows in this rank order, show effective
-priority and name the active milestone for waiting issues. See the
+priority and its inherited source, and name the active milestone and open blockers
+for waiting issues. See the
 [queue configuration](configuration.md#queue).
 
 Concurrent launchers rank the GitHub state each observes and try claims in that
 order. Existing claims resolve contention for the same item. There is no global
 order across machines.
+
+Each selection observes blocked-by links for all open issues in the repository
+to compute inheritance, then claims recheck only the selected new issue's gate.
+An unreadable or failed dependency read stops selection rather than being treated
+as an empty list. Like milestone rechecks, this is cooperative observation, not
+an atomic snapshot: dependencies can change between reads and after a claim.
+They never hold back completion or outcome recovery of already-started runs.
 
 ## Trusted operators
 

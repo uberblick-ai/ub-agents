@@ -28,6 +28,17 @@ class Item:
     merged: bool = False
 
 
+@dataclass(frozen=True)
+class Dependency:
+    repository: str
+    number: int
+    state: str
+
+    def reference(self, repository):
+        return (f"#{self.number}" if self.repository.casefold() == repository.casefold()
+                else f"{self.repository}#{self.number}")
+
+
 def links_issue(pr, repository, number):
     link = f"https://github.com/{repository}/issues/{number}"
     return bool(re.search(rf"(?<![\w/])#{number}\b", pr.body) or link in pr.body)
@@ -148,6 +159,25 @@ class GitHub:
             except (KeyError, TypeError, ValueError) as exc:
                 raise AgentError("Unreadable GitHub milestone") from exc
         return min(active)[1] if active else None
+
+    def blocked_by(self, number):
+        data = self.request(f"{self.prefix}/issues/{number}/dependencies/blocked_by", paginate=True)
+        if not isinstance(data, list):
+            raise AgentError(f"Unreadable GitHub dependencies for #{number}")
+        blockers = []
+        for raw in data:
+            try:
+                match = re.fullmatch(
+                    r"https://api\.github\.com/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)",
+                    raw["url"])
+                if (type(raw["number"]) is not int or raw["number"] < 1
+                        or raw["state"] not in {"open", "closed"} or match is None
+                        or int(match[2]) != raw["number"] or "pull_request" in raw):
+                    raise ValueError("invalid dependency fields")
+                blockers.append(Dependency(match[1], raw["number"], raw["state"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise AgentError(f"Unreadable GitHub dependency for #{number}") from exc
+        return blockers
 
     def comments(self, number):
         return self.request(f"{self.prefix}/issues/{number}/comments?per_page=100", paginate=True)

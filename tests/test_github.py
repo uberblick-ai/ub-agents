@@ -9,13 +9,48 @@ from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from ub_agents.errors import AgentError
-from ub_agents.github import GitHub, parse_item
+from ub_agents.github import Dependency, GitHub, parse_item
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, seconds, timestamp
 from tests.support import agent, config, issue
 
 
 class GitHubTests(unittest.TestCase):
+    def test_dependency_reads_all_pages_and_preserves_repository_and_closed_state(self):
+        def row(number, repository="org/project", state="open"):
+            return {"number": number, "state": state,
+                    "url": f"https://api.github.com/repos/{repository}/issues/{number}"}
+
+        pages = [[row(n) for n in range(1, 101)], [row(31, "other/project", "closed")]]
+        results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
+        with patch("ub_agents.github.subprocess.run", side_effect=results) as run:
+            dependencies = GitHub("org/project").blocked_by(1)
+        self.assertEqual(len(dependencies), 101)
+        self.assertEqual(dependencies[-1], Dependency("other/project", 31, "closed"))
+        for page, call in enumerate(run.call_args_list, 1):
+            endpoint = call.args[0][-1]
+            self.assertIn("issues/1/dependencies/blocked_by?", endpoint)
+            self.assertIn(f"page={page}", endpoint)
+
+    def test_unreadable_dependencies_fail_instead_of_returning_an_empty_list(self):
+        valid = {"number": 31, "state": "open",
+                 "url": "https://api.github.com/repos/other/project/issues/31"}
+        for row in (None, {}, valid | {"number": True}, valid | {"number": 32},
+                    valid | {"state": "unknown"}, valid | {"state": None},
+                    valid | {"url": "https://example.com/repos/other/project/issues/31"},
+                    valid | {"url": None}, valid | {"pull_request": {}}):
+            with self.subTest(row=row), \
+                    patch("ub_agents.github.subprocess.run",
+                          return_value=subprocess.CompletedProcess([], 0, json.dumps([row]), "")), \
+                    self.assertRaisesRegex(AgentError, "Unreadable GitHub dependency"):
+                GitHub("org/project").blocked_by(1)
+        for result in (subprocess.CompletedProcess([], 0, "{}", ""),
+                       subprocess.CompletedProcess([], 0, "null", ""),
+                       subprocess.CompletedProcess([], 0, "not json", ""),
+                       subprocess.CompletedProcess([], 1, "", "dependency access denied")):
+            with patch("ub_agents.github.subprocess.run", return_value=result), self.assertRaises(AgentError):
+                GitHub("org/project").blocked_by(1)
+
     def test_item_reads_creation_time_and_milestone_for_issues_and_prs(self):
         raw = {"number": 1, "title": "Work", "body": None, "state": "open",
                "labels": [], "user": {"login": "operator"}, "created_at": iso(100),

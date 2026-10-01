@@ -81,6 +81,9 @@ stop-labels: []
             with self.subTest(extra=extra):
                 self.assertEqual(self.load(base + extra).queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  milestones: gate\n").queue, Queue("gate"))
+        self.assertEqual(self.load(base + "queue:\n  dependencies: wait\n").queue, Queue())
+        self.assertEqual(self.load(base + "queue:\n  dependencies: ignore\n").queue,
+                         Queue(dependencies="ignore"))
         extra = "queue:\n  priority:\n    labels: [urgent, normal, low]\n"
         self.assertEqual(self.load(base + extra).queue.priority, Priority(("urgent", "normal", "low")))
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
@@ -88,6 +91,8 @@ stop-labels: []
     def test_queue_validation_through_check(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
         for extra in ("queue: null", "queue: []", "queue:\n  unknown: true",
+                      "queue:\n  dependencies: gate", "queue:\n  dependencies: null",
+                      "queue:\n  dependencies: []", "queue:\n  dependencies: false",
                       "queue:\n  milestones: oldest", "queue:\n  milestones: null",
                       "queue:\n  milestones: []", "queue:\n  milestones: false",
                       "queue:\n  priority: null", "queue:\n  priority: []",

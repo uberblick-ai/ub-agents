@@ -6,7 +6,7 @@ import sys
 import threading
 
 from ub_agents.config import Agent, Config, Queue
-from ub_agents.github import Item
+from ub_agents.github import Dependency, Item
 from ub_agents.records import MARKER, records
 
 
@@ -41,6 +41,7 @@ class FakeGitHub:
     def __init__(self, *items):
         self.items = {item.number: item for item in items}
         self.milestones = []
+        self.dependencies = {}
         self.store = {}
         self.next_id = 1
         self.lock = threading.Lock()
@@ -72,6 +73,10 @@ class FakeGitHub:
 
     def item(self, number, kind=None):
         return self.items[number]
+
+    def blocked_by(self, number):
+        return [Dependency(self.repository, n, self.items[n].state) if isinstance(n, int) else n
+                for n in self.dependencies.get(number, [])]
 
     def change(self, number, **changes):
         self.items[number] = replace(self.items[number], **changes)
