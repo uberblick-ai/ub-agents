@@ -15,6 +15,10 @@ from .errors import AgentError
 from .execution import (parse_process_table, repository_checks, resolve_executable,
                         runtime_argv)
 from .github import GitHub
+from .labels import configured_labels
+
+
+PERMISSIONS_URL = "https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions"
 
 
 AUTH_PROBES = {"codex": ("codex", "login", "status"),
@@ -142,9 +146,11 @@ class Doctor:
             self.add("github-auth", "skip", "gh unavailable")
         if config and gh_ready:
             self.repository_access(config, github)
+            self.labels(config, github)
         else:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
             self.add("github-permissions", "skip", "repository response unavailable", required=False)
+            self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
         if config:
             self.agents(config)
             self.local(config, git_ready)
@@ -194,6 +200,27 @@ class Doctor:
                      f"Authenticate with gh auth login and obtain access to {config.repository}")
             self.add("github-permissions", "skip", "repository response unavailable", required=False)
 
+    def labels(self, config, github):
+        try:
+            existing = {name.casefold() for name in github.labels()}
+        except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
+            self.add("github-labels", "fail", self.github_failure("labels", exc),
+                     f"Authenticate with gh auth login and obtain access to {config.repository}")
+            return
+        agents = {agent.name: agent for agent in config.agents}
+        for label in configured_labels(config):
+            # One check per label and consuming agent; a stop use stays a warning
+            # even when the same label is required by an outcome transition.
+            for name in dict.fromkeys(use.agent for use in label.uses):
+                uses = [use for use in label.uses if use.agent == name]
+                present = label.name.casefold() in existing
+                required = any(use.required for use in uses)
+                self.add(f"github-label:{label.name}", "ok" if present else "fail" if required else "warn",
+                         f"Label {label.name} {'exists' if present else 'is missing'}: "
+                         + "; ".join(use.meaning for use in uses),
+                         None if present else label.command(config.repository),
+                         required=required, agent=agents.get(name))
+
     def agents(self, config):
         usable = {}
         for agent in config.agents:
@@ -205,6 +232,9 @@ class Doctor:
                          None if installed else f"Install {executable} or correct agent {agent.name}'s command/cwd",
                          agent=agent)
                 continue
+            if not agent.runtime_args:
+                self.add("runtime-permissions", "warn", f"Agent {agent.name} has no runtime-args; unattended edits, commits or pushes may fail",
+                         f"Configure this agent's runtime-args: {PERMISSIONS_URL}", required=False, agent=agent)
             alternatives = []
             for runtime in agent.runtimes:
                 command = runtime_argv(runtime, runtime.command) if runtime.command else [runtime.cli]

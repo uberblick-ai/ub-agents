@@ -194,6 +194,15 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
                --allowedTools, "Bash(git *)", "Bash(gh *)", "Bash(ub-agent *)"]  # claude
 ```
 
+`init` includes the matching example, commented out, for every starter agent using
+the CLI selected by `--runtime`. Uncomment or customize it before unattended work.
+The Codex example grants full access, including writes to Git metadata for commits
+and commands for pushing. The Claude example grants file edits and the listed
+Git, GitHub and report commands without permission prompts. Add permissions for
+your project's check commands as needed. `doctor` warns, without failing, for each
+runtime agent with no `runtime-args`; it does not test whether supplied arguments
+grant sufficient permissions.
+
 `runtime-args` apply to every alternative in a runtime list, so use CLI-specific flags
 only on agents with a single runtime. Codex's `workspace-write` sandbox cannot commit in
 private worktrees, whose Git metadata lives in the main checkout.
@@ -241,11 +250,28 @@ variables, as do LLM runtimes:
 ## Commands
 
 - `ub-agent init [--repository owner/name] [--runtime cli:model:effort]` writes the
-  starter `ub-agent.yaml` and `.agents/` files and adds `.ub-agent/` to `.gitignore`.
-  It stops without writing anything if a starter file already exists.
+  starter `ub-agent.yaml`, shared `AGENTS.md` and `.agents/` files next to the selected
+  `--config` file, and adds `.ub-agent/` to `.gitignore`. Fill in the shared guidance's
+  project-check placeholders. An existing `AGENTS.md` is kept unchanged and reported;
+  any existing configuration or role starter file stops init before any file writes.
+  In an interactive terminal, init reads repository labels and explains each missing
+  trigger, outcome `add`/`remove`, and stop label. It creates only those labels after
+  an explicit `y` or `yes`; the default is no. Declining makes no GitHub writes and
+  prints one runnable `gh label create` command per missing label. Without a terminal
+  (including CI and piped input), or when labels cannot be read, it prints commands
+  for all configured workflow labels and explains why. Noninteractive init makes no
+  GitHub reads or writes beyond repository inference when `--repository` is omitted.
+  It never changes or deletes existing labels or uses `--force`. Local starter files
+  are written regardless of the label-creation answer. Each agent includes commented
+  permission arguments matching `--runtime`; see [Runtime permissions](#runtime-permissions).
 - `ub-agent check` validates the configuration and instruction files.
 - `ub-agent doctor [--json]` checks everything `check` does, plus Python, the platform,
-  `git`, `gh`, GitHub access, runtimes and local state. It exits 1 when a required
+  `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
+  Missing trigger or outcome transition labels are required failures naming their
+  agents; missing stop labels are warnings. Both give a `gh label create` remedy.
+  Label matching is case-insensitive and an unreadable label list is a required
+  failure. Runtime agents without `runtime-args` produce a warning linking the
+  permission guidance. Doctor makes no writes. It exits 1 when a required
   check fails; warnings and skips exit 0. The JSON has `version`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.

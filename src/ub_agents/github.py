@@ -150,6 +150,17 @@ class GitHub:
             raise AgentError("GitHub authentication returned no actor")
         return data["login"]
 
+    def labels(self):
+        rows = self.request(f"{self.prefix}/labels", paginate=True)
+        if any(not isinstance(row, dict) or not isinstance(row.get("name"), str)
+               or not row["name"].strip() for row in rows):
+            raise AgentError("Unreadable GitHub labels")
+        return [row["name"] for row in rows]
+
+    def create_label(self, name, description, color):
+        return self.request(f"{self.prefix}/labels", "POST",
+                            {"name": name, "description": description, "color": color})
+
     def observe(self):
         # Repository issues include PRs. Do not use indexed search or a fixed --limit.
         data = self.request(f"{self.prefix}/issues?state=open&sort=created&direction=asc&per_page=100",

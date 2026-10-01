@@ -36,14 +36,23 @@ you want to use, such as `codex` or `claude`.
 ```sh
 pipx install .        # from a checkout of this repository
 cd your-project
-ub-agent init         # starter ub-agent.yaml and .agents/ instructions
-ub-agent doctor       # check the machine, GitHub access and runtimes
+ub-agent init         # starter ub-agent.yaml, AGENTS.md and .agents/ instructions
+ub-agent doctor       # check the machine, GitHub labels/access and runtimes
 ub-agent launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
-Before launching, create the workflow labels on GitHub, give each runtime the
-[permissions](docs/configuration.md#runtime-permissions) its job needs, and commit
-`ub-agent.yaml` and `.agents/`.
+In an interactive terminal, `init` explains the missing workflow labels and offers
+to create them; the default is no. Otherwise it prints runnable `gh label create`
+commands. Noninteractive runs make no GitHub calls beyond repository inference.
+Existing labels are never changed. `doctor` fails for missing trigger or transition
+labels and warns for missing stop labels.
+
+Before launching, create any missing labels, fill in the project checks in
+`AGENTS.md`, and uncomment or customize each agent's starter `runtime-args` to grant
+the [permissions](docs/configuration.md#runtime-permissions) its job needs. These
+examples match `init --runtime` and remain commented out until you enable them.
+`doctor` warns for each runtime agent without arguments. Commit `ub-agent.yaml`,
+`AGENTS.md` and `.agents/`. `init` preserves an existing `AGENTS.md`.
 
 Customize these parts:
 
@@ -153,7 +162,7 @@ Your project contains:
 ```text
 your-project/
 ├── ub-agent.yaml
-├── AGENTS.md          # optional guidance shared by all agents
+├── AGENTS.md          # shared guidance; init preserves an existing file
 └── .agents/
     ├── issue-preparer.md
     ├── implementer.md

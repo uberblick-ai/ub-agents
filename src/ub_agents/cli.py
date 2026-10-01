@@ -17,6 +17,7 @@ from .errors import AgentError, RecordError
 from .execution import repository_checks
 from .github import GitHub
 from .loop import Loop
+from .labels import provision_labels
 from .records import body, iso, latest_leases, live_leases, records, timestamp
 
 
@@ -66,11 +67,21 @@ def init_project(args):
     templates = files("ub_agents").joinpath("templates")
     targets = {config_path: templates.joinpath("ub-agent.yaml").read_text()
                .replace("your-org/your-project", repository).replace("codex:gpt-6.1-sol:high", args.runtime)}
+    if args.runtime.split(":", 1)[0] == "claude":
+        targets[config_path] = targets[config_path].replace(
+            "[--sandbox, danger-full-access]",
+            '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
+            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agent *)"]')
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
         targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
     existing = [str(p) for p in targets if p.exists()]
     if existing:
         raise AgentError(f"Starter files already exist; nothing overwritten: {', '.join(existing)}")
+    guidance = root / "AGENTS.md"
+    if guidance.exists():
+        print(f"Kept existing {guidance}; shared guidance was not modified.")
+    else:
+        targets[guidance] = templates.joinpath("AGENTS.md").read_text()
     for target, content in targets.items():
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("x") as stream:
@@ -80,8 +91,10 @@ def init_project(args):
         with ignore.open("a") as stream:
             stream.write("\n# Disposable ub-agent execution artifacts\n.ub-agent/\n")
     # Validate even the generated configuration; errors are actionable before launch.
-    load_config(config_path)
-    print(f"Created {config_path} and .agents instructions. Customize and commit them before launch.")
+    config = load_config(config_path)
+    print(f"Created {config_path} and .agents instructions; shared guidance is in {guidance}. "
+          "Customize and commit them before launch.")
+    provision_labels(config, GitHub(config.repository))
 
 
 def report_run(args):
