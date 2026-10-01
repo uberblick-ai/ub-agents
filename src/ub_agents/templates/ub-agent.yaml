@@ -1,0 +1,48 @@
+# Project-owned starter. Customize models, checks, instructions, and merge authority.
+repository: your-org/your-project
+
+agents:
+  issue-preparer:
+    runtime: "codex:gpt-6.1-sol:high"
+    kind: issue
+    trigger: needs-preparation
+    instructions: .agents/issue-preparer.md
+    agent-timeout-minutes: 60
+
+  implementer:
+    runtime: "codex:gpt-6.1-sol:high"
+    trigger: [ready, needs-changes]
+    instructions: .agents/implementer.md
+    worktree: true
+    agent-timeout-minutes: 180
+
+  reviewer:
+    runtime: "codex:gpt-6.1-sol:high"
+    kind: pr
+    trigger: needs-review
+    instructions: .agents/reviewer.md
+    worktree: true
+    agent-timeout-minutes: 180
+    # For independent cross-provider review, configure an eligible alternative:
+    # runtime: "claude:opus:high"
+    # different-runtime-from: implementer
+    # Native GitHub approval requires an identity other than the PR author.
+
+  integrator:
+    runtime: "codex:gpt-6.1-sol:high"
+    kind: pr
+    trigger: ready-to-merge
+    instructions: .agents/integrator.md
+    worktree: true
+    agent-timeout-minutes: 180
+
+limits:
+  lease-minutes: 60
+  renewal-minutes: 5
+  agent-timeout-minutes: 180
+  max-attempts: 5
+  retry-backoff-seconds: 60
+  max-backoff-seconds: 3600
+
+poll-seconds: 30
+stop-labels: [needs-human]

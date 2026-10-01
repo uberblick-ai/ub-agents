@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ub-agents"
+version = "0.1.0"
+description = "Small, project-owned engineering loops coordinated on GitHub"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = ["PyYAML>=6.0,<7"]
+
+[project.scripts]
+ub-agent = "ub_agents.cli:main"
+
+[project.urls]
+Repository = "https://github.com/uberblick-ai/ub-agents"
+Issues = "https://github.com/uberblick-ai/ub-agents/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ub_agents = ["templates/*.yaml", "templates/*.md"]
