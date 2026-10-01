@@ -266,3 +266,15 @@ class GitHubTests(unittest.TestCase):
                        subprocess.CompletedProcess([], 1, "", "not authenticated")]:
             with patch("ub_agents.github.subprocess.run", return_value=result), self.assertRaises(AgentError):
                 GitHub("org/project").comments(1)
+
+    def test_branch_pr_reads_can_include_closed_heads_without_changing_open_default(self):
+        github = GitHub("org/project")
+        with patch.object(github, "request", return_value=[]) as request:
+            github.prs_for_branch("ub-agent/worker/27/run")
+            endpoint = request.call_args.args[0]
+            self.assertEqual(parse_qs(urlsplit(endpoint).query)["state"], ["open"])
+            self.assertTrue(request.call_args.kwargs["paginate"])
+            github.prs_for_branch("ub-agent/worker/27/run", state="all")
+            query = parse_qs(urlsplit(request.call_args.args[0]).query)
+            self.assertEqual(query["state"], ["all"])
+            self.assertEqual(query["head"], ["org:ub-agent/worker/27/run"])

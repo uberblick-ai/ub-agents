@@ -168,3 +168,17 @@ else:
         with self.assertRaisesRegex(AgentError, "Checkpoint changed"):
             changed.prepare()
         self.assertFalse(changed.created)
+
+    def test_process_group_is_recorded_before_execution_and_callback_failure_stops_child(self):
+        groups = []
+        self.assertEqual(supervise([sys.executable, "-c", "pass"], self.root, os.environ.copy(),
+                         self.root / "recorded", 3, lambda: None, threading.Event(),
+                         process_started=groups.append), 0)
+        self.assertEqual(groups, [int((self.root / "recorded" / "pid").read_text())])
+        def fail(group):
+            raise LostOwnership("Cannot persist process group")
+        with self.assertRaises(LostOwnership):
+            supervise([sys.executable, "-c", "import time; time.sleep(30)"], self.root,
+                      os.environ.copy(), self.root / "failure", 3, lambda: None,
+                      threading.Event(), process_started=fail)
+        self.assertEqual(group_members(int((self.root / "failure" / "pid").read_text())), [])

@@ -47,6 +47,7 @@ class Cleaner:
         self.output = output
         self.blocked_runs = set()
         self.preview_worktrees = set()
+        self.branch_tips = {}
 
     def inventory(self):
         parent = self.root / ".ub-agent" / "worktrees"
@@ -200,6 +201,9 @@ class Cleaner:
         if any(pr.state == "open" and pr.head_repository == self.config.repository
                for pr in self.github.prs_for_branch(artifact.name)):
             raise AgentError("Branch acquired an open PR while checking remote history")
+        if git(self.root, "rev-parse", f"refs/heads/{artifact.name}") != tip:
+            raise AgentError("Branch tip changed while rechecking ownership")
+        self.branch_tips[artifact.name] = tip
         return lease, outcome
 
     def related_runs(self, branch):
@@ -214,13 +218,15 @@ class Cleaner:
 
     def clean(self, apply=False):
         self.preview_worktrees.clear()
+        self.blocked_runs.clear()
+        self.branch_tips.clear()
         rows = []
         for artifact in self.inventory():
             try:
                 lease, outcome = self.check(artifact)
                 reason = "Eligible released or confirmed expired run"
                 action = "would remove"
-                if lease.get("cleanup_hook_error"):
+                if artifact.kind == "worktree" and lease.get("cleanup_hook_error"):
                     reason += f"; retry hook: {lease['cleanup_hook_error']}"
                 if apply:
                     # Inventory/preview conclusions never authorize a deletion.
@@ -233,7 +239,12 @@ class Cleaner:
                         self.check(artifact)  # hooks may alter the tree or lease
                         git(self.root, "worktree", "remove", artifact.name)
                     else:
-                        git(self.root, "branch", "-D", "--", artifact.name)
+                        # Compare-and-delete refuses to discard a newly moved tip.
+                        if any(t.get("branch") == f"refs/heads/{artifact.name}"
+                               for t in worktrees(self.root)):
+                            raise AgentError("Branch became checked out before deletion")
+                        git(self.root, "update-ref", "-d", f"refs/heads/{artifact.name}",
+                            self.branch_tips[artifact.name])
                     action = "removed"
                 elif artifact.kind == "worktree":
                     self.preview_worktrees.add(artifact.name)

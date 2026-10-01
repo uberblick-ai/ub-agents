@@ -13,7 +13,7 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError
 from ub_agents.execution import git
 from ub_agents.records import iso, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, config, issue, pr
 
 
 class CleanupTests(unittest.TestCase):
@@ -133,7 +133,7 @@ class CleanupTests(unittest.TestCase):
         with patch("ub_agents.cleanup.group_members", return_value=[]):
             self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
 
-    def test_pending_outcome_kept_even_after_reset_or_newer_lease(self):
+    def test_expired_outcome_is_kept_until_recovery(self):
         self.update(state="running", expires=iso(timestamp() + 60))
         self.coordinator.report(self.lease, "retry", "reported")
         self.update(expires=iso(timestamp() - 1), process_group=123456)
@@ -235,3 +235,108 @@ class CleanupTests(unittest.TestCase):
         git(self.root, "worktree", "add", "-b", "feature/legacy", str(legacy))
         self.assertFalse(any("legacy" in r["name"] for r in self.cleaner.clean(True)))
         self.assertTrue(legacy.exists())
+
+    def test_later_live_resumed_lease_protects_original_branch_without_attached_tree(self):
+        git(self.root, "worktree", "remove", str(self.path))
+        current = self.lease.copy()
+        current.pop("id")
+        current.pop("url")
+        current.update(run="resumed", state="running", expires=iso(timestamp() + 60),
+                       resume_pr=2, resume_sha=self.head)
+        from ub_agents.records import body
+        self.github.create_comment(1, body(current))
+        self.assertIn("live", self.actions(True)["branch"]["reason"])
+        self.assertEqual(git(self.root, "rev-parse", self.branch), self.head)
+
+    def test_branch_checked_out_outside_private_tree_is_kept(self):
+        git(self.root, "worktree", "remove", str(self.path))
+        outside = self.root / "manual-worktree"
+        git(self.root, "worktree", "add", str(outside), self.branch)
+        self.assertIn("checked out", self.actions(True)["branch"]["reason"])
+        self.assertTrue(outside.exists())
+
+    def test_branch_owner_name_and_number_must_match_run_lease(self):
+        git(self.root, "worktree", "remove", str(self.path))
+        self.update(agent="another")
+        self.assertIn("does not match", self.actions(True)["branch"]["reason"])
+
+    def test_fetch_failure_keeps_branch(self):
+        read = git
+        def fail(root, *args):
+            if args[:2] == ("fetch", "--prune"):
+                raise AgentError("origin unavailable")
+            return read(root, *args)
+        with patch("ub_agents.cleanup.git", side_effect=fail):
+            rows = self.actions(True)
+        self.assertEqual(rows["worktree"]["action"], "removed")
+        self.assertIn("origin unavailable", rows["branch"]["reason"])
+
+    def test_live_lease_and_new_open_pr_during_fetch_keep_branch(self):
+        git(self.root, "worktree", "remove", str(self.path))
+        read = git
+        for change in ("lease", "pr"):
+            with self.subTest(change=change):
+                def race(root, *args):
+                    result = read(root, *args)
+                    if args[:2] == ("fetch", "--prune"):
+                        if change == "lease":
+                            self.update(state="running", expires=iso(timestamp() + 60))
+                        else:
+                            self.github.items[2] = replace(pr(), branch=self.branch)
+                    return result
+                with patch("ub_agents.cleanup.git", side_effect=race):
+                    self.assertEqual(self.actions(True)["branch"]["action"], "kept")
+                self.update(state="released")
+
+    def test_atomic_branch_delete_refuses_a_new_tip(self):
+        git(self.root, "worktree", "remove", str(self.path))
+        read = git
+        # Create a distinct commit without moving any checked-out branch.
+        tree = read(self.root, "rev-parse", "HEAD^{tree}")
+        import os
+        import subprocess
+        env = os.environ.copy() | {"GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.com",
+                                   "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com"}
+        tip = subprocess.run(["git", "-C", str(self.root), "-c", "commit.gpgsign=false",
+                              "commit-tree", tree, "-p", self.head, "-m", "racing commit"],
+                             env=env, check=True, text=True, capture_output=True).stdout.strip()
+        def race(root, *args):
+            if args[:2] == ("update-ref", "-d"):
+                read(root, "update-ref", f"refs/heads/{self.branch}", tip)
+            return read(root, *args)
+        with patch("ub_agents.cleanup.git", side_effect=race):
+            self.assertEqual(self.actions(True)["branch"]["action"], "kept")
+        self.assertEqual(read(self.root, "rev-parse", self.branch), tip)
+
+    def test_unreadable_and_deleted_fresh_records_do_not_use_discovery_snapshot(self):
+        index, _ = self.cleaner.coordinator.repository_history()
+        self.github.store = {}
+        with patch.object(self.cleaner.coordinator, "repository_history", return_value=(index, set())):
+            self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
+
+    def test_cli_preview_and_apply_dispatch(self):
+        from ub_agents.cli import main
+        path = self.root / "ub-agent.yaml"
+        path.write_text("repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n")
+        with patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cleanup.Cleaner.clean") as clean:
+            self.assertEqual(main(["--config", str(path), "cleanup"]), 0)
+            clean.assert_called_once_with(apply=False)
+            clean.reset_mock()
+            self.assertEqual(main(["--config", str(path), "cleanup", "--apply"]), 0)
+            clean.assert_called_once_with(apply=True)
+
+    def test_recovered_outcome_still_requires_original_process_group_absence(self):
+        from ub_agents.records import body, payload
+        self.update(state="running", expires=iso(timestamp() + 60))
+        self.coordinator.report(self.lease, "retry", "reported before crash")
+        self.update(expires=iso(timestamp() - 1), process_group=123456)
+        recovery = payload(self.lease) | {"run": "recovered", "branch": None,
+                                         "state": "released", "result": "retry",
+                                         "recovered_lease_id": self.lease["id"]}
+        self.github.create_comment(1, body(recovery))
+        with patch("ub_agents.cleanup.group_members", return_value=[123456]):
+            self.assertIn("still present", self.actions(True)["worktree"]["reason"])
+        with patch("ub_agents.cleanup.group_members", return_value=[]):
+            self.assertEqual(self.actions(True)["worktree"]["action"], "removed")

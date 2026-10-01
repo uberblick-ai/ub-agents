@@ -165,3 +165,45 @@ class HookTests(unittest.TestCase):
                 path.write_text(base + f"cleanup: {value}\n")
                 with self.assertRaises(AgentError):
                     load_config(path)
+
+    def test_relative_hook_uses_operator_script_and_resumed_context(self):
+        script = self.root / "cleanup-script"
+        script.write_text("#!/bin/sh\nprintf '%s' operator > \"$UB_AGENT_WORKTREE/operator-ran\"\n")
+        script.chmod(0o755)
+        loop = self.loop()
+        loop.config = replace(loop.config, cleanup=CleanupHook(("./cleanup-script",), 3))
+        def reported(lease):
+            (self.workspace.private / "cleanup-script").write_text("candidate contents")
+            lease = self.workspace.lease
+            loop.coordinator.update(lease, resume_pr=2, resume_sha="a" * 40)
+            self.github.change(1, labels=frozenset())
+            loop.coordinator.report(lease, "success", "done", handoff=2)
+            return 0
+        self.assertTrue(self.execute(loop, reported))
+        self.assertEqual((self.workspace.private / "operator-ran").read_text(), "operator")
+        lease = loop.coordinator.history(1)[0]
+        context = next((self.root / ".ub-agent" / "runs" / lease["run"] / "cleanup").glob("*/context.json"))
+        self.assertEqual(json.loads(context.read_text())["resume_pr"], 2)
+
+    def test_unconfirmed_hook_after_ownership_loss_keeps_local_evidence_without_writes(self):
+        loop = self.loop()
+        def lose(lease):
+            loop.coordinator.update(lease, state="released", expires=iso(timestamp()), result="blocked")
+            self.last_writes = self.github.writes.copy()
+            raise LostOwnership("lost")
+        with patch("ub_agents.hooks.supervise", side_effect=CleanupError("hook survived")):
+            with self.assertRaises(CleanupError):
+                self.execute(loop, lose)
+        self.assertFalse(self.removed)
+        self.assertEqual(self.github.writes, self.last_writes)
+        events = self.root / ".ub-agent" / "runs" / self.workspace.lease["run"] / "events.jsonl"
+        self.assertIn("cleanup-unconfirmed", events.read_text())
+
+    def test_launcher_records_real_agent_process_group_on_lease(self):
+        self.agent = replace(self.agent, worktree=False)
+        loop = self.loop()
+        self.assertTrue(loop.tick())
+        lease = loop.coordinator.history(1)[0]
+        pid = int((self.root / ".ub-agent" / "runs" / lease["run"] / "pid").read_text())
+        self.assertEqual(lease["process_group"], pid)
+        self.assertEqual(group_members(pid), [])
