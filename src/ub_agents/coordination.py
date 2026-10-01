@@ -182,7 +182,7 @@ class Coordinator:
         if fresh.state != ("recover" if recovery else "ready") or (not recovery and fresh.runtime != plan.runtime):
             return None
         now = self.clock()
-        record = {"version": 1, "kind": "lease", "run": uuid.uuid4().hex,
+        record = {"kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,
                   "assignment_sha": current.head,
                   "branch": current.branch, "runtime": plan.runtime.name if plan.runtime else "direct",
@@ -239,6 +239,9 @@ class Coordinator:
 
     def release(self, lease, result, summary, backoff=0):
         self.assert_owned(lease)
+        reported = self.outcome(lease)
+        if reported and (reported["status"], reported["summary"]) == (result, summary):
+            summary = None  # The outcome comment already says it.
         now = self.clock()
         # A released lease expires now; retry_after is only needed for a backoff.
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
@@ -262,7 +265,7 @@ class Coordinator:
         destination = self.github.item(handoff, "pr") if handoff else self.github.item(lease["assignment"])
         record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_sha",
                                         "runtime", "provider", "actor")}
-        record |= {"version": 1, "kind": "outcome", "lease_id": lease["id"],
+        record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         self.assert_owned(lease)

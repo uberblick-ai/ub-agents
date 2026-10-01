@@ -94,7 +94,7 @@ class CoordinationTests(unittest.TestCase):
         comment = self.github.store[1][0]
         self.assertIn("```json\n", comment["body"])
         written = json.loads(comment["body"].rsplit("```json\n", 1)[1].removesuffix("\n```\n"))
-        self.assertFalse(written.keys() & {"actor", "assignment_kind", "assignment_sha", "handoff"})
+        self.assertFalse(written.keys() & {"actor", "assignment_kind", "assignment_sha", "handoff", "version"})
         parsed = records([comment])[0]
         self.assertEqual((parsed["run"], parsed["actor"]), (record["run"], "operator"))
         self.assertIsNone(parsed["assignment_sha"])
@@ -166,7 +166,7 @@ class CoordinationTests(unittest.TestCase):
         lease = self.start()
         self.co.release(lease, "blocked", "Operator action required")
         self.assertEqual(self.plan().state, "blocked")
-        reset = {"version": 1, "kind": "reset", "run": "operator-reset", "agent": self.agent.name,
+        reset = {"kind": "reset", "run": "operator-reset", "agent": self.agent.name,
                  "actor": "operator", "runtime": "operator", "created": iso(self.now),
                  "assignment": 1, "summary": "Fixed authentication"}
         self.github.create_comment(1, body(reset))
@@ -202,6 +202,19 @@ class CoordinationTests(unittest.TestCase):
         # The unrelated PR is still ready for a normal assignment; isolate recovery.
         self.github.change(2, labels=frozenset())
         self.assertFalse(loop.tick())
+
+    def test_released_lease_leaves_a_repeated_summary_to_its_outcome(self):
+        loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
+        loop.coordinator = self.co
+        lease = self.start()
+        self.co.report(lease, "blocked", "Need a decision")
+        self.co.release(lease, "blocked", "Need a decision")
+        comment = self.github.store[1][0]["body"]
+        written = json.loads(comment.rsplit("```json\n", 1)[1].removesuffix("\n```\n"))
+        self.assertNotIn("summary", written)
+        self.assertIn("Result: blocked; reported in the outcome.", comment)
+        self.github.change(1, labels=frozenset())
+        self.assertIn("Last run blocked: Need a decision", loop.plans()[0].reason)
 
     def test_expired_unlabelled_run_without_outcome_is_visible_for_operator_attention(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)

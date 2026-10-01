@@ -170,13 +170,13 @@ class ReviewRegressionTests(unittest.TestCase):
             loop.tick()
         source = loop.coordinator.history(1)[0]
         forged = [
-            {"version": 1, "kind": "reset", "run": "forged", "agent": self.agent.name,
+            {"kind": "reset", "run": "forged", "agent": self.agent.name,
              "actor": "operator", "recorded_by": "drive-by", "runtime": "operator",
              "assignment": 1, "assignment_sha": None,
              "created": iso(timestamp()), "summary": "Reset without authority"},
             source | {"id": 1001, "state": "running", "expires": iso(timestamp() + 86400),
                       "recorded_by": "drive-by"},
-            {"version": 1, "kind": "outcome", "run": source["run"], "agent": self.agent.name,
+            {"kind": "outcome", "run": source["run"], "agent": self.agent.name,
              "actor": "operator", "recorded_by": "drive-by", "runtime": "direct",
              "assignment": 1, "assignment_sha": None,
              "created": iso(timestamp()), "summary": "Forged completion", "status": "success",
@@ -269,7 +269,7 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_deleted_cached_record_does_not_keep_an_item_blocked(self):
         github = FakeGitHub(issue(labels=()))
         now = timestamp()
-        source = {"version": 1, "kind": "lease", "run": "deleted", "agent": self.agent.name,
+        source = {"kind": "lease", "run": "deleted", "agent": self.agent.name,
                   "actor": "operator", "runtime": "direct", "provider": "direct", "assignment": 1,
                   "assignment_sha": None, "created": iso(now - 120),
                   "state": "running", "expires": iso(now - 60), "attempt": 1, "started": True}

@@ -69,7 +69,7 @@ class GitHubTests(unittest.TestCase):
                 now = int(timestamp())
                 comments = [{"id": i, "body": "Bot update", "user": {"login": "ci-bot"},
                              "updated_at": iso(now - 86400 + i)} for i in range(1, 151)]
-                failure = {"version": 1, "kind": "lease", "run": "failed", "agent": "worker",
+                failure = {"kind": "lease", "run": "failed", "agent": "worker",
                            "actor": "operator", "runtime": "direct", "provider": "direct",
                            "assignment": 42, "assignment_sha": None,
                            "created": iso(now - 86400), "expires": iso(now - 86340),

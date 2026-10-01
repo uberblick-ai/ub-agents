@@ -31,9 +31,10 @@ def seconds(value):
 def body(record):
     title = f"**ub-agent {record['kind']} — {record['agent']}**"
     if record["kind"] == "lease":
+        note = record.get("summary") or (f"Result: {record['result']}; reported in the outcome."
+                                         if record["state"] == "released" else "Assignment claimed.")
         description = (f"Owner: @{record['actor']} · {record['runtime']}\n\n"
-                       f"State: {record['state']} · Lease expires: {record['expires']}\n\n"
-                       f"{record.get('summary', 'Assignment claimed.')}")
+                       f"State: {record['state']} · Lease expires: {record['expires']}\n\n{note}")
     elif record["kind"] == "outcome":
         description = f"{record['status']}: {record['summary']}"
     else:
@@ -61,6 +62,7 @@ def records(comments, trusted_actors=None):
             record = json.loads(payload[:-4])
             if not isinstance(record, dict):
                 raise ValueError("record must be a JSON object")
+            # MARKER versions the record format.
             if "recorded_by" not in record:
                 record.setdefault("actor", comment["user"]["login"])
             record = {"assignment_sha": None, "candidate_sha": None, "handoff": None} | record
@@ -100,9 +102,15 @@ def latest_leases(history):
     return latest
 
 
+def lease_summary(history, lease):
+    """A released lease omits a summary that repeats its run's outcome."""
+    if lease.get("summary"):
+        return lease["summary"]
+    return next((r["summary"] for r in history if r["kind"] == "outcome"
+                 and r["lease_id"] == lease["id"]), "")
+
+
 def validate(record):
-    if not isinstance(record, dict) or type(record.get("version")) is not int or record.get("version") != 1:
-        raise ValueError("unsupported record version")
     for field in ("run", "agent", "actor", "runtime", "created"):
         if not isinstance(record.get(field), str) or not record[field]:
             raise ValueError(f"missing {field}")
