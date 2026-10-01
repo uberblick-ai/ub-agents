@@ -39,7 +39,7 @@ class ConfigTests(unittest.TestCase):
         result = self.load('''repository: org/project
 agents:
   investigate:
-    command: [python3, task.py]
+    command: [./scripts/task.py, --fast]
     trigger: investigate
     agent-timeout-minutes: 240
 limits:
@@ -48,6 +48,8 @@ limits:
         agent = result.agents[0]
         self.assertEqual((agent.lease_seconds, agent.timeout_seconds), (14400 + 900, 14400))
         self.assertEqual(agent.max_attempts, 7)
+        # Relative executables resolve against the configuration's directory.
+        self.assertEqual(agent.command, (str(self.root.resolve() / "scripts/task.py"), "--fast"))
 
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n"
@@ -60,22 +62,21 @@ limits:
             with self.subTest(content=content), self.assertRaises(AgentError):
                 self.load(content)
 
-    def test_custom_runtime_and_alternatives_require_no_python_workflow(self):
+    def test_runtime_alternatives_and_unknown_cli(self):
         (self.root / "instructions.md").write_text("Do the task")
-        result = self.load('''repository: org/project
-runtimes:
-  example:
-    provider: example-provider
-    command: [example-cli, --model, "{model}", --effort, "{effort}"]
+        content = '''repository: org/project
 agents:
   investigate:
-    runtime: [example:model-a:high, codex:model-b:low]
+    runtime: [claude:model-a:high, codex:model-b:low]
     trigger: investigate
     instructions: instructions.md
 stop-labels: []
-''')
-        self.assertEqual(len(result.agents[0].runtimes), 2)
+'''
+        result = self.load(content)
+        self.assertEqual([r.name for r in result.agents[0].runtimes], ["claude:model-a:high", "codex:model-b:low"])
         self.assertEqual(result.stop_labels, ())
+        with self.assertRaisesRegex(AgentError, "codex, claude"):
+            self.load(content.replace("codex:model-b:low", "example:model-b:low"))
 
     def test_init_and_installed_template_preservation(self):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -153,11 +154,3 @@ agents:
                          {"handed-off": {"add": ("needs-review",), "remove": ("old",)}})
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "check"]), 0)
-
-    def test_operator_allowlist_is_explicit_and_strict(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
-        self.assertEqual(self.load(base + "operators: [Operator, automation-bot]\n").operators,
-                         ("Operator", "automation-bot"))
-        for value in ("false", "0", "{}", "[anonymous/user]", "[null]"):
-            with self.subTest(value=value), self.assertRaises(AgentError):
-                self.load(base + f"operators: {value}\n")

@@ -132,16 +132,15 @@ agents:
   then adds `add` labels to the handoff PR, or to the assignment without a handoff.
 - **`runtime`**: `cli:model:effort`. A list gives alternatives; the first one that is
   installed and allowed runs.
-- **`different-runtime-from`**: run on a different CLI, provider and model from the
-  agent that produced the PR's current commit.
+- **`different-runtime-from`**: run on a different CLI and model from the agent that
+  produced the PR's current commit.
 - **`instructions`**: the agent's task, in your words. `init` writes starters for the
   four roles above.
 - **`worktree`**: run in a private checkout of the PR's exact commit, or on a fresh
   branch for an issue.
 
-An agent can also be a plain command instead of an LLM session, and other agent CLIs
-can be added with a small adapter. [docs/configuration.md](docs/configuration.md)
-lists every option.
+An agent can also be a plain command instead of an LLM session.
+[docs/configuration.md](docs/configuration.md) lists every option.
 
 ## The starter workflow
 

@@ -13,7 +13,7 @@ from ub_agents.records import MARKER, records
 def agent(root, **overrides):
     defaults = dict(name="worker", triggers=("ready", "needs-changes"), instructions=None,
                     runtimes=(), command=(sys.executable, "-c", "pass"), runtime_args=(),
-                    different_from=None, kind="either", cwd=Path(root), worktree=False,
+                    different_from=None, kind="either", worktree=False,
                     lease_seconds=60, timeout_seconds=10,
                     max_attempts=3, backoff_seconds=0, max_backoff_seconds=0)
     return Agent(**(defaults | overrides))
@@ -26,11 +26,11 @@ def config(root, *agents, queue=Queue()):
 
 def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milestone=None):
     return Item(number, "issue", "Requirements", "Acceptance criteria", frozenset(labels), "open",
-                "operator", created_at, milestone=milestone)
+                created_at, milestone=milestone)
 
 
 def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1", draft=False, milestone=None):
-    return Item(number, "pr", "Candidate", body, frozenset(labels), "open", "operator",
+    return Item(number, "pr", "Candidate", body, frozenset(labels), "open",
                 "2026-01-01T00:00:00Z", head, "feature/test", milestone, draft)
 
 

@@ -18,7 +18,6 @@ class Item:
     body: str
     labels: frozenset[str]
     state: str
-    author: str
     created_at: str
     head: str | None = None
     branch: str | None = None
@@ -75,15 +74,13 @@ def parse_item(data, kind):
                 or not isinstance(data["title"], str)
                 or not isinstance(data.get("body") or "", str)
                 or data["state"] not in {"open", "closed"}
-                or not isinstance(data["user"]["login"], str)
                 or not isinstance(data["labels"], list)
                 or (milestone is not None and (type(milestone) is not int or milestone < 1))):
             raise ValueError("invalid work item fields")
         if kind == "pr" and type(data["draft"]) is not bool:
             raise ValueError("invalid PR draft field")
         return Item(data["number"], kind, data["title"], data.get("body") or "",
-                    frozenset(x["name"] for x in data["labels"]), data["state"],
-                    data["user"]["login"], data["created_at"],
+                    frozenset(x["name"] for x in data["labels"]), data["state"], data["created_at"],
                     data["head"]["sha"] if kind == "pr" else None,
                     data["head"]["ref"] if kind == "pr" else None, milestone,
                     data["draft"] if kind == "pr" else False,

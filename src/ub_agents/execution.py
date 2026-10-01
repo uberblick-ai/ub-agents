@@ -4,38 +4,21 @@ import json
 import os
 from pathlib import Path
 import signal
-import shutil
 import subprocess
 import time
 
 from .errors import AgentError, CleanupError
 
 
-def resolve_executable(executable, cwd, which=None):
-    """Match runtime selection: slash paths are relative to the agent cwd."""
-    if "/" in executable:
-        path = Path(executable) if Path(executable).is_absolute() else Path(cwd) / executable
-        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
-    return (which or shutil.which)(executable)
-
-
-def runtime_argv(runtime, argv):
-    # Only these two literal substitutions are supported; never use a shell.
-    return [arg.replace("{model}", runtime.model).replace("{effort}", runtime.effort)
-            for arg in argv]
-
-
 def command_for(agent, runtime):
     if agent.command:
         return list(agent.command)
-    if runtime.command:
-        command = runtime_argv(runtime, runtime.command)
-    elif runtime.cli == "codex":
+    if runtime.cli == "codex":
         command = ["codex", "exec", "--model", runtime.model,
                    "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}"]
     else:
         command = ["claude", "--print", "--model", runtime.model, "--effort", runtime.effort]
-    # No permission flags, auth stores, resume ids, or hidden provider fallback.
+    # No permission flags, auth stores, or hidden provider fallback; never a shell.
     return command + list(agent.runtime_args)
 
 
@@ -83,7 +66,7 @@ class Workspace:
 
     def prepare(self):
         if not self.agent.worktree:
-            return self.agent.cwd
+            return self.root
         self.private.parent.mkdir(parents=True, exist_ok=True)
         self.check_private_boundary()
         if self.item.kind == "pr":
@@ -99,10 +82,7 @@ class Workspace:
             self.lease["branch"] = branch
             git(self.root, "worktree", "add", "-b", branch, str(self.private), "FETCH_HEAD")
         self.created = True
-        cwd = self.private / self.agent.cwd.resolve().relative_to(self.root)
-        if not cwd.is_dir() or not cwd.resolve().is_relative_to(self.private):
-            raise AgentError(f"Configured cwd does not exist at the candidate: {cwd}")
-        return cwd
+        return self.private
 
     def cleanup(self):
         if not self.created:

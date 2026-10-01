@@ -6,10 +6,9 @@ import uuid
 
 from .config import Agent, Queue, Runtime
 from .errors import AgentError, LostOwnership, RecordError
-from .execution import resolve_executable, runtime_argv
 from .github import Item
 from .records import (MARKER, attempts, body, iso, latest_leases, live_leases,
-                      payload, records, seconds, timestamp, trusted_comment)
+                      own_comment, payload, records, seconds, timestamp)
 
 
 @dataclass(frozen=True)
@@ -27,22 +26,21 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, trusted_actors=(), queue=Queue()):
+    def __init__(self, github, actor, clock=timestamp, queue=Queue()):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
-        self.trusted_actors = {login.casefold() for login in (*trusted_actors, actor)}
 
     def history(self, number):
-        return records(self.github.comments(number), self.trusted_actors)
+        return records(self.github.comments(number), self.actor)
 
     def repository_history(self):
         groups = {}
         for comment in self.github.repository_comments():
             if not isinstance(comment, dict):
                 raise AgentError("Unreadable repository comment")
-            if not trusted_comment(comment, self.trusted_actors):
+            if not own_comment(comment, self.actor):
                 continue
             if not isinstance(comment.get("body"), str) or not comment["body"].startswith(MARKER):
                 continue
@@ -54,7 +52,7 @@ class Coordinator:
         history, invalid = [], set()
         for number, comments in groups.items():
             try:
-                history.extend(records(comments, self.trusted_actors))
+                history.extend(records(comments, self.actor))
             except RecordError:
                 invalid.add(number)
         return sorted(history, key=lambda record: record["id"]), invalid
@@ -95,11 +93,8 @@ class Coordinator:
         return Plan(item, agent, runtime, state, reason, attempt)
 
     def choose_runtime(self, item, agent, history):
-        def installed(executable):
-            return resolve_executable(executable, agent.cwd, which=shutil.which)
-
         if agent.command:
-            if not installed(agent.command[0]):
+            if not shutil.which(agent.command[0]):
                 raise AgentError(f"Command is not installed: {agent.command[0]}")
             return None
         eligible = list(agent.runtimes)
@@ -115,24 +110,21 @@ class Coordinator:
             origin = self.history(source["assignment"])
             lease = next((r for r in origin if r["kind"] == "lease" and r["id"] == source["lease_id"]), None)
             if lease and any(lease.get(k) != source.get(k) for k in
-                             ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha")):
+                             ("run", "agent", "actor", "runtime", "assignment", "assignment_sha")):
                 raise AgentError("Candidate provenance does not match its source lease")
             if not self.released_success(origin, source):
                 raise AgentError("Candidate provenance has no successfully released source lease")
             try:
                 cli, model, effort = source["runtime"].split(":")
-                prior = Runtime(cli, model, effort, source["provider"])
-            except (KeyError, ValueError) as exc:
+            except ValueError as exc:
                 raise AgentError("Candidate runtime provenance is incomplete") from exc
-            eligible = [r for r in eligible if r.different_from(prior)]
+            eligible = [r for r in eligible if r.different_from(Runtime(cli, model, effort))]
             if not eligible:
-                raise AgentError("No runtime has a different CLI, provider, and model from the candidate author")
+                raise AgentError("No runtime has a different CLI and model from the candidate author")
         for runtime in eligible:
-            executable = runtime_argv(runtime, runtime.command)[0] if runtime.command else runtime.cli
-            if installed(executable):
+            if shutil.which(runtime.cli):
                 return runtime
         raise AgentError("No eligible runtime executable is installed")
-
     @staticmethod
     def reset_boundary(history, agent):
         return max((r["id"] for r in history if r["kind"] == "reset" and r["agent"] == agent), default=0)
@@ -142,7 +134,7 @@ class Coordinator:
         source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
         if (source is None or source.get("cleanup") == "unconfirmed"
                 or any(source.get(k) != outcome.get(k) for k in
-                       ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha"))):
+                       ("run", "agent", "actor", "runtime", "assignment", "assignment_sha"))):
             return False
         return ((source["state"] == "released" and source.get("result") == "success")
                 or any(r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
@@ -162,7 +154,7 @@ class Coordinator:
         matches = [outcome for outcome in history
                    if (outcome["kind"] == "outcome" and outcome["lease_id"] == source_id
                     and all(outcome.get(k) == source.get(k) for k in
-                            ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha"))
+                            ("run", "agent", "actor", "runtime", "assignment", "assignment_sha"))
                     and seconds(outcome["created"]) <= seconds(source["expires"]))]
         if len(matches) > 1:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
@@ -192,7 +184,6 @@ class Coordinator:
                   "assignment_sha": current.head,
                   "branch": current.branch, "runtime": plan.runtime.name if plan.runtime else "direct",
                   "triggers": sorted(current.labels.intersection(plan.agent.triggers)),
-                  "provider": plan.runtime.provider if plan.runtime else "direct",
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
@@ -208,7 +199,7 @@ class Coordinator:
                 return None
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
-        created = records([self.github.create_comment(current.number, body(record))], self.trusted_actors)[0]
+        created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.
@@ -221,7 +212,7 @@ class Coordinator:
 
     def update(self, lease, **changes):
         updated = payload(lease) | changes
-        result = records([self.github.update_comment(lease["id"], body(updated))], self.trusted_actors)[0]
+        result = records([self.github.update_comment(lease["id"], body(updated))], self.actor)[0]
         lease.clear()
         lease.update(result)
         return lease
@@ -235,7 +226,7 @@ class Coordinator:
                 or contenders[0]["run"] != lease["run"]
                 or contenders[0]["actor"].casefold() != self.actor.casefold()
                 or any(contenders[0].get(k) != lease.get(k) for k in
-                       ("agent", "runtime", "provider", "assignment", "assignment_sha"))):
+                       ("agent", "runtime", "assignment", "assignment_sha"))):
             raise LostOwnership("Assignment ownership was lost or expired")
         return contenders[0]
 
@@ -254,8 +245,7 @@ class Coordinator:
                    if r["kind"] == "outcome" and r["run"] == lease["run"]
                    and r["lease_id"] == lease["id"] and r["actor"] == lease["actor"]
                    and r["assignment_sha"] == lease["assignment_sha"]
-                   and r["agent"] == lease["agent"] and r["runtime"] == lease["runtime"]
-                   and r.get("provider") == lease["provider"]]
+                   and r["agent"] == lease["agent"] and r["runtime"] == lease["runtime"]]
         if len(matches) > 1:
             raise RecordError("Run reported conflicting outcomes")
         return matches[0] if matches else None
@@ -271,20 +261,19 @@ class Coordinator:
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")
         destination = self.github.item(handoff, "pr") if handoff else self.github.item(lease["assignment"])
-        record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_sha",
-                                        "runtime", "provider", "actor")}
+        record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_sha", "runtime", "actor")}
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         if outcome is not None:
             record |= {"outcome": outcome, "transition": declarations[outcome] | {"started": False}}
         self.assert_owned(lease)
-        return records([self.github.create_comment(lease["assignment"], body(record))], self.trusted_actors)[0]
+        return records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
 
     def update_outcome(self, lease, outcome, **changes):
         self.assert_owned(lease)
         updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))],
-                          self.trusted_actors)[0]
+                          self.actor)[0]
         outcome.clear()
         outcome.update(updated)
 
@@ -293,4 +282,4 @@ class Coordinator:
         accepted = payload(outcome) | {"accepted": True}
         self.github.update_comment(outcome["id"], body(accepted))
         if outcome.get("handoff") and outcome["handoff"] != lease["assignment"]:
-            self.github.create_comment(outcome["handoff"], body(accepted | {"recorded_by": self.actor}))
+            self.github.create_comment(outcome["handoff"], body(accepted))

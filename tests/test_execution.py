@@ -27,14 +27,11 @@ class ExecutionTests(unittest.TestCase):
 
     def test_thin_adapters_keep_argv_model_effort_and_explicit_permissions(self):
         configured = agent(self.root, command=(), runtime_args=("--sandbox", "read-only"))
-        codex = command_for(configured, Runtime("codex", "configured-model", "high", "openai"))
+        codex = command_for(configured, Runtime("codex", "configured-model", "high"))
         self.assertEqual(codex, ["codex", "exec", "--model", "configured-model", "--config",
                                  'model_reasoning_effort="high"', "--sandbox", "read-only"])
-        claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high", "anthropic"))
+        claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high"))
         self.assertEqual(claude, ["claude", "--print", "--model", "opus", "--effort", "high"])
-        custom = Runtime("example", "m; echo injected", "low", "example",
-                         ("tool", "--model", "{model}", "--effort", "{effort}"))
-        self.assertEqual(command_for(replace(configured, runtime_args=()), custom)[2], "m; echo injected")
 
     def test_prompt_cwd_environment_and_exit_are_delivered_to_recording_command(self):
         script = "import os,sys; print(os.getcwd()); print(os.environ['TEST_UB_CONTEXT']); print(sys.stdin.read())"

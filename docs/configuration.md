@@ -9,11 +9,9 @@ errors; `ub-agent check` validates the file.
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `agents` | The agents, by name. |
-| `runtimes` | Adapters for agent CLIs other than `codex` and `claude`. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | How often an idle loop checks GitHub (default 30). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
-| `operators` | Other GitHub accounts whose claims and outcomes this launcher trusts. Only the authenticated account is trusted by default. |
 | `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
 ## Queue
@@ -89,12 +87,11 @@ Each agent has exactly one of `runtime` or `command`.
 | `trigger` | Label, or list of labels, that starts the agent. |
 | `outcomes` | Named successful outcomes and their project-defined label transitions. Optional for legacy agents. |
 | `kind` | `issue`, `pr` or `either` (default). |
-| `runtime` | `cli:model:effort`, or a list of alternatives tried in order. |
+| `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. |
-| `command` | An argv list to run instead of an LLM session. |
-| `different-runtime-from` | Another agent's name. This agent must run on a different CLI, provider and model from the one that produced the PR's current commit; a different effort doesn't count. |
+| `command` | An argv list to run instead of an LLM session. A relative executable resolves against the configuration's directory. |
+| `different-runtime-from` | Another agent's name. This agent must run on a different CLI and model from the one that produced the PR's current commit; a different effort doesn't count. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
-| `cwd` | Directory to run in, relative to the repository root. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
 
@@ -177,8 +174,7 @@ stdin:
 - `codex:MODEL:EFFORT` runs `codex exec --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --model MODEL --effort EFFORT`.
 
-`runtime-args` are appended. They cannot change the model, the effort, or start from
-an earlier session.
+`runtime-args` are appended.
 
 ### Runtime permissions
 
@@ -204,20 +200,6 @@ grant sufficient permissions.
 only on agents with a single runtime. Codex's `workspace-write` sandbox cannot commit in
 private worktrees, whose Git metadata lives in the main checkout.
 
-## Other agent CLIs
-
-```yaml
-runtimes:
-  example:
-    provider: example-provider
-    command: [example-cli, --model, "{model}", --effort, "{effort}"]
-    check: [example-cli, auth, status]   # optional; doctor runs it
-```
-
-An agent then uses `runtime: "example:your-model:high"`. Only `{model}` and `{effort}`
-are substituted, and no shell is involved. Without `check`, doctor reports the
-runtime's authentication as not checkable.
-
 ## Commands instead of agents
 
 ```yaml
@@ -241,7 +223,6 @@ variables, as do LLM runtimes:
 | `UB_AGENT_LEASE_ID` | The claim's comment id |
 | `UB_AGENT_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
 | `UB_AGENT_BRANCH` | The branch to work on, when known |
-| `UB_AGENT_OPERATORS` | Trusted accounts, for `report` |
 
 ## Commands
 

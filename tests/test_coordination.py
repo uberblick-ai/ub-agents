@@ -84,8 +84,8 @@ class CoordinationTests(unittest.TestCase):
             records([comment])
 
     def test_runtime_exclusion_uses_exact_accepted_candidate_and_not_effort_or_account(self):
-        codex = Runtime("codex", "model-a", "high", "openai")
-        claude = Runtime("claude", "model-b", "high", "anthropic")
+        codex = Runtime("codex", "model-a", "high")
+        claude = Runtime("claude", "model-b", "high")
         source = agent(self.root, name="builder", command=(), runtimes=(codex,))
         reviewer = agent(self.root, name="checker", command=(), runtimes=(replace(codex, effort="low"), claude),
                          different_from="builder", triggers=("needs-review",), kind="pr")
@@ -165,12 +165,14 @@ class CoordinationTests(unittest.TestCase):
         self.github.change(2, draft=True)
         self.assertEqual(self.plan(self.github.item(2)).state, "ready")
 
-    def test_relative_command_is_checked_in_its_configured_cwd(self):
+    def test_command_executable_must_exist_and_be_executable(self):
         script = self.root / "script"
         script.write_text("#!/bin/sh\nexit 0\n")
         script.chmod(0o755)
-        configured = replace(self.agent, command=("./script",))
+        configured = replace(self.agent, command=(str(script),))
         self.assertEqual(self.plan(agent=configured).state, "ready")
+        script.chmod(0o644)
+        self.assertIn("not installed", self.plan(agent=configured).reason)
 
     def test_recovered_blocked_outcome_stays_blocked_without_reexecution(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
@@ -218,15 +220,3 @@ class CoordinationTests(unittest.TestCase):
         plan = next(p for p in loop.plans() if p.item.number == 1)
         self.assertEqual(plan.state, "blocked")
         self.assertIn("no outcome", plan.reason)
-
-    def test_recovery_by_another_actor_preserves_source_authorship_in_mirrored_provenance(self):
-        lease = self.start()
-        self.co.report(lease, "success", "PR opened", handoff=2)
-        self.now += 61
-        self.github.login = "review-operator"
-        loop = Loop(config(self.root, self.agent), self.github, "review-operator", output=lambda *_: None)
-        loop.coordinator = Coordinator(self.github, "review-operator", lambda: self.now, trusted_actors=("operator",))
-        self.assertTrue(loop.recover(loop.plans()[0]))
-        mirrored = loop.coordinator.history(2)[0]
-        self.assertEqual(mirrored["actor"], "operator")
-        self.assertEqual(mirrored["recorded_by"], "review-operator")

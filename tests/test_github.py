@@ -229,7 +229,7 @@ class GitHubTests(unittest.TestCase):
                 comments = [{"id": i, "body": "Bot update", "user": {"login": "ci-bot"},
                              "updated_at": iso(now - 86400 + i)} for i in range(1, 151)]
                 failure = {"kind": "lease", "run": "failed", "agent": "worker",
-                           "actor": "operator", "runtime": "direct", "provider": "direct",
+                           "actor": "operator", "runtime": "direct",
                            "assignment": 42, "assignment_sha": None,
                            "created": iso(now - 86400), "expires": iso(now - 86340),
                            "state": "released", "result": "retry", "summary": "Execution timed out",

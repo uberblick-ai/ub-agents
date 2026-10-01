@@ -87,22 +87,16 @@ as an empty list. Like milestone rechecks, this is cooperative observation, not
 an atomic snapshot: dependencies can change between reads and after a claim.
 They never hold back completion or outcome recovery of already-started runs.
 
-## Trusted operators
+## Trusted comments
 
-Only the authenticated GitHub account's comments supply coordination authority by
-default. `operators: [LOGIN, ...]` extends trust to explicit peer accounts; machines
-with different credentials must list one another to cooperate. `report` inherits
-that scope through `UB_AGENT_OPERATORS`. No credentials or GitHub permissions change.
-Agents using the operator's GitHub credentials can write trusted records themselves;
-author filtering is not a security boundary against a compromised agent session.
-
-Ignore markers and records from all other comment authors before parsing them.
-Payload fields cannot grant trust. `recorded_by` is allowed only on a mirrored
-handoff outcome: both the original actor and publisher must be trusted, and the
-comment must be on the handoff PR. A lease or reset cannot impersonate another
-actor through `recorded_by`. Malformed/contradictory trusted records park their item
-visibly without stopping unrelated work. Transport/read failures still stop the
-loop; they never become an empty queue.
+Only the authenticated GitHub account's comments supply coordination authority.
+Markers and records from other comment authors are ignored before parsing, and
+payload fields cannot grant trust: the actor is always the comment author.
+Agents using the operator's GitHub credentials can write trusted records
+themselves; author filtering is not a security boundary against a compromised
+agent session. Malformed or contradictory trusted records park their item
+visibly without stopping unrelated work. Transport and read failures still stop
+the loop; they never become an empty queue.
 
 ## Distinct clocks
 
@@ -129,7 +123,7 @@ record running before execution. The lease is never renewed: it lasts the run's
 timeout plus a fixed grace for setup and completion, so a dead launcher's claim
 expires on its own.
 
-Every lease names the actor, agent, run, configured CLI/provider/model/effort,
+Every lease names the actor, agent, run, configured CLI/model/effort,
 expiry, attempt, input candidate SHA, and branch when known. The claim is tied to
 the observed candidate; a changed head or vanished trigger before execution fails
 the assignment. Branches created for private issue worktrees are recorded on the
@@ -313,12 +307,11 @@ Source issue outcomes are copied to the PR at handoff. A revision records proven
 for its new head. Missing/unaccepted/stale provenance blocks; the rule never falls
 back to a guessed author or runtime.
 
-The eligible runtime must have a different CLI, provider, **and** model from the
-source. Effort is ignored. Restarting the same author/runtime with a fresh run ID
-cannot satisfy this. Configured identity is the contract: use concrete supported
-identifiers and declare custom providers honestly; the launcher cannot attest to a
-provider's model alias resolution. Codex and Claude built-ins identify OpenAI and
-Anthropic respectively; other provider routing uses a custom adapter declaration.
+The eligible runtime must have a different CLI **and** model from the source;
+`codex` and `claude` imply OpenAI and Anthropic. Effort is ignored. Restarting the
+same author/runtime with a fresh run ID cannot satisfy this. Configured identity is
+the contract: use concrete model identifiers, since the launcher cannot attest to a
+provider's alias resolution.
 
 Different model executions may share GitHub authentication. GitHub login is not
 agent authorship. Native approvals have separate eligibility rules: GitHub forbids
@@ -333,10 +326,6 @@ reasoning transcripts. If the assigned head moves, the independent result fails
 validation. No earlier-head result automatically satisfies a newer candidate.
 
 ## Execution boundaries
-
-Custom argv adapters expand only `{model}` and `{effort}`, including when checking
-the command executable for runtime selection. Optional adapter `check` argv is
-used only by the read-only `doctor` preflight, never by selection or launch.
 
 Use argv directly; there is no shell interpolation. Runtimes receive a prompt on
 stdin; direct commands receive context through `UB_AGENT_CONTEXT` and run identity

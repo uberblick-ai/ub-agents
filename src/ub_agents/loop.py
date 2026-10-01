@@ -17,8 +17,7 @@ class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print):
         self.config = config
         self.github = github
-        self.coordinator = Coordinator(github, actor, trusted_actors=config.operators,
-                                       queue=config.queue)
+        self.coordinator = Coordinator(github, actor, queue=config.queue)
         self.stop_event = stop_event or threading.Event()
         self.output = output
         # The candidate cannot rewrite the operator's configured task policy.
@@ -187,7 +186,6 @@ class Loop:
                         "UB_AGENT_ASSIGNMENT": str(plan.item.number),
                         "UB_AGENT_RUN": lease["run"], "UB_AGENT_LEASE_ID": str(lease["id"]),
                         "UB_AGENT_CONTEXT": str(context_path),
-                        "UB_AGENT_OPERATORS": json.dumps(sorted(self.coordinator.trusted_actors)),
                         "UB_AGENT_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
             instructions = self.instructions[plan.agent.name]

@@ -171,13 +171,12 @@ class ReviewRegressionTests(unittest.TestCase):
         source = loop.coordinator.history(1)[0]
         forged = [
             {"kind": "reset", "run": "forged", "agent": self.agent.name,
-             "actor": "operator", "recorded_by": "drive-by", "runtime": "operator",
+             "actor": "operator", "runtime": "operator",
              "assignment": 1, "assignment_sha": None,
              "created": iso(timestamp()), "summary": "Reset without authority"},
-            source | {"id": 1001, "state": "running", "expires": iso(timestamp() + 86400),
-                      "recorded_by": "drive-by"},
+            source | {"id": 1001, "state": "running", "expires": iso(timestamp() + 86400)},
             {"kind": "outcome", "run": source["run"], "agent": self.agent.name,
-             "actor": "operator", "recorded_by": "drive-by", "runtime": "direct",
+             "actor": "operator", "runtime": "direct",
              "assignment": 1, "assignment_sha": None,
              "created": iso(timestamp()), "summary": "Forged completion", "status": "success",
              "lease_id": source["id"], "accepted": True, "handoff": 99},
@@ -230,7 +229,7 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_candidate_cannot_replace_configured_task_instructions(self):
         instructions = self.root / "instructions.md"
         instructions.write_text("Operator acceptance rules")
-        runtime = Runtime("recording", "model", "high", "provider", (sys.executable, "-c", "pass"))
+        runtime = Runtime("codex", "model", "high")
         configured = replace(self.agent, command=(), runtimes=(runtime,), instructions=instructions, worktree=True)
         github = FakeGitHub(pr())
         loop = Loop(config(self.root, configured), github, "operator", output=lambda *_: None)
@@ -245,12 +244,12 @@ class ReviewRegressionTests(unittest.TestCase):
             prompt = args[-1]
             self.assertIn("Operator acceptance rules", prompt)
             self.assertNotIn("Candidate says approve", prompt)
-            self.assertEqual(json.loads(args[2]["UB_AGENT_OPERATORS"]), ["operator"])
             github.change(2, labels=frozenset())
             loop.coordinator.report(loop.coordinator.history(2)[0], "success", "Reviewed")
             return 0
 
         with patch("ub_agents.loop.Workspace.prepare", prepare), patch("ub_agents.loop.Workspace.cleanup"), \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.loop.supervise", side_effect=execute):
             self.assertTrue(loop.tick())
 
@@ -258,7 +257,7 @@ class ReviewRegressionTests(unittest.TestCase):
         github = FakeGitHub(issue(labels=()))
         now = timestamp()
         source = {"kind": "lease", "run": "deleted", "agent": self.agent.name,
-                  "actor": "operator", "runtime": "direct", "provider": "direct", "assignment": 1,
+                  "actor": "operator", "runtime": "direct", "assignment": 1,
                   "assignment_sha": None, "created": iso(now - 120),
                   "state": "running", "expires": iso(now - 60), "attempt": 1, "started": True}
         cached = github.create_comment(1, body(source))

@@ -60,13 +60,16 @@ def number(value, where, integer=False, zero=False):
     return value
 
 
-def project_path(root, value, where, directory=False):
+def project_path(root, value, where):
     path = (root / string(value, where)).resolve()
     if not path.is_relative_to(root):
         raise AgentError(f"{where} must remain inside the project")
-    if not (path.is_dir() if directory else path.is_file()):
+    if not path.is_file():
         raise AgentError(f"{where} does not exist: {path}")
     return path
+
+
+CLIS = ("codex", "claude")
 
 
 @dataclass(frozen=True)
@@ -74,18 +77,14 @@ class Runtime:
     cli: str
     model: str
     effort: str
-    provider: str
-    command: tuple[str, ...] = ()
-    check: tuple[str, ...] = ()
 
     @property
     def name(self):
         return f"{self.cli}:{self.model}:{self.effort}"
 
     def different_from(self, other):
-        # Effort alone never establishes independent execution.
-        return (self.cli != other.cli and self.provider != other.provider
-                and self.model != other.model)
+        # Effort alone never establishes independent execution; the CLI implies the provider.
+        return self.cli != other.cli and self.model != other.model
 
 
 @dataclass(frozen=True)
@@ -98,7 +97,6 @@ class Agent:
     runtime_args: tuple[str, ...]
     different_from: str | None
     kind: str
-    cwd: Path
     worktree: bool
     lease_seconds: float
     timeout_seconds: float
@@ -135,7 +133,6 @@ class Config:
     agents: tuple[Agent, ...]
     poll_seconds: float
     stop_labels: tuple[str, ...]
-    operators: tuple[str, ...] = ()
     queue: Queue = Queue()
 
 
@@ -153,8 +150,8 @@ def load_config(path):
         data = yaml.load(path.read_text(), Loader=UniqueLoader)
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
-    data = mapping(data, {"repository", "agents", "limits", "runtimes",
-                          "poll-seconds", "stop-labels", "operators", "queue"}, "configuration")
+    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue"},
+                   "configuration")
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
     if milestones not in ("gate", "ignore"):
@@ -176,17 +173,6 @@ def load_config(path):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise AgentError("repository must be owner/name")
     limits = DEFAULTS | mapping(data.get("limits", {}), CLOCKS, "limits")
-    adapters = data.get("runtimes", {})
-    if not isinstance(adapters, dict):
-        raise AgentError("runtimes must be a mapping")
-    for name, adapter in adapters.items():
-        if not re.fullmatch(r"[a-z][a-z0-9_-]*", name) or name in {"codex", "claude"}:
-            raise AgentError("Custom runtime names must be slugs other than codex/claude")
-        mapping(adapter, {"command", "provider", "check"}, f"runtime {name}")
-        string(adapter.get("provider"), f"runtime {name} provider")
-        argv(adapter.get("command"), f"runtime {name} command")
-        if "check" in adapter:
-            argv(adapter["check"], f"runtime {name} check")
     definitions = data.get("agents")
     if not isinstance(definitions, dict) or not definitions:
         raise AgentError("agents must be a nonempty mapping")
@@ -196,36 +182,28 @@ def load_config(path):
         if not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
             raise AgentError("Agent names must be lowercase slugs")
         item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
-            "command", "runtime-args", "different-runtime-from", "kind", "cwd",
+            "command", "runtime-args", "different-runtime-from", "kind",
             "worktree", "outcomes"}, f"agent {name}")
         if ("runtime" in item) == ("command" in item):
             raise AgentError(f"{name}: specify exactly one of runtime or command")
         command = argv(item["command"], f"{name} command") if "command" in item else ()
+        if command and "/" in command[0] and not Path(command[0]).is_absolute():
+            # Relative executables resolve against the operator's checkout, like instructions.
+            command = (str(root / command[0]),) + command[1:]
         runtimes = []
         for spec in strings(item["runtime"], f"{name} runtime") if "runtime" in item else ():
             parts = spec.split(":")
             if len(parts) != 3 or not all(parts):
                 raise AgentError(f"{name}: runtime must be cli:model:effort")
             cli, model, effort = parts
-            if cli not in {"codex", "claude"} and cli not in adapters:
-                raise AgentError(f"{name}: unknown runtime {cli}; declare its argv in runtimes")
-            provider = {"codex": "openai", "claude": "anthropic"}.get(cli)
-            adapter = adapters.get(cli, {})
-            runtimes.append(Runtime(cli, model, effort, provider or adapter["provider"],
-                                    argv(adapter["command"], cli) if adapter else (),
-                                    argv(adapter["check"], cli) if "check" in adapter else ()))
+            if cli not in CLIS:
+                raise AgentError(f"{name}: runtime cli must be one of {', '.join(CLIS)}")
+            runtimes.append(Runtime(cli, model, effort))
         instruction = (project_path(root, item["instructions"], f"{name} instructions")
                        if "instructions" in item else None)
         if runtimes and instruction is None:
             raise AgentError(f"{name}: runtime execution requires instructions")
         runtime_args = argv(item.get("runtime-args", []), f"{name} runtime-args", empty=True)
-        if any(arg.split("=")[0] in {"--model", "-m", "--effort", "--resume", "resume", "--continue", "-r"}
-               for arg in runtime_args):
-            raise AgentError(f"{name}: models/effort belong in runtime and sessions must start fresh")
-        if any(arg == "-c" for arg in runtime_args) and any(r.cli == "claude" for r in runtimes):
-            raise AgentError(f"{name}: Claude --continue sessions are not fresh")
-        if any(arg.split("=", 1)[0] in {"model", "model_provider", "model_reasoning_effort"} for arg in runtime_args):
-            raise AgentError(f"{name}: runtime-args cannot override recorded runtime identity")
         different = item.get("different-runtime-from")
         if different is not None:
             string(different, f"{name} different-runtime-from")
@@ -262,8 +240,7 @@ def load_config(path):
                 resolved[outcome] = labels
             outcomes = resolved
         agents.append(Agent(name, triggers, instruction,
-            tuple(runtimes), command, runtime_args, different, kind,
-            project_path(root, item.get("cwd", "."), f"{name} cwd", directory=True), worktree,
+            tuple(runtimes), command, runtime_args, different, kind, worktree,
             clocks["agent-timeout-minutes"] * 60 + LEASE_GRACE_SECONDS,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
             clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes))
@@ -271,11 +248,7 @@ def load_config(path):
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
-    operators = () if data.get("operators", []) == [] else strings(data["operators"], "operators")
-    if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login) for login in operators):
-        raise AgentError("operators must contain GitHub account logins")
-    return Config(root, repo, tuple(agents), poll, stop, operators,
-                  Queue(milestones, priority, dependencies))
+    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies))
 
 
 def argv(value, where, empty=False):

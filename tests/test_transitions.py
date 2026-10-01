@@ -448,7 +448,7 @@ class TransitionTests(unittest.TestCase):
     def test_prompt_lists_outcomes_and_forbids_workflow_label_changes(self):
         instructions = self.root / 'instructions.md'
         instructions.write_text('Project acceptance rules')
-        runtime = Runtime('recording', 'model', 'high', 'provider')
+        runtime = Runtime('codex', 'model', 'high')
         configured = replace(self.agent, instructions=instructions, runtimes=(runtime,), command=())
         self.loop = self.new_loop(configured)
         def execute(*args, **kwargs):

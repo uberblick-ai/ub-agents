@@ -3,6 +3,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from ub_agents.config import load_config
 from ub_agents.coordination import Coordinator
 from ub_agents.doctor import diagnose, render
 from ub_agents.errors import AgentError
-from ub_agents.execution import command_for, repository_checks, resolve_executable
+from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
 from tests.support import DoctorGitHub, RecordingRunner, issue
 
@@ -36,7 +37,8 @@ agents:
         self.runner = RecordingRunner(self.root)
         self.github = DoctorGitHub()
         self.missing = set()
-        self.which = lambda name: None if name in self.missing else f"/tools/{name}"
+        self.which = lambda name: (shutil.which(name) if "/" in name else
+                                   None if name in self.missing else f"/tools/{name}")
 
     def diagnose(self, **overrides):
         return diagnose(self.path, **(dict(runner=self.runner, which=self.which,
@@ -184,45 +186,6 @@ agents:
         self.assertTrue(result["ok"])
         self.assertEqual(self.cli()[0], 0)
         self.assertIn("  remedy: Install codex", self.capture(result))
-
-    def custom(self, check=True):
-        self.path.write_text('''repository: org/project
-runtimes:
-  custom:
-    provider: other
-    command: [custom-cli, --model, "{model}"]
-''' + ('    check: [custom-check, "{model}", "{effort}"]\n' if check else '') + '''agents:
-  worker:
-    runtime: custom:model-a:high
-    trigger: ready
-    instructions: instructions.md
-''')
-        self.runner.responses[("custom-check", "model-a", "high")] = "sk-custom-secret"
-
-    def test_custom_checks_pass_fail_timeout_and_not_checkable(self):
-        for response in ("secret stdout", subprocess.CompletedProcess([], 7, "sk-secret", "ghp-secret"),
-                         subprocess.TimeoutExpired("custom-check", 20)):
-            with self.subTest(response=response):
-                self.custom()
-                self.runner.responses[("custom-check", "model-a", "high")] = response
-                result = self.diagnose()
-                check = self.one(result, "runtime-auth")
-                self.assertEqual(check["status"], "ok" if isinstance(response, str) else "fail")
-                self.assertEqual(result["ok"], isinstance(response, str))
-                call = next(c for c in reversed(self.runner.calls) if c[0][0] == "custom-check")
-                self.assertEqual(call[1]["cwd"], self.root)
-                self.assertNotIn("env", call[1])  # Launcher environment is inherited.
-        self.custom(False)
-        self.assertEqual(self.one(self.diagnose(), "runtime-auth")["message"], "auth not checkable")
-        self.assertFalse(any(c[0][0] == "custom-cli" for c in self.runner.calls))
-        runtime = load_config(self.path).agents[0].runtimes[0]
-        self.assertEqual(command_for(load_config(self.path).agents[0], runtime), ["custom-cli", "--model", "model-a"])
-
-    def test_bad_custom_check_is_config_error(self):
-        for value in ('[]', 'null', 'check-program', '[false]'):
-            self.custom()
-            self.path.write_text(self.path.read_text().replace('[custom-check, "{model}", "{effort}"]', value))
-            self.assertEqual(self.one(self.diagnose(), "config")["status"], "fail")
 
     def test_unauthenticated_github_still_reads_repository(self):
         self.github.auth_error = AgentError("ghp-auth-secret")
@@ -372,9 +335,8 @@ runtimes:
         self.assertEqual(self.checks(result, "runtime-auth")[0]["status"], "warn")
 
     def test_no_secrets_writes_new_files_or_mutating_commands(self):
-        self.custom()
         self.github.auth_error = AgentError("ghp-auth-private sk-github-private")
-        self.runner.responses[("custom-check", "model-a", "high")] = subprocess.CompletedProcess([], 6, 'sk-custom-private', 'ghp-custom-private')
+        self.runner.responses[("codex", "login", "status")] = subprocess.CompletedProcess([], 6, 'sk-custom-private', 'ghp-custom-private')
         before = sorted(p.relative_to(self.root) for p in self.root.rglob("*"))
         result = self.diagnose()
         output = self.capture(result) + self.capture(result, True)
@@ -396,17 +358,16 @@ runtimes:
         self.path.write_text('''repository: org/project
 agents:
   worker:
-    command: [./worker-tool]
+    command: [./tools/worker-tool]
     trigger: ready
-    cwd: subdir
 ''')
-        (self.root / "subdir").mkdir()
-        executable = self.root / "subdir" / "worker-tool"
+        (self.root / "tools").mkdir()
+        executable = self.root / "tools" / "worker-tool"
         self.assertEqual(self.one(self.diagnose(), "command")["status"], "fail")
         executable.write_text("synthetic executable")
         executable.chmod(0o700)
         agent = load_config(self.path).agents[0]
-        self.assertEqual(resolve_executable("./worker-tool", agent.cwd), str(executable))
+        self.assertEqual(agent.command, (str(executable),))
         self.assertEqual(self.one(self.diagnose(), "command")["status"], "ok")
         self.assertIsNone(Coordinator(self.github, "operator").choose_runtime(issue(), agent, []))
         executable.chmod(0o600)
@@ -414,19 +375,7 @@ agents:
             Coordinator(self.github, "operator").choose_runtime(issue(), agent, [])
         self.assertEqual(self.one(self.diagnose(), "command")["status"], "fail")
 
-    def test_custom_executable_substitution_agrees_with_selection(self):
-        self.custom(False)
-        self.path.write_text(self.path.read_text().replace("custom-cli", '"./{model}"'))
-        executable = self.root / "model-a"
-        executable.write_text("synthetic executable")
-        executable.chmod(0o700)
-        agent = load_config(self.path).agents[0]
-        selected = Coordinator(self.github, "operator").choose_runtime(issue(), agent, [])
-        self.assertEqual(selected, agent.runtimes[0])
-        self.assertEqual(self.one(self.diagnose(), "runtime-executable")["status"], "ok")
-
     def test_launch_shares_repository_validation_and_never_runs_check(self):
-        self.custom()
         def read_git(root, *args):
             self.assertEqual(root, self.root)
             return str(root) if args[0] == "rev-parse" else "git@github.com:org/project.git"

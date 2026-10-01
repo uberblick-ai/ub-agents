@@ -39,18 +39,18 @@ def body(record):
         description = f"{record['status']}: {record['summary']}"
     else:
         description = f"Attempt budget reset: {record['summary']}"
-    # The comment author is the actor, except on a handoff copy; empty fields are omitted.
-    shown = {k: v for k, v in record.items()
-             if v is not None and (k != "actor" or "recorded_by" in record)}
+    # The comment author is the actor; empty fields are omitted.
+    shown = {k: v for k, v in record.items() if v is not None and k != "actor"}
     return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n"
 
 
-def records(comments, trusted_actors=None):
+def records(comments, actor=None):
+    """Parse coordination records; with an actor, only that account's comments count."""
     result = []
     for comment in comments:
         if not isinstance(comment, dict):
             raise AgentError("Unreadable GitHub comment")
-        if trusted_actors is not None and not trusted_comment(comment, trusted_actors):
+        if actor is not None and not own_comment(comment, actor):
             continue
         try:
             text = comment["body"] or ""
@@ -62,32 +62,25 @@ def records(comments, trusted_actors=None):
             record = json.loads(payload[:-4])
             if not isinstance(record, dict):
                 raise ValueError("record must be a JSON object")
-            # MARKER versions the record format.
-            if "recorded_by" not in record:
-                record.setdefault("actor", comment["user"]["login"])
+            # MARKER versions the record format. Payload fields cannot grant trust:
+            # the actor is always the GitHub comment author.
+            record["actor"] = comment["user"]["login"]
             record = {"assignment_sha": None, "candidate_sha": None, "handoff": None} | record
             validate(record)
-            if "recorded_by" in record and (record["kind"] != "outcome" or not record.get("handoff")):
-                raise ValueError("recorded_by is only valid for mirrored handoff outcomes")
-            if trusted_actors is not None and record["actor"].casefold() not in trusted_actors:
-                raise ValueError("source actor is not a configured operator")
-            if record.get("recorded_by", record["actor"]).casefold() != comment["user"]["login"].casefold():
-                raise ValueError("record actor does not match GitHub comment author")
             if comment.get("issue_url"):
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
-                destination = record["handoff"] if "recorded_by" in record else record["assignment"]
-                if destination != number:
-                    raise ValueError("record is posted on the wrong assignment")
+                if number not in {record["assignment"], record["handoff"]}:
+                    raise ValueError("record is posted on the wrong item")
             result.append(record | {"id": comment["id"], "url": comment.get("html_url", "")})
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, AgentError) as exc:
             raise RecordError(f"Malformed ub-agent comment {comment.get('id', '?')}: {exc}") from exc
     return sorted(result, key=lambda record: record["id"])
 
 
-def trusted_comment(comment, trusted_actors):
+def own_comment(comment, actor):
     user = comment.get("user")
     login = user.get("login") if isinstance(user, dict) else None
-    return isinstance(login, str) and login.casefold() in trusted_actors
+    return isinstance(login, str) and login.casefold() == actor.casefold()
 
 
 def latest_leases(history):
