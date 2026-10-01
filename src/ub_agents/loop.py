@@ -8,7 +8,7 @@ import time
 from .coordination import Coordinator, Plan
 from .errors import AgentError, CleanupError, LostOwnership, RecordError, ValidationError
 from .execution import Workspace, command_for, supervise
-from .records import attempts, iso, latest_leases, seconds, timestamp
+from .records import attempts, iso, latest_leases, lease_summary, seconds, timestamp
 
 
 class Loop:
@@ -59,9 +59,9 @@ class Loop:
                 elif record and (record["state"] in {"claiming", "running"}
                                  or record.get("result") in {"retry", "blocked"}):
                     if record.get("cleanup") == "unconfirmed":
-                        reason = f"Previous cleanup was unconfirmed: {record.get('summary', '')}"
+                        reason = f"Previous cleanup was unconfirmed: {lease_summary(history, record)}"
                     elif record["state"] == "released":
-                        reason = f"Last run {record['result']}: {record.get('summary', '')}"
+                        reason = f"Last run {record['result']}: {lease_summary(history, record)}"
                     else:
                         reason = "Expired run has no outcome or matching trigger"
                     plans.append(Plan(item, agent, None, "blocked",

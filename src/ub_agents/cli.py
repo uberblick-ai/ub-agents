@@ -152,10 +152,9 @@ def run(args):
         if live_leases(history, timestamp()):
             raise AgentError("Cannot reset attempts while an assignment is owned")
         item = github.item(args.number)
-        record = {"version": 1, "kind": "reset", "run": uuid.uuid4().hex,
+        record = {"kind": "reset", "run": uuid.uuid4().hex,
                   "agent": args.agent, "actor": actor, "runtime": "operator",
-                  "assignment": item.number, "assignment_kind": item.kind,
-                  "assignment_sha": item.head, "created": iso(timestamp()), "summary": args.reason}
+                  "assignment": item.number, "assignment_sha": item.head, "created": iso(timestamp()), "summary": args.reason}
         created = records([github.create_comment(item.number, body(record))])[0]
         print(json.dumps({"agent": args.agent, "number": item.number, "url": created["url"]}))
         return
