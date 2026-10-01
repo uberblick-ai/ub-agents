@@ -65,6 +65,14 @@ class FakeGitHub:
     def change(self, number, **changes):
         self.items[number] = replace(self.items[number], **changes)
 
+    def add_labels(self, number, labels):
+        self.writes.append(("add-labels", number, tuple(labels)))
+        self.change(number, labels=self.items[number].labels.union(labels))
+
+    def remove_label(self, number, label):
+        self.writes.append(("remove-label", number, label))
+        self.change(number, labels=self.items[number].labels.difference({label}))
+
     def comments(self, number):
         if self.unreadable:
             from ub_agents.errors import AgentError

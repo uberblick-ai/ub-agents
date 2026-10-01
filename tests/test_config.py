@@ -20,6 +20,21 @@ class ConfigTests(unittest.TestCase):
         self.path.write_text(content)
         return load_config(self.path)
 
+    def test_outcome_configuration_and_check_rejections(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        valid = self.load(base + "    outcomes:\n      done: {add: [needs-review], remove: [old]}\n      merged: {}\n")
+        self.assertEqual(valid.agents[0].outcomes["merged"], {"add": (), "remove": ()})
+        for outcomes in ["[]", "{}", "null", "{done: []}", "{done: {unknown: []}}",
+                         "{done: {add: [1]}}", "{done: {remove: [false]}}",
+                         "{done: {add: needs-review}}", "{done: {add: [ready]}}",
+                         "{done: {remove: [needs-human]}}"]:
+            with self.subTest(outcomes=outcomes):
+                self.path.write_text(base + f"    outcomes: {outcomes}\n")
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+        with self.assertRaisesRegex(AgentError, "remove a stop label"):
+            self.load(base.replace("trigger: ready", "trigger: needs-human") + "    outcomes: {done: {}}\n")
+
     def test_direct_command_and_distinct_clock_overrides(self):
         result = self.load('''repository: org/project
 agents:
@@ -70,7 +85,16 @@ stop-labels: []
             original = self.path.read_text()
             self.assertEqual(main(["--config", str(self.path), "init", "--repository", "different/project"]), 1)
         self.assertEqual(self.path.read_text(), original)
-        self.assertEqual(len(load_config(self.path).agents), 4)
+        agents = load_config(self.path).agents
+        self.assertEqual(len(agents), 4)
+        self.assertTrue(all(a.outcomes for a in agents))
+        self.assertEqual(agents[0].outcomes['needs-human']['add'], ('needs-human',))
+        self.assertEqual(agents[-1].outcomes['maintainer-merge']['add'], ('needs-human',))
+        for configured in agents:
+            instructions = configured.instructions.read_text()
+            self.assertIn('--outcome', instructions)
+            self.assertIn('Do not change workflow labels', instructions)
+            self.assertNotIn('--status success', instructions)
         self.assertIn(".ub-agent/", (self.root / ".gitignore").read_text())
 
     def test_operator_allowlist_is_explicit_and_strict(self):

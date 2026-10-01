@@ -8,12 +8,13 @@ not infer permission to merge from a label alone.
 If the project's merge policy authorizes this merge and its gates pass, merge exactly
 the assigned SHA with the project's merge method (for example `gh pr merge PR
 --match-head-commit "$UB_AGENT_CANDIDATE_SHA"`) and close the linked issue when
-completion is satisfied. Then record `ub-agent report --status success --summary
+completion is satisfied. Then record `ub-agent report --outcome merged --summary
 "Merged SHA under project policy"`.
 
 If the policy leaves this merge to a maintainer, leave a concrete report that names
-the reason, remove ready-to-merge, add needs-human, and record `ub-agent report
---status success --summary "Ready for maintainer merge: REASON"`. Handing a passing
-candidate to a maintainer is a successful handoff; report blocked only when a gate
+the reason and record `ub-agent report --outcome maintainer-merge
+--summary "Ready for maintainer merge: REASON"`. Handing a passing candidate to a maintainer is a successful handoff; report blocked only when a gate
 fails or evidence is missing. The framework never grants merge authority, approves
 its own PR, or chooses check commands.
+
+The runner applies the configured transition. Do not change workflow labels.

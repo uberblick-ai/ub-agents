@@ -14,9 +14,10 @@ changes it, or requires the code to enforce it. Group related criteria and descr
 outcomes rather than prescribing code structure. Go longer only when a distinct
 requirement or unresolved constraint cannot be stated clearly in less space.
 
-If a human decision is required, explain it on the issue, add needs-human, remove
-needs-preparation, and report blocked with a concise summary.
+If a human decision is required, explain it on the issue and report
+`ub-agent report --outcome needs-human --summary "Decision required: REASON"`.
 
-When requirements can be implemented, remove needs-preparation and add ready.
-Record the outcome with `ub-agent report --status success --summary "Issue prepared"`.
-Customize these labels and rules with the project's owners.
+When requirements can be implemented, report
+`ub-agent report --outcome prepared --summary "Issue prepared"`.
+The runner applies the configured transition. Do not change workflow labels.
+Customize these outcomes and rules with the project's owners.

@@ -54,7 +54,7 @@ class Coordinator:
                 invalid.add(number)
         return sorted(history, key=lambda record: record["id"]), invalid
 
-    def plan(self, item, agent, stop_labels, history=None):
+    def plan(self, item, agent, stop_labels, history=None, repository_history=None):
         history = self.history(item.number) if history is None else history
         now = self.clock()
         previous = attempts(history, agent.name, now)
@@ -63,7 +63,10 @@ class Coordinator:
         attempt = len(previous) + 1
         state, reason = "ready", "Trigger matched"
         runtime = None
-        if live_leases(history, now):
+        reservation = self.transition_reservation(item.number, agent.name, repository_history)
+        if reservation:
+            state, reason = "owned", reservation
+        elif live_leases(history, now):
             state, reason = "owned", "An unexpired assignment owns this work item"
         elif self.pending_completion(history, agent.name, now):
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
@@ -91,6 +94,33 @@ class Coordinator:
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
         return Plan(item, agent, runtime, state, reason, attempt)
+
+    def transition_reservation(self, number, agent, indexed=None):
+        # The index discovers sources; fresh source history supplies authority.
+        if indexed is None:
+            indexed, _ = self.repository_history()
+        sources = {r["assignment"] for r in indexed if r["kind"] == "outcome"
+                   and r.get("transition") and number in {r["assignment"], r.get("handoff")}
+                   and "recorded_by" not in r}
+        for source_number in sorted(sources):
+            history = self.history(source_number)
+            latest = latest_leases(history)
+            for outcome in history:
+                if (outcome["kind"] != "outcome" or not outcome.get("transition")
+                        or number not in {outcome["assignment"], outcome.get("handoff")}
+                        or "recorded_by" in outcome):
+                    continue
+                lease = latest.get((source_number, outcome["agent"]))
+                pending = (lease and lease["state"] in {"claiming", "running"}
+                           and lease.get("recovered_lease_id", lease["id"]) == outcome["lease_id"])
+                incomplete = (outcome["transition"]["started"]
+                              and not outcome.get("transition_complete") and not outcome["accepted"])
+                # A blocked release or reset cannot discard partly applied work.
+                # Only an unfinished source lease authorizes its own recovery.
+                own_recovery = pending and number == source_number and agent == outcome["agent"]
+                if (pending or incomplete) and not own_recovery:
+                    return f"Incomplete transition from #{source_number} reserves this work item"
+        return None
 
     def choose_runtime(self, item, agent, history):
         def installed(executable):
@@ -187,6 +217,12 @@ class Coordinator:
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
+        if not recovery and plan.agent.outcomes is not None:
+            record["outcomes"] = {
+                name: {"add": list(changes["add"]),
+                       "remove": sorted(set(plan.agent.triggers).union(changes["remove"])),
+                       "triggers": list(plan.agent.triggers), "stop_labels": list(stop_labels)}
+                for name, changes in plan.agent.outcomes.items()}
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, now)
             if outcome is None:
@@ -199,6 +235,9 @@ class Coordinator:
         # read-modify-write race on a shared lease comment is passed off as CAS.
         if not contenders or contenders[0]["id"] != created["id"]:
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
+            return None
+        if self.transition_reservation(current.number, plan.agent.name):
+            self.update(created, state="withdrawn", summary="An incomplete transition reserves this item.")
             return None
         if self.clock() >= seconds(created["expires"]):
             raise LostOwnership("Lease expired during claiming")
@@ -254,7 +293,13 @@ class Coordinator:
             raise RecordError("Run reported conflicting outcomes")
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None):
+    def report(self, lease, status, summary, handoff=None, outcome=None):
+        declarations = lease.get("outcomes")
+        if outcome is not None:
+            if declarations is None or outcome not in declarations or status != "success":
+                raise AgentError("Outcome is not declared by the running agent")
+        elif status == "success" and declarations is not None:
+            raise AgentError("Agent declares outcomes; report --outcome NAME instead of --status success")
         self.assert_owned(lease)
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")
@@ -264,8 +309,17 @@ class Coordinator:
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
+        if outcome is not None:
+            record |= {"outcome": outcome, "transition": declarations[outcome] | {"started": False}}
         self.assert_owned(lease)
         return records([self.github.create_comment(lease["assignment"], body(record))], self.trusted_actors)[0]
+
+    def update_outcome(self, lease, outcome, **changes):
+        self.assert_owned(lease)
+        updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))],
+                          self.trusted_actors)[0]
+        outcome.clear()
+        outcome.update(updated)
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)
