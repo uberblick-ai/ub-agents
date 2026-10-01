@@ -176,27 +176,17 @@ stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
 ## When things go wrong
 
 Each claim has a lease that outlasts the run's timeout. If a launcher dies, its
-claims expire and a launcher can recover the work. Timeouts, interruptions
-and failures the agent reports as `retry` are retried with backoff, up to
-`max-attempts`. Other failures stop the item until a person runs `ub-agent retry`. A
-success counts only after the launcher has checked the result on GitHub; an exit code
-alone never does.
+claims expire and another launcher recovers the work: a recorded outcome is
+validated and its label transition finished without rerunning the role. Timeouts,
+interruptions and failures the agent reports as `retry` are retried with backoff, up
+to `max-attempts`. Other failures stop the item until a person runs `ub-agent retry`.
+A success counts only after the launcher has checked the result on GitHub; an exit
+code alone never does.
 
-A stop label on the assignment or handoff PR before a transition starts blocks
-the run without changing labels. Removing it does not revive that outcome: set
-the desired workflow labels or use `ub-agent retry` to rerun the role. A stop label
-added after a transition starts stays in place while the transition completes.
-Interrupted transitions recover their recorded changes without rerunning the role
-or consuming another attempt. Assignment labels are removed before destination
-labels are added; a crash between those steps leaves items idle when no other
-trigger is present. Transitions create no cross-item reservations. If an operator
-reset supersedes recovery, inspect both items and restore the desired triggers.
-Once a transition starts, recovery finishes it even if the PR head or issue link
-changes. Provenance retains the original SHA; a newer head still needs its own
-implementation outcome before an independent review can run.
-
-The exact rules for claims, attempts and recovery are in the
-[coordination contract](docs/coordination.md).
+A stop label such as `needs-human` on the assignment or its handoff PR pauses a
+transition before it starts. After removing it, set the workflow labels you want or
+run `ub-agent retry`. The exact rules for claims, attempts, transitions and recovery
+are in the [coordination contract](docs/coordination.md).
 
 ## Development
 

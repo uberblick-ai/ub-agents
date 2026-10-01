@@ -27,63 +27,24 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 
 ## Selection order
 
-1. Eligibility checks run as usual: existing claims, stop labels, retry backoff and
-   attempt limits still apply.
-2. PR work comes before new issue starts. This includes PR assignments, recovery
-   and completion of already-started runs. Neither queue gate holds back this work.
-3. With `queue.milestones: gate`, only new issues in the active milestone can
-   start. The active milestone is the oldest open milestone with open issues or
-   PRs, by creation time with milestone number as the tie-breaker. Later-milestone
-   and unmilestoned issues wait until it closes or empties, even if it has no
-   eligible work. With no active milestone, all issues are eligible. Planning and
-   the fresh claim-time milestone recheck enforce this same policy. In the default
-   `ignore` mode, neither consults milestones.
-4. With `queue.dependencies: wait` (the default, even without a `queue` block),
-   a new issue waits while any GitHub blocked-by issue is open. All blockers must
-   close, including blockers in other repositories. Planning and a fresh
-   claim-time dependency read enforce this gate. When milestone gating is also
-   enabled, a new issue must pass both gates. With `ignore`, links affect neither
-   eligibility nor priority and dependency reads are skipped.
-5. An open issue's effective priority is the highest of its configured priority
-   (label or default) and the effective priority of every open local issue it
-   blocks, directly or transitively. Inheritance includes issues without workflow
-   triggers and issues waiting at either gate. Closed issues do not propagate
-   priority; external blockers gate but do not inherit local priority. Traversal
-   terminates even in cycles: every member receives the highest priority reachable
-   from the cycle and its open dependents. The launcher never changes labels.
-6. A PR's effective priority is the highest of its own configured priority and
-   the effective priority of each open local issue it closes, as named by closing
-   keywords in its body. It includes the issue's inherited priority in `wait`
-   mode, and its own configured priority in `ignore` mode. Review, revision and
-   integration therefore inherit urgent work's priority without label changes.
-   Each closing issue requires its own keyword; ordinary mentions, closed issues,
-   PR references and foreign repository references do not supply priority.
-7. Within PR work and within issue work, rank by effective priority, then item
-   creation time, then item number. Without a default, unlabeled items rank below
-   all configured priority labels. Without priority configuration, ranking is FIFO
-   with number as the tie-breaker. Agents on the same item retain YAML order
-   within each work class. Priority labels are read without modification.
+1. Eligibility first: live claims, stop labels, retry backoff and attempt limits.
+2. PR work before new issue starts: PR assignments, recovery and completion of
+   already-started runs. Neither queue gate holds back this work.
+3. New issues pass the milestone gate and the dependency gate when configured, as
+   the [queue reference](configuration.md#queue) defines them. Planning and a fresh
+   claim-time read both enforce each gate.
+4. Within PR work and within issue work: effective priority (the item's own label,
+   inherited from open local dependents, or for a PR from the open issues it
+   closes), then item creation time, then item number. Agents on the same item
+   keep YAML order. The launcher never changes priority labels.
 
-`ub-agent status` and `status --json` list rows in this rank order, show effective
-priority and its inherited source, and name the active milestone and open blockers
-for waiting issues. See the
-[queue configuration](configuration.md#queue).
-
-Concurrent launchers rank the GitHub state each observes and try claims in that
-order. Existing claims resolve contention for the same item. There is no global
-order across machines.
-
-When there is work to plan, selection uses the issue list's
-`issue_dependencies_summary` to skip blocked-by reads for issues with a validated
-`total_blocked_by` of zero. All other open issues, including those without workflow
-triggers, have their links read to compute inheritance. Missing or malformed
-summaries fall back to full reads. Claims always recheck the selected new issue's
-blockers, even if its observed summary was zero. Read cost therefore grows with
-issues that have blocker links or unknown summaries, rather than all open issues.
-An unreadable or failed dependency read stops selection rather than being treated
-as an empty list. Like milestone rechecks, this is cooperative observation, not
-an atomic snapshot: dependencies can change between reads and after a claim.
-They never hold back completion or outcome recovery of already-started runs.
+`ub-agent status` lists rows in this order with each item's effective priority and
+its source, and names what a waiting issue waits for. Concurrent launchers rank the
+GitHub state each observes and try claims in that order; existing claims resolve
+contention, and there is no global order across machines. Dependency reads skip
+issues whose list summary reliably reports zero blockers; a failed read stops
+selection rather than becoming an empty list. Like milestone rechecks, this is
+cooperative observation, not an atomic snapshot.
 
 ## Trusted comments
 
@@ -169,134 +130,80 @@ than accepted. Earlier branches are retained for human recovery.
 
 `ub-agent report` uses the supervised environment to verify the run's current
 ownership and create one versioned outcome comment. Human summaries lead; JSON is
-fenced in `json` blocks. Arbitrary prose is never parsed for routing.
+fenced in `json` blocks, and arbitrary prose is never parsed for routing. A declared
+outcome is reported with `--outcome NAME` and has status `success`;
+`--status retry|blocked` changes no labels. Undeclared names are rejected, and the
+runner blocks records that bypass reporting validation.
 
-A declared outcome is reported with `--outcome NAME` and has status `success`.
-`--status retry|blocked` retains its failure meaning and changes no labels.
-Undeclared names are rejected, and the runner blocks records that bypass
-reporting validation.
+The running lease snapshots the agent's declared outcomes with their resolved
+`add` and `remove` lists (`remove` includes every trigger), `triggers` and
+`stop_labels`. The outcome names its declaration, copies that transition and carries
+a `started` flag; it must match the run's declaration, so configuration edits or a
+restarted launcher cannot replace the recorded changes.
 
-A report is initially `accepted: false`. On confirmed process/group termination,
-the launcher rereads GitHub and validates ownership, exact reported candidate SHA,
-and the original issue link for an explicit PR handoff. A handoff to a draft PR
-blocks in normal completion and before transition start in recovery.
-
-For declared outcomes, the running lease snapshots allowed outcomes and their
-resolved transitions. The outcome names its declaration and stores `add`, `remove`
-(including all agent triggers), `triggers`, `stop_labels` and a `started` flag. It
-must match that run's declaration. Candidate edits or a restarted launcher with
-different configuration cannot replace the recorded changes.
-
-Before starting the transition, reread the assignment and handoff PR. A missing
-assignment trigger blocks with no label changes. A stop label on either item blocks
-as paused, leaves the outcome unaccepted, and records a durable rejection. That
-outcome can never be applied later, including if the runner crashes before releasing
-the blocked lease. After unpausing, a person sets the labels they want or uses
-`ub-agent retry` to rerun the role. The starter preparer's needs-human handoff and
-integrator's maintainer-merge handoff are declared successful human gates.
-
-Persist `started: true` before the first label mutation. Remove every agent trigger
-and configured `remove` label from the assignment, and add configured `add` labels
-to the handoff PR, or assignment if there is none. Reread labels and apply only
-missing changes. Unnamed labels remain unchanged. A stop label added after start
-does not interrupt the transition; it remains and parks subsequent pickup. A
-transition may itself add a stop label.
-
-After all changes, persist `transition_complete: true`, mark the outcome accepted,
-copy provenance to the handoff PR, and release ownership. The launcher applies the
-project's declarations; it does not invent transitions, run project checks itself,
-or grant merge authority.
+A report starts `accepted: false`. Once the process group has terminated, the
+launcher rereads GitHub and validates ownership, the exact reported candidate SHA,
+and for an issue handoff that the PR is ready, links the issue, and that no other
+open PR sits on an earlier run branch. It then applies the transition as the
+[configuration reference](configuration.md#outcomes-and-transitions) describes:
+reread both items, block on a missing trigger or pause on a stop label with a
+durable rejection, persist `started: true`, remove assignment labels, add
+destination labels, persist `transition_complete: true`, accept the outcome, copy
+it to the handoff PR, and release.
 
 Exit zero without an outcome is a protocol failure and a bounded retry. Nonzero
-without an explicit retry outcome blocks for operator attention; this includes
-unclassified authentication failures/refusals without interpreting stderr prose.
-Timeouts and interruptions produce durable retry outcomes after confirmed cleanup.
-Explicit blocked outcomes and exhausted budgets require a reasoned operator reset.
-The lease's released `result` records the launcher's final verdict; a reported
-success with failed validation remains unaccepted and does not establish completion.
-If a timeout/interruption follows an early report, reconcile that existing report
-and release with the supervision failure; do not post a second outcome or accept
-the early report. Known unconfirmed cleanup is marked on the owned lease when
-GitHub remains available, preserves its ownership until expiry, and blocks automatic
-acceptance/reexecution pending positive termination evidence and an operator reset.
-If GitHub is unavailable or ownership is lost, that verdict cannot be guaranteed
-durable; no comment protocol eliminates the crash/write-failure window.
+without an explicit retry outcome blocks for operator attention; stderr prose is
+never interpreted. Timeouts and interruptions produce durable retry outcomes after
+confirmed cleanup. Explicit blocked outcomes and exhausted budgets require a
+reasoned operator reset. The lease's released `result` records the launcher's final
+verdict; a reported success with failed validation remains unaccepted. If a timeout
+or interruption follows an early report, the launcher reconciles that report and
+releases with the supervision failure rather than posting a second outcome or
+accepting the early one. Unconfirmed cleanup is marked on the owned lease when
+GitHub is available, keeps ownership until expiry, and blocks automatic acceptance
+or reexecution pending an operator reset. If GitHub is unavailable or ownership is
+lost, no comment protocol can make that verdict durable.
 
 ## Recovery
 
 An unexpired lease always excludes pickup. Expiry permits a new fresh run, never
-conversation resumption. Durable attempts/backoff survive restarts.
+conversation resumption. Durable attempts and backoff survive restarts.
 
-Recovery discovery reads all repository issue-comment pages directly at startup,
-including records on closed items and items whose trigger was removed. Later polls
-read updated/new comments using `sort=updated` and `since`, with a 60-second overlap
-and a cursor captured before the scan. Within each scan, advance `since` to one
-second before the previous page's last update and deduplicate by comment ID; page
-offsets would silently skip records when earlier comments move or disappear.
-GitHub exposes second-resolution timestamps and at most 100 comments per page.
-If a full page cannot advance the timestamp boundary, stop visibly: that bucket
-cannot be paginated safely with this API. Page requests have separate deadlines.
-The cache/cursor live only in memory; restart rebuilds them from GitHub. A failed
-or ambiguous page commits neither cache changes nor the cursor. Item comments
-are always read freshly before planning
-or claiming, so deleted/stale cached records do not supply authority. This avoids
-indexed search and a full historical scan every poll. Initial large-repository
-read cost and sustained polling still need pilot evidence before a cutover.
+Discovery reads every repository issue comment at startup, including records on
+closed items and items whose trigger was removed, then polls updated comments with
+`sort=updated` and `since`, a 60-second overlap and a cursor captured before the
+scan. Each page advances `since` to one second before its last update and
+deduplicates by comment id, because page offsets skip rows when comments move. A
+full page within one second cannot be paginated safely and stops visibly. The cache
+and cursor live in memory, a failed page commits neither, and item comments are
+always reread before planning or claiming, so stale cached records never supply
+authority.
 
 Discovery follows the latest non-withdrawn lease after the last reset for each
-item/agent pair. A released retry/blocked result or expired run without an outcome
-stays visible on closed/unlabelled items as blocked for operator inspection; a
-missing trigger never authorizes automatic reexecution. Later released success
-supersedes older crashed contenders/runs without resetting attempt history.
-Failed scans stop visibly rather than become empty queues.
+item and agent. A released retry or blocked result, or an expired run without an
+outcome, stays visible as blocked on closed or unlabelled items; a missing trigger
+never authorizes reexecution. A later released success supersedes older crashed
+runs without resetting attempt history. Failed scans stop visibly.
 
-An expired, unfinished lease with an explicit outcome reported within its validity
-window gets outcome-only recovery: claim a new bounded recovery assignment,
-finish or validate the recorded outcome, accept success or record the blockage,
-and release. For a declared outcome, finish its recorded label transition before
-acceptance. A started transition has already passed success validation; recovery
-checks its declaration against the source lease but does not revalidate the
-candidate SHA or issue link. It also skips trigger-present and stop-label checks:
-prior mutations may have consumed the trigger or added a human gate. An unstarted
-transition still validates the candidate and issue link, checks both items for
-pausing and the assignment for its trigger. A durably rejected paused outcome is
-never applied later.
+An expired, unfinished lease whose outcome was reported within its validity window
+gets outcome-only recovery: a bounded recovery claim that names the recovered run
+and lease, finishes or validates the recorded outcome, accepts success or records
+the blockage, and releases. Repeated recovery claims cost no attempts, and a crash
+during recovery recovers again without execution. A started transition has already
+passed validation, so recovery finishes its recorded changes even if the PR head or
+issue link changed since; provenance keeps the originally validated SHA, so an
+independent role blocks on a newer head until a new implementation outcome exists.
+An unstarted transition is validated in full, and a durably rejected outcome is
+never applied later. Replay treats removing an absent label or adding a present one
+as a no-op; a label in both lists ends up added.
 
-Transitions create no cross-item reservations. Assignment removals happen before
-handoff or assignment additions. A crash between these steps leaves the consumed
-triggers absent and the next trigger unpublished, so those items stay idle unless
-another trigger is already present. A crash during removals can leave some triggers
-present; existing labels and ordinary live leases still govern pickup. A destination
-trigger may be picked up before acceptance and source release; independent roles
-still require successfully released provenance for their current candidate.
-
-Outcome-only recovery replays the recorded removals, then additions, and accepts the
-outcome without rerunning the role. Removing an absent label or adding a present
-one is a no-op. If an assignment label occurs in both lists, it is removed before
-being added, so `add` determines its final state on completion and replay.
-
-An operator reset (`ub-agent retry --number N --agent NAME --reason TEXT`) supersedes
-the source role's unfinished lease for recovery after it expires. It does not
-complete or undo the transition, and the old outcome remains unaccepted. Inspect
-both items and restore the desired trigger labels to resume the workflow; no
-reservation survives the reset. Restoring a trigger alone does not reset attempts
-or clear a blocked result. Do not reset while expecting automatic completion of
-the old transition; let outcome-only recovery finish instead.
-
-A PR head or issue-link edit after start does not block completion. Provenance still
-names the originally validated SHA: an independent role requiring that provenance
-blocks on a newer head, and a person can set the revision label to obtain a new
-implementation outcome. Label writes, comments and claim elections remain
-cooperative GitHub operations, not atomic transactions.
-
-Do not execute the previous command again. This also repairs a crash between
-acceptance and release. The old expired record is not falsely marked as observed
-terminated; the recovery claim names the recovered run/lease before any finalization,
-so a crash during recovery also recovers the outcome without execution. A failed
-acceptance check records a blockage, but unavailable GitHub reads leave the lease
-unreleased and outcome pending for validation after expiry. This applies during
-normal completion and recovery; repeated recovery claims consume no execution
-attempts. Expiry itself is not positive evidence that an old process on another
+Transitions create no cross-item reservations: removals from the assignment precede
+additions to the destination, so a crash between them leaves both items idle until
+a trigger is present, and ordinary live leases still govern pickup. An operator
+reset (`ub-agent retry`) supersedes the source role's unfinished lease once it
+expires, without completing or undoing the transition; inspect both items and
+restore the desired triggers. Restoring a trigger alone resets neither attempts nor
+a blocked result. Expiry is not positive evidence that an old process on another
 host has died.
 
 ## Runtime independence and candidate provenance

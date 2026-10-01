@@ -98,7 +98,6 @@ stop-labels: []
         for configured in agents:
             instructions = configured.instructions.read_text()
             self.assertIn('--outcome', instructions)
-            self.assertIn('Do not change workflow labels', instructions)
             self.assertNotIn('--status success', instructions)
         self.assertIn("queue:\n  milestones: ignore\n", original)
         self.assertEqual(load_config(self.path).queue, Queue())

@@ -121,9 +121,10 @@ adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
 
 An agent reports `ub-agent report --outcome NAME --summary TEXT [--handoff PR]`.
-This reports success; an unknown name is rejected. The prompt lists the declarations and directs the agent to leave workflow
-labels alone. Direct commands follow the same contract. The running lease snapshots
-the declarations; candidate configuration edits do not change the current run.
+This reports success; an unknown name is rejected. The prompt lists the declarations
+and directs the agent to leave workflow labels alone. Direct commands follow the same
+contract. The running lease snapshots the declarations; candidate configuration edits
+do not change the current run.
 
 After ownership, candidate SHA and issue-link validation, the runner removes all
 of this agent's trigger labels and any `remove` labels from the assignment. It adds
@@ -140,16 +141,10 @@ unpausing, a person sets the desired workflow labels or uses `ub-agent retry` to
 rerun the role. A stop label added after transition start stays in place while the
 recorded transition completes, parking the item for subsequent pickup.
 
-The outcome stores its name, resolved changes and start marker. Recovery completes
-only missing changes from that record, even after configuration changes, without
-rerunning the role or spending an attempt. Started transitions have already passed
-success validation, so recovery does not recheck the candidate SHA, issue link,
-trigger or pause state. It finishes the recorded changes even if the PR head moves,
-preserving provenance for the original SHA. Assignment removals precede destination
-additions; incomplete transitions create no cross-item reservations. A crash between
-those steps leaves items idle when no other trigger is present. An operator reset
-supersedes the old recovery; inspect both items and restore the desired triggers to
-resume. See [recovery](coordination.md#recovery) for the operator path.
+The outcome records its name, resolved changes and a start marker, so an
+interrupted transition is finished from that record by
+[recovery](coordination.md#recovery) without rerunning the role or spending an
+attempt.
 
 ## Limits
 

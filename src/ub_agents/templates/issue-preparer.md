@@ -19,5 +19,4 @@ If a human decision is required, explain it on the issue and report
 
 When requirements can be implemented, report
 `ub-agent report --outcome prepared --summary "Issue prepared"`.
-The runner applies the configured transition. Do not change workflow labels.
 Customize these outcomes and rules with the project's owners.
