@@ -164,9 +164,7 @@ issue trigger to remain. No runner label transition is applied.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `lease-minutes` | 60 | How long a claim lasts without renewal. |
-| `renewal-minutes` | 5 | How often the launcher renews a running claim; less than half the lease. |
-| `agent-timeout-minutes` | 180 | Deadline for one run. |
+| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion; the launcher never renews it. |
 | `max-attempts` | 5 | Runs per item and agent before the item stops. |
 | `retry-backoff-seconds` | 60 | First retry delay; it doubles with each attempt. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |

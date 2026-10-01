@@ -101,7 +101,6 @@ class Agent:
     cwd: Path
     worktree: bool
     lease_seconds: float
-    renewal_seconds: float
     timeout_seconds: float
     max_attempts: int
     backoff_seconds: float
@@ -140,11 +139,11 @@ class Config:
     queue: Queue = Queue()
 
 
-CLOCKS = {"lease-minutes", "renewal-minutes", "agent-timeout-minutes",
-          "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
-DEFAULTS = {"lease-minutes": 60, "renewal-minutes": 5,
-            "agent-timeout-minutes": 180, "max-attempts": 5,
+CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
+DEFAULTS = {"agent-timeout-minutes": 180, "max-attempts": 5,
             "retry-backoff-seconds": 60, "max-backoff-seconds": 3600}
+# A claim is never renewed: its lease covers the run's timeout plus setup and completion.
+LEASE_GRACE_SECONDS = 15 * 60
 
 
 def load_config(path):
@@ -242,8 +241,6 @@ def load_config(path):
         for key, value in clocks.items():
             number(value, f"{name} {key}", integer=key == "max-attempts",
                    zero=key in {"retry-backoff-seconds", "max-backoff-seconds"})
-        if clocks["renewal-minutes"] * 2 >= clocks["lease-minutes"]:
-            raise AgentError(f"{name}: renewal interval must be less than half the lease")
         if clocks["max-backoff-seconds"] < clocks["retry-backoff-seconds"]:
             raise AgentError(f"{name}: max-backoff-seconds must cover retry-backoff-seconds")
         triggers = strings(item.get("trigger"), f"{name} trigger")
@@ -267,7 +264,7 @@ def load_config(path):
         agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind,
             project_path(root, item.get("cwd", "."), f"{name} cwd", directory=True), worktree,
-            clocks["lease-minutes"] * 60, clocks["renewal-minutes"] * 60,
+            clocks["agent-timeout-minutes"] * 60 + LEASE_GRACE_SECONDS,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
             clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes))
     for agent in agents:

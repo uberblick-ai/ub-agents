@@ -41,20 +41,18 @@ agents:
   investigate:
     command: [python3, task.py]
     trigger: investigate
-    lease-minutes: 90
-    renewal-minutes: 10
     agent-timeout-minutes: 240
 limits:
   max-attempts: 7
 ''')
         agent = result.agents[0]
-        self.assertEqual((agent.lease_seconds, agent.renewal_seconds, agent.timeout_seconds), (5400, 600, 14400))
+        self.assertEqual((agent.lease_seconds, agent.timeout_seconds), (14400 + 900, 14400))
         self.assertEqual(agent.max_attempts, 7)
 
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n"
-        for content in [base.replace("[true]", "[echo]") + "    renewal-minutes: 60\n",
-                        base.replace("[true]", "[echo]") + "    lease-minutes: .nan\n",
+        for content in [base.replace("[true]", "[echo]") + "    agent-timeout-minutes: .nan\n",
+                        base.replace("[true]", "[echo]") + "    lease-minutes: 90\n",
                         base.replace("[true]", "[echo]") + "    mystery: true\n",
                         base + "repository: other/project\n", base + "    instructions: /etc/passwd\n",
                         base + "    agent-timeout-minutes: false\n", base + "    max-attempts: 2.5\n",

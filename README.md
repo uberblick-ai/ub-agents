@@ -176,8 +176,8 @@ stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
 
 ## When things go wrong
 
-Each claim has a lease that the launcher renews while the agent runs. If a launcher
-dies, its claims expire and a launcher can recover the work. Timeouts, interruptions
+Each claim has a lease that outlasts the run's timeout. If a launcher dies, its
+claims expire and a launcher can recover the work. Timeouts, interruptions
 and failures the agent reports as `retry` are retried with backoff, up to
 `max-attempts`. Other failures stop the item until a person runs `ub-agent retry`. A
 success counts only after the launcher has checked the result on GitHub; an exit code

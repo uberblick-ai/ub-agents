@@ -14,7 +14,7 @@ def agent(root, **overrides):
     defaults = dict(name="worker", triggers=("ready", "needs-changes"), instructions=None,
                     runtimes=(), command=(sys.executable, "-c", "pass"), runtime_args=(),
                     different_from=None, kind="either", cwd=Path(root), worktree=False,
-                    lease_seconds=60, renewal_seconds=10, timeout_seconds=10,
+                    lease_seconds=60, timeout_seconds=10,
                     max_attempts=3, backoff_seconds=0, max_backoff_seconds=0)
     return Agent(**(defaults | overrides))
 

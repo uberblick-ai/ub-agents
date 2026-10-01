@@ -43,26 +43,6 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual(sum(result is not None for result in results), 1)
         self.assertEqual([r["state"] for r in self.co.history(1)], ["claiming", "withdrawn"])
 
-    def test_renew_same_record_and_never_resurrect_expired_ownership(self):
-        lease = self.start()
-        self.now += 10
-        self.co.renew(lease, 60)
-        self.assertEqual(len(self.github.store[1]), 1)
-        self.assertEqual(lease["expires"], iso(self.now + 60))
-        self.now += 61
-        writes = list(self.github.writes)
-        with self.assertRaises(LostOwnership):
-            self.co.renew(lease, 60)
-        self.assertEqual(self.github.writes, writes)
-
-    def test_renewal_read_failure_is_ownership_loss_and_no_write(self):
-        lease = self.start()
-        self.github.unreadable = True
-        writes = list(self.github.writes)
-        with self.assertRaises(LostOwnership):
-            self.co.renew(lease, 60)
-        self.assertEqual(self.github.writes, writes)
-
     def test_head_or_trigger_change_before_claim_costs_no_attempt(self):
         plan = self.plan(self.github.item(2))
         self.github.change(2, head="b" * 40)
@@ -180,9 +160,6 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual(self.plan().state, "owned")
         self.assertIsNone(self.co.outcome(lease))
         self.assertEqual(self.github.item(1).labels, frozenset({"ready"}))
-        self.now += 10
-        self.co.renew(lease, 60)
-        self.assertEqual(self.plan().state, "owned")
 
     def test_draft_pr_labels_still_govern_pr_kind_pickup(self):
         self.github.change(2, draft=True)

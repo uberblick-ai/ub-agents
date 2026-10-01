@@ -239,15 +239,6 @@ class Coordinator:
             raise LostOwnership("Assignment ownership was lost or expired")
         return contenders[0]
 
-    def renew(self, lease, duration):
-        self.assert_owned(lease)
-        # Reuse the same durable comment. No model or detached renewal helper.
-        try:
-            self.update(lease, expires=iso(self.clock() + duration))
-        except AgentError as exc:
-            raise LostOwnership(f"Lease renewal failed: {exc}") from exc
-        self.assert_owned(lease)
-
     def release(self, lease, result, summary, backoff=0):
         self.assert_owned(lease)
         reported = self.outcome(lease)

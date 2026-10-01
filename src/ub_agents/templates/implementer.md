@@ -26,5 +26,5 @@ UB_AGENT_BRANCH; for a continued draft it is the branch `gh pr view` reports.
 Then run `ub-agent report --outcome handed-off --summary "Checks passed; candidate
 ready for review" --handoff PR_NUMBER`. Report retry for an identified transient
 failure; report blocked and explain unresolved human decisions. The runner applies
-the configured transition. Do not change workflow labels. The launcher owns claim
-renewal. The framework supplies no checks, acceptance rules, or permission grants.
+the configured transition. Do not change workflow labels. The
+framework supplies no checks, acceptance rules, or permission grants.

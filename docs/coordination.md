@@ -108,28 +108,26 @@ loop; they never become an empty queue.
 
 | YAML setting | Default | Meaning |
 |---|---:|---|
-| `lease-minutes` | 60 | Ownership validity after successful renewal |
-| `renewal-minutes` | 5 | Launcher renewal cadence while executing |
-| `agent-timeout-minutes` | 180 | Runtime process execution deadline |
+| `agent-timeout-minutes` | 180 | Runtime process execution deadline; the lease lasts this plus fifteen minutes |
 | `retry-backoff-seconds` | 60 | Initial retry delay after confirmed termination |
 | `max-backoff-seconds` | 3600 | Cap on exponential retry delay |
 | `max-attempts` | 5 | Durable starts allowed per item/agent |
 
-Every setting can be overridden on an agent. Renewal must be less than half the
-lease. Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
+Every setting can be overridden on an agent. Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
 scan may take longer overall. Git operations are bounded to 120 seconds.
 Worktree preparation precedes the runtime execution deadline; ownership is checked
 again before execution. Default clocks leave ample margin for those reads. Very
 short test leases are unsuitable for real network execution.
 
-## Claim election and renewal
+## Claim election
 
 Read current labels/head and all coordination comments before creating a claim.
 Create a separate tentative lease comment for each contender, then reread. The
 lowest GitHub comment ID among unexpired live leases wins. A loser edits only its
 own tentative comment to withdraw and never starts a runtime. The winner marks its
-record running before execution. Renew **that same comment**, never a timeline of
-heartbeat comments. The launcher owns renewal; the model does not.
+record running before execution. The lease is never renewed: it lasts the run's
+timeout plus a fixed grace for setup and completion, so a dead launcher's claim
+expires on its own.
 
 Every lease names the actor, agent, run, configured CLI/provider/model/effort,
 expiry, attempt, input candidate SHA, and branch when known. The claim is tied to
@@ -142,11 +140,10 @@ writes are not compare-and-swap. It does **not** establish exactly-once executio
 strict consistency, instantaneous loss detection, or write fencing. Other launchers
 and runtimes must obey the contract. Clocks must be reasonably synchronized.
 
-Renewal first verifies ownership and then updates/rechecks it. Expired leases are
-never resurrected. A failed ownership read or renewal stops the supervised process
-group; the launcher does not report, accept, renew, or release after losing ownership.
-Between observations, an agent with GitHub credentials can still write: comments
-cannot prevent this. Loss is detected at the renewal cadence or local lease expiry.
+Expired leases are never resurrected. Ownership is reread before every durable
+write; a failed ownership read stops the run, and the launcher does not report,
+accept, or release after losing ownership. Between observations, an agent with
+GitHub credentials can still write: comments cannot prevent this.
 
 ## Draft checkpoints
 

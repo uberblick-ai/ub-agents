@@ -3,7 +3,6 @@
 import json
 import os
 import threading
-import time
 from dataclasses import replace
 
 from .coordination import Coordinator, Plan
@@ -163,17 +162,6 @@ class Loop:
                     record_uncertainty(exc)
                 raise
 
-        next_renewal = time.monotonic() + plan.agent.renewal_seconds
-
-        def heartbeat():
-            nonlocal next_renewal
-            if timestamp() >= seconds(lease["expires"]):
-                raise LostOwnership("Local lease deadline expired")
-            if time.monotonic() >= next_renewal:
-                self.coordinator.renew(lease, plan.agent.lease_seconds)
-                next_renewal = time.monotonic() + plan.agent.renewal_seconds
-                diagnostic("renewed", expires=lease["expires"])
-
         interrupted = False
         result, summary = "retry", "Assignment ended without a validated outcome"
         outcome = None
@@ -226,15 +214,13 @@ class Loop:
                       "Read shared repository guidance and the original issue requirements, acceptance "
                       "criteria, current code/diff, and candidate-specific checks on GitHub. "
                       "Use a fresh session; do not consume implementation reasoning transcripts. "
-                      "Do not renew claims or start detached heartbeat helpers. The launcher owns renewal. "
                       "Apply only project-authorized handoffs and permissions. "
                       f"{reporting}"
                       "Issue-to-PR handoffs must link the issue in the PR body. "
                       "For candidate acceptance, results and checks must name the assigned SHA.\n")
             diagnostic("started", cwd=str(cwd))
             code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
-                             plan.agent.timeout_seconds, heartbeat, self.stop_event,
-                             prompt if plan.runtime else None)
+                             plan.agent.timeout_seconds, self.stop_event, prompt if plan.runtime else None)
             # No acceptance or release until all attributable execution has ended.
             workspace.cleanup()
             self.coordinator.assert_owned(lease)
@@ -267,7 +253,7 @@ class Loop:
         except LostOwnership as exc:
             diagnostic("ownership-lost", error=str(exc))
             cleanup_workspace(record=False)
-            # Do not renew, report, release, or accept after losing ownership.
+            # Do not report, release, or accept after losing ownership.
             raise
         except KeyboardInterrupt:
             if outcome and outcome.get("transition", {}).get("started"):

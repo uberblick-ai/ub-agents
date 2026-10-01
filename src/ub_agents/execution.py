@@ -186,7 +186,7 @@ def _stop_group(process, grace):
     raise CleanupError(f"Process group {process.pid} survived termination; preserve artifacts")
 
 
-def supervise(command, cwd, env, run_dir, timeout, heartbeat, stop_event, prompt=None):
+def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None):
     if os.name != "posix":
         raise AgentError("Process supervision requires Linux or macOS")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -207,7 +207,6 @@ def supervise(command, cwd, env, run_dir, timeout, heartbeat, stop_event, prompt
                     raise KeyboardInterrupt
                 if time.monotonic() >= deadline:
                     raise AgentError(f"Execution timed out after {timeout:g} seconds")
-                heartbeat()
                 stop_event.wait(min(0.2, max(0, deadline - time.monotonic())))
             return process.returncode
         finally:

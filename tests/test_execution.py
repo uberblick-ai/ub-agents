@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Runtime
-from ub_agents.errors import AgentError, CleanupError, LostOwnership
+from ub_agents.errors import AgentError, CleanupError
 from ub_agents.execution import Workspace, command_for, git, group_members, supervise
 from tests.support import agent, config, issue, pr, FakeGitHub
 
@@ -21,9 +21,9 @@ class ExecutionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_process(self, script, timeout=3, heartbeat=lambda: None, stop=None):
+    def run_process(self, script, timeout=3, stop=None):
         return supervise([sys.executable, "-c", script], self.root, os.environ.copy(),
-                         self.root / "run", timeout, heartbeat, stop or threading.Event())
+                         self.root / "run", timeout, stop or threading.Event())
 
     def test_thin_adapters_keep_argv_model_effort_and_explicit_permissions(self):
         configured = agent(self.root, command=(), runtime_args=("--sandbox", "read-only"))
@@ -40,7 +40,7 @@ class ExecutionTests(unittest.TestCase):
         script = "import os,sys; print(os.getcwd()); print(os.environ['TEST_UB_CONTEXT']); print(sys.stdin.read())"
         env = os.environ.copy() | {"TEST_UB_CONTEXT": "context"}
         result = supervise([sys.executable, "-c", script], self.root, env, self.root / "run", 3,
-                           lambda: None, threading.Event(), "project instructions")
+                           threading.Event(), "project instructions")
         self.assertEqual(result, 0)
         log = (self.root / "run" / "process.log").read_text()
         self.assertIn("project instructions", log)
@@ -55,12 +55,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(group_members(pid), [])
         self.assertLess(time.monotonic() - start, 6)
 
-    def test_lost_ownership_and_interruption_end_the_process(self):
-        def lost():
-            raise LostOwnership("lease replaced")
-        with self.assertRaises(LostOwnership):
-            self.run_process("import time; time.sleep(30)", heartbeat=lost)
-        self.assertEqual(group_members(int((self.root / "run" / "pid").read_text())), [])
+    def test_interruption_ends_the_process(self):
         stop = threading.Event()
         stop.set()
         with self.assertRaises(KeyboardInterrupt):
