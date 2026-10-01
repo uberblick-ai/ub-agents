@@ -1,200 +1,114 @@
 # ub-agents
 
-> Project status: this README describes the target design. The CLI is not implemented yet; commands, configuration syntax, and the workflow API are proposed interfaces.
+ub-agents is a naive, opinionated framework for running agents in engineering loops. It uses GitHub as the source of truth and lets each project define the agents, triggers, and workflow steps it needs, with basic recovery and retry mechanisms.
 
-Run project-defined agent workflows. Keep the work on GitHub.
+Install it on a machine, configure your project, and launch it. ub-agents watches GitHub state and automatically runs the appropriate agent when its trigger matches.
 
-ub-agents is a standalone, MIT-licensed Python tool with an `ub-agent` command. It runs the agents and commands your project configures, handles their process lifecycle, and makes execution easy to follow.
+> This README describes the target design. Implementation is still ahead; commands and configuration below are proposed interfaces.
 
-Your project decides which agents exist, what they do, and what happens next.
+## Get going
 
-```text
-Work item → project-defined workflow → configured agents or commands → recorded outcome
-```
-
-A workflow might use one Codex agent, several agents from the same provider, a Grok-based agent CLI, a mix of providers, or ordinary commands. Implementation and review are optional project roles. There is no required provider pairing or development lifecycle.
-
-## Install
+1. Install ub-agents on a machine where your agents will run, such as a remote Mac or Linux host.
+2. Configure the available agents, their runtimes, and their GitHub triggers in a YAML file.
+3. Launch the loop. Agents pick up work, record their outcomes on GitHub, and move it to the next configured step.
 
 ```sh
 brew install uberblick-ai/tap/ub-agents
+
+cd your-project
+ub-agent init
+ub-agent launch
 ```
 
-Or:
+`ub-agent init` writes a starter configuration and role instructions for you to customize. Install and authenticate `gh` and the agent CLIs you want to use on the same machine.
 
-```sh
-pipx install ub-agents
+The loop runs in the foreground. Use your normal terminal session manager to keep it running on a remote host. Ctrl-C stops the loop and its active agents.
+
+## Configure the agents
+
+Which workflow steps exist and which LLM runs each step are project configuration. ub-agents comes with a starter workflow for preparing issues, implementing changes, reviewing PRs, and integrating accepted work. You are encouraged to change it.
+
+For example, `ub-agent.yaml` might contain:
+
+```yaml
+repository: your-org/your-project
+
+agents:
+  issue-preparer:
+    runtime: "claude:opus-5.5:high"
+    trigger: needs-preparation
+    instructions: .agents/issue-preparer.md
+
+  implementer:
+    runtime: ["claude:opus-5.5:high", "codex:sol-6.1:high"]
+    trigger: ready
+    instructions: .agents/implementer.md
+
+  reviewer:
+    runtime: ["claude:opus-5.5:high", "codex:sol-6.1:high"]
+    trigger: wants-review
+    disqualify-runtime-from: implementer
+    instructions: .agents/reviewer.md
+
+  integrator:
+    runtime: "claude:opus-5.5:high"
+    trigger: wants-to-be-merged
+    instructions: .agents/integrator.md
+
+limits:
+  max-attempts: 5
+  agent-timeout-minutes: 30
 ```
 
-You need Python 3.11+, Git, and the GitHub CLI. Install and authenticate whichever agent tools your project uses through their normal setup. ub-agents reuses those tools; it does not manage provider accounts.
+A trigger names a GitHub label on an issue or PR. A runtime names the agent CLI, model, and effort setting. The runtime identifiers above are illustrative; use identifiers supported by your installed tools.
 
-## Run a workflow
+A runtime list declares the alternatives available for that step; it does not request a separate run on every model. In this example, `disqualify-runtime-from` excludes the runtime recorded as the implementer of the candidate, so review uses another configured runtime. If none is eligible, the loop reports the blockage rather than ignoring the restriction. The implementation author also cannot act as its own independent reviewer.
 
-From a configured project:
+The instruction files explain what each agent should do, what constitutes a valid outcome, and which GitHub state to leave behind. The starter instructions establish those conventions; your project can replace them.
 
-```sh
-ub-agent run delivery --issue 123
-```
+You can use only Codex, configure another agent CLI such as a Grok-based tool, mix providers, or remove review altogether. The framework does not require these four roles or this sequence.
 
-Or target an existing pull request:
-
-```sh
-ub-agent run delivery --pr 456
-```
-
-`delivery` is a name defined by this project. It could instead be `investigate`, `prepare`, `audit`, or something else.
-
-The command runs in the foreground. You can watch its progress and stop it with Ctrl-C.
+## The loop
 
 ```text
-Issue #123 · delivery
-Step: build · agent: builder · started
-Step: build · finished · PR #456
-Step: checks · command · passed · 8ab31f2
-Step: assess · agent: assessor · revision requested
-Step: build · agent: builder · started
-Step: checks · command · passed · d490c87
-Step: assess · agent: assessor · accepted
-Workflow · complete · PR #456
+Observe GitHub
+    ↓
+Match a configured trigger
+    ↓
+Claim the work and select an eligible runtime
+    ↓
+Run the agent with the work item and its instructions
+    ↓
+Record the outcome on GitHub
+    ↓
+Observe GitHub again
 ```
 
-This output illustrates one project's workflow. A single-agent investigation could finish after recording its findings on the issue. Completion may mean a reviewed PR awaiting a human, a merged change when explicitly permitted, or another project-defined outcome.
+The orchestration is deliberately mechanical. Matching labels, selecting eligible runtimes, launching processes, and enforcing limits are framework responsibilities. Understanding the task and deciding whether it meets the project's requirements are agent responsibilities, guided by project instructions.
 
-## How it works
+In the starter workflow, preparation leaves an issue `ready`. Implementation creates a PR marked `wants-review`. Review either requests a revision or leaves it `wants-to-be-merged`. Integration runs the project's final checks and completes the work according to its merge policy.
 
-The system has three parts:
+Those labels and transitions are conventions of the starter workflow. They are not built-in role names or a mandatory development process. A different project might have just one agent that investigates labelled issues and posts findings.
 
-- **ub-agents** runs processes, resolves configuration, provides execution context, manages optional worktrees, enforces deadlines, and reports results.
-- **Your workflow** selects work and defines ordering, transitions, retries, acceptance, and completion.
-- **Your agent instructions** describe how each configured agent performs its assignment.
+## Recovery and retries
 
-The workflow reads GitHub, asks ub-agents to execute an agent or command, and reads GitHub again. Decisions use explicit results and durable records; the framework does not interpret reviewer prose or decide whether code is good.
-
-A successful process exit means execution completed. It does not automatically mean the work item is complete.
-
-## Configure your project
-
-Keep agent definitions and workflow policy with the project, or supply them from an explicit external configuration directory:
-
-```text
-.agents/
-├── ub-agent.toml
-├── delivery.py
-└── roles/
-    ├── build.md
-    └── assess.md
-```
-
-For example, this project configures two roles using the same runtime:
-
-```toml
-[workflows.delivery]
-file = ".agents/delivery.py"
-max_attempts = 5
-timeout_minutes = 60
-
-[agents.builder]
-runtime = "codex"
-instructions = ".agents/roles/build.md"
-isolation = "worktree"
-timeout_minutes = 30
-
-[agents.assessor]
-runtime = "codex"
-instructions = ".agents/roles/assess.md"
-isolation = "worktree"
-timeout_minutes = 20
-```
-
-The names, runtime choices, instructions, and limits are project configuration. Defining an agent does not add it to a workflow automatically.
-
-Workflows are small Python files using the execution API. They can read GitHub through `gh`, invoke configured agents or argv commands, and branch on explicit results. There is no separate workflow language.
-
-Built-in adapters handle Claude Code and Codex. Other CLIs, including a project's Grok-based tool, can use a configured argv command with instructions supplied through stdin. Authentication and permissions stay with the selected tool and project.
-
-Each session pins its originating project, selected instructions, and execution directory. Later configuration changes do not redirect an active session. Configuration remains distinct from the durable work state on GitHub.
-
-## GitHub is the source of truth
-
-Issues describe work. Branches and commits carry implementations. Pull requests, comments, reviews, and checks carry outcomes and handoffs.
-
-The workflow defines the records it needs. Agents communicate through those records rather than relying on private transcripts passed between sessions.
-
-ub-agents keeps local execution logs for diagnosis. Those logs are not a second workflow database. GitHub should contain enough information for a fresh session to continue the work.
-
-## Recover an interrupted run
-
-Run the same command again:
+Claims and outcomes live on GitHub so a restart can reconstruct the work. Start the loop again with:
 
 ```sh
-ub-agent run delivery --issue 123
+ub-agent launch
 ```
 
-The workflow reads current GitHub state and starts fresh sessions for remaining work. It does not replay an old conversation or blindly repeat the last process.
+Active claims prevent duplicate pickup. Interrupted assignments become eligible for recovery under the configured claim rules. Recovery starts a fresh session from the issue, PR, and recorded handoffs.
 
-Recovery rules belong to the project. A project that permits multiple workers must define claiming, liveness, and takeover rules. The framework does not promise exactly-once execution across machines.
+Failures are retried within configured limits. Authentication failures, runtime refusals, and exhausted attempts stop the affected work and report what needs attention. An unreadable GitHub response is a failure, not an empty queue. Attempt counts survive restarts through durable GitHub records.
 
-## Optional implementation and review
+Each agent has a deadline. Code-changing sessions can use private worktrees, and the launcher cleans up processes it owns when they finish or are interrupted. Runtime permissions remain explicitly configured by the operator.
 
-One project may configure:
+## Standalone
 
-```text
-Issue → builder → PR → checks → assessor → revision or acceptance
-```
+ub-agents is a separate Python project exposing the `ub-agent` command. It has no dependency on Uberblick or `ub launch`. Uberblick is simply one project that can configure and use it.
 
-Another may configure:
-
-```text
-Issue → investigator → findings recorded → complete
-```
-
-Both use the same executable. Neither flow is built into the framework.
-
-When a project requires independent review, its workflow starts a fresh reviewer session with requirements, acceptance criteria, the exact candidate commit, code, diff, and relevant evidence. The implementation author's reasoning transcript is not review input.
-
-The review names the commit it applies to. The project decides which checks and reviews must repeat when that commit changes, who can disposition findings, and who may merge. A context reset does not make an author an independent reviewer.
-
-## Isolation and permissions
-
-An agent can run in a private Git worktree, while an ordinary command may run in the project's existing directory. Isolation is an execution choice, not an assumption attached to a role name.
-
-A worktree isolates files. The runtime's sandbox and permissions determine what the process can access. Project and operator settings control those permissions; ub-agents does not silently expand access or copy credentials.
-
-Every process has a deadline. On interruption or timeout, ub-agents stops the processes it owns. Cleanup never treats unrelated processes in a shared project directory as its own. If cleanup fails, it reports the failure and preserves the affected workspace for inspection.
-
-## Run existing automation
-
-Workflows can execute tests, builds, scripts, and project-owned dispatchers directly as argv commands.
-
-If a command already coordinates its own agents, ub-agents runs that command directly. This lets you adopt the tool around existing automation without replacing all of it.
-
-## Watch for work
-
-For a workflow that supports queue selection:
-
-```sh
-ub-agent watch delivery
-```
-
-The foreground loop runs one assignment at a time and waits when the project workflow reports no eligible work. Ctrl-C stops the loop and its active execution.
-
-An optional cheap, read-only probe can avoid starting an agent when there is clearly no work. Probes should be over-inclusive; the workflow makes the actual eligibility decision. Failed GitHub reads are reported as failures, not empty queues.
-
-## Limits and failures
-
-Runs stop on completion, configured limits, or a condition requiring operator action.
-
-Process failures, timeouts, missing outcomes, authentication failures, and runtime refusals are reported separately. The workflow decides what can be retried. Disagreement does not create an unlimited loop.
-
-If a workflow-wide attempt limit must survive restarts, the project records its authoritative count on GitHub. Restarting the CLI must not reset that limit silently.
-
-## Standalone by design
-
-ub-agents lives in its own repository and package. It needs no Uberblick installation, source checkout, workspace service, or `ub launch` command.
-
-Uberblick is one consuming project. It can supply its own roles, workflow, and MCP context through configuration, just as other projects supply theirs.
-
-The framework has no built-in development roles, model intelligence, workflow database, web dashboard, required daemon, or distributed scheduler.
+GitHub holds durable coordination state. Local logs are for diagnosis. There is no separate workflow database, required daemon, or web dashboard.
 
 ## License
 
