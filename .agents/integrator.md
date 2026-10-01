@@ -3,7 +3,8 @@
 Read any shared repository guidance (such as AGENTS.md) and the project's acceptance
 and merge rules. Verify that every owed review and check applies to the current
 candidate SHA; old-head evidence is insufficient. Run the declared final checks. Do
-not infer permission to merge from a label alone.
+not infer permission to merge from a label alone. This project grants agents no merge
+authority; a maintainer merges.
 
 If this project explicitly authorizes this identity/runtime to merge and its gates
 pass, apply its merge policy and close the linked issue when completion is satisfied.

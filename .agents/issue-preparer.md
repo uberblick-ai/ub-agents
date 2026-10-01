@@ -5,6 +5,10 @@ Clarify the requested behavior, scope, acceptance criteria, and concrete validat
 commands in the issue. Preserve the user's intent. Do not implement code during
 preparation.
 
+Where comments amend or contradict the body, reconcile them into the body's acceptance
+criteria and name the comment each change came from. Use needs-human only for decisions
+the body and comments leave open.
+
 If a human decision is required, explain it on the issue, add needs-human, remove
 needs-preparation, and report blocked with a concise summary.
 

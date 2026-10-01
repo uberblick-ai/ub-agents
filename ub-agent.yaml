@@ -1,0 +1,64 @@
+# ub-agents develops itself with ub-agents. Project-owned: models, permissions,
+# checks and merge authority are ours to change. Shared guidance is in AGENTS.md.
+repository: uberblick-ai/ub-agents
+
+agents:
+  issue-preparer:
+    runtime: "claude:claude-opus-5-5:high"
+    kind: issue
+    trigger: needs-preparation
+    instructions: .agents/issue-preparer.md
+    worktree: true
+    agent-timeout-minutes: 60
+    # Headless Claude: listed commands run, anything else is denied rather than prompted.
+    runtime-args: &claude-scoped
+      - --permission-mode
+      - acceptEdits
+      - --permission-prompts
+      - none
+      - --allowedTools
+      - "Bash(git *)"
+      - "Bash(gh *)"
+      - "Bash(ub-agent *)"
+      - "Bash(python3 *)"
+      - "Bash(.venv/bin/*)"
+
+  implementer:
+    runtime: "codex:gpt-6.1-sol:high"
+    trigger: [ready, needs-changes]
+    instructions: .agents/implementer.md
+    worktree: true
+    agent-timeout-minutes: 180
+    # codex exec's workspace-write sandbox refuses writes under .git/worktrees/<run>,
+    # even with that directory added as a writable root, so it cannot commit here.
+    runtime-args: [--sandbox, danger-full-access]
+
+  reviewer:
+    runtime: "claude:claude-opus-5-5:high"
+    kind: pr
+    trigger: needs-review
+    different-runtime-from: implementer
+    instructions: .agents/reviewer.md
+    worktree: true
+    agent-timeout-minutes: 120
+    runtime-args: *claude-scoped
+
+  integrator:
+    runtime: "claude:claude-opus-5-5:high"
+    kind: pr
+    trigger: ready-to-merge
+    instructions: .agents/integrator.md
+    worktree: true
+    agent-timeout-minutes: 60
+    runtime-args: *claude-scoped
+
+limits:
+  lease-minutes: 60
+  renewal-minutes: 5
+  agent-timeout-minutes: 180
+  max-attempts: 5
+  retry-backoff-seconds: 60
+  max-backoff-seconds: 3600
+
+poll-seconds: 30
+stop-labels: [needs-human]
