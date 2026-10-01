@@ -64,7 +64,7 @@ class Loop:
                     continue
                 if (agent in matched or pending or (record and record["state"] in {"claiming", "running"}
                                                     and seconds(record["expires"]) > now)):
-                    plan = self.coordinator.plan(item, agent, self.config.stop_labels, history)
+                    plan = self.coordinator.plan(item, agent, self.config.stop_labels, history, history_index)
                     plans.append(plan)
                 elif record and (record["state"] in {"claiming", "running"}
                                  or record.get("result") in {"retry", "blocked"}):

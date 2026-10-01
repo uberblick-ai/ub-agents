@@ -11,8 +11,10 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 - Trigger lists mean **any** matching label.
   A runtime list means alternatives in declared order: select the first eligible
   installed executable and execute it once.
-- One live lease excludes every other agent on the same issue/PR. This first
-  implementation is serial, including recovery. Different machines cooperate.
+- One live lease excludes every other agent on the same issue/PR, and on a PR that
+  shares an issue run's branch: while either side is live or its cleanup is
+  unconfirmed, the other waits. This first implementation is serial, including
+  recovery. Different machines cooperate.
 - Attempts are scoped to **item number + configured agent**. Every started run
   counts, including successful revisions; PR head/label changes do not reset the
   budget. Issue-to-PR handoff starts the PR's own budget while retaining source
@@ -124,7 +126,10 @@ context lists the branches recorded by the issue's earlier runs as
 an open draft PR, continue it on its branch, and never open a second
 implementation PR. At handoff the launcher rejects a success while another open PR
 sits on one of those branches, so a duplicate is blocked for inspection rather
-than accepted. Earlier branches are retained for human recovery.
+than accepted. While a run owns such a PR the issue waits, and while an issue run is
+live the PR waits, so one agent at a time touches the branch; the lowest live
+comment id wins a simultaneous claim. Earlier branches are retained for human
+recovery.
 
 ## Explicit outcomes
 

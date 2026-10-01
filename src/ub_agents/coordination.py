@@ -57,7 +57,7 @@ class Coordinator:
                 invalid.add(number)
         return sorted(history, key=lambda record: record["id"]), invalid
 
-    def plan(self, item, agent, stop_labels, history=None):
+    def plan(self, item, agent, stop_labels, history=None, index=None):
         history = self.history(item.number) if history is None else history
         now = self.clock()
         previous = attempts(history, agent.name, now)
@@ -72,6 +72,12 @@ class Coordinator:
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
         elif latest and latest[-1].get("cleanup") == "unconfirmed":
             state, reason = "blocked", "Previous cleanup was unconfirmed; establish termination before an operator reset"
+        elif (owner := self.shared_branch_owner(item, agent, history, index)) is not None:
+            if owner.get("cleanup") == "unconfirmed":
+                state, reason = "blocked", (f"Cleanup of #{owner['assignment']}, which shares this item's branch, "
+                                            "was unconfirmed; establish termination before an operator reset")
+            else:
+                state, reason = "owned", f"A live run on #{owner['assignment']} owns this item's branch"
         elif item.labels.intersection(stop_labels):
             state, reason = "parked", "Configured stop label is present"
         elif finished and finished[-1].get("result") == "blocked":
@@ -146,6 +152,31 @@ class Coordinator:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
         return matches[0] if matches else None
 
+    def shared_branch_owner(self, item, agent, history, index=None):
+        """A live lease, or an unconfirmed cleanup, on another item that shares this item's branch.
+
+        An issue's earlier run branches may carry an open draft PR that a PR-kind run can
+        own, and a PR's branch may belong to an issue whose run is continuing it. One agent
+        at a time touches a branch, so either side waits for the other."""
+        if item.kind == "issue":
+            branches = sorted({r["branch"] for r in history if r["kind"] == "lease"
+                               and r["agent"] == agent.name and r.get("branch")})
+            related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
+        else:
+            index = self.repository_history()[0] if index is None else index
+            related = sorted({r["assignment"] for r in index if r["kind"] == "lease"
+                              and r["assignment_sha"] is None and r.get("branch") == item.branch})
+        now = self.clock()
+        for number in related:
+            other = self.history(number)
+            live = live_leases(other, now)
+            if live:
+                return live[0]
+            unconfirmed = [r for r in latest_leases(other).values() if r.get("cleanup") == "unconfirmed"]
+            if unconfirmed:
+                return unconfirmed[0]
+        return None
+
     def claim(self, plan, stop_labels=(), recovery=False):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
@@ -192,6 +223,12 @@ class Coordinator:
         if not contenders or contenders[0]["id"] != created["id"]:
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
             return None
+        if not recovery:
+            # Across an issue and a PR on its branch, the lowest live comment id wins too.
+            owner = self.shared_branch_owner(current, plan.agent, self.history(current.number))
+            if owner is not None and (owner.get("cleanup") == "unconfirmed" or owner["id"] < created["id"]):
+                self.update(created, state="withdrawn", summary="Lost the shared-branch election.")
+                return None
         if self.clock() >= seconds(created["expires"]):
             raise LostOwnership("Lease expired during claiming")
         return created

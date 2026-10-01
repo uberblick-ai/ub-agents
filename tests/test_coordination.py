@@ -162,6 +162,47 @@ class CoordinationTests(unittest.TestCase):
         self.assertIsNone(self.co.outcome(lease))
         self.assertEqual(self.github.item(1).labels, frozenset({"ready"}))
 
+    def test_issue_and_pr_on_a_shared_branch_exclude_each_other(self):
+        # An earlier issue run left draft PR #2 on feature/test, the pr() fixture's branch.
+        old = self.start()
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, draft=True)
+        revision = self.start(self.github.item(2))
+        plan = self.plan()
+        self.assertEqual((plan.state, plan.reason), ("owned", "A live run on #2 owns this item's branch"))
+        self.assertIsNone(self.co.claim(plan))
+        self.co.release(revision, "retry", "Interrupted")
+        self.co.update(revision, cleanup="unconfirmed")
+        self.assertEqual(self.plan().state, "blocked")
+        self.assertIn("Cleanup of #2", self.plan().reason)
+        self.co.update(revision, cleanup=None)
+        self.assertEqual(self.plan().state, "ready")
+        self.start()
+        pr_plan = self.plan(self.github.item(2))
+        self.assertEqual((pr_plan.state, pr_plan.reason), ("owned", "A live run on #1 owns this item's branch"))
+        self.assertIsNone(self.co.claim(pr_plan))
+
+    def test_shared_branch_claim_race_elects_one_owner(self):
+        old = self.start()
+        self.co.update(old, branch="feature/test")
+        self.co.release(old, "retry", "Interrupted")
+        self.github.change(2, draft=True)
+        issue_plan, pr_plan = self.plan(), self.plan(self.github.item(2))
+        self.github.claim_barrier = threading.Barrier(2)
+        barrier = threading.Barrier(2)
+        original = self.co.plan
+
+        def synchronized(*args, **kwargs):
+            plan = original(*args, **kwargs)
+            barrier.wait(timeout=5)  # Both reobserve before either publishes a claim.
+            return plan
+
+        with patch.object(self.co, "plan", side_effect=synchronized), ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(self.co.claim, [issue_plan, pr_plan]))
+        self.assertEqual(sum(r is not None for r in results), 1)
+        self.co.assert_owned(next(r for r in results if r))
+
     def test_draft_pr_labels_still_govern_pr_kind_pickup(self):
         self.github.change(2, draft=True)
         self.assertEqual(self.plan(self.github.item(2)).state, "ready")
