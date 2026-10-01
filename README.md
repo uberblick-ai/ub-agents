@@ -1,9 +1,8 @@
 # ub-agents
 
 ub-agents runs coding agents in an engineering loop driven by GitHub. Each project
-defines its own agents: which label starts each one, which agent CLI and model runs it,
-and what its instructions say. The launcher watches GitHub, claims matching work, runs
-the agent, and records the outcome back on GitHub.
+defines its workflow; the launcher watches GitHub, claims matching work, runs the
+configured agent, and records its outcome.
 
 > Early stage. The starter workflow runs end to end on this repository. Packaged
 > releases (Homebrew, PyPI) are planned in [#4](https://github.com/uberblick-ai/ub-agents/issues/4).
@@ -19,12 +18,12 @@ Observe GitHub → match a label → claim the item → run the agent → record
 - **GitHub is the state.** Claims, attempts and outcomes are comments on the issue or
   PR. A restarted launcher rebuilds everything from GitHub; there is no separate
   database or service.
-- **The launcher is mechanical; agents do the thinking.** The launcher matches labels,
-  picks a runtime, runs the agent in a private worktree, enforces deadlines and
-  retries, and checks the result. The agent, guided by your project's instructions,
-  does the work and moves the labels on.
+- **The project owns workflow policy.** You choose what labels mean and what should
+  happen after each role finishes. The launcher matches triggers, supervises runs,
+  retries and validates handoffs; today, the role follows your instructions to make
+  the label changes before reporting success.
 
-## Get started
+## Use it in your project
 
 You need macOS or Linux, Python 3.11+, `git`, an authenticated `gh`, and the agent CLIs
 you want to use, such as `codex` or `claude`.
@@ -40,6 +39,22 @@ ub-agent launch       # run the loop in the foreground; Ctrl-C stops it
 Before launching, create the workflow labels on GitHub, give each runtime the
 [permissions](docs/configuration.md#runtime-permissions) its job needs, and commit
 `ub-agent.yaml` and `.agents/`.
+
+Customize these parts:
+
+- In `ub-agent.yaml`, set each role's trigger labels, CLI and model, runtime
+  permissions, worktree choice, and any labels that should pause all work.
+- In `.agents/<role>.md` and shared guidance such as `AGENTS.md`, define each role's
+  task, project checks, successful handoff, label changes, and questions that need a
+  person. Humans own priority and human-only decisions.
+- In GitHub, create the labels and set branch protection or required reviews that
+  match your merge policy.
+
+A trigger selects work; it does not define the whole label lifecycle. Today, roles
+make project-approved label changes before reporting `success`, `retry` or `blocked`;
+the launcher validates and records the result but does not choose the next label.
+Review the [coordination contract](docs/coordination.md) and
+[configuration reference](docs/configuration.md) for recovery and permissions.
 
 | Command | What it does |
 |---|---|
@@ -111,7 +126,7 @@ lists every option.
 These are conventions, not built-ins. Rename them, drop review, or run a single agent
 that only investigates issues.
 
-## What goes in your repository
+Your project contains:
 
 ```text
 your-project/
@@ -124,9 +139,9 @@ your-project/
     └── integrator.md
 ```
 
-These files belong to your project: commit and change them like code. Credentials stay
-in each tool's own login, and ub-agent keeps logs and worktrees under `.ub-agent/`,
-which `init` adds to `.gitignore`.
+Commit these files with your project and review changes to them like code. Credentials
+stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
+`init` adds to `.gitignore`.
 
 ## When things go wrong
 
