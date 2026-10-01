@@ -173,6 +173,10 @@ class Coordinator:
         if current.head != plan.item.head or (not recovery and
                 (current.state != "open" or not current.labels.intersection(plan.agent.triggers))):
             return None
+        if not recovery and current.kind == "issue":
+            active_milestone = self.github.active_milestone()
+            if active_milestone is not None and current.milestone != active_milestone:
+                return None
         history = self.history(current.number)
         fresh = self.plan(current, plan.agent, stop_labels, history)
         if fresh.state != ("recover" if recovery else "ready") or (not recovery and fresh.runtime != plan.runtime):

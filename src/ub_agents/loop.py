@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from dataclasses import replace
 
 from .coordination import Coordinator, Plan
 from .errors import AgentError, CleanupError, LostOwnership, RecordError, ValidationError
@@ -25,6 +26,7 @@ class Loop:
     def plans(self):
         plans = []
         items = {item.number: item for item in self.github.observe()}
+        active_milestone = self.github.active_milestone()
         history_index, invalid = self.coordinator.repository_history()
         now = self.coordinator.clock()
         unfinished = {r["assignment"] for r in latest_leases(history_index).values()
@@ -33,7 +35,13 @@ class Loop:
             if number not in items:
                 item = self.github.item(number)
                 items[item.number] = item
-        for item in sorted(items.values(), key=lambda item: item.number):
+        # Reorder the issue slots only: each issue agent sees FIFO, while PRs
+        # retain their number order and agents on the same item retain YAML order.
+        ordered = sorted(items.values(), key=lambda item: item.number)
+        issues = iter(sorted((i for i in ordered if i.kind == "issue"),
+                             key=lambda i: (seconds(i.created_at), i.number)))
+        ordered = [next(issues) if i.kind == "issue" else i for i in ordered]
+        for item in ordered:
             matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
                        and a.kind in {"either", item.kind} and item.state == "open"]
             if not matched and item.number not in (unfinished | invalid):
@@ -55,7 +63,12 @@ class Loop:
                     continue
                 if (agent in matched or pending or (record and record["state"] in {"claiming", "running"}
                                                     and seconds(record["expires"]) > now)):
-                    plans.append(self.coordinator.plan(item, agent, self.config.stop_labels, history))
+                    plan = self.coordinator.plan(item, agent, self.config.stop_labels, history)
+                    if (plan.state == "ready" and item.kind == "issue"
+                            and active_milestone is not None and item.milestone != active_milestone):
+                        plan = replace(plan, state="parked", runtime=None,
+                                       reason=f"Waiting for active milestone #{active_milestone}")
+                    plans.append(plan)
                 elif record and (record["state"] in {"claiming", "running"}
                                  or record.get("result") in {"retry", "blocked"}):
                     if record.get("cleanup") == "unconfirmed":

@@ -23,12 +23,14 @@ def config(root, *agents):
     return Config(Path(root), "org/project", agents or (agent(root),), 1, ("needs-human",))
 
 
-def issue(number=1, labels=("ready",)):
-    return Item(number, "issue", "Requirements", "Acceptance criteria", frozenset(labels), "open", "operator")
+def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milestone=None):
+    return Item(number, "issue", "Requirements", "Acceptance criteria", frozenset(labels), "open",
+                "operator", created_at, milestone=milestone)
 
 
-def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1"):
-    return Item(number, "pr", "Candidate", body, frozenset(labels), "open", "operator", head, "feature/test")
+def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1", milestone=None):
+    return Item(number, "pr", "Candidate", body, frozenset(labels), "open", "operator",
+                "2026-01-01T00:00:00Z", head, "feature/test", milestone)
 
 
 class FakeGitHub:
@@ -37,6 +39,7 @@ class FakeGitHub:
 
     def __init__(self, *items):
         self.items = {item.number: item for item in items}
+        self.milestones = []
         self.store = {}
         self.next_id = 1
         self.lock = threading.Lock()
@@ -58,6 +61,13 @@ class FakeGitHub:
 
     def observe(self):
         return [item for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
+
+    def active_milestone(self):
+        from ub_agents.records import seconds
+        active = [(seconds(m["created_at"]), m["number"]) for m in self.milestones
+                  if m["state"] == "open" and any(i.state == "open" and i.milestone == m["number"]
+                                                 for i in self.items.values())]
+        return min(active)[1] if active else None
 
     def item(self, number, kind=None):
         return self.items[number]
