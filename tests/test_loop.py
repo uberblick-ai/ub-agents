@@ -113,6 +113,32 @@ class LoopTests(unittest.TestCase):
                 if draft:
                     self.assertIn("PR #2 is still a draft", verdict["summary"])
 
+    def test_handoff_continues_or_rejects_a_draft_on_an_earlier_run_branch(self):
+        for handoff, accepted in ((3, False), (2, True)):
+            with self.subTest(handoff=handoff):
+                github = FakeGitHub(issue(), pr(2, labels=(), draft=True), pr(3, labels=()))
+                github.change(3, branch="later/branch")
+                loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
+                old = loop.coordinator.claim(loop.plans()[0])
+                loop.coordinator.update(old, state="running", started=True, branch="feature/test")
+                loop.coordinator.release(old, "retry", "Interrupted")
+
+                def execute(command, cwd, env, *args, **kwargs):
+                    context = json.loads(Path(env["UB_AGENT_CONTEXT"]).read_text())
+                    self.assertEqual(context["earlier_branches"], ["feature/test"])
+                    github.change(2, draft=False)
+                    loop.coordinator.report(loop.coordinator.history(1)[-1], "success", "Handed off",
+                                            handoff=handoff, outcome="done")
+                    return 0
+
+                with patch("ub_agents.loop.supervise", side_effect=execute):
+                    self.assertTrue(loop.tick())
+                lease, outcome = loop.coordinator.history(1)[-2:]
+                self.assertEqual((lease["result"], outcome["accepted"]), ("success" if accepted else "blocked", accepted))
+                if not accepted:
+                    self.assertIn("#2", outcome["rejected"])
+                    self.assertEqual(github.item(1).labels, frozenset({"ready"}))
+
     def test_unreadable_github_is_not_an_empty_queue(self):
         self.github.unreadable = True
         with self.assertRaises(AgentError):

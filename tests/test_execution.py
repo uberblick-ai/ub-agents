@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Runtime
-from ub_agents.errors import AgentError, CleanupError
+from ub_agents.errors import AgentError, CleanupError, LostOwnership
 from ub_agents.execution import Workspace, command_for, git, group_members, supervise
 from tests.support import agent, config, issue, pr, FakeGitHub
 
@@ -51,6 +51,12 @@ class ExecutionTests(unittest.TestCase):
         pid = int((self.root / "run" / "pid").read_text())
         self.assertEqual(group_members(pid), [])
         self.assertLess(time.monotonic() - start, 6)
+
+    def test_wall_clock_lease_expiry_ends_the_process(self):
+        with self.assertRaisesRegex(LostOwnership, "lease deadline"):
+            supervise([sys.executable, "-c", "import time; time.sleep(30)"], self.root, os.environ.copy(),
+                      self.root / "run", 3, threading.Event(), expires=time.time() - 1)
+        self.assertEqual(group_members(int((self.root / "run" / "pid").read_text())), [])
 
     def test_interruption_ends_the_process(self):
         stop = threading.Event()

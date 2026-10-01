@@ -138,7 +138,7 @@ class Doctor:
                 login = github.actor()
                 if not isinstance(login, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login):
                     raise AgentError("no login")
-                self.add("github-auth", "ok", f"authenticated as {login}")
+                self.add("github-auth", "ok", f"authenticated as {login}; every launcher for this project must use this account")
             except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
                 self.add("github-auth", "fail", self.github_failure("authentication", exc), "gh auth login")
         else:

@@ -87,7 +87,9 @@ They never hold back completion or outcome recovery of already-started runs.
 
 ## Trusted comments
 
-Only the authenticated GitHub account's comments supply coordination authority.
+Only the authenticated GitHub account's comments supply coordination authority, so
+every launcher for a project must authenticate as the same account; launchers on
+different accounts would not see each other's claims and could run one item twice.
 Markers and records from other comment authors are ignored before parsing, and
 payload fields cannot grant trust: the actor is always the comment author.
 Agents using the operator's GitHub credentials can write trusted records
@@ -119,7 +121,8 @@ lowest GitHub comment ID among unexpired live leases wins. A loser edits only it
 own tentative comment to withdraw and never starts a runtime. The winner marks its
 record running before execution. The lease is never renewed: it lasts the run's
 timeout plus a fixed grace for setup and completion, so a dead launcher's claim
-expires on its own.
+expires on its own. The supervisor also stops a run whose lease has expired by
+wall clock, since monotonic timers pause while a machine sleeps.
 
 Every lease names the actor, agent, run, configured CLI/model/effort,
 expiry, attempt, input candidate SHA, and branch when known. The claim is tied to
@@ -154,11 +157,13 @@ removes the issue triggers and adds `needs-review` to that same PR. Drafts never
 receive `needs-review` or `ready-to-merge` from the starter workflow. Feedback after
 readiness follows the normal review and `needs-changes` path.
 
-A retried issue run starts in a fresh worktree on a new branch. The launcher does
-not track earlier drafts; the implementer instructions tell the agent to look for
-an open draft PR that links the issue, continue it on its branch, and never open a
-second implementation PR. Branches recorded on earlier leases are retained for
-human recovery.
+A retried issue run starts in a fresh worktree on a new branch. The assignment
+context lists the branches recorded by the issue's earlier runs as
+`earlier_branches`; the implementer instructions tell the agent to check each for
+an open draft PR, continue it on its branch, and never open a second
+implementation PR. At handoff the launcher rejects a success while another open PR
+sits on one of those branches, so a duplicate is blocked for inspection rather
+than accepted. Earlier branches are retained for human recovery.
 
 ## Explicit outcomes
 

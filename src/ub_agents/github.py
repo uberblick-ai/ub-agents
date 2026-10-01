@@ -259,6 +259,11 @@ class GitHub:
             raise AgentError("GitHub returned no default branch")
         return raw["default_branch"]
 
+    def prs_for_branch(self, branch):
+        owner = self.repository.split("/", 1)[0]
+        query = urlencode({"state": "open", "head": f"{owner}:{branch}", "per_page": 100})
+        return [parse_item(raw, "pr") for raw in self.request(f"{self.prefix}/pulls?{query}", paginate=True)]
+
     def add_labels(self, number, labels):
         self.request(f"{self.prefix}/issues/{number}/labels", "POST", {"labels": list(labels)}, array=True)
 

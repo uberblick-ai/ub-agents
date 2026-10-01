@@ -155,7 +155,7 @@ resume. See [recovery](coordination.md#recovery) for the operator path.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion; the launcher never renews it. |
+| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion; the launcher never renews it. A crashed launcher's claim is recoverable only after the lease expires, so projects with long runs may prefer shorter per-agent timeouts. |
 | `max-attempts` | 5 | Runs per item and agent before the item stops. |
 | `retry-backoff-seconds` | 60 | First retry delay; it doubles with each attempt. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
@@ -168,7 +168,9 @@ stdin:
 - `codex:MODEL:EFFORT` runs `codex exec --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --model MODEL --effort EFFORT`.
 
-`runtime-args` are appended.
+`runtime-args` are appended. They must not change the model or effort, or resume a
+session: `check` rejects those flags, because `different-runtime-from` trusts the
+recorded `cli:model:effort` and every run starts fresh.
 
 ### Runtime permissions
 
@@ -202,11 +204,13 @@ agents:
     command: [./scripts/investigate-issue]
     kind: issue
     trigger: investigate
+    outcomes:
+      investigated: {}
     agent-timeout-minutes: 20
 ```
 
-The command records its result with `ub-agent report`. It receives these environment
-variables, as do LLM runtimes:
+The command records its result with `ub-agent report --outcome investigated --summary
+TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 
 | Variable | Value |
 |---|---|

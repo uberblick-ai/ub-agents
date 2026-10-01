@@ -259,7 +259,7 @@ class DependencyTests(unittest.TestCase):
         self.add(issue(1), issue(31, ()))
         plan = self.plans()[1]
 
-        def execute(*args):
+        def execute(*args, **kwargs):
             self.github.dependencies[1] = [31]
             co = self.loop.coordinator
             lease = next(r for r in co.history(1) if r["kind"] == "lease")

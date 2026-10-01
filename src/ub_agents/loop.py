@@ -183,7 +183,8 @@ class Loop:
             context = {"repository": self.config.repository, "assignment": plan.item.number,
                        "kind": plan.item.kind, "title": plan.item.title, "body": plan.item.body,
                        "candidate_sha": plan.item.head, "run": lease["run"],
-                       "agent": plan.agent.name, "branch": lease.get("branch")}
+                       "agent": plan.agent.name, "branch": lease.get("branch"),
+                       "earlier_branches": self.earlier_branches(plan.item, plan.agent, lease["run"])}
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
             env = os.environ.copy()
@@ -196,7 +197,8 @@ class Loop:
             diagnostic("started", cwd=str(cwd))
             code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
                              plan.agent.timeout_seconds, self.stop_event,
-                             self.prompt_for(plan, lease, context) if plan.runtime else None)
+                             self.prompt_for(plan, lease, context) if plan.runtime else None,
+                             expires=seconds(lease["expires"]))
             # No acceptance or release until all attributable execution has ended.
             workspace.cleanup()
             self.coordinator.assert_owned(lease)
@@ -251,7 +253,18 @@ class Loop:
             raise KeyboardInterrupt
         return True
 
+    def earlier_branches(self, item, agent, run):
+        """Branches recorded by this issue's other runs of the agent; an open PR there is the draft to continue."""
+        if item.kind != "issue":
+            return []
+        return sorted({r["branch"] for r in self.coordinator.history(item.number) if r["kind"] == "lease"
+                       and r["agent"] == agent.name and r.get("branch") and r["run"] != run})
+
     def prompt_for(self, plan, lease, context):
+        earlier = context["earlier_branches"]
+        continuation = (f"Earlier runs of this issue recorded branches {json.dumps(earlier)}; check each with "
+                        "gh pr list --state open --head BRANCH and continue an open draft PR there instead "
+                        "of opening another. " if earlier else "")
         workflow_labels = set(self.config.stop_labels)
         for configured in self.config.agents:
             workflow_labels.update(configured.triggers)
@@ -270,6 +283,7 @@ class Loop:
                 "[--handoff PR_NUMBER]. Do not change workflow labels "
                 f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
                 "Use --status retry|blocked for failures; those change no labels. "
+                f"{continuation}"
                 "Issue-to-PR handoffs must link the issue in the PR body. "
                 "For candidate acceptance, results and checks must name the assigned SHA.\n")
 
@@ -311,6 +325,12 @@ class Loop:
         if outcome.get("handoff") and plan.item.kind == "issue":
             if not links_issue(destination, self.config.repository, plan.item.number):
                 raise ValidationError("Implementation PR body does not link its original issue")
+            # A cheap tripwire for the duplicate the instructions exist to prevent.
+            for branch in self.earlier_branches(plan.item, plan.agent, outcome["run"]):
+                others = [pr.number for pr in self.github.prs_for_branch(branch) if pr.number != destination.number]
+                if others:
+                    raise ValidationError(f"Another open PR #{others[0]} from an earlier run of this issue is on "
+                                          f"{branch}; continue or close it before handing off")
 
     def validate_report(self, outcome):
         if outcome.get("rejected"):

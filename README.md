@@ -31,7 +31,9 @@ Observe GitHub → match a label → claim the item → run the agent → record
 ## Use it in your project
 
 You need macOS or Linux, Python 3.11+, `git`, an authenticated `gh`, and the agent CLIs
-you want to use, such as `codex` or `claude`.
+you want to use, such as `codex` or `claude`. Every launcher for a project must
+authenticate `gh` as the same GitHub account: only that account's coordination
+comments count, so launchers on different accounts would not see each other's claims.
 
 ```sh
 pipx install .        # from a checkout of this repository

@@ -205,6 +205,13 @@ def load_config(path):
         if runtimes and instruction is None:
             raise AgentError(f"{name}: runtime execution requires instructions")
         runtime_args = argv(item.get("runtime-args", []), f"{name} runtime-args", empty=True)
+        # Provenance records cli:model:effort and independence checks trust it; sessions start fresh.
+        forbidden = {"--model", "-m", "--effort", "--resume", "-r", "resume", "--continue",
+                     "model", "model_provider", "model_reasoning_effort"}
+        if any(r.cli == "claude" for r in runtimes):
+            forbidden.add("-c")  # Claude's --continue; Codex's -c is --config.
+        if any(arg.split("=", 1)[0] in forbidden for arg in runtime_args):
+            raise AgentError(f"{name}: runtime-args must not change the model, effort or session")
         different = item.get("different-runtime-from")
         if different is not None:
             string(different, f"{name} different-runtime-from")

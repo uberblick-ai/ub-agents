@@ -58,6 +58,10 @@ class FakeGitHub:
     def default_branch(self):
         return "main"
 
+    def prs_for_branch(self, branch):
+        return [item for item in self.items.values()
+                if item.kind == "pr" and item.branch == branch and item.state == "open"]
+
     def observe(self):
         return [item for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
 
