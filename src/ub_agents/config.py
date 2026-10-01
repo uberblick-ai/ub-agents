@@ -125,6 +125,7 @@ class Priority:
 class Queue:
     milestones: str = "ignore"
     priority: Priority = Priority()
+    dependencies: str = "wait"
 
 
 @dataclass(frozen=True)
@@ -154,10 +155,13 @@ def load_config(path):
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "runtimes",
                           "poll-seconds", "stop-labels", "operators", "queue"}, "configuration")
-    queue = mapping(data.get("queue", {}), {"milestones", "priority"}, "queue")
+    queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
     if milestones not in ("gate", "ignore"):
         raise AgentError("queue milestones must be gate or ignore")
+    dependencies = queue.get("dependencies", "wait")
+    if dependencies not in ("wait", "ignore"):
+        raise AgentError("queue dependencies must be wait or ignore")
     priority = Priority()
     if "priority" in queue:
         settings = mapping(queue["priority"], {"labels", "default"}, "queue priority")
@@ -254,7 +258,8 @@ def load_config(path):
     operators = () if data.get("operators", []) == [] else strings(data["operators"], "operators")
     if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login) for login in operators):
         raise AgentError("operators must contain GitHub account logins")
-    return Config(root, repo, tuple(agents), poll, stop, operators, Queue(milestones, priority))
+    return Config(root, repo, tuple(agents), poll, stop, operators,
+                  Queue(milestones, priority, dependencies))
 
 
 def argv(value, where, empty=False):

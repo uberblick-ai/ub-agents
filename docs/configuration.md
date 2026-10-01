@@ -14,7 +14,7 @@ errors; `ub-agent check` validates the file.
 | `poll-seconds` | How often an idle loop checks GitHub (default 30). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `operators` | Other GitHub accounts whose claims and outcomes this launcher trusts. Only the authenticated account is trusted by default. |
-| `queue` | Optional priority ranking and milestone gate (defaults to FIFO with milestones ignored). |
+| `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
 ## Queue
 
@@ -24,6 +24,7 @@ queue:
     labels: [priority:urgent, priority:high, priority:normal, priority:low]
     default: priority:normal
   milestones: gate
+  dependencies: wait
 ```
 
 `priority.labels` is a nonempty list of unique, nonempty label names, highest first.
@@ -33,18 +34,52 @@ omitted, unlabeled items rank below every configured label. Without `priority`, 
 items have equal priority. Unknown keys in `queue` or `priority` are errors.
 The launcher reads priority labels and never changes them.
 
+A PR's effective priority is the highest of its own configured priority and the
+effective priority of the open local issues it closes. Closing keywords in its
+body (such as `Closes #21`, `Fixes: owner/repo#21` or `Resolves` followed by a local
+issue URL) identify those issues; each reference requires a keyword. Closed issues,
+PR references and references to other repositories do not contribute. This PR
+rule applies in both dependency modes: `ignore` disables issue dependency
+inheritance, but PRs still inherit their closing issues' own configured priority.
+
 `milestones` accepts only `gate` or `ignore` and defaults to `ignore`. In `gate`
 mode, new issues wait for the oldest open milestone with open issues or PRs to
 close or empty; PR work, recovery and draft checkpoint resumption remain eligible.
 In `ignore` mode, planning and claiming do not read milestones. This repository
-explicitly sets `gate`; `ub-agent init` writes `queue: {milestones: ignore}`.
-Without a `queue` block, priorities are unconfigured and milestones are ignored.
+explicitly sets `gate`.
+
+`dependencies` accepts only `wait` or `ignore` and defaults to `wait`, including
+without a `queue` block. In `wait` mode, an issue cannot start preparation or
+implementation while any GitHub blocked-by issue is open, including blockers
+in other repositories. Closed blockers do not gate it. The gate is rechecked
+before claiming. An open local issue inherits the highest effective priority
+of its open local dependents, directly or transitively, without changing labels.
+Cycles terminate and share the highest reachable priority. With `ignore`, links
+affect neither eligibility nor priority, and dependency reads are skipped.
+PR work, recovery, completion of started runs and draft checkpoint resumption
+remain ungated. With milestone gating, a new issue must pass both gates.
+A failed or unreadable dependency read stops selection visibly.
+Planning skips link reads only when the issue list's dependency summary reliably
+reports zero total blockers; missing or malformed summaries require a full read.
+The claim-time recheck always reads the selected new issue's blocker links.
+
+`ub-agent init` writes `queue: {milestones: ignore, dependencies: wait}`. Without a
+`queue` block, priorities are unconfigured, milestones are ignored and dependency
+waits apply.
 
 Within each work class, priority is followed by item creation time and then item
 number. See [selection order](coordination.md#selection-order) for eligibility and
 PR precedence. `ub-agent status` and `status --json` use the same rank order and
 show each item's effective priority (`none` in text, `null` in JSON when no label
-or default applies). Waiting issues name the active milestone number.
+or default applies). Waiting issues name the active milestone number and open
+blockers, using `owner/repo#N` for external blockers. Inherited priority names its
+origin, for example `priority:urgent (inherited from #21)`. JSON includes
+`priority_inherited_from` (the source issue number, or `null`) and `open_blockers`
+(a list of issue references). PRs name the issue they close, for example
+`priority:urgent (from closed issue #21)`; that wording identifies a closing
+reference to an issue that is still open. JSON records it as `priority_from_issue`
+(the issue number, or `null`). An item's own priority wins ties; among equally
+urgent inherited sources the lowest issue number is shown.
 
 ## Agents
 

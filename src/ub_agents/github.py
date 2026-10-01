@@ -26,11 +26,47 @@ class Item:
     draft: bool = False
     head_repository: str | None = None
     merged: bool = False
+    total_blocked_by: int | None = None
+
+
+@dataclass(frozen=True)
+class Dependency:
+    repository: str
+    number: int
+    state: str
+
+    def reference(self, repository):
+        return (f"#{self.number}" if self.repository.casefold() == repository.casefold()
+                else f"{self.repository}#{self.number}")
 
 
 def links_issue(pr, repository, number):
     link = f"https://github.com/{repository}/issues/{number}"
     return bool(re.search(rf"(?<![\w/])#{number}\b", pr.body) or link in pr.body)
+
+
+def closing_issues(pr, repository):
+    """Local closing references, requiring a supported keyword for each issue."""
+    pattern = (r"\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?):?\s+"
+               r"(?:(?P<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#"
+               r"(?P<number>[1-9][0-9]*)\b|https://github\.com/"
+               r"(?P<url_repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/"
+               r"(?P<url_number>[1-9][0-9]*)\b)")
+    return {int(match["number"] or match["url_number"])
+            for match in re.finditer(pattern, pr.body, re.IGNORECASE)
+            if (match["repo"] or match["url_repo"] or repository).casefold() == repository.casefold()}
+
+
+def dependency_total(data):
+    """Optional read optimization; an absent or invalid summary means unknown."""
+    summary = data.get("issue_dependencies_summary")
+    fields = ("blocked_by", "blocking", "total_blocked_by", "total_blocking")
+    if (not isinstance(summary, dict)
+            or any(type(summary.get(key)) is not int or summary[key] < 0 for key in fields)
+            or summary["blocked_by"] > summary["total_blocked_by"]
+            or summary["blocking"] > summary["total_blocking"]):
+        return None
+    return summary["total_blocked_by"]
 
 
 def parse_item(data, kind):
@@ -54,7 +90,8 @@ def parse_item(data, kind):
                     data["head"]["ref"] if kind == "pr" else None, milestone,
                     data["draft"] if kind == "pr" else False,
                     (data["head"].get("repo") or {}).get("full_name") if kind == "pr" else None,
-                    data.get("merged_at") is not None if kind == "pr" else False)
+                    data.get("merged_at") is not None if kind == "pr" else False,
+                    dependency_total(data) if kind == "issue" else None)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise AgentError("Unreadable GitHub work item") from exc
 
@@ -148,6 +185,25 @@ class GitHub:
             except (KeyError, TypeError, ValueError) as exc:
                 raise AgentError("Unreadable GitHub milestone") from exc
         return min(active)[1] if active else None
+
+    def blocked_by(self, number):
+        data = self.request(f"{self.prefix}/issues/{number}/dependencies/blocked_by", paginate=True)
+        if not isinstance(data, list):
+            raise AgentError(f"Unreadable GitHub dependencies for #{number}")
+        blockers = []
+        for raw in data:
+            try:
+                match = re.fullmatch(
+                    r"https://api\.github\.com/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)",
+                    raw["url"])
+                if (type(raw["number"]) is not int or raw["number"] < 1
+                        or raw["state"] not in {"open", "closed"} or match is None
+                        or int(match[2]) != raw["number"] or "pull_request" in raw):
+                    raise ValueError("invalid dependency fields")
+                blockers.append(Dependency(match[1], raw["number"], raw["state"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise AgentError(f"Unreadable GitHub dependency for #{number}") from exc
+        return blockers
 
     def comments(self, number):
         return self.request(f"{self.prefix}/issues/{number}/comments?per_page=100", paginate=True)

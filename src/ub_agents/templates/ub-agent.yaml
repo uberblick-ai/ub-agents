@@ -2,6 +2,7 @@
 repository: your-org/your-project
 queue:
   milestones: ignore
+  dependencies: wait
 
 agents:
   issue-preparer:

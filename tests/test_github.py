@@ -9,13 +9,78 @@ from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from ub_agents.errors import AgentError
-from ub_agents.github import GitHub, parse_item
+from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, seconds, timestamp
-from tests.support import agent, config, issue
+from tests.support import agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_observe_preserves_valid_dependency_totals_and_falls_back_for_bad_summaries(self):
+        raw = {"number": 1, "title": "Work", "body": None, "state": "open",
+               "labels": [], "user": {"login": "operator"}, "created_at": iso(100)}
+        zero = {"blocked_by": 0, "blocking": 0, "total_blocked_by": 0, "total_blocking": 0}
+        cases = [(zero, 0), (zero | {"total_blocked_by": 1}, 1),
+                 (zero | {"blocked_by": 2, "total_blocked_by": 2}, 2),
+                 (None, None), ([], None), ("unreadable", None), ({}, None),
+                 ({"total_blocked_by": 0}, None), (zero | {"blocked_by": 1}, None),
+                 (zero | {"blocking": 1}, None)]
+        for key in zero:
+            cases.extend((zero | {key: value}, None) for value in (None, True, "0", -1, 0.0))
+        github = GitHub("org/project")
+        for summary, expected in cases:
+            with self.subTest(summary=summary), \
+                    patch.object(github, "request", return_value=[raw | {"issue_dependencies_summary": summary}]):
+                self.assertEqual(github.observe()[0].total_blocked_by, expected)
+        with patch.object(github, "request", return_value=[raw]):
+            self.assertIsNone(github.observe()[0].total_blocked_by)
+
+    def test_closing_keywords_accept_local_qualified_and_url_references(self):
+        for keyword in ("close", "closes", "closed", "fix", "fixes", "fixed",
+                        "resolve", "resolves", "resolved", "CLOSES:"):
+            for reference in ("#21", "ORG/Project#21", "https://github.com/org/project/issues/21"):
+                with self.subTest(keyword=keyword, reference=reference):
+                    self.assertEqual(closing_issues(pr(body=f"{keyword} {reference}"), "org/project"), {21})
+        body = ("Closes #21, fixes #22; resolves org/project#23; closes #21; "
+                "fixes other/project#24; relates to #25; forecloses #26; "
+                "resolves #27, #28; Closes #0")
+        self.assertEqual(closing_issues(pr(body=body), "org/project"), {21, 22, 23, 27})
+
+    def test_dependency_reads_all_pages_and_preserves_repository_and_closed_state(self):
+        def row(number, repository="org/project", state="open"):
+            return {"number": number, "state": state,
+                    "url": f"https://api.github.com/repos/{repository}/issues/{number}"}
+
+        pages = [[row(n) for n in range(1, 101)], [row(31, "other/project", "closed")]]
+        results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
+        with patch("ub_agents.github.subprocess.run", side_effect=results) as run:
+            dependencies = GitHub("org/project").blocked_by(1)
+        self.assertEqual(len(dependencies), 101)
+        self.assertEqual(dependencies[-1], Dependency("other/project", 31, "closed"))
+        for page, call in enumerate(run.call_args_list, 1):
+            endpoint = call.args[0][-1]
+            self.assertIn("issues/1/dependencies/blocked_by?", endpoint)
+            self.assertIn(f"page={page}", endpoint)
+
+    def test_unreadable_dependencies_fail_instead_of_returning_an_empty_list(self):
+        valid = {"number": 31, "state": "open",
+                 "url": "https://api.github.com/repos/other/project/issues/31"}
+        for row in (None, {}, valid | {"number": True}, valid | {"number": 32},
+                    valid | {"state": "unknown"}, valid | {"state": None},
+                    valid | {"url": "https://example.com/repos/other/project/issues/31"},
+                    valid | {"url": None}, valid | {"pull_request": {}}):
+            with self.subTest(row=row), \
+                    patch("ub_agents.github.subprocess.run",
+                          return_value=subprocess.CompletedProcess([], 0, json.dumps([row]), "")), \
+                    self.assertRaisesRegex(AgentError, "Unreadable GitHub dependency"):
+                GitHub("org/project").blocked_by(1)
+        for result in (subprocess.CompletedProcess([], 0, "{}", ""),
+                       subprocess.CompletedProcess([], 0, "null", ""),
+                       subprocess.CompletedProcess([], 0, "not json", ""),
+                       subprocess.CompletedProcess([], 1, "", "dependency access denied")):
+            with patch("ub_agents.github.subprocess.run", return_value=result), self.assertRaises(AgentError):
+                GitHub("org/project").blocked_by(1)
+
     def test_item_reads_creation_time_and_milestone_for_issues_and_prs(self):
         raw = {"number": 1, "title": "Work", "body": None, "state": "open",
                "labels": [], "user": {"login": "operator"}, "created_at": iso(100),
