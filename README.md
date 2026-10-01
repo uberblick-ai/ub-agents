@@ -41,18 +41,18 @@ agents:
 
   implementer:
     runtime: ["claude:opus-5.5:high", "codex:sol-6.1:high"]
-    trigger: ready
+    trigger: [ready, needs-changes]
     instructions: .agents/implementer.md
 
   reviewer:
     runtime: ["claude:opus-5.5:high", "codex:sol-6.1:high"]
-    trigger: wants-review
-    disqualify-runtime-from: implementer
+    trigger: needs-review
+    different-runtime-from: implementer
     instructions: .agents/reviewer.md
 
   integrator:
     runtime: "claude:opus-5.5:high"
-    trigger: wants-to-be-merged
+    trigger: ready-to-merge
     instructions: .agents/integrator.md
 
 limits:
@@ -62,11 +62,35 @@ limits:
 
 A trigger names a GitHub label on an issue or PR. A runtime names the agent CLI, model, and effort setting. The runtime identifiers above are illustrative; use identifiers supported by your installed tools.
 
-A runtime list declares the alternatives available for that step; it does not request a separate run on every model. In this example, `disqualify-runtime-from` excludes the runtime recorded as the implementer of the candidate, so review uses another configured runtime. If none is eligible, the loop reports the blockage rather than ignoring the restriction. The implementation author also cannot act as its own independent reviewer.
+A runtime list declares the alternatives available for that step; it does not request a separate run on every model. In this example, `different-runtime-from: implementer` requires a different CLI/provider and model from the one recorded as the implementer of the candidate. Effort settings do not count as a different runtime: changing `high` to `low` cannot satisfy the rule. If Claude implemented, Codex reviews; if Codex implemented, Claude reviews. If none is eligible, the loop reports the blockage rather than ignoring the restriction. The implementation author also cannot act as its own independent reviewer.
 
 The instruction files explain what each agent should do, what constitutes a valid outcome, and which GitHub state to leave behind. The starter instructions establish those conventions; your project can replace them.
 
 You can use only Codex, configure another agent CLI such as a Grok-based tool, mix providers, or remove review altogether. The framework does not require these four roles or this sequence.
+
+## What belongs in your project repository?
+
+Check in `ub-agent.yaml` and the instructions it references in the project the agents work on. They define how that project is developed and should be reviewed and versioned alongside its code.
+
+```text
+your-project/
+├── ub-agent.yaml
+├── AGENTS.md                 # optional shared repository guidance
+├── .agents/
+│   ├── issue-preparer.md
+│   ├── implementer.md
+│   ├── reviewer.md
+│   └── integrator.md
+└── ... your project code
+```
+
+Commit the agent definitions, runtime/model choices, triggers, limits, role instructions, and any project-specific scripts or non-secret runtime settings they need. Instructions should identify the project's checks, handoff conventions, and merge policy. Keep shared guidance in one place and reference it from individual roles.
+
+Keep credentials, authentication tokens, local logs, PIDs, scratch files, and temporary worktrees out of Git. Machine-specific secrets come from the operator's environment or the tools' normal authentication stores. GitHub carries leases, attempts, and work outcomes; those do not belong in a checked-in local state file.
+
+A fresh clone plus the installed CLI and authenticated runtimes should be enough to launch the project's configured agents. `ub-agent init` copies starter files into the project; once committed, they are project-owned. Upgrading the executable does not silently replace them.
+
+The separate `ub-agents` repository owns the framework, CLI adapters, packaging, and starter templates. Consuming projects own their configuration and instructions. They do not copy the framework's implementation into their repositories.
 
 ## The loop
 
@@ -86,9 +110,32 @@ Observe GitHub again
 
 The orchestration is deliberately mechanical. Matching labels, selecting eligible runtimes, launching processes, and enforcing limits are framework responsibilities. Understanding the task and deciding whether it meets the project's requirements are agent responsibilities, guided by project instructions.
 
-In the starter workflow, preparation leaves an issue `ready`. Implementation creates a PR marked `wants-review`. Review either requests a revision or leaves it `wants-to-be-merged`. Integration runs the project's final checks and completes the work according to its merge policy.
+In the starter workflow, preparation leaves an issue `ready`. Implementation creates a PR marked `needs-review`. Review marks the PR `needs-changes` for another implementation pass, or leaves it `ready-to-merge`. Integration runs the project's final checks and completes the work according to its merge policy.
 
 Those labels and transitions are conventions of the starter workflow. They are not built-in role names or a mandatory development process. A different project might have just one agent that investigates labelled issues and posts findings.
+
+## GitHub handoffs and leases
+
+Issues are the main entry point for work. Most later handoffs happen on the implementation PR, which links back to its issue.
+
+The starter labels are:
+
+| Location | Label | Next action |
+|---|---|---|
+| Issue | `needs-preparation` | Prepare the requirements. |
+| Issue | `ready` | Implement an unclaimed, eligible issue. |
+| PR | `needs-review` | Review the candidate commit. |
+| PR | `needs-changes` | Revise the existing implementation. |
+| PR | `ready-to-merge` | Run integration checks and apply the project's merge policy. |
+| Either | `needs-human` | Park automation pending a human decision. |
+
+Labels describe the next action. Leases record who owns the current assignment. The implementer claims the issue before starting new work; subsequent review, revision, and integration assignments are claimed on the PR.
+
+A lease is a GitHub record identifying the agent, run, runtime/model, expiry, and branch or PR where applicable. A live agent renews the same record, then releases or completes it at handoff. Expired leases can be recovered under the configured rules. An `in-progress` label is not required to establish ownership.
+
+Review assignments and verdicts name the PR head SHA. A result for an older head cannot silently satisfy review of a newer candidate. The issue closes when the project's completion policy is satisfied.
+
+These labels and handoff conventions ship with the starter workflow and remain customizable.
 
 ## Recovery and retries
 
@@ -106,7 +153,9 @@ Each agent has a deadline. Code-changing sessions can use private worktrees, and
 
 ## Standalone
 
-ub-agents is a separate Python project exposing the `ub-agent` command. It has no dependency on Uberblick or `ub launch`. Uberblick is simply one project that can configure and use it.
+ub-agents is a separate Python project exposing the `ub-agent` command. It has no dependency on Uberblick, its workspace services, or its application CLI. Uberblick is simply one consuming project with its own checked-in configuration and instructions.
+
+The migration target is to remove `ub launch` and the agent-launching implementation from Uberblick. Agent execution belongs to `ub-agent launch`, with no permanent wrapper or duplicate launcher in Uberblick. Cutover happens once ub-agents can run the existing workflow; this README does not claim that removal has already shipped.
 
 GitHub holds durable coordination state. Local logs are for diagnosis. There is no separate workflow database, required daemon, or web dashboard.
 
