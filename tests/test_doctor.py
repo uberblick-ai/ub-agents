@@ -28,6 +28,7 @@ class DoctorTests(unittest.TestCase):
 agents:
   worker:
     runtime: codex:model-a:high
+    runtime-args: [--sandbox, danger-full-access]
     trigger: ready
     instructions: instructions.md
 ''')
@@ -91,6 +92,77 @@ agents:
                 self.assertEqual(self.one(result, "process-inspection")["status"], "ok")
                 self.assertEqual(self.one(result, "runtimes")["status"], "ok")
                 self.assertEqual(self.cli(True)[0], 1)
+
+    def test_missing_trigger_and_add_remove_transition_labels_are_required(self):
+        self.path.write_text(self.path.read_text() + '''    outcomes:
+      done: {add: [review-next], remove: [old-state]}
+''')
+        self.github.label_names = ['needs-human']
+        result = self.diagnose()
+        labels = self.checks(result, 'github-label')
+        self.assertFalse(result['ok'])
+        failures = [check for check in labels if check['status'] == 'fail']
+        self.assertEqual(len(failures), 3)
+        for check, name in zip(failures, ['ready', 'review-next', 'old-state']):
+            self.assertTrue(check['required'])
+            self.assertEqual(check['agent'], 'worker')
+            self.assertIn(name, check['message'])
+            self.assertIn('worker', check['message'])
+            self.assertIn(f'gh label create {name} --repo org/project', check['remedy'])
+        self.assertEqual(self.github.writes, [])
+
+    def test_missing_stop_label_warns_and_all_present_match_case_insensitively(self):
+        self.github.label_names = ['READY']
+        result = self.diagnose()
+        self.assertTrue(result['ok'])
+        labels = self.checks(result, 'github-label')
+        self.assertEqual([check['status'] for check in labels], ['ok', 'warn'])
+        self.assertEqual(labels[1]['required'], False)
+        self.assertIn('needs-human', labels[1]['remedy'])
+        self.github.label_names.append('NEEDS-HUMAN')
+        self.assertTrue(all(check['status'] == 'ok' for check in self.checks(self.diagnose(), 'github-label')))
+        self.assertEqual(self.github.writes, [])
+
+    def test_stop_label_used_by_a_transition_has_both_required_and_stop_checks(self):
+        self.path.write_text(self.path.read_text() + '''    outcomes:
+      needs-human: {add: [needs-human]}
+''')
+        self.github.label_names = ['ready']
+        result = self.diagnose()
+        self.assertFalse(result['ok'])
+        missing = [check for check in self.checks(result, 'github-label') if check['status'] != 'ok']
+        self.assertEqual([(check['status'], check['agent']) for check in missing],
+                         [('fail', 'worker'), ('warn', None)])
+
+    def test_unreadable_labels_fail_and_hide_private_errors(self):
+        for error in (AgentError('ghp_private sk-private'), subprocess.TimeoutExpired('gh', 20)):
+            self.github.label_error = error
+            result = self.diagnose()
+            self.assertFalse(result['ok'])
+            check = self.one(result, 'github-labels')
+            self.assertEqual((check['status'], check['required']), ('fail', True))
+            self.assertNotIn('private', self.capture(result))
+            self.assertEqual(self.github.writes, [])
+
+    def test_runtime_permissions_warns_for_each_agent_without_args_only(self):
+        self.path.write_text(self.path.read_text().replace('    runtime-args: [--sandbox, danger-full-access]\n', '') + '''  reviewer:
+    runtime: [codex:model-a:high, claude:model-b:high]
+    trigger: needs-review
+    instructions: instructions.md
+  command:
+    command: [git, --version]
+    trigger: ready
+''')
+        result = self.diagnose()
+        self.assertTrue(result['ok'])
+        warnings = self.checks(result, 'runtime-permissions')
+        self.assertEqual([check['agent'] for check in warnings], ['worker', 'reviewer'])
+        for check in warnings:
+            self.assertEqual((check['status'], check['required']), ('warn', False))
+            self.assertIn('runtime-args', check['message'])
+            self.assertIn('https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions',
+                          check['remedy'])
+        self.assertEqual(self.github.writes, [])
 
     def test_missing_only_runtime_is_required_and_names_agent(self):
         self.missing.add("codex")
@@ -157,7 +229,7 @@ runtimes:
         result = self.diagnose()
         self.assertFalse(result["ok"])
         self.assertEqual(self.one(result, "github-auth")["remedy"], "gh auth login")
-        self.assertEqual(self.github.reads, ["user", "repos/org/project"])
+        self.assertEqual(self.github.reads, ["user", "repos/org/project", "repos/org/project/labels"])
 
     def test_actual_github_actor_uses_read_only_api_and_hides_failure_output(self):
         for response in ('{"login":"operator"}', subprocess.CompletedProcess([], 4, 'sk-private', 'ghp-private'),
@@ -168,6 +240,8 @@ runtimes:
                 repo_command = command[:-1] + ("repos/org/project",)
                 self.runner.responses[command] = response
                 self.runner.responses[repo_command] = json.dumps(self.github.metadata)
+                self.runner.responses[command[:-1] + ("repos/org/project/labels?per_page=100&page=1",)] = json.dumps(
+                    [{"name": name} for name in self.github.label_names])
                 result = self.diagnose(github=GitHub("org/project", runner=self.runner))
                 output = self.capture(result) + self.capture(result, True)
                 self.assertNotIn("ghp-private", output)

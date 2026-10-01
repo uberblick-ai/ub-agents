@@ -12,10 +12,42 @@ from ub_agents.errors import AgentError
 from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, seconds, timestamp
-from tests.support import agent, config, issue, pr
+from tests.support import RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_labels_reads_all_pages_and_create_only_posts_the_new_label(self):
+        runner = RecordingRunner(Path('/synthetic'))
+        prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                  'Accept: application/vnd.github+json')
+        runner.responses[prefix + ('repos/org/project/labels?per_page=100&page=1',)] = json.dumps(
+            [{'name': f'label-{number}'} for number in range(100)])
+        runner.responses[prefix + ('repos/org/project/labels?per_page=100&page=2',)] = json.dumps(
+            [{'name': 'final-label'}])
+        github = GitHub('org/project', runner=runner)
+        labels = github.labels()
+        self.assertEqual(len(labels), 101)
+        self.assertEqual(labels[-1], 'final-label')
+        post = prefix[:5] + ('POST',) + prefix[6:] + ('repos/org/project/labels', '--input', '-')
+        runner.responses[post] = '{}'
+        github.create_label('new-label', 'Synthetic description', '1d76db')
+        self.assertEqual([command for command, _ in runner.calls],
+                         [prefix + ('repos/org/project/labels?per_page=100&page=1',),
+                          prefix + ('repos/org/project/labels?per_page=100&page=2',), post])
+        self.assertEqual(json.loads(runner.calls[-1][1]['input']),
+                         {'name': 'new-label', 'description': 'Synthetic description', 'color': '1d76db'})
+
+    def test_unreadable_labels_fail_instead_of_offering_existing_labels_for_creation(self):
+        for payload in ('{}', 'null', 'not json', '[null]', '[{}]', '[{"name":null}]',
+                        '[{"name":42}]', '[{"name":""}]', '[{"name":" "}]'):
+            with self.subTest(payload=payload):
+                runner = RecordingRunner(Path('/synthetic'))
+                runner.responses[('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                                  'Accept: application/vnd.github+json',
+                                  'repos/org/project/labels?per_page=100&page=1')] = payload
+                with self.assertRaises(AgentError):
+                    GitHub('org/project', runner=runner).labels()
+
     def test_observe_preserves_valid_dependency_totals_and_falls_back_for_bad_summaries(self):
         raw = {"number": 1, "title": "Work", "body": None, "state": "open",
                "labels": [], "user": {"login": "operator"}, "created_at": iso(100)}

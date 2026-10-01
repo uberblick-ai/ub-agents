@@ -164,6 +164,8 @@ class DoctorGitHub(FakeGitHub):
         self.reads = []
         self.auth_error = None
         self.repository_error = None
+        self.label_error = None
+        self.label_names = ["ready", "needs-human", "needs-review"]
         self.metadata = {"full_name": "org/project", "permissions": {"triage": True}}
 
     def actor(self):
@@ -177,3 +179,15 @@ class DoctorGitHub(FakeGitHub):
         if self.repository_error:
             raise self.repository_error
         return self.metadata
+
+    def labels(self):
+        self.reads.append("repos/org/project/labels")
+        if self.label_error:
+            raise self.label_error
+        return self.label_names.copy()
+
+    def create_label(self, name, description, color):
+        if name.casefold() in {label.casefold() for label in self.label_names}:
+            raise AssertionError("Existing labels must never be changed")
+        self.writes.append(("create-label", name, description, color))
+        self.label_names.append(name)
