@@ -31,7 +31,7 @@ def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milest
 
 def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1", draft=False, milestone=None):
     return Item(number, "pr", "Candidate", body, frozenset(labels), "open", "operator",
-                "2026-01-01T00:00:00Z", head, "feature/test", milestone, draft, "org/project")
+                "2026-01-01T00:00:00Z", head, "feature/test", milestone, draft)
 
 
 class FakeGitHub:
@@ -56,10 +56,6 @@ class FakeGitHub:
 
     def default_branch(self):
         return "main"
-
-    def prs_for_branch(self, branch):
-        return [item for item in self.items.values()
-                if item.kind == "pr" and item.branch == branch and item.state == "open"]
 
     def observe(self):
         return [item for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]

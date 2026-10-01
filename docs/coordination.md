@@ -32,9 +32,7 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 1. Eligibility checks run as usual: existing claims, stop labels, retry backoff and
    attempt limits still apply.
 2. PR work comes before new issue starts. This includes PR assignments, recovery
-   and completion of already-started runs, and resumption of an existing draft PR
-   checkpoint, even when its assignment is an issue. Neither queue gate holds
-   back this work.
+   and completion of already-started runs. Neither queue gate holds back this work.
 3. With `queue.milestones: gate`, only new issues in the active milestone can
    start. The active milestone is the oldest open milestone with open issues or
    PRs, by creation time with milestone number as the tie-breaker. Later-milestone
@@ -156,46 +154,22 @@ The starter implementer publishes the first coherent, buildable checkpoint as a
 draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the
 same branch and PR. Checkpoints are not outcomes: no `ub-agent report`, issue
 label changes, or workflow trigger labels on the draft. The issue lease remains
-live and launcher-renewed for the whole run. Before each checkpoint push and
-before marking the PR ready, read new issue comments and PR comments, reviews,
-and inline feedback; follow them or reply explaining the decision. An unresolved
-human decision leaves the PR as a draft and is reported as blocked.
+live for the whole run. Before each checkpoint push and before marking the PR
+ready, read new issue comments and PR comments, reviews, and inline feedback;
+follow them or reply explaining the decision. An unresolved human decision leaves
+the PR as a draft and is reported as blocked.
 
 At completion, pass the project checks, push the final work, mark the same PR ready
 (`gh pr ready`), and report `--outcome handed-off` with the PR handoff. The runner
 removes the issue triggers and adds `needs-review` to that same PR. Drafts never
 receive `needs-review` or `ready-to-merge` from the starter workflow. Feedback after
-readiness follows the normal review and `needs-changes` path. Revision runs are
-unchanged, and labels still govern PR-kind pickup; there is no draft filter in
-trigger matching.
+readiness follows the normal review and `needs-changes` path.
 
-Issue retry planning checks all branches recorded by earlier leases for the same
-issue and configured agent, including leases before a reset or superseded by a
-newer run. Open PRs are found by head branch, independent of their body or labels.
-Exactly one open draft can resume when it links the issue, has its head in this
-repository on a recorded branch, and has no conflicting live ownership, unconfirmed
-PR cleanup, or outcome awaiting recovery. Reuse requires a private worktree. The
-new issue lease records resume_pr, resume_sha, and branch, without changing its
-issue assignment or attempt budget. Existing backoff, blocked-run and attempt-limit
-gates still apply; a settled blocked decision requires a reasoned operator reset.
-
-The retry fetches the existing remote branch into a fresh detached worktree at the
-observed SHA. It never resets a local branch or removes an earlier worktree. Context
-and prompt name the existing PR; UB_AGENT_PR is its number, UB_AGENT_BRANCH is its
-branch, and UB_AGENT_CANDIDATE_SHA is the starting checkpoint. Push HEAD explicitly
-to the remote branch and hand off the same PR. A resumed success naming another PR
-is rejected in completion and recovery.
-
-Multiple PRs, missing issue linkage, foreign heads, ready PRs, or unsafe ownership
-block with PR numbers and the reason. Inspect and continue manually; close abandoned
-PRs before a reasoned reset. A reset changes attempt/completion gates but never hides
-historical branches. Checks repeat at claim and before execution; a changed PR/head
-costs no claim or prevents execution. Live issue-resume leases also exclude PR runs,
-and both claim paths recheck related ownership after election. The lowest live
-comment ID wins across related claims; renewal checks this ownership too. This is
-cooperative observation, with the same consistency limits as ordinary leases.
-A success report whose GitHub handoff fails validation also blocks rather than
-reexecuting the implementation.
+A retried issue run starts in a fresh worktree on a new branch. The launcher does
+not track earlier drafts; the implementer instructions tell the agent to look for
+an open draft PR that links the issue, continue it on its branch, and never open a
+second implementation PR. Branches recorded on earlier leases are retained for
+human recovery.
 
 ## Explicit outcomes
 
@@ -212,8 +186,7 @@ The runner also blocks records that bypass reporting validation. Agents without
 A report is initially `accepted: false`. On confirmed process/group termination,
 the launcher rereads GitHub and validates ownership, exact reported candidate SHA,
 and the original issue link for an explicit PR handoff. A handoff to a draft PR
-blocks in normal completion and before transition start in recovery. A resumed
-issue must hand off its existing PR. For legacy agents it checks
+blocks in normal completion and before transition start in recovery. For legacy agents it checks
 consumed triggers or a closed assignment; their valid issue-to-PR handoff may leave
 an issue trigger present.
 

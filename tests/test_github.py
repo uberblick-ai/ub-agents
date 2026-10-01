@@ -170,9 +170,6 @@ class GitHubTests(unittest.TestCase):
         for draft in (True, False):
             parsed = parse_item(raw | {"draft": draft}, "pr")
             self.assertEqual(parsed.draft, draft)
-            self.assertEqual(parsed.head_repository, "org/project")
-            self.assertFalse(parsed.merged)
-        self.assertTrue(parse_item(raw | {"draft": False, "merged_at": iso(1000)}, "pr").merged)
         for fields in ({}, {"draft": None}, {"draft": "false"}, {"draft": 0}):
             with self.subTest(fields=fields), self.assertRaises(AgentError):
                 parse_item(raw | fields, "pr")

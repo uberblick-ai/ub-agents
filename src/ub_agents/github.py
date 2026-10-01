@@ -24,8 +24,6 @@ class Item:
     branch: str | None = None
     milestone: int | None = None
     draft: bool = False
-    head_repository: str | None = None
-    merged: bool = False
     total_blocked_by: int | None = None
 
 
@@ -89,8 +87,6 @@ def parse_item(data, kind):
                     data["head"]["sha"] if kind == "pr" else None,
                     data["head"]["ref"] if kind == "pr" else None, milestone,
                     data["draft"] if kind == "pr" else False,
-                    (data["head"].get("repo") or {}).get("full_name") if kind == "pr" else None,
-                    data.get("merged_at") is not None if kind == "pr" else False,
                     dependency_total(data) if kind == "issue" else None)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise AgentError("Unreadable GitHub work item") from exc
@@ -267,12 +263,6 @@ class GitHub:
         if not isinstance(raw.get("default_branch"), str):
             raise AgentError("GitHub returned no default branch")
         return raw["default_branch"]
-
-    def prs_for_branch(self, branch):
-        owner = self.repository.split("/", 1)[0]
-        query = urlencode({"state": "open", "head": f"{owner}:{branch}", "per_page": 100})
-        return [parse_item(raw, "pr") for raw in
-                self.request(f"{self.prefix}/pulls?{query}", paginate=True)]
 
     def add_labels(self, number, labels):
         self.request(f"{self.prefix}/issues/{number}/labels", "POST", {"labels": list(labels)}, array=True)

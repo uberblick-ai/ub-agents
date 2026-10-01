@@ -254,19 +254,6 @@ class ReviewRegressionTests(unittest.TestCase):
                 patch("ub_agents.loop.supervise", side_effect=execute):
             self.assertTrue(loop.tick())
 
-    def test_unreported_pr_on_previous_private_branch_blocks_duplicate_implementation(self):
-        github = FakeGitHub(issue(), pr(labels=()))
-        loop = self.loop(github)
-        lease = loop.coordinator.claim(loop.plans()[0])
-        loop.coordinator.update(lease, state="running", started=True, branch="feature/test",
-                                expires=iso(timestamp() - 1))
-        plan = loop.plans()[0]
-        self.assertEqual(plan.state, "blocked")
-        self.assertIn("Cannot safely resume recorded PR #2", plan.reason)
-        self.assertIn("no longer a reusable draft", plan.reason)
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not duplicate PR")):
-            self.assertFalse(loop.tick())
-
     def test_deleted_cached_record_does_not_keep_an_item_blocked(self):
         github = FakeGitHub(issue(labels=()))
         now = timestamp()

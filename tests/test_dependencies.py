@@ -291,26 +291,6 @@ class DependencyTests(unittest.TestCase):
         self.assertTrue(co.history(1)[1]["accepted"])
         self.assertEqual(co.history(1)[2]["result"], "success")
 
-    def test_draft_resume_ignores_blockers_but_fresh_retry_and_preparer_wait(self):
-        self.worker = replace(self.worker, worktree=True)
-        self.loop = self.make_loop()
-        self.add(issue(1, ("ready", "prepare")), issue(31, ()), pr(2, (), draft=True))
-        co = self.loop.coordinator
-        lease = co.claim(self.plans()[1])
-        co.update(lease, state="running", started=True, branch="feature/test")
-        co.release(lease, "retry", "Interrupted")
-        self.github.dependencies[1] = [31]
-        plans = self.loop.plans()
-        self.assertEqual([(p.agent.name, p.state) for p in plans],
-                         [("worker", "ready"), ("preparer", "parked")])
-        with patch.object(self.github, "blocked_by", side_effect=AssertionError("resume claim is ungated")):
-            resumed = co.claim(plans[0])
-        self.assertEqual(resumed["resume_pr"], 2)
-        co.release(resumed, "retry", "Interrupted again")
-        self.github.change(2, state="closed")
-        self.assertEqual(self.plans()[1].state, "parked")
-        self.assertIsNone(co.claim(co.plan(self.github.item(1), self.worker, ())))
-
     def test_failure_stops_selection_and_claim_visibly_without_writes(self):
         self.add(issue(1))
         plan = self.plans()[1]

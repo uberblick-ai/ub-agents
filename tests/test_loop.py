@@ -8,9 +8,8 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main, status_rows
-from ub_agents.config import Priority, Queue, Runtime
+from ub_agents.config import Priority, Queue
 from ub_agents.errors import AgentError, LostOwnership
-from ub_agents.execution import git
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, iso, timestamp
 from tests.support import FakeGitHub, agent, config, issue, pr
@@ -129,98 +128,6 @@ class LoopTests(unittest.TestCase):
         self.github.unreadable = True
         with self.assertRaises(AgentError):
             self.loop.tick()
-
-    def test_issue_retry_continues_draft_on_existing_branch_and_hands_off_same_pr(self):
-        git(self.root, "init", "-b", "main")
-        (self.root / "file").write_text("checkpoint")
-        git(self.root, "add", "file")
-        git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.com",
-            "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
-        head = git(self.root, "rev-parse", "HEAD")
-        git(self.root, "branch", "feature/test")
-        git(self.root, "remote", "add", "origin", str(self.root))
-        worker = replace(self.agent, worktree=True, command=(),
-                         runtimes=(Runtime("codex", "model", "high", "openai"),))
-        self.github.change(2, draft=True, labels=frozenset(), head=head)
-        loop = Loop(config(self.root, worker), self.github, "operator", output=lambda *_: None)
-        with patch("ub_agents.coordination.shutil.which", return_value="installed"):
-            old = loop.coordinator.claim(loop.plans()[0])
-            loop.coordinator.update(old, state="running", started=True, branch="feature/test")
-            loop.coordinator.release(old, "retry", "Interrupted")
-            # A newly active milestone must not block continuation of this draft.
-            self.github.change(1, milestone=20)
-            self.github.items[3] = issue(3, labels=(), milestone=10)
-            self.github.milestones = [
-                {"number": 10, "state": "open", "created_at": iso(100)},
-                {"number": 20, "state": "open", "created_at": iso(200)},
-            ]
-            branches = git(self.root, "for-each-ref", "refs/heads")
-            def execute(command, cwd, env, *args):
-                context = json.loads(Path(env["UB_AGENT_CONTEXT"]).read_text())
-                self.assertEqual((context["assignment"], context["resume_pr"], context["candidate_sha"]), (1, 2, head))
-                self.assertEqual((env["UB_AGENT_BRANCH"], env["UB_AGENT_PR"], env["UB_AGENT_CANDIDATE_SHA"]),
-                                 ("feature/test", "2", head))
-                self.assertIn("Resume existing draft PR #2", args[-1])
-                self.assertEqual(git(cwd, "rev-parse", "HEAD"), head)
-                self.assertEqual(git(cwd, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD")
-                self.github.change(2, draft=False, labels=frozenset({"needs-review"}))
-                self.github.change(1, labels=frozenset())
-                lease = loop.coordinator.history(1)[-1]
-                loop.coordinator.report(lease, "success", "Continued checkpoint", handoff=2)
-                return 0
-            with patch("ub_agents.loop.supervise", side_effect=execute):
-                self.assertTrue(loop.tick())
-        source, lease, outcome = loop.coordinator.history(1)
-        self.assertEqual((lease["resume_pr"], lease["result"], outcome["accepted"]), (2, "success", True))
-        self.assertEqual(loop.coordinator.plan(self.github.item(1), worker, ()).state, "completed")
-        self.assertEqual(set(self.github.items), {1, 2, 3})
-        self.assertEqual(git(self.root, "for-each-ref", "refs/heads"), branches)
-        self.assertFalse((self.root / ".ub-agent" / "worktrees" / lease["run"]).exists())
-
-    def test_resumed_success_cannot_handoff_another_pr_in_completion_or_recovery(self):
-        worker = replace(self.agent, worktree=True)
-        for recovery in (False, True):
-            with self.subTest(recovery=recovery):
-                github = FakeGitHub(issue(), pr(labels=(), draft=True), pr(3, labels=("needs-review",)))
-                loop = Loop(config(self.root, worker), github, "operator", output=lambda *_: None)
-                now = 1000
-                loop.coordinator.clock = lambda: now
-                old = loop.coordinator.claim(loop.coordinator.plan(github.item(1), worker, ()))
-                loop.coordinator.update(old, state="running", started=True, branch="feature/test")
-                loop.coordinator.release(old, "retry", "Interrupted")
-                # The second PR's unrelated branch must not enter discovery.
-                github.change(3, branch="other")
-                plan = loop.coordinator.plan(github.item(1), worker, ())
-                lease = loop.coordinator.claim(plan)
-                loop.coordinator.update(lease, state="running", started=True)
-                github.change(1, labels=frozenset())
-                outcome = loop.coordinator.report(lease, "success", "Wrong PR", handoff=3)
-                if recovery:
-                    now += 61
-                    with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
-                        self.assertTrue(loop.tick())
-                    self.assertEqual(loop.coordinator.history(1)[-2]["result"], "blocked")
-                else:
-                    with self.assertRaisesRegex(AgentError, "existing PR"):
-                        loop.validate_success(plan, outcome)
-                self.assertFalse(loop.coordinator.history(1)[-1]["accepted"])
-
-    def test_changed_checkpoint_after_claim_never_starts_runtime(self):
-        worker = replace(self.agent, worktree=True)
-        self.github.change(2, labels=frozenset(), draft=True)
-        loop = Loop(config(self.root, worker), self.github, "operator", output=lambda *_: None)
-        old = loop.coordinator.claim(loop.plans()[0])
-        loop.coordinator.update(old, state="running", started=True, branch="feature/test")
-        loop.coordinator.release(old, "retry", "Interrupted")
-        plan = loop.plans()[0]
-        def prepare(workspace):
-            self.github.change(2, head="b" * 40)
-            return self.root
-        with patch("ub_agents.loop.Workspace.prepare", prepare), \
-                patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
-            self.assertTrue(loop.execute(plan))
-        self.assertIn("Checkpoint changed", loop.coordinator.history(1)[-1]["summary"])
-
 
 class QueueTests(unittest.TestCase):
     def setUp(self):
@@ -520,97 +427,6 @@ class QueueTests(unittest.TestCase):
         self.add(pr(3, (), milestone=20))
         self.assertIsNone(self.loop.coordinator.claim(plan))
         self.assertEqual(self.github.writes, [])
-
-    def checkpoint(self, milestone):
-        self.implementer = replace(self.implementer, worktree=True)
-        self.loop = Loop(config(self.root, self.preparer, self.implementer, queue=Queue("gate")), self.github,
-                         "operator", output=lambda *_: None)
-        self.add(issue(1, ("prepare", "ready"), milestone=milestone), pr(2, (), draft=True))
-        co = self.loop.coordinator
-        old = co.claim(co.plan(self.github.item(1), self.implementer, ()))
-        co.update(old, state="running", started=True, branch="feature/test")
-        co.release(old, "retry", "Interrupted")
-        # The earlier milestone becomes active after the checkpoint was started.
-        self.add(issue(3, (), milestone=10))
-        return old
-
-    def test_draft_resume_is_ungated_for_later_and_unmilestoned_issues(self):
-        for milestone in (20, None):
-            with self.subTest(milestone=milestone):
-                self.github = FakeGitHub()
-                self.github.milestones = [
-                    {"number": 10, "state": "open", "created_at": iso(100)},
-                    {"number": 20, "state": "open", "created_at": iso(200)},
-                ]
-                self.checkpoint(milestone)
-                self.assertEqual(self.ready("preparer"), [])
-                self.assertEqual(self.ready("implementer"), [1])
-                plan = next(p for p in self.loop.plans() if p.state == "ready")
-                self.assertEqual(plan.resume_pr.number, 2)
-                lease = self.loop.coordinator.claim(plan)
-                self.assertEqual((lease["resume_pr"], lease["resume_sha"], lease["branch"]),
-                                 (2, "a" * 40, "feature/test"))
-                self.loop.coordinator.assert_owned(lease)
-
-    def test_draft_resume_runs_before_higher_priority_new_issue(self):
-        self.checkpoint(20)
-        self.github.change(1, labels=frozenset({"prepare", "ready", "low"}))
-        self.add(issue(4, ("prepare", "ready", "urgent"), iso(1), 10))
-        self.loop = Loop(config(self.root, self.preparer, self.implementer,
-                                queue=Queue("gate", Priority(("urgent", "low")))),
-                         self.github, "operator", output=lambda *_: None)
-        self.assertEqual(self.ready("implementer"), [1, 4])
-        self.assertEqual(self.ready("preparer"), [4])
-        with patch.object(self.loop, "execute", return_value=True) as execute:
-            self.assertTrue(self.loop.tick())
-        plan = execute.call_args.args[0]
-        self.assertEqual((plan.item.number, plan.resume_pr.number), (1, 2))
-        # Once the plan is known to resume, neither claim nor recovery rechecks
-        # milestones; only fresh issue starts do.
-        with patch.object(self.github, "active_milestone",
-                          side_effect=AssertionError("resume is ungated")):
-            self.assertIsNotNone(self.loop.coordinator.claim(plan))
-
-    def test_retry_without_open_checkpoint_remains_milestone_gated(self):
-        self.checkpoint(20)
-        self.github.change(2, state="closed")
-        self.assertEqual(self.ready("implementer"), [])
-        co = self.loop.coordinator
-        # Direct claims must also enforce the gate after checkpoint discovery.
-        plan = co.plan(self.github.item(1), self.implementer, ())
-        self.assertEqual((plan.state, plan.resume_pr), ("ready", None))
-        writes = list(self.github.writes)
-        self.assertIsNone(co.claim(plan))
-        self.assertEqual(self.github.writes, writes)
-
-    def test_ungated_resume_rechecks_checkpoint_before_writing_lease(self):
-        self.checkpoint(20)
-        plan = next(p for p in self.loop.plans() if p.state == "ready")
-        writes = list(self.github.writes)
-        for change in ({"head": "b" * 40}, {"draft": False}, {"state": "closed"},
-                       {"body": "Missing linkage"}, {"head_repository": "fork/project"}):
-            with self.subTest(change=change):
-                self.github.items[2] = replace(plan.resume_pr, **change)
-                self.assertIsNone(self.loop.coordinator.claim(plan))
-                self.assertEqual(self.github.writes, writes)
-
-    def test_draft_resume_keeps_backoff_blocked_and_attempt_limit_gates(self):
-        old = self.checkpoint(20)
-        co = self.loop.coordinator
-        now = timestamp()
-        co.clock = lambda: now
-        for changes, expected in (({"retry_after": iso(now + 60)}, "backoff"),
-                                  ({"result": "blocked", "retry_after": None}, "blocked")):
-            with self.subTest(expected=expected):
-                co.update(old, **changes)
-                self.assertEqual(next(p for p in self.loop.plans()
-                                      if p.agent == self.implementer).state, expected)
-        co.update(old, result="retry", retry_after=None)
-        worker = replace(self.implementer, max_attempts=1)
-        plan = co.plan(self.github.item(1), worker, ())
-        self.assertEqual(plan.state, "blocked")
-        self.assertIn("Attempt limit", plan.reason)
-        self.assertIsNone(co.claim(plan))
 
     def test_milestone_read_failure_stops_selection_without_claiming(self):
         self.add(issue())

@@ -135,36 +135,3 @@ else:
         with self.assertRaisesRegex(AgentError, "Candidate changed"):
             moved.prepare()
         self.assertFalse(moved.created)
-
-    def test_resume_fetches_existing_checkpoint_without_touching_old_worktree_or_branch(self):
-        git(self.root, "init", "-b", "main")
-        source = self.root / "file.txt"
-        source.write_text("base")
-        git(self.root, "add", "file.txt")
-        git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.com",
-            "-c", "commit.gpgsign=false", "commit", "-m", "base fixture")
-        git(self.root, "remote", "add", "origin", str(self.root))
-        previous = self.root / "old-worktree"
-        git(self.root, "worktree", "add", "-b", "feature/test", str(previous))
-        (previous / "file.txt").write_text("checkpoint")
-        git(previous, "add", "file.txt")
-        git(previous, "-c", "user.name=Test", "-c", "user.email=test@example.com",
-            "-c", "commit.gpgsign=false", "commit", "-m", "checkpoint fixture")
-        head = git(previous, "rev-parse", "HEAD")
-        (previous / "file.txt").write_text("uncommitted old work")
-        lease = {"run": "resumed", "resume_pr": 2, "resume_sha": head, "branch": "feature/test"}
-        workspace = Workspace(config(self.root), agent(self.root, worktree=True), issue(), lease, FakeGitHub(issue()))
-        branches = git(self.root, "for-each-ref", "refs/heads")
-        cwd = workspace.prepare()
-        self.assertEqual(git(cwd, "rev-parse", "HEAD"), head)
-        self.assertEqual(git(cwd, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD")
-        self.assertEqual((cwd / "file.txt").read_text(), "checkpoint")
-        workspace.cleanup()
-        self.assertEqual(source.read_text(), "base")
-        self.assertEqual((previous / "file.txt").read_text(), "uncommitted old work")
-        self.assertEqual(git(self.root, "for-each-ref", "refs/heads"), branches)
-        changed = Workspace(config(self.root), agent(self.root, worktree=True), issue(),
-                            lease | {"run": "changed", "resume_sha": "a" * 40}, FakeGitHub(issue()))
-        with self.assertRaisesRegex(AgentError, "Checkpoint changed"):
-            changed.prepare()
-        self.assertFalse(changed.created)

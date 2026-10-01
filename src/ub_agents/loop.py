@@ -97,7 +97,7 @@ class Loop:
                             priority_config.labels.index(label) < priority_config.labels.index(priority)):
                         priority, from_issue = label, number
             reasons = []
-            if plan.state == "ready" and plan.item.kind == "issue" and plan.resume_pr is None:
+            if plan.state == "ready" and plan.item.kind == "issue":
                 if active_milestone is not None and plan.item.milestone != active_milestone:
                     reasons.append(f"Waiting for active milestone #{active_milestone}")
                 if blockers:
@@ -106,12 +106,10 @@ class Loop:
                 plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons))
             ranked.append(replace(plan, priority=priority, priority_source=source,
                                   priority_from_issue=from_issue, blockers=blockers))
-        # Rank after checkpoint/recovery discovery: these are PR work even when
-        # their durable assignment is an issue. Stable sorting keeps YAML order
-        # for agents on the same item within each work class.
+        # PR work and recovery rank before new issue starts. Stable sorting keeps
+        # YAML order for agents on the same item within each work class.
         return sorted(ranked, key=lambda plan: (
-            0 if (plan.item.kind == "pr" or plan.state in {"owned", "recover"}
-                  or plan.resume_pr is not None) else 1,
+            0 if plan.item.kind == "pr" or plan.state in {"owned", "recover"} else 1,
             (priority_config.labels.index(plan.priority) if plan.priority is not None
              else len(priority_config.labels)),
             seconds(plan.item.created_at), plan.item.number))
@@ -190,19 +188,10 @@ class Loop:
                     or fresh.labels.intersection(self.config.stop_labels)):
                 raise AgentError("Trigger or candidate changed before execution")
             self.coordinator.assert_owned(lease)
-            if lease.get("resume_pr"):
-                checkpoint = self.github.item(lease["resume_pr"], "pr")
-                if (checkpoint.state != "open" or checkpoint.merged or not checkpoint.draft
-                        or checkpoint.head != lease["resume_sha"] or checkpoint.branch != lease["branch"]
-                        or checkpoint.head_repository != self.config.repository
-                        or not links_issue(checkpoint, self.config.repository, plan.item.number)):
-                    raise AgentError("Checkpoint changed before execution")
             context = {"repository": self.config.repository, "assignment": plan.item.number,
                        "kind": plan.item.kind, "title": plan.item.title, "body": plan.item.body,
                        "candidate_sha": plan.item.head, "run": lease["run"],
                        "agent": plan.agent.name, "branch": lease.get("branch")}
-            if lease.get("resume_pr"):
-                context |= {"resume_pr": lease["resume_pr"], "candidate_sha": lease["resume_sha"]}
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
             env = os.environ.copy()
@@ -213,7 +202,6 @@ class Loop:
                         "UB_AGENT_OPERATORS": json.dumps(sorted(self.coordinator.trusted_actors)),
                         "UB_AGENT_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
-            env["UB_AGENT_PR"] = str(lease.get("resume_pr") or (plan.item.number if plan.item.kind == "pr" else ""))
             instructions = self.instructions[plan.agent.name]
             if plan.agent.outcomes is not None:
                 workflow_labels = set(self.config.stop_labels)
@@ -235,10 +223,6 @@ class Loop:
             prompt = (f"You are the project-configured agent {plan.agent.name}.\n"
                       f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                       f"Project instructions:\n{instructions}\n\n"
-                      + (f"Resume existing draft PR #{lease['resume_pr']} on branch {lease['branch']}. "
-                         "The checkout is detached: push HEAD explicitly to UB_AGENT_BRANCH. "
-                         "Read the issue and this PR's feedback, continue that PR, and hand off its number; "
-                         "do not create another PR.\n\n" if lease.get("resume_pr") else "") +
                       "Read shared repository guidance and the original issue requirements, acceptance "
                       "criteria, current code/diff, and candidate-specific checks on GitHub. "
                       "Use a fresh session; do not consume implementation reasoning transcripts. "
@@ -322,9 +306,6 @@ class Loop:
             raise ValidationError("Success report left assignment trigger labels in place")
         destination = (self.github.item(outcome["handoff"], "pr")
                        if outcome.get("handoff") else current)
-        resumed = plan.resume_pr.number if plan.resume_pr else outcome.get("resume_pr")
-        if resumed and outcome.get("handoff") != resumed:
-            raise ValidationError("Resumed issue must hand off its existing PR")
         if outcome.get("handoff") and destination.draft:
             raise ValidationError(f"Handoff PR #{destination.number} is still a draft")
         if outcome["candidate_sha"] != destination.head:

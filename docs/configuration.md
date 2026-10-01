@@ -44,7 +44,7 @@ inheritance, but PRs still inherit their closing issues' own configured priority
 
 `milestones` accepts only `gate` or `ignore` and defaults to `ignore`. In `gate`
 mode, new issues wait for the oldest open milestone with open issues or PRs to
-close or empty; PR work, recovery and draft checkpoint resumption remain eligible.
+close or empty; PR work and recovery remain eligible.
 In `ignore` mode, planning and claiming do not read milestones. This repository
 explicitly sets `gate`.
 
@@ -56,8 +56,7 @@ before claiming. An open local issue inherits the highest effective priority
 of its open local dependents, directly or transitively, without changing labels.
 Cycles terminate and share the highest reachable priority. With `ignore`, links
 affect neither eligibility nor priority, and dependency reads are skipped.
-PR work, recovery, completion of started runs and draft checkpoint resumption
-remain ungated. With milestone gating, a new issue must pass both gates.
+PR work, recovery and completion of started runs remain ungated. With milestone gating, a new issue must pass both gates.
 A failed or unreadable dependency read stops selection visibly.
 Planning skips link reads only when the issue list's dependency summary reliably
 reports zero total blockers; missing or malformed summaries require a full read.
@@ -94,7 +93,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `instructions` | The agent's task file. Required with `runtime`. |
 | `command` | An argv list to run instead of an LLM session. |
 | `different-runtime-from` | Another agent's name. This agent must run on a different CLI, provider and model from the one that produced the PR's current commit; a different effort doesn't count. |
-| `worktree` | `true` runs in a private checkout: the PR's exact commit, a fresh issue branch, or its safely reusable draft checkpoint (see [coordination](coordination.md#draft-checkpoints)). |
+| `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
 | `cwd` | Directory to run in, relative to the repository root. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
@@ -242,9 +241,8 @@ variables, as do LLM runtimes:
 | `UB_AGENT_ASSIGNMENT` | Issue or PR number |
 | `UB_AGENT_RUN` | Run id |
 | `UB_AGENT_LEASE_ID` | The claim's comment id |
-| `UB_AGENT_CANDIDATE_SHA` | The PR's head commit or resumed draft checkpoint; empty for fresh issue work |
+| `UB_AGENT_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
 | `UB_AGENT_BRANCH` | The branch to work on, when known |
-| `UB_AGENT_PR` | PR number for a PR assignment or resumed issue draft; empty otherwise |
 | `UB_AGENT_OPERATORS` | Trusted accounts, for `report` |
 
 ## Commands
