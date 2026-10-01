@@ -264,8 +264,7 @@ class DependencyTests(unittest.TestCase):
             co = self.loop.coordinator
             lease = next(r for r in co.history(1) if r["kind"] == "lease")
             self.assertEqual(self.plans()[1].state, "owned")
-            self.github.change(1, labels=frozenset())
-            co.report(lease, "success", "Completed started work")
+            co.report(lease, "success", "Completed started work", outcome="done")
             return 0
 
         with patch("ub_agents.loop.supervise", side_effect=execute):
@@ -282,8 +281,7 @@ class DependencyTests(unittest.TestCase):
         lease = co.claim(self.plans()[1])
         co.update(lease, state="running", started=True)
         self.github.dependencies[1] = [31]
-        self.github.change(1, labels=frozenset())
-        co.report(lease, "success", "Started work completed")
+        co.report(lease, "success", "Started work completed", outcome="done")
         now += 61
         self.assertEqual(self.plans()[1].state, "recover")
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):

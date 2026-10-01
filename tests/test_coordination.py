@@ -91,7 +91,7 @@ class CoordinationTests(unittest.TestCase):
                          different_from="builder", triggers=("needs-review",), kind="pr")
         with patch("ub_agents.coordination.shutil.which", return_value="installed"):
             lease = self.start(agent=source)
-            outcome = self.co.report(lease, "success", "Candidate implemented", handoff=2)
+            outcome = self.co.report(lease, "success", "Candidate implemented", handoff=2, outcome="done")
             self.co.accept(lease, outcome)
             self.co.release(lease, "success", "Candidate implemented")
             candidate = replace(self.github.item(2), labels=frozenset({"needs-review"}))
@@ -101,18 +101,16 @@ class CoordinationTests(unittest.TestCase):
             with self.assertRaises(AgentError):
                 self.co.choose_runtime(replace(candidate, head="b" * 40), reviewer, self.co.history(2))
 
-    def test_completed_issue_handoff_suppresses_ready_and_second_pr_revision_keeps_budget(self):
-        loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
-        loop.coordinator = self.co
+    def test_pr_revision_runs_a_new_assignment_with_the_accumulated_budget(self):
         lease = self.start()
-        outcome = self.co.report(lease, "success", "PR opened", handoff=2)
-        loop.validate_success(self.plan(), outcome)  # ready may remain after explicit PR handoff
+        outcome = self.co.report(lease, "success", "PR opened", handoff=2, outcome="done")
         self.co.accept(lease, outcome)
         self.co.release(lease, "success", "PR opened")
-        self.assertEqual(self.plan().state, "completed")
+        # Only a human-reapplied trigger would run the issue again; the budget continues.
+        self.assertEqual((self.plan().state, self.plan().attempt), ("ready", 2))
         revision = self.start(self.github.item(2))
         self.github.change(2, labels=frozenset({"needs-review"}), head="b" * 40)
-        outcome = self.co.report(revision, "success", "Revision complete")
+        outcome = self.co.report(revision, "success", "Revision complete", outcome="done")
         self.co.accept(revision, outcome)
         self.co.release(revision, "success", "Revision complete")
         self.github.change(2, labels=frozenset({"needs-changes"}))
@@ -123,11 +121,12 @@ class CoordinationTests(unittest.TestCase):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         loop.coordinator = self.co
         lease = self.start()
-        self.co.report(lease, "success", "PR opened", handoff=2)
+        self.co.report(lease, "success", "PR opened", handoff=2, outcome="done")
         self.now += 61
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.recover(self.plan()))
-        self.assertEqual(self.plan().state, "completed")
+        self.assertEqual(self.github.item(1).labels, frozenset())
+        self.assertTrue(self.co.history(1)[1]["accepted"])
         self.assertEqual(self.co.history(1)[0]["state"], "running")  # old ownership is not rewritten
         self.assertEqual(self.co.pending_completion(self.co.history(1), self.agent.name, self.now), None)
 
@@ -135,12 +134,13 @@ class CoordinationTests(unittest.TestCase):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         loop.coordinator = self.co
         lease = self.start()
-        outcome = self.co.report(lease, "success", "PR opened", handoff=2)
+        outcome = self.co.report(lease, "success", "PR opened", handoff=2, outcome="done")
         self.co.accept(lease, outcome)
         self.now += 61
         self.assertEqual(self.plan().state, "recover")
         self.assertTrue(loop.recover(self.plan()))
-        self.assertEqual(self.plan().state, "completed")
+        self.assertEqual(self.github.item(1).labels, frozenset())
+        self.assertTrue(self.co.history(1)[1]["transition_complete"])
 
     def test_explicit_reset_does_not_erase_history(self):
         lease = self.start()
@@ -183,12 +183,12 @@ class CoordinationTests(unittest.TestCase):
         self.assertTrue(loop.recover(self.plan()))
         self.assertEqual(self.plan().state, "blocked")
 
-    def test_normal_queue_recovers_completion_even_after_trigger_removed_and_item_closed(self):
+    def test_normal_queue_recovers_completion_even_after_item_closed(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         loop.coordinator = self.co
         lease = self.start()
-        self.github.change(1, labels=frozenset(), state="closed")
-        self.co.report(lease, "success", "Requirements resolved")
+        self.github.change(1, state="closed")
+        self.co.report(lease, "success", "Requirements resolved", outcome="done")
         self.now += 61
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())

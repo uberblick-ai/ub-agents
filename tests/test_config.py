@@ -34,6 +34,8 @@ class ConfigTests(unittest.TestCase):
                     self.assertEqual(main(["--config", str(self.path), "check"]), 1)
         with self.assertRaisesRegex(AgentError, "remove a stop label"):
             self.load(base.replace("trigger: ready", "trigger: needs-human") + "    outcomes: {done: {}}\n")
+        with self.assertRaisesRegex(AgentError, "outcomes must be"):
+            self.load(base)
 
     def test_direct_command_and_distinct_clock_overrides(self):
         result = self.load('''repository: org/project
@@ -41,6 +43,7 @@ agents:
   investigate:
     command: [./scripts/task.py, --fast]
     trigger: investigate
+    outcomes: {done: {}}
     agent-timeout-minutes: 240
 limits:
   max-attempts: 7
@@ -52,7 +55,7 @@ limits:
         self.assertEqual(agent.command, (str(self.root.resolve() / "scripts/task.py"), "--fast"))
 
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n"
+        base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n    outcomes: {done: {}}\n"
         for content in [base.replace("[true]", "[echo]") + "    agent-timeout-minutes: .nan\n",
                         base.replace("[true]", "[echo]") + "    lease-minutes: 90\n",
                         base.replace("[true]", "[echo]") + "    mystery: true\n",
@@ -69,6 +72,7 @@ agents:
   investigate:
     runtime: [claude:model-a:high, codex:model-b:low]
     trigger: investigate
+    outcomes: {done: {}}
     instructions: instructions.md
 stop-labels: []
 '''
@@ -99,7 +103,7 @@ stop-labels: []
         self.assertIn(".ub-agent/", (self.root / ".gitignore").read_text())
 
     def test_queue_defaults_and_configured_priority(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         for extra in ("", "queue: {}\n", "queue:\n  milestones: ignore\n"):
             with self.subTest(extra=extra):
                 self.assertEqual(self.load(base + extra).queue, Queue())
@@ -112,7 +116,7 @@ stop-labels: []
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
 
     def test_queue_validation_through_check(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         for extra in ("queue: null", "queue: []", "queue:\n  unknown: true",
                       "queue:\n  dependencies: gate", "queue:\n  dependencies: null",
                       "queue:\n  dependencies: []", "queue:\n  dependencies: false",

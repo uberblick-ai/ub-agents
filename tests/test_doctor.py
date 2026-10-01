@@ -31,6 +31,7 @@ agents:
     runtime: codex:model-a:high
     runtime-args: [--sandbox, danger-full-access]
     trigger: ready
+    outcomes: {done: {}}
     instructions: instructions.md
 ''')
         (self.root / "instructions.md").write_text("Synthetic instructions")
@@ -291,6 +292,7 @@ agents:
         self.path.write_text(self.path.read_text() + '''  reviewer:
     runtime: codex:model-a:low
     trigger: needs-review
+    outcomes: {done: {}}
     instructions: instructions.md
     different-runtime-from: worker
 ''')
@@ -360,6 +362,7 @@ agents:
   worker:
     command: [./tools/worker-tool]
     trigger: ready
+    outcomes: {done: {}}
 ''')
         (self.root / "tools").mkdir()
         executable = self.root / "tools" / "worker-tool"

@@ -103,7 +103,7 @@ class Agent:
     max_attempts: int
     backoff_seconds: float
     max_backoff_seconds: float
-    outcomes: dict | None = None
+    outcomes: dict
 
 
 @dataclass(frozen=True)
@@ -222,23 +222,20 @@ def load_config(path):
         if clocks["max-backoff-seconds"] < clocks["retry-backoff-seconds"]:
             raise AgentError(f"{name}: max-backoff-seconds must cover retry-backoff-seconds")
         triggers = strings(item.get("trigger"), f"{name} trigger")
-        outcomes = None
-        if "outcomes" in item:
-            outcomes = item["outcomes"]
-            if not isinstance(outcomes, dict) or not outcomes:
-                raise AgentError(f"{name}: outcomes must be a nonempty mapping")
-            resolved = {}
-            for outcome, transition in outcomes.items():
-                string(outcome, f"{name} outcome")
-                mapping(transition, {"add", "remove"}, f"{name} outcome {outcome}")
-                labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
-                          for key in ("add", "remove")}
-                if set(labels["add"]).intersection(triggers):
-                    raise AgentError(f"{name}: outcome cannot add its own trigger")
-                if set(labels["remove"]).union(triggers).intersection(stop):
-                    raise AgentError(f"{name}: outcome cannot remove a stop label")
-                resolved[outcome] = labels
-            outcomes = resolved
+        declared = item.get("outcomes")
+        if not isinstance(declared, dict) or not declared:
+            raise AgentError(f"{name}: outcomes must be a nonempty mapping of names to transitions")
+        outcomes = {}
+        for outcome, transition in declared.items():
+            string(outcome, f"{name} outcome")
+            mapping(transition, {"add", "remove"}, f"{name} outcome {outcome}")
+            labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
+                      for key in ("add", "remove")}
+            if set(labels["add"]).intersection(triggers):
+                raise AgentError(f"{name}: outcome cannot add its own trigger")
+            if set(labels["remove"]).union(triggers).intersection(stop):
+                raise AgentError(f"{name}: outcome cannot remove a stop label")
+            outcomes[outcome] = labels
         agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind, worktree,
             clocks["agent-timeout-minutes"] * 60 + LEASE_GRACE_SECONDS,

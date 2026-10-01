@@ -68,8 +68,6 @@ Customize these parts:
 A trigger selects work. An agent reports a declared outcome with
 `ub-agent report --outcome NAME --summary TEXT [--handoff PR]`; the launcher validates
 it and applies the project's transition. `--status retry|blocked` changes no labels.
-Agents without `outcomes` retain the earlier contract: they change labels themselves
-and report `--status success`, and the launcher checks that the trigger was consumed.
 Review the [coordination contract](docs/coordination.md) and
 [configuration reference](docs/configuration.md) for recovery and permissions.
 

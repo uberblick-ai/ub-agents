@@ -15,7 +15,8 @@ def agent(root, **overrides):
                     runtimes=(), command=(sys.executable, "-c", "pass"), runtime_args=(),
                     different_from=None, kind="either", worktree=False,
                     lease_seconds=60, timeout_seconds=10,
-                    max_attempts=3, backoff_seconds=0, max_backoff_seconds=0)
+                    max_attempts=3, backoff_seconds=0, max_backoff_seconds=0,
+                    outcomes={"done": {"add": (), "remove": ()}})
     return Agent(**(defaults | overrides))
 
 

@@ -85,7 +85,7 @@ Each agent has exactly one of `runtime` or `command`.
 | Key | Meaning |
 |---|---|
 | `trigger` | Label, or list of labels, that starts the agent. |
-| `outcomes` | Named successful outcomes and their project-defined label transitions. Optional for legacy agents. |
+| `outcomes` | Named successful outcomes and their project-defined label transitions. Required. |
 | `kind` | `issue`, `pr` or `either` (default). |
 | `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. |
@@ -120,9 +120,8 @@ allowed). Omitted lists are empty. `check` rejects unknown keys, non-string labe
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
 
-An agent with outcomes reports `ub-agent report --outcome NAME --summary TEXT
-[--handoff PR]`. This reports success; an unknown name or `--status success` is
-rejected. The prompt lists the declarations and directs the agent to leave workflow
+An agent reports `ub-agent report --outcome NAME --summary TEXT [--handoff PR]`.
+This reports success; an unknown name is rejected. The prompt lists the declarations and directs the agent to leave workflow
 labels alone. Direct commands follow the same contract. The running lease snapshots
 the declarations; candidate configuration edits do not change the current run.
 
@@ -151,11 +150,6 @@ additions; incomplete transitions create no cross-item reservations. A crash bet
 those steps leaves items idle when no other trigger is present. An operator reset
 supersedes the old recovery; inspect both items and restore the desired triggers to
 resume. See [recovery](coordination.md#recovery) for the operator path.
-
-Without `outcomes`, the agent retains the legacy contract: change labels itself,
-report `--status success`, and let the runner validate trigger consumption (or
-closure). A valid issue-to-PR handoff retains the legacy exception permitting the
-issue trigger to remain. No runner label transition is applied.
 
 ## Limits
 
@@ -255,8 +249,8 @@ variables, as do LLM runtimes:
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent status [--json]` shows matching work, claims, attempts and outcomes.
 - `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
-  successful outcome. Use `--status retry|blocked` for failures; `--status success`
-  is only for agents without outcomes. It works only inside a supervised run.
+  successful outcome. Use `--status retry|blocked` for failures. It works only inside
+  a supervised run.
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's attempts on
   an item once you have fixed the cause.
 - `--config PATH` selects a different configuration file.

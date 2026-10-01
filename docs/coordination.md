@@ -18,12 +18,10 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   budget. Issue-to-PR handoff starts the PR's own budget while retaining source
   provenance. A crashed expired tentative claim counts conservatively. A contender
   that confirms withdrawal does not. Outcome-only recovery does not cost a start.
-- An accepted issue-to-PR handoff suppresses duplicate initial work until an
-  explicit reset, even if its trigger remains on the issue. Other successful issue
-  tasks may run again when a human reapplies their trigger. PRs returning to a
-  matching label run a new assignment with the accumulated PR budget. Reapplying a
-  trigger does not reset that budget. Legacy roles should still remove old labels;
-  declared transitions do so in the runner.
+- A successful outcome's transition removes the agent's triggers, so an item runs
+  again only when a human reapplies one. PRs returning to a matching label run a
+  new assignment with the accumulated PR budget. Reapplying a trigger does not
+  reset that budget.
 - `ub-agent retry --number N --agent NAME --reason TEXT` posts a durable reset,
   preserving history. It refuses a live lease and never revokes someone else's run.
 
@@ -169,17 +167,14 @@ ownership and create one versioned outcome comment. Human summaries lead; JSON i
 fenced in `json` blocks. Arbitrary prose is never parsed for routing.
 
 A declared outcome is reported with `--outcome NAME` and has status `success`.
-`--status retry|blocked` retains its failure meaning and changes no labels. Agents
-with declarations cannot report `--status success`; undeclared names are rejected.
-The runner also blocks records that bypass reporting validation. Agents without
-`outcomes` keep `--status success` and their own label changes.
+`--status retry|blocked` retains its failure meaning and changes no labels.
+Undeclared names are rejected, and the runner blocks records that bypass
+reporting validation.
 
 A report is initially `accepted: false`. On confirmed process/group termination,
 the launcher rereads GitHub and validates ownership, exact reported candidate SHA,
 and the original issue link for an explicit PR handoff. A handoff to a draft PR
-blocks in normal completion and before transition start in recovery. For legacy agents it checks
-consumed triggers or a closed assignment; their valid issue-to-PR handoff may leave
-an issue trigger present.
+blocks in normal completion and before transition start in recovery.
 
 For declared outcomes, the running lease snapshots allowed outcomes and their
 resolved transitions. The outcome names its declaration and stores `add`, `remove`

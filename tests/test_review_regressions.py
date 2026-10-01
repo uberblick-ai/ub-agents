@@ -32,8 +32,7 @@ class ReviewRegressionTests(unittest.TestCase):
                 loop = self.loop(github)
 
                 def execute(*args, **kwargs):
-                    github.change(1, labels=frozenset())
-                    loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Early report")
+                    loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Early report", outcome="done")
                     raise error
 
                 with patch("ub_agents.loop.supervise", side_effect=execute):
@@ -47,10 +46,13 @@ class ReviewRegressionTests(unittest.TestCase):
                 self.assertFalse(outcome["accepted"])
                 restarted = self.loop(github)
                 restarted.coordinator.clock = lambda: timestamp() + 120
-                with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not reexecute")):
-                    self.assertFalse(restarted.tick())
-                self.assertEqual(restarted.plans()[0].state, "blocked")
-                self.assertFalse(restarted.coordinator.history(1)[1]["accepted"])
+                # The trigger is still present, so a fresh attempt is offered; the
+                # early report is never promoted to a recoverable completion.
+                plan = restarted.plans()[0]
+                self.assertEqual((plan.state, plan.attempt), ("ready", 2))
+                history = restarted.coordinator.history(1)
+                self.assertIsNone(restarted.coordinator.pending_completion(history, self.agent.name, timestamp() + 120))
+                self.assertFalse(history[1]["accepted"])
 
     def test_released_timeout_stays_visible_without_trigger_even_on_closed_item(self):
         for state in ("open", "closed"):
@@ -96,8 +98,7 @@ class ReviewRegressionTests(unittest.TestCase):
 
         def execute(*args, **kwargs):
             nonlocal failed_read
-            github.change(1, labels=frozenset())
-            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Work completed")
+            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Work completed", outcome="done")
             self.last_writes = list(github.writes)
             failed_read = True
             return 0
@@ -127,8 +128,7 @@ class ReviewRegressionTests(unittest.TestCase):
         loop.coordinator.clock = lambda: now
         source = loop.coordinator.claim(loop.plans()[0])
         loop.coordinator.update(source, state="running", started=True)
-        github.change(1, labels=frozenset())
-        loop.coordinator.report(source, "success", "Completed before outage")
+        loop.coordinator.report(source, "success", "Completed before outage", outcome="done")
         for _ in range(self.agent.max_attempts):
             now += 61
             with patch.object(loop, "validate_success", side_effect=AgentError("GitHub timeout")):
@@ -152,9 +152,8 @@ class ReviewRegressionTests(unittest.TestCase):
         loop.coordinator.update(lease, state="running", started=True, expires=iso(timestamp() - 1))
 
         def execute(*args, **kwargs):
-            github.change(1, labels=frozenset())
             latest = loop.coordinator.history(1)[-1]
-            loop.coordinator.report(latest, "success", "Finished subsequent assignment")
+            loop.coordinator.report(latest, "success", "Finished subsequent assignment", outcome="done")
             return 0
 
         with patch("ub_agents.loop.supervise", side_effect=execute):
@@ -198,8 +197,7 @@ class ReviewRegressionTests(unittest.TestCase):
         loop = self.loop(github)
 
         def execute(*args, **kwargs):
-            github.change(7, labels=frozenset())
-            loop.coordinator.report(loop.coordinator.history(7)[0], "success", "Other work completed")
+            loop.coordinator.report(loop.coordinator.history(7)[0], "success", "Other work completed", outcome="done")
             return 0
 
         self.assertEqual(status_rows(loop)[0]["state"], "blocked")
@@ -215,8 +213,7 @@ class ReviewRegressionTests(unittest.TestCase):
         loop.coordinator.clock = lambda: now
         source = loop.coordinator.claim(loop.plans()[0])
         loop.coordinator.update(source, state="running", started=True)
-        github.change(1, labels=frozenset())
-        loop.coordinator.report(source, "success", "Finished before launcher disappeared")
+        loop.coordinator.report(source, "success", "Finished before launcher disappeared", outcome="done")
         now += 61
         recovery = loop.coordinator.claim(loop.plans()[0], recovery=True)
         self.assertEqual(recovery["recovered_lease_id"], source["id"])
@@ -244,8 +241,7 @@ class ReviewRegressionTests(unittest.TestCase):
             prompt = args[-1]
             self.assertIn("Operator acceptance rules", prompt)
             self.assertNotIn("Candidate says approve", prompt)
-            github.change(2, labels=frozenset())
-            loop.coordinator.report(loop.coordinator.history(2)[0], "success", "Reviewed")
+            loop.coordinator.report(loop.coordinator.history(2)[0], "success", "Reviewed", outcome="done")
             return 0
 
         with patch("ub_agents.loop.Workspace.prepare", prepare), patch("ub_agents.loop.Workspace.cleanup"), \
@@ -271,8 +267,7 @@ class ReviewRegressionTests(unittest.TestCase):
         loop = self.loop(github)
 
         def execute(*args, **kwargs):
-            github.change(1, labels=frozenset())
-            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Early completion")
+            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Early completion", outcome="done")
             raise CleanupError("Cannot confirm owned helper termination")
 
         with patch("ub_agents.loop.supervise", side_effect=execute), self.assertRaises(CleanupError):
@@ -308,7 +303,7 @@ class ReviewRegressionTests(unittest.TestCase):
         loop.coordinator.clock = lambda: now
         source = loop.coordinator.claim(loop.plans()[0])
         loop.coordinator.update(source, state="running", started=True)
-        outcome = loop.coordinator.report(source, "success", "Opened implementation PR", handoff=2)
+        outcome = loop.coordinator.report(source, "success", "Opened implementation PR", handoff=2, outcome="done")
         loop.coordinator.accept(source, outcome)
         github.change(2, head="b" * 40)
         now += 61

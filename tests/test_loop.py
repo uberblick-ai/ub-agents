@@ -26,9 +26,8 @@ class LoopTests(unittest.TestCase):
 
     def test_complete_vertical_slice_observes_durable_outcome_before_release(self):
         def execute(*args, **kwargs):
-            self.github.change(1, labels=frozenset())
             lease = self.loop.coordinator.history(1)[0]
-            self.loop.coordinator.report(lease, "success", "Requirements investigated")
+            self.loop.coordinator.report(lease, "success", "Requirements investigated", outcome="done")
             return 0
         with patch("ub_agents.loop.supervise", side_effect=execute):
             self.assertTrue(self.loop.tick())
@@ -36,6 +35,7 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(history[0]["state"], "released")
         self.assertEqual(history[0]["result"], "success")
         self.assertTrue(history[1]["accepted"])
+        self.assertEqual(self.github.item(1).labels, frozenset())  # the declared transition consumed the trigger
         self.assertTrue((self.root / ".ub-agent" / "runs" / history[0]["run"] / "events.jsonl").is_file())
 
     def test_exit_zero_without_outcome_is_retry_not_completion(self):
@@ -66,19 +66,10 @@ class LoopTests(unittest.TestCase):
         plan = self.loop.coordinator.plan(candidate, self.agent, ())
         lease = self.loop.coordinator.claim(plan)
         self.loop.coordinator.update(lease, state="running", started=True)
-        outcome = self.loop.coordinator.report(lease, "success", "Reviewed candidate")
+        outcome = self.loop.coordinator.report(lease, "success", "Reviewed candidate", outcome="done")
         self.github.change(2, labels=frozenset({"ready-to-merge"}), head="b" * 40)
         with self.assertRaises(AgentError):
             self.loop.validate_success(replace(plan, agent=reviewer), outcome)
-
-    def test_success_without_label_handoff_is_not_accepted(self):
-        def execute(*args, **kwargs):
-            self.loop.coordinator.report(self.loop.coordinator.history(1)[0], "success", "Done")
-            return 0
-        with patch("ub_agents.loop.supervise", side_effect=execute):
-            self.loop.tick()
-        self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "blocked")
-        self.assertFalse(self.loop.coordinator.history(1)[1]["accepted"])
 
     def test_issue_handoff_requires_ready_pr_in_normal_completion(self):
         for draft in (True, False):
@@ -87,8 +78,7 @@ class LoopTests(unittest.TestCase):
                 loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
 
                 def execute(*args, **kwargs):
-                    github.change(1, labels=frozenset())
-                    loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", handoff=2)
+                    loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", handoff=2, outcome="done")
                     return 0
 
                 with patch("ub_agents.loop.supervise", side_effect=execute):
@@ -110,8 +100,7 @@ class LoopTests(unittest.TestCase):
                 plan = loop.coordinator.plan(github.item(1), self.agent, ())
                 lease = loop.coordinator.claim(plan)
                 loop.coordinator.update(lease, state="running", started=True)
-                github.change(1, labels=frozenset())
-                loop.coordinator.report(lease, "success", "Done", handoff=2)
+                loop.coordinator.report(lease, "success", "Done", handoff=2, outcome="done")
                 now += 61
                 with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
                     self.assertTrue(loop.tick())
@@ -401,8 +390,7 @@ class QueueTests(unittest.TestCase):
         lease = co.claim(plan)
         co.update(lease, state="running", started=True)
         self.github.milestones[1]["state"] = "open"
-        self.github.change(2, labels=frozenset())
-        co.report(lease, "success", "Existing work completed")
+        co.report(lease, "success", "Existing work completed", outcome="done")
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
                          [(2, "owned"), (1, "ready")])
         # Recovery remains ahead of a higher-priority new start after expiry,

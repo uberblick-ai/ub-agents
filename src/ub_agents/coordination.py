@@ -74,11 +74,6 @@ class Coordinator:
             state, reason = "blocked", "Previous cleanup was unconfirmed; establish termination before an operator reset"
         elif item.labels.intersection(stop_labels):
             state, reason = "parked", "Configured stop label is present"
-        elif item.kind == "issue" and any(r["kind"] == "outcome" and r["agent"] == agent.name
-                and r.get("accepted") is True and r["status"] == "success"
-                and r.get("handoff") and self.released_success(history, r)
-                and r["id"] > self.reset_boundary(history, agent.name) for r in history):
-            state, reason = "completed", "Issue assignment completed; durable handoff suppresses duplicate pickup"
         elif finished and finished[-1].get("result") == "blocked":
             state, reason = "blocked", "Previous assignment stopped; inspect outcome and use ub-agent retry"
         elif attempt > agent.max_attempts:
@@ -125,10 +120,6 @@ class Coordinator:
             if shutil.which(runtime.cli):
                 return runtime
         raise AgentError("No eligible runtime executable is installed")
-    @staticmethod
-    def reset_boundary(history, agent):
-        return max((r["id"] for r in history if r["kind"] == "reset" and r["agent"] == agent), default=0)
-
     @staticmethod
     def released_success(history, outcome):
         source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
@@ -187,7 +178,7 @@ class Coordinator:
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
-        if not recovery and plan.agent.outcomes is not None:
+        if not recovery:
             record["outcomes"] = {
                 name: {"add": list(changes["add"]),
                        "remove": sorted(set(plan.agent.triggers).union(changes["remove"])),
@@ -256,7 +247,7 @@ class Coordinator:
             if declarations is None or outcome not in declarations or status != "success":
                 raise AgentError("Outcome is not declared by the running agent")
         elif status == "success" and declarations is not None:
-            raise AgentError("Agent declares outcomes; report --outcome NAME instead of --status success")
+            raise AgentError("Success must name a declared outcome: report --outcome NAME")
         self.assert_owned(lease)
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")

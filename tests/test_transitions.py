@@ -432,18 +432,12 @@ class TransitionTests(unittest.TestCase):
         with patch.dict(os.environ, env), patch('ub_agents.cli.GitHub', return_value=self.github), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(['report', '--outcome', 'unknown', '--summary', 'done']), 1)
-            self.assertEqual(main(['report', '--status', 'success', '--summary', 'done']), 1)
+            with self.assertRaises(SystemExit):  # --status success no longer exists
+                main(['report', '--status', 'success', '--summary', 'done'])
             self.assertEqual(len(self.loop.coordinator.history(1)), 1)
             self.assertEqual(main(['report', '--outcome', 'handed-off', '--summary', 'done']), 0)
         self.assertEqual(self.labels_changed(), [])
         self.assertEqual(self.loop.coordinator.history(1)[1]['outcome'], 'handed-off')
-
-    def test_legacy_agent_rejects_named_outcome(self):
-        self.loop = self.new_loop(replace(self.agent, outcomes=None))
-        plan = self.loop.plans()[0]
-        lease = self.loop.coordinator.claim(plan)
-        with self.assertRaisesRegex(AgentError, 'not declared'):
-            self.loop.coordinator.report(lease, 'success', 'done', outcome='handed-off')
 
     def test_prompt_lists_outcomes_and_forbids_workflow_label_changes(self):
         instructions = self.root / 'instructions.md'

@@ -189,23 +189,17 @@ class Loop:
                         "UB_AGENT_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
             instructions = self.instructions[plan.agent.name]
-            if plan.agent.outcomes is not None:
-                workflow_labels = set(self.config.stop_labels)
-                for configured in self.config.agents:
-                    workflow_labels.update(configured.triggers)
-                    for changes in (configured.outcomes or {}).values():
-                        workflow_labels.update(changes["add"])
-                        workflow_labels.update(changes["remove"])
-                reporting = (f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
-                             "Report one with ub-agent report --outcome NAME --summary 'what happened' "
-                             "[--handoff PR_NUMBER]. Do not change workflow labels "
-                             f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
-                             "Use --status retry|blocked for failures; those change no labels. ")
-            else:
-                reporting = ("Remove the triggering labels before reporting success, or close the "
-                             "assignment when policy permits. Record the explicit durable outcome with "
-                             "ub-agent report --status success|retry|blocked --summary 'what happened' "
-                             "[--handoff PR_NUMBER]. ")
+            workflow_labels = set(self.config.stop_labels)
+            for configured in self.config.agents:
+                workflow_labels.update(configured.triggers)
+                for changes in configured.outcomes.values():
+                    workflow_labels.update(changes["add"])
+                    workflow_labels.update(changes["remove"])
+            reporting = (f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
+                         "Report one with ub-agent report --outcome NAME --summary 'what happened' "
+                         "[--handoff PR_NUMBER]. Do not change workflow labels "
+                         f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
+                         "Use --status retry|blocked for failures; those change no labels. ")
             prompt = (f"You are the project-configured agent {plan.agent.name}.\n"
                       f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                       f"Project instructions:\n{instructions}\n\n"
@@ -284,10 +278,7 @@ class Loop:
 
     def validate_success(self, plan, outcome):
         current = self.github.item(plan.item.number, plan.item.kind)
-        transition = self.validate_report(outcome)
-        if (transition is None and current.state == "open" and current.labels.intersection(plan.agent.triggers)
-                and not (plan.item.kind == "issue" and outcome.get("handoff"))):
-            raise ValidationError("Success report left assignment trigger labels in place")
+        self.validate_report(outcome)
         destination = (self.github.item(outcome["handoff"], "pr")
                        if outcome.get("handoff") else current)
         if outcome.get("handoff") and destination.draft:
@@ -305,22 +296,17 @@ class Loop:
             raise ValidationError(outcome["rejected"])
         history = self.coordinator.history(outcome["assignment"])
         source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
-        declarations = source.get("outcomes") if source else None
+        declarations = source.get("outcomes", {}) if source else {}
         transition = outcome.get("transition")
         name = outcome.get("outcome")
-        if declarations is not None:
-            if name not in declarations or transition is None:
-                raise ValidationError("Success report must name a declared outcome")
-            if {k: v for k, v in transition.items() if k != "started"} != declarations[name]:
-                raise ValidationError("Reported transition does not match the running agent's declaration")
-        elif name is not None or transition is not None:
-            raise ValidationError("Outcome is not declared by the running agent")
+        if name not in declarations or transition is None:
+            raise ValidationError("Success report must name a declared outcome")
+        if {k: v for k, v in transition.items() if k != "started"} != declarations[name]:
+            raise ValidationError("Reported transition does not match the running agent's declaration")
         return transition
 
     def apply_transition(self, lease, outcome):
-        transition = outcome.get("transition")
-        if transition is None:
-            return
+        transition = outcome["transition"]
         self.coordinator.assert_owned(lease)
         assignment = self.github.item(outcome["assignment"])
         target = outcome.get("handoff") or outcome["assignment"]
@@ -361,8 +347,6 @@ class Loop:
             from dataclasses import replace
             original = replace(plan.item, head=outcome["assignment_sha"])
             try:
-                if not outcome.get("transition") and plan.item.labels.intersection(self.config.stop_labels):
-                    raise ValidationError("A configured stop label now parks the work")
                 if outcome.get("transition", {}).get("started"):
                     # Start is durable proof that success validation passed. A
                     # later head/link edit cannot strand already-applied changes;

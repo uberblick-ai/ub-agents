@@ -38,7 +38,7 @@ def parser():
     status.add_argument("--json", action="store_true", help="Emit structured status")
     report = commands.add_parser("report", help="Record a supervised run's explicit outcome on GitHub")
     verdict = report.add_mutually_exclusive_group(required=True)
-    verdict.add_argument("--status", choices=["success", "retry", "blocked"])
+    verdict.add_argument("--status", choices=["retry", "blocked"], help="Failure verdict; changes no labels")
     verdict.add_argument("--outcome", help="Declared project outcome; reports success")
     report.add_argument("--summary", required=True)
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
