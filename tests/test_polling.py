@@ -14,11 +14,12 @@ from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnershi
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop, POLL_FAILURE_LIMIT, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
 from ub_agents.records import iso, timestamp
-from tests.support import PollGitHub, RecordingRunner, agent, config, issue, pr
+from tests.support import stub_refresh, PollGitHub, RecordingRunner, agent, config, issue, pr
 
 
 class PollingTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

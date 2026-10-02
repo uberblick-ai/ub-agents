@@ -14,11 +14,12 @@ from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
 
 
 class TransitionTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

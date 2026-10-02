@@ -31,7 +31,8 @@ request and tells the operator to fix the cause and restart `ub-agent launch`.
 
 Each skipped poll prints its error and next delay, makes no GitHub writes and does
 not report an empty queue. Discovery includes fresh reads immediately before a
-claim; the lease comment write ends that poll, and failures from that write onward
+claim, including the default-branch read for instruction refresh; the lease comment
+write ends that poll, and failures from that write onward
 retain their existing handling. Ctrl-C, SIGTERM and SIGHUP interrupt retry waits.
 `launch --once` and `status` still fail on their first error.
 
@@ -199,12 +200,23 @@ Each agent has exactly one of `runtime` or `command`.
 | `outcomes` | Named successful outcomes and their project-defined label transitions. Required. |
 | `kind` | `issue`, `pr` or `either` (default). |
 | `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
-| `instructions` | The agent's task file. Required with `runtime`. |
+| `instructions` | The agent's task file. Required with `runtime`. Validated and reread from the refreshed control checkout before each new run. |
 | `command` | An argv list to run instead of an LLM session. A relative executable resolves against the configuration's directory. |
 | `different-runtime-from` | Another agent's name. This agent must run on a different CLI and model from the one that produced the PR's current commit; a different effort doesn't count. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
+
+Before each new agent run, the launcher fetches `origin` and fast-forwards the
+control checkout's default branch, then rereads the configured instruction file.
+Run `launch` from a clean checkout on that branch with no local-only commits.
+An unsafe checkout, failed Git refresh, or missing, outside-project or unreadable
+instruction file stops the launcher for the operator to fix and restart; it
+charges no attempt and does not mark the assignment blocked or retrying. Refresh
+runs only between supervised executions and cleanup hooks, and is skipped for
+durable-outcome recovery. Each prompt's text stays fixed during its run.
+`ub-agent.yaml` is not reloaded: restart the launcher for configuration changes.
+See [execution boundaries](coordination.md#execution-boundaries) for the full rules.
 
 ## Outcomes and transitions
 

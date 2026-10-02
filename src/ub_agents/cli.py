@@ -160,6 +160,9 @@ def run(args):
         return 0 if result["ok"] else 1
     config = load_config(args.config)
     if args.command == "check":
+        from .config import instruction_text
+        for agent in config.agents:
+            instruction_text(config.root, agent.instructions, f"{agent.name} instructions")
         print(f"Valid configuration: {config.repository}, {len(config.agents)} agents")
         return
     github = GitHub(config.repository)
