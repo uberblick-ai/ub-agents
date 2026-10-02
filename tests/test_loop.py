@@ -25,6 +25,16 @@ class LoopTests(unittest.TestCase):
         self.github = FakeGitHub(issue(), pr())
         self.loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
 
+    def test_prompt_requires_checks_and_report_before_ending_single_session(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        prompt = self.loop.prompt_for(plan, lease, {"earlier_branches": []}, "Project rules")
+        self.assertIn("single, non-interactive session that is never resumed", prompt)
+        self.assertIn("Ending your turn ends the run", prompt)
+        self.assertIn("Run checks in the foreground or wait for every background job to finish "
+                      "before ending your turn", prompt)
+        self.assertIn("End the run with ub-agent report", prompt)
+
     def test_complete_vertical_slice_observes_durable_outcome_before_release(self):
         def execute(*args, **kwargs):
             lease = self.loop.coordinator.history(1)[0]

@@ -472,6 +472,9 @@ class Loop:
                 workflow_labels.update(changes["add"])
                 workflow_labels.update(changes["remove"])
         return (f"You are the project-configured agent {plan.agent.name}.\n"
+                "This run is a single, non-interactive session that is never resumed. "
+                "Ending your turn ends the run. Run checks in the foreground or wait for every "
+                "background job to finish before ending your turn. End the run with ub-agent report.\n"
                 f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                 f"Project instructions:\n{instructions}\n\n"
                 "The assignment context is the issue or PR input: use its title, body, comments, "
@@ -567,6 +570,9 @@ class Loop:
             # our own trigger removal or human-gate addition for external pausing.
             self.coordinator.update_outcome(lease, outcome, transition=transition | {"started": True})
             transition = outcome["transition"]
+        # Publish pending provenance before the next role's trigger can appear.
+        # Recovery refreshes this same comment before replaying the transition.
+        self.coordinator.copy_handoff(lease, outcome)
         # Consume assignment labels before publishing the next role's trigger.
         for label in sorted(set(transition["remove"])):
             self.coordinator.assert_owned(lease)

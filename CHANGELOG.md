@@ -16,6 +16,16 @@ notes are copied from that section.
   maintainer approval. `ub-agent approve` accepts PRs, pins their head and clears
   outside comments, reviews and review comments (#39).
 
+### Fixed
+
+- Agent prompts and check-running roles require a single session that is never
+  resumed: finish checks in the foreground or wait for every background job,
+  then end the run with `ub-agent report` (#70).
+- Agents with `different-runtime-from` use only their first configured runtime when
+  the PR's current head has no accepted report from the named agent, blocking if that
+  runtime's CLI isn't installed. Pending handoffs wait for acceptance and successful
+  source release or recovery; identified sources retain the independence checks (#61).
+
 ## 0.1.5 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. Stop every launcher for a project

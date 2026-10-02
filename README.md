@@ -174,7 +174,9 @@ agents:
 - **`runtime`**: `cli:model:effort`. A list gives alternatives; the first one that is
   installed and allowed runs.
 - **`different-runtime-from`**: run on a different CLI and model from the agent that
-  produced the PR's current commit.
+  produced the PR's current commit when its accepted report identifies the source.
+  Wait for a pending handoff to finish. Otherwise, use only the first configured
+  runtime; block if its CLI is unavailable.
 - **`instructions`**: the agent's task, in your words. `init` writes starters for the
   four roles above.
 - **`worktree`**: run in a private checkout of the PR's exact commit, or on a fresh
