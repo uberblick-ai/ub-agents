@@ -21,5 +21,3 @@ Both are successful review handoffs: use `ub-agent report --outcome NAME
 
 Do not merge. Native GitHub approvals require an eligible reviewer account and remain
 subject to branch protection. Explicit outcomes do not bypass those rules.
-
-The runner applies the configured transition. Do not change workflow labels.

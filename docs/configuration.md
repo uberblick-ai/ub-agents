@@ -9,11 +9,9 @@ errors; `ub-agent check` validates the file.
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `agents` | The agents, by name. |
-| `runtimes` | Adapters for agent CLIs other than `codex` and `claude`. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | How often an idle loop checks GitHub (default 30). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
-| `operators` | Other GitHub accounts whose claims and outcomes this launcher trusts. Only the authenticated account is trusted by default. |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
@@ -40,17 +38,18 @@ log directory and deadline; surviving helpers are terminated and checked using
 the same supervision as agent processes. An already requested launcher stop does
 not skip the cleanup hook.
 
-While it still owns the run, the launcher continues lease renewal during the hook.
-Loss of ownership stops the supervised hook and preserves the worktree for recovery;
-it is not treated as a normal hook failure. Cleanup after ownership has already been
-lost runs without lease writes.
+The lease covers the hook: a claim lasts the agent timeout, the fifteen-minute grace
+and the hook timeout. If the lease nevertheless expires by wall clock during the
+hook, the supervised hook is stopped and the worktree preserved for recovery; that is
+not a normal hook failure. Cleanup after ownership has already been lost runs without
+lease writes.
 
 `UB_AGENT_CLEANUP_CONTEXT` points to a JSON file with `repository`, `run`, `agent`,
-`assignment`, `kind` (`issue` or `pr`), `handoff`, `resume_pr`, `status`, `outcome`
-(the named outcome, if any), `worktree` (absolute path) and `branch`. Unavailable
-fields are `null`. `status` is the released lease's result during later maintenance,
-otherwise the reported status known before removal, or `null`. `handoff` and
-`resume_pr` identify the related PRs. The hook also gets `UB_AGENT_REPOSITORY`,
+`assignment`, `kind` (`issue` or `pr`), `handoff`, `status`, `outcome` (the named
+outcome, if any), `worktree` (absolute path) and `branch`. Unavailable fields are
+`null`. `status` is the released lease's result during later maintenance, otherwise
+the reported status known before removal, or `null`. `handoff` is the PR the run
+handed off to. The hook also gets `UB_AGENT_REPOSITORY`,
 `UB_AGENT_RUN`, `UB_AGENT_AGENT`, `UB_AGENT_ASSIGNMENT`, `UB_AGENT_WORKTREE` and
 `UB_AGENT_BRANCH` (empty when unknown). It gets no reporting lease environment.
 
@@ -87,8 +86,8 @@ Every artifact needs an unambiguous GitHub run lease owned by the authenticated
 actor. A released lease is eligible; an expired lease requires a recorded process
 group and confirmed absence of its members. Older leases without that record stay
 uncertain. Live leases, unreadable state, redirected paths, unconfirmed cleanup and
-outcomes awaiting recovery keep artifacts. A later run resuming the same branch
-must also be eligible before branch deletion.
+outcomes awaiting recovery keep artifacts. A later run that continued the same
+branch must also be eligible before branch deletion.
 
 Local hook diagnostics are checked for released and expired runs, including when
 no hook is currently configured. Each hook directory records its process-group
@@ -134,7 +133,7 @@ inheritance, but PRs still inherit their closing issues' own configured priority
 
 `milestones` accepts only `gate` or `ignore` and defaults to `ignore`. In `gate`
 mode, new issues wait for the oldest open milestone with open issues or PRs to
-close or empty; PR work, recovery and draft checkpoint resumption remain eligible.
+close or empty; PR work and recovery remain eligible.
 In `ignore` mode, planning and claiming do not read milestones. This repository
 explicitly sets `gate`.
 
@@ -146,8 +145,7 @@ before claiming. An open local issue inherits the highest effective priority
 of its open local dependents, directly or transitively, without changing labels.
 Cycles terminate and share the highest reachable priority. With `ignore`, links
 affect neither eligibility nor priority, and dependency reads are skipped.
-PR work, recovery, completion of started runs and draft checkpoint resumption
-remain ungated. With milestone gating, a new issue must pass both gates.
+PR work, recovery and completion of started runs remain ungated. With milestone gating, a new issue must pass both gates.
 A failed or unreadable dependency read stops selection visibly.
 Planning skips link reads only when the issue list's dependency summary reliably
 reports zero total blockers; missing or malformed summaries require a full read.
@@ -178,14 +176,13 @@ Each agent has exactly one of `runtime` or `command`.
 | Key | Meaning |
 |---|---|
 | `trigger` | Label, or list of labels, that starts the agent. |
-| `outcomes` | Named successful outcomes and their project-defined label transitions. Optional for legacy agents. |
+| `outcomes` | Named successful outcomes and their project-defined label transitions. Required. |
 | `kind` | `issue`, `pr` or `either` (default). |
-| `runtime` | `cli:model:effort`, or a list of alternatives tried in order. |
+| `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. |
-| `command` | An argv list to run instead of an LLM session. |
-| `different-runtime-from` | Another agent's name. This agent must run on a different CLI, provider and model from the one that produced the PR's current commit; a different effort doesn't count. |
-| `worktree` | `true` runs in a private checkout: the PR's exact commit, a fresh issue branch, or its safely reusable draft checkpoint (see [coordination](coordination.md#draft-checkpoints)). |
-| `cwd` | Directory to run in, relative to the repository root. |
+| `command` | An argv list to run instead of an LLM session. A relative executable resolves against the configuration's directory. |
+| `different-runtime-from` | Another agent's name. This agent must run on a different CLI and model from the one that produced the PR's current commit; a different effort doesn't count. |
+| `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
 
@@ -214,11 +211,11 @@ allowed). Omitted lists are empty. `check` rejects unknown keys, non-string labe
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
 
-An agent with outcomes reports `ub-agent report --outcome NAME --summary TEXT
-[--handoff PR]`. This reports success; an unknown name or `--status success` is
-rejected. The prompt lists the declarations and directs the agent to leave workflow
-labels alone. Direct commands follow the same contract. The running lease snapshots
-the declarations; candidate configuration edits do not change the current run.
+An agent reports `ub-agent report --outcome NAME --summary TEXT [--handoff PR]`.
+This reports success; an unknown name is rejected. The prompt lists the declarations
+and directs the agent to leave workflow labels alone. Direct commands follow the same
+contract. The running lease snapshots the declarations; candidate configuration edits
+do not change the current run.
 
 After ownership, candidate SHA and issue-link validation, the runner removes all
 of this agent's trigger labels and any `remove` labels from the assignment. It adds
@@ -235,29 +232,16 @@ unpausing, a person sets the desired workflow labels or uses `ub-agent retry` to
 rerun the role. A stop label added after transition start stays in place while the
 recorded transition completes, parking the item for subsequent pickup.
 
-The outcome stores its name, resolved changes and start marker. Recovery completes
-only missing changes from that record, even after configuration changes, without
-rerunning the role or spending an attempt. Started transitions have already passed
-success validation, so recovery does not recheck the candidate SHA, issue link,
-trigger or pause state. It finishes the recorded changes even if the PR head moves,
-preserving provenance for the original SHA. Assignment removals precede destination
-additions; incomplete transitions create no cross-item reservations. A crash between
-those steps leaves items idle when no other trigger is present. An operator reset
-supersedes the old recovery; inspect both items and restore the desired triggers to
-resume. See [recovery](coordination.md#recovery) for the operator path.
-
-Without `outcomes`, the agent retains the legacy contract: change labels itself,
-report `--status success`, and let the runner validate trigger consumption (or
-closure). A valid issue-to-PR handoff retains the legacy exception permitting the
-issue trigger to remain. No runner label transition is applied.
+The outcome records its name, resolved changes and a start marker, so an
+interrupted transition is finished from that record by
+[recovery](coordination.md#recovery) without rerunning the role or spending an
+attempt.
 
 ## Limits
 
 | Key | Default | Meaning |
 |---|---|---|
-| `lease-minutes` | 60 | How long a claim lasts without renewal. |
-| `renewal-minutes` | 5 | How often the launcher renews a running claim; less than half the lease. |
-| `agent-timeout-minutes` | 180 | Deadline for one run. |
+| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim is recoverable only after the lease expires, so projects with long runs may prefer shorter per-agent timeouts. |
 | `max-attempts` | 5 | Runs per item and agent before the item stops. |
 | `retry-backoff-seconds` | 60 | First retry delay; it doubles with each attempt. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
@@ -270,8 +254,9 @@ stdin:
 - `codex:MODEL:EFFORT` runs `codex exec --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --model MODEL --effort EFFORT`.
 
-`runtime-args` are appended. They cannot change the model, the effort, or start from
-an earlier session.
+`runtime-args` are appended. They must not change the model or effort, or resume a
+session: `check` rejects those flags, because `different-runtime-from` trusts the
+recorded `cli:model:effort` and every run starts fresh.
 
 ### Runtime permissions
 
@@ -297,20 +282,6 @@ grant sufficient permissions.
 only on agents with a single runtime. Codex's `workspace-write` sandbox cannot commit in
 private worktrees, whose Git metadata lives in the main checkout.
 
-## Other agent CLIs
-
-```yaml
-runtimes:
-  example:
-    provider: example-provider
-    command: [example-cli, --model, "{model}", --effort, "{effort}"]
-    check: [example-cli, auth, status]   # optional; doctor runs it
-```
-
-An agent then uses `runtime: "example:your-model:high"`. Only `{model}` and `{effort}`
-are substituted, and no shell is involved. Without `check`, doctor reports the
-runtime's authentication as not checkable.
-
 ## Commands instead of agents
 
 ```yaml
@@ -319,11 +290,13 @@ agents:
     command: [./scripts/investigate-issue]
     kind: issue
     trigger: investigate
+    outcomes:
+      investigated: {}
     agent-timeout-minutes: 20
 ```
 
-The command records its result with `ub-agent report`. It receives these environment
-variables, as do LLM runtimes:
+The command records its result with `ub-agent report --outcome investigated --summary
+TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 
 | Variable | Value |
 |---|---|
@@ -332,10 +305,8 @@ variables, as do LLM runtimes:
 | `UB_AGENT_ASSIGNMENT` | Issue or PR number |
 | `UB_AGENT_RUN` | Run id |
 | `UB_AGENT_LEASE_ID` | The claim's comment id |
-| `UB_AGENT_CANDIDATE_SHA` | The PR's head commit or resumed draft checkpoint; empty for fresh issue work |
+| `UB_AGENT_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
 | `UB_AGENT_BRANCH` | The branch to work on, when known |
-| `UB_AGENT_PR` | PR number for a PR assignment or resumed issue draft; empty otherwise |
-| `UB_AGENT_OPERATORS` | Trusted accounts, for `report` |
 
 ## Commands
 
@@ -357,8 +328,9 @@ variables, as do LLM runtimes:
 - `ub-agent check` validates the configuration and instruction files.
 - `ub-agent doctor [--json]` checks everything `check` does, plus Python, the platform,
   `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
-  Missing trigger or outcome transition labels are required failures naming their
-  agents; missing stop labels are warnings. Both give a `gh label create` remedy.
+  A token that cannot change labels is a required failure, because the launcher
+  applies outcome transitions itself. Missing trigger or outcome transition labels
+  are required failures naming their agents; missing stop labels are warnings. Both give a `gh label create` remedy.
   Label matching is case-insensitive and an unreadable label list is a required
   failure. Runtime agents without `runtime-args` produce a warning linking the
   permission guidance. Doctor makes no writes. It exits 1 when a required
@@ -370,8 +342,8 @@ variables, as do LLM runtimes:
   removes eligible worktrees and local branches, running the project hook first.
 - `ub-agent status [--json]` shows matching work, claims, attempts and outcomes.
 - `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
-  successful outcome. Use `--status retry|blocked` for failures; `--status success`
-  is only for agents without outcomes. It works only inside a supervised run.
+  successful outcome. Use `--status retry|blocked` for failures. It works only inside
+  a supervised run.
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's attempts on
   an item once you have fixed the cause.
 - `--config PATH` selects a different configuration file.

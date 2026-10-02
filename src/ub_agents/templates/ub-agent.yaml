@@ -59,8 +59,6 @@ agents:
     agent-timeout-minutes: 180
 
 limits:
-  lease-minutes: 60
-  renewal-minutes: 5
   agent-timeout-minutes: 180
   max-attempts: 5
   retry-backoff-seconds: 60

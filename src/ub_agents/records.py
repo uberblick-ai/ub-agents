@@ -8,6 +8,20 @@ from .errors import AgentError, RecordError
 MARKER = "<!-- ub-agent:v1 -->"
 LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
 OUTCOMES = {"success", "retry", "blocked"}
+# Fields that tie an outcome, a recovery or a contender to the run that owns it.
+PROVENANCE = ("run", "agent", "actor", "runtime", "assignment", "assignment_sha")
+
+
+def same_run(record, lease):
+    return all(record.get(k) == lease.get(k) for k in PROVENANCE)
+
+
+def lease_by_id(history, lease_id):
+    return next((r for r in history if r["kind"] == "lease" and r["id"] == lease_id), None)
+
+
+def positive_int(value):
+    return type(value) is int and value >= 1
 
 
 def timestamp():
@@ -39,18 +53,18 @@ def body(record):
         description = f"{record['status']}: {record['summary']}"
     else:
         description = f"Attempt budget reset: {record['summary']}"
-    # The comment author is the actor, except on a handoff copy; empty fields are omitted.
-    shown = {k: v for k, v in record.items()
-             if v is not None and (k != "actor" or "recorded_by" in record)}
+    # The comment author is the actor; empty fields are omitted.
+    shown = {k: v for k, v in record.items() if v is not None and k != "actor"}
     return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n"
 
 
-def records(comments, trusted_actors=None):
+def records(comments, actor=None):
+    """Parse coordination records; with an actor, only that account's comments count."""
     result = []
     for comment in comments:
         if not isinstance(comment, dict):
             raise AgentError("Unreadable GitHub comment")
-        if trusted_actors is not None and not trusted_comment(comment, trusted_actors):
+        if actor is not None and not own_comment(comment, actor):
             continue
         try:
             text = comment["body"] or ""
@@ -62,32 +76,25 @@ def records(comments, trusted_actors=None):
             record = json.loads(payload[:-4])
             if not isinstance(record, dict):
                 raise ValueError("record must be a JSON object")
-            # MARKER versions the record format.
-            if "recorded_by" not in record:
-                record.setdefault("actor", comment["user"]["login"])
+            # MARKER versions the record format. Payload fields cannot grant trust:
+            # the actor is always the GitHub comment author.
+            record["actor"] = comment["user"]["login"]
             record = {"assignment_sha": None, "candidate_sha": None, "handoff": None} | record
             validate(record)
-            if "recorded_by" in record and (record["kind"] != "outcome" or not record.get("handoff")):
-                raise ValueError("recorded_by is only valid for mirrored handoff outcomes")
-            if trusted_actors is not None and record["actor"].casefold() not in trusted_actors:
-                raise ValueError("source actor is not a configured operator")
-            if record.get("recorded_by", record["actor"]).casefold() != comment["user"]["login"].casefold():
-                raise ValueError("record actor does not match GitHub comment author")
             if comment.get("issue_url"):
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
-                destination = record["handoff"] if "recorded_by" in record else record["assignment"]
-                if destination != number:
-                    raise ValueError("record is posted on the wrong assignment")
+                if number not in {record["assignment"], record["handoff"]}:
+                    raise ValueError("record is posted on the wrong item")
             result.append(record | {"id": comment["id"], "url": comment.get("html_url", "")})
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, AgentError) as exc:
             raise RecordError(f"Malformed ub-agent comment {comment.get('id', '?')}: {exc}") from exc
     return sorted(result, key=lambda record: record["id"])
 
 
-def trusted_comment(comment, trusted_actors):
+def own_comment(comment, actor):
     user = comment.get("user")
     login = user.get("login") if isinstance(user, dict) else None
-    return isinstance(login, str) and login.casefold() in trusted_actors
+    return isinstance(login, str) and login.casefold() == actor.casefold()
 
 
 def latest_leases(history):
@@ -129,13 +136,8 @@ def validate(record):
     for field in ("run", "agent", "actor", "runtime", "created"):
         if not isinstance(record.get(field), str) or not record[field]:
             raise ValueError(f"missing {field}")
-    if type(record.get("assignment")) is not int or record["assignment"] < 1:
+    if not positive_int(record.get("assignment")):
         raise ValueError("invalid assignment")
-    if record.get("resume_pr") is not None and (type(record["resume_pr"]) is not int or record["resume_pr"] < 1):
-        raise ValueError("invalid resume_pr")
-    if record.get("resume_pr") and record.get("kind") == "lease":
-        if not all(isinstance(record.get(k), str) and record[k] for k in ("branch", "resume_sha")):
-            raise ValueError("resumed lease requires branch and resume_sha")
     for field in ("assignment_sha", "candidate_sha"):
         value = record.get(field)
         if value is not None and (not isinstance(value, str) or not value):
@@ -144,7 +146,7 @@ def validate(record):
     if record.get("kind") == "lease":
         if record.get("state") not in LEASE_STATES:
             raise ValueError("invalid lease state")
-        if type(record.get("attempt")) is not int or record["attempt"] < 1:
+        if not positive_int(record.get("attempt")):
             raise ValueError("invalid attempt")
         if type(record.get("started")) is not bool:
             raise ValueError("invalid started flag")
@@ -179,7 +181,7 @@ def validate(record):
             raise ValueError("invalid rejected outcome")
         if "transition" in record:
             validate_transition(record["transition"], started=True)
-        if record.get("handoff") is not None and (type(record["handoff"]) is not int or record["handoff"] < 1):
+        if record.get("handoff") is not None and not positive_int(record["handoff"]):
             raise ValueError("invalid handoff")
     elif record.get("kind") == "reset":
         if not isinstance(record.get("summary"), str) or not record["summary"].strip():

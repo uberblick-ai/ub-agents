@@ -43,7 +43,7 @@ class Cleaner:
         self.config = config
         self.root = config.root
         self.github = github
-        self.coordinator = Coordinator(github, actor, trusted_actors=config.operators)
+        self.coordinator = Coordinator(github, actor)
         self.output = output
         self.blocked_runs = set()
         self.preview_worktrees = set()
@@ -92,8 +92,8 @@ class Cleaner:
             if (lease["agent"] != match[1] or lease["assignment"] != int(match[2])
                     or lease.get("branch") not in (None, artifact.name)):
                 raise AgentError("Branch does not match its run lease")
-            # A later resumed run can own the original branch, including in a
-            # detached worktree. Read every discovered referring assignment.
+            # A later run may have continued this branch in another worktree.
+            # Read every discovered referring assignment.
             related = {r["assignment"] for r in index if r["kind"] == "lease"
                        and r.get("branch") == artifact.name}
             for assignment in related:
@@ -172,7 +172,6 @@ class Cleaner:
             if path.exists() and str(path) not in self.preview_worktrees:
                 raise AgentError("Run still has a kept worktree")
         prs = self.github.prs_for_branch(artifact.name, state="all")
-        prs = [pr for pr in prs if pr.head_repository == self.config.repository]
         if any(pr.state == "open" for pr in prs):
             raise AgentError("Branch is the head of an open PR")
         tip = git(self.root, "rev-parse", f"refs/heads/{artifact.name}")
@@ -202,8 +201,7 @@ class Cleaner:
                and str(self.root / ".ub-agent" / "worktrees" / run) not in self.preview_worktrees
                for run in self.related_runs(artifact.name) | {artifact.run}):
             raise AgentError("Run acquired a kept worktree while checking remote history")
-        if any(pr.state == "open" and pr.head_repository == self.config.repository
-               for pr in self.github.prs_for_branch(artifact.name)):
+        if any(pr.state == "open" for pr in self.github.prs_for_branch(artifact.name)):
             raise AgentError("Branch acquired an open PR while checking remote history")
         if git(self.root, "rev-parse", f"refs/heads/{artifact.name}") != tip:
             raise AgentError("Branch tip changed while rechecking ownership")

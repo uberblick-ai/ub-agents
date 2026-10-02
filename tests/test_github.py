@@ -170,9 +170,6 @@ class GitHubTests(unittest.TestCase):
         for draft in (True, False):
             parsed = parse_item(raw | {"draft": draft}, "pr")
             self.assertEqual(parsed.draft, draft)
-            self.assertEqual(parsed.head_repository, "org/project")
-            self.assertFalse(parsed.merged)
-        self.assertTrue(parse_item(raw | {"draft": False, "merged_at": iso(1000)}, "pr").merged)
         for fields in ({}, {"draft": None}, {"draft": "false"}, {"draft": 0}):
             with self.subTest(fields=fields), self.assertRaises(AgentError):
                 parse_item(raw | fields, "pr")
@@ -232,7 +229,7 @@ class GitHubTests(unittest.TestCase):
                 comments = [{"id": i, "body": "Bot update", "user": {"login": "ci-bot"},
                              "updated_at": iso(now - 86400 + i)} for i in range(1, 151)]
                 failure = {"kind": "lease", "run": "failed", "agent": "worker",
-                           "actor": "operator", "runtime": "direct", "provider": "direct",
+                           "actor": "operator", "runtime": "direct",
                            "assignment": 42, "assignment_sha": None,
                            "created": iso(now - 86400), "expires": iso(now - 86340),
                            "state": "released", "result": "retry", "summary": "Execution timed out",

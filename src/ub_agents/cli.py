@@ -40,7 +40,7 @@ def parser():
     cleanup.add_argument("--apply", action="store_true", help="Remove eligible artifacts after rechecking")
     report = commands.add_parser("report", help="Record a supervised run's explicit outcome on GitHub")
     verdict = report.add_mutually_exclusive_group(required=True)
-    verdict.add_argument("--status", choices=["success", "retry", "blocked"])
+    verdict.add_argument("--status", choices=["retry", "blocked"], help="Failure verdict; changes no labels")
     verdict.add_argument("--outcome", help="Declared project outcome; reports success")
     report.add_argument("--summary", required=True)
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
@@ -113,19 +113,11 @@ def report_run(args):
     except ValueError as exc:
         raise AgentError("Invalid supervised assignment environment") from exc
     github = GitHub(os.environ["UB_AGENT_REPOSITORY"])
-    try:
-        operators = json.loads(os.environ.get("UB_AGENT_OPERATORS", "[]"))
-        if not isinstance(operators, list) or any(not isinstance(login, str) for login in operators):
-            raise ValueError("expected operator logins")
-    except ValueError as exc:
-        raise AgentError("Invalid supervised operator environment") from exc
-    coordinator = Coordinator(github, github.actor(), trusted_actors=operators)
+    coordinator = Coordinator(github, github.actor())
     lease = next((r for r in coordinator.history(number) if r["kind"] == "lease"
                   and r["id"] == lease_id and r["run"] == os.environ["UB_AGENT_RUN"]), None)
     if lease is None:
-        raise AgentError("Supervised lease was not found on GitHub")
-    if lease["actor"].casefold() != coordinator.actor.casefold():
-        raise AgentError("Authenticated GitHub actor does not own this run")
+        raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")
     record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
                                 outcome=args.outcome)
     print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
@@ -172,7 +164,7 @@ def run(args):
         return
     github = GitHub(config.repository)
     actor = github.actor()
-    coordinator = Coordinator(github, actor, trusted_actors=config.operators)
+    coordinator = Coordinator(github, actor)
     if args.command == "cleanup":
         from .cleanup import Cleaner
         for _, error in repository_checks(config):

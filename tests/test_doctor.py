@@ -3,6 +3,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from ub_agents.config import load_config
 from ub_agents.coordination import Coordinator
 from ub_agents.doctor import diagnose, render
 from ub_agents.errors import AgentError
-from ub_agents.execution import command_for, repository_checks, resolve_executable
+from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
 from tests.support import DoctorGitHub, RecordingRunner, issue
 
@@ -30,13 +31,15 @@ agents:
     runtime: codex:model-a:high
     runtime-args: [--sandbox, danger-full-access]
     trigger: ready
+    outcomes: {done: {}}
     instructions: instructions.md
 ''')
         (self.root / "instructions.md").write_text("Synthetic instructions")
         self.runner = RecordingRunner(self.root)
         self.github = DoctorGitHub()
         self.missing = set()
-        self.which = lambda name: None if name in self.missing else f"/tools/{name}"
+        self.which = lambda name: (shutil.which(name) if "/" in name else
+                                   None if name in self.missing else f"/tools/{name}")
 
     def diagnose(self, **overrides):
         return diagnose(self.path, **(dict(runner=self.runner, which=self.which,
@@ -94,9 +97,9 @@ agents:
                 self.assertEqual(self.cli(True)[0], 1)
 
     def test_missing_trigger_and_add_remove_transition_labels_are_required(self):
-        self.path.write_text(self.path.read_text() + '''    outcomes:
+        self.path.write_text(self.path.read_text().replace('    outcomes: {done: {}}\n', '''    outcomes:
       done: {add: [review-next], remove: [old-state]}
-''')
+'''))
         self.github.label_names = ['needs-human']
         result = self.diagnose()
         labels = self.checks(result, 'github-label')
@@ -124,9 +127,9 @@ agents:
         self.assertEqual(self.github.writes, [])
 
     def test_stop_label_used_by_a_transition_has_both_required_and_stop_checks(self):
-        self.path.write_text(self.path.read_text() + '''    outcomes:
+        self.path.write_text(self.path.read_text().replace('    outcomes: {done: {}}\n', '''    outcomes:
       needs-human: {add: [needs-human]}
-''')
+'''))
         self.github.label_names = ['ready']
         result = self.diagnose()
         self.assertFalse(result['ok'])
@@ -148,10 +151,12 @@ agents:
         self.path.write_text(self.path.read_text().replace('    runtime-args: [--sandbox, danger-full-access]\n', '') + '''  reviewer:
     runtime: [codex:model-a:high, claude:model-b:high]
     trigger: needs-review
+    outcomes: {done: {}}
     instructions: instructions.md
   command:
     command: [git, --version]
     trigger: ready
+    outcomes: {done: {}}
 ''')
         result = self.diagnose()
         self.assertTrue(result['ok'])
@@ -184,45 +189,6 @@ agents:
         self.assertTrue(result["ok"])
         self.assertEqual(self.cli()[0], 0)
         self.assertIn("  remedy: Install codex", self.capture(result))
-
-    def custom(self, check=True):
-        self.path.write_text('''repository: org/project
-runtimes:
-  custom:
-    provider: other
-    command: [custom-cli, --model, "{model}"]
-''' + ('    check: [custom-check, "{model}", "{effort}"]\n' if check else '') + '''agents:
-  worker:
-    runtime: custom:model-a:high
-    trigger: ready
-    instructions: instructions.md
-''')
-        self.runner.responses[("custom-check", "model-a", "high")] = "sk-custom-secret"
-
-    def test_custom_checks_pass_fail_timeout_and_not_checkable(self):
-        for response in ("secret stdout", subprocess.CompletedProcess([], 7, "sk-secret", "ghp-secret"),
-                         subprocess.TimeoutExpired("custom-check", 20)):
-            with self.subTest(response=response):
-                self.custom()
-                self.runner.responses[("custom-check", "model-a", "high")] = response
-                result = self.diagnose()
-                check = self.one(result, "runtime-auth")
-                self.assertEqual(check["status"], "ok" if isinstance(response, str) else "fail")
-                self.assertEqual(result["ok"], isinstance(response, str))
-                call = next(c for c in reversed(self.runner.calls) if c[0][0] == "custom-check")
-                self.assertEqual(call[1]["cwd"], self.root)
-                self.assertNotIn("env", call[1])  # Launcher environment is inherited.
-        self.custom(False)
-        self.assertEqual(self.one(self.diagnose(), "runtime-auth")["message"], "auth not checkable")
-        self.assertFalse(any(c[0][0] == "custom-cli" for c in self.runner.calls))
-        runtime = load_config(self.path).agents[0].runtimes[0]
-        self.assertEqual(command_for(load_config(self.path).agents[0], runtime), ["custom-cli", "--model", "model-a"])
-
-    def test_bad_custom_check_is_config_error(self):
-        for value in ('[]', 'null', 'check-program', '[false]'):
-            self.custom()
-            self.path.write_text(self.path.read_text().replace('[custom-check, "{model}", "{effort}"]', value))
-            self.assertEqual(self.one(self.diagnose(), "config")["status"], "fail")
 
     def test_unauthenticated_github_still_reads_repository(self):
         self.github.auth_error = AgentError("ghp-auth-secret")
@@ -257,7 +223,7 @@ runtimes:
                 result = self.diagnose()
                 self.assertFalse(result["ok"])
                 self.assertEqual(self.one(result, "config")["status"], "fail")
-                for id in ("instructions", "repository-root", "repository-remote", "runtimes", "local-state", "worktrees"):
+                for id in ("instructions", "repository-root", "repository-remote", "runtimes", "local-state"):
                     self.assertEqual(self.one(result, id)["status"], "skip")
                 for id in ("python", "platform", "git", "gh", "github-auth", "process-inspection"):
                     self.assertEqual(self.one(result, id)["status"], "ok")
@@ -288,13 +254,17 @@ runtimes:
         self.assertIn("org/project", self.one(result, "github-repository")["message"])
         self.assertIn("new-owner/new-project", self.one(result, "github-repository")["message"])
         self.github.metadata["full_name"] = "ORG/Project"
-        self.github.metadata["permissions"] = {"pull": True}
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "ok")
-        self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "warn")
+        self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "ok")
+        self.github.metadata["permissions"] = {"pull": True}
+        result = self.diagnose()
+        self.assertEqual((self.one(result, "github-permissions")["status"], result["ok"]), ("fail", False))
+        self.assertIn("triage", self.one(result, "github-permissions")["remedy"])
         self.github.repository_error = AgentError("sk-repository-secret")
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "fail")
+        self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "skip")
 
-    def test_local_state_permissions_symlink_and_ignore(self):
+    def test_local_state_symlink_and_ignore(self):
         local = self.root / ".ub-agent"
         self.assertIn("created at launch", self.one(self.diagnose(), "local-state")["message"])
         self.assertFalse(local.exists())
@@ -302,9 +272,6 @@ runtimes:
         local.mkdir(mode=0o700)
         self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "ok")
         self.assertEqual(self.one(self.diagnose(access=lambda *_: False), "local-state")["status"], "fail")
-        local.chmod(0o755)
-        self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "warn")
-        self.assertEqual(local.stat().st_mode & 0o777, 0o755)
         local.rmdir()
         local.symlink_to(self.root, target_is_directory=True)
         self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "fail")
@@ -314,20 +281,11 @@ runtimes:
         self.runner.responses[("git", "-C", str(self.root), "check-ignore", "-q", ".ub-agent/")] = subprocess.CompletedProcess([], 1, '', '')
         self.assertEqual(self.one(self.diagnose(), "local-state-ignored")["status"], "fail")
 
-    def test_worktrees_and_symlink_boundary(self):
-        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "skip")
-        self.path.write_text(self.path.read_text() + "    worktree: true\n")
-        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "ok")
-        (self.root / ".ub-agent").mkdir(mode=0o700)
-        (self.root / ".ub-agent" / "worktrees").symlink_to(self.root, target_is_directory=True)
-        self.assertEqual(self.one(self.diagnose(), "worktrees")["status"], "fail")
-        self.runner.responses[("git", "-C", str(self.root), "worktree", "list", "--porcelain")] = subprocess.CompletedProcess([], 1, '', '')
-        self.assertIn("worker", self.one(self.diagnose(), "worktrees")["message"])
-
     def test_different_runtime_no_alternative_and_partial_coverage(self):
         self.path.write_text(self.path.read_text() + '''  reviewer:
     runtime: codex:model-a:low
     trigger: needs-review
+    outcomes: {done: {}}
     instructions: instructions.md
     different-runtime-from: worker
 ''')
@@ -354,16 +312,6 @@ runtimes:
                 self.assertEqual((check["status"], check["required"]), ("fail", True))
                 self.assertIn("sandbox", check["remedy"])
 
-    def test_timeouts_continue_and_unsafe_versions_are_not_printed(self):
-        self.runner.responses[("git", "--version")] = subprocess.TimeoutExpired("git", 20)
-        self.runner.responses[("gh", "--version")] = "ghp-only-secret\n2.80.0\n"
-        result = self.diagnose()
-        self.assertIn("timed out", self.one(result, "git")["message"])
-        self.assertEqual(self.one(result, "gh")["message"], "version probe passed")
-        self.assertEqual(self.one(result, "process-inspection")["status"], "ok")
-        self.runner.responses[("codex", "--version")] = subprocess.CompletedProcess([], 8, 'sk-secret', 'ghp-secret')
-        self.assertEqual(self.one(self.diagnose(), "runtime-version")["status"], "warn")
-
     def test_auth_failure_can_use_second_runtime(self):
         self.path.write_text(self.path.read_text().replace("runtime: codex:model-a:high", "runtime: [codex:model-a:high, claude:model-b:high]"))
         self.runner.responses[("codex", "login", "status")] = subprocess.CompletedProcess([], 2, 'sk-secret', 'ghp-secret')
@@ -372,9 +320,8 @@ runtimes:
         self.assertEqual(self.checks(result, "runtime-auth")[0]["status"], "warn")
 
     def test_no_secrets_writes_new_files_or_mutating_commands(self):
-        self.custom()
         self.github.auth_error = AgentError("ghp-auth-private sk-github-private")
-        self.runner.responses[("custom-check", "model-a", "high")] = subprocess.CompletedProcess([], 6, 'sk-custom-private', 'ghp-custom-private')
+        self.runner.responses[("codex", "login", "status")] = subprocess.CompletedProcess([], 6, 'sk-custom-private', 'ghp-custom-private')
         before = sorted(p.relative_to(self.root) for p in self.root.rglob("*"))
         result = self.diagnose()
         output = self.capture(result) + self.capture(result, True)
@@ -385,28 +332,28 @@ runtimes:
         self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob("*")))
         self.assertFalse((self.root / ".ub-agent").exists())
         allowed = {("rev-parse", "--show-toplevel"), ("remote", "get-url", "origin"),
-                   ("check-ignore", "-q", ".ub-agent/"), ("worktree", "list", "--porcelain")}
+                   ("check-ignore", "-q", ".ub-agent/")}
         for command, kwargs in self.runner.calls:
             self.assertLessEqual(kwargs["timeout"], 20)
             self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
-            if command[0] == "git" and command != ("git", "--version"):
+            if command[0] == "git":
                 self.assertIn(command[3:], allowed)
 
     def test_direct_command_and_shared_executable_selection(self):
         self.path.write_text('''repository: org/project
 agents:
   worker:
-    command: [./worker-tool]
+    command: [./tools/worker-tool]
     trigger: ready
-    cwd: subdir
+    outcomes: {done: {}}
 ''')
-        (self.root / "subdir").mkdir()
-        executable = self.root / "subdir" / "worker-tool"
+        (self.root / "tools").mkdir()
+        executable = self.root / "tools" / "worker-tool"
         self.assertEqual(self.one(self.diagnose(), "command")["status"], "fail")
         executable.write_text("synthetic executable")
         executable.chmod(0o700)
         agent = load_config(self.path).agents[0]
-        self.assertEqual(resolve_executable("./worker-tool", agent.cwd), str(executable))
+        self.assertEqual(agent.command, (str(executable),))
         self.assertEqual(self.one(self.diagnose(), "command")["status"], "ok")
         self.assertIsNone(Coordinator(self.github, "operator").choose_runtime(issue(), agent, []))
         executable.chmod(0o600)
@@ -414,19 +361,7 @@ agents:
             Coordinator(self.github, "operator").choose_runtime(issue(), agent, [])
         self.assertEqual(self.one(self.diagnose(), "command")["status"], "fail")
 
-    def test_custom_executable_substitution_agrees_with_selection(self):
-        self.custom(False)
-        self.path.write_text(self.path.read_text().replace("custom-cli", '"./{model}"'))
-        executable = self.root / "model-a"
-        executable.write_text("synthetic executable")
-        executable.chmod(0o700)
-        agent = load_config(self.path).agents[0]
-        selected = Coordinator(self.github, "operator").choose_runtime(issue(), agent, [])
-        self.assertEqual(selected, agent.runtimes[0])
-        self.assertEqual(self.one(self.diagnose(), "runtime-executable")["status"], "ok")
-
     def test_launch_shares_repository_validation_and_never_runs_check(self):
-        self.custom()
         def read_git(root, *args):
             self.assertEqual(root, self.root)
             return str(root) if args[0] == "rev-parse" else "git@github.com:org/project.git"
@@ -450,12 +385,7 @@ agents:
                 loop.return_value.launch.assert_not_called()
                 self.assertEqual(git.call_count, expected_calls)
 
-    def test_version_and_config_credential_forms_are_redacted(self):
-        self.runner.responses[("gh", "--version")] = "gh version 2.80.0 ghp_version-secret sk-version-secret\nsecond line private"
-        output = self.capture(self.diagnose(), True)
-        self.assertNotIn("ghp_version-secret", output)
-        self.assertNotIn("sk-version-secret", output)
-        self.assertNotIn("second line private", output)
+    def test_config_credential_forms_are_redacted(self):
         self.path.write_text("agents: [ghp_yaml-secret, sk-yaml-secret\n")
         output = self.capture(self.diagnose())
         self.assertNotIn("ghp_yaml-secret", output)
