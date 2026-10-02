@@ -206,14 +206,16 @@ validated and its label transition finished without rerunning the role.
 success resets the count, including outcome-only recovery and PR revisions. An
 operator interrupt preserves the count and allows pickup on the next launch without
 backoff. Agent-reported `blocked` outcomes and human-paused transitions preserve the
-count and park the item. Crashes without a report, timeouts, missing reports after
-exit zero, setup failures and agent-reported `retry` increment it and retry with
-backoff. Invalid success reports, nonzero exits without a report, unconfirmed cleanup
-and unclassified failures increment it and park the item. `ub-agent retry` resets
+count and park the item. Crashes without a report, timeouts, exits without a report
+(zero or nonzero), setup failures and agent-reported `retry` increment it and retry
+with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures
+increment it and park the item. `ub-agent retry` resets
 the count to 0 and clears the parked state. The issue and handoff PR keep separate
 counts; `ub-agent status` shows the consecutive failure count in `attempts`.
 A success counts only after the launcher has checked the result on GitHub; an exit
 code alone never does.
+A report followed by a nonzero exit is validated and applied normally after
+confirmed cleanup; the launcher logs the exit code.
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
 transition before it starts. After removing it, set the workflow labels you want or

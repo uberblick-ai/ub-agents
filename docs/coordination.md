@@ -31,8 +31,8 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 | Accepted success at completion or through outcome-only recovery | Reset to 0 | Normal transition |
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
 | Agent reports `--status blocked`; transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
-| Crash before a report (expired lease without an outcome), timeout, exit 0 without a report, `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
-| Invalid or rejected success report, nonzero exit without a report, unconfirmed cleanup, or unclassified failure | +1 | Parked for a human; never retried automatically |
+| Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
+| Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Parked for a human; never retried automatically |
 
 A human pause takes precedence over the rejected-success rule when it is the
 reason a transition cannot start. Confirmed claim withdrawals cost nothing.
@@ -187,9 +187,13 @@ durable rejection, persist `started: true`, remove assignment labels, add
 destination labels, persist `transition_complete: true`, accept the outcome, copy
 it to the handoff PR, and release.
 
-Exit zero without an outcome is a protocol failure and a bounded retry. Nonzero
-without an explicit retry outcome blocks for operator attention; stderr prose is
-never interpreted. Timeouts produce durable retry outcomes after confirmed cleanup.
+An exit without an outcome, zero or nonzero, increments the consecutive failure
+count and retries with backoff until `max-attempts`, then parks. A report made
+before a nonzero exit is kept: after confirmed cleanup the launcher validates and
+applies it as it would after exit zero, including its count effect, label transition
+and handoff provenance. The exit code is logged in the run's `events.jsonl`; agent
+output is never interpreted. Invalid or rejected success reports still park
+immediately. Timeouts produce durable retry outcomes after confirmed cleanup.
 Interrupts release with a retry verdict but preserve the failure count and add no
 backoff. Explicit blocked outcomes and exhausted budgets require a
 reasoned operator reset. The lease's released `result` records the launcher's final
