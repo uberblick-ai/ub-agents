@@ -23,12 +23,14 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   again only when a human reapplies one. An accepted success resets that agent's
   count on that item, including a resumed or revised PR and outcome-only recovery.
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets that count to 0 and
-  clears its parked state and backoff, preserving history. It refuses a live lease
+  clears its failure block and backoff, preserving history. Approval parking still
+  requires maintainer approval. It refuses a live lease
   and never revokes someone else's run. It does not restore workflow labels.
 
 | How a run ends | Count | Afterwards |
 |---|---|---|
 | Accepted success at completion or through outcome-only recovery | Reset to 0 | Normal transition |
+| Approval fails at pickup or after claiming | Unchanged | Parked until approved, without `retry` |
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
 | Agent reports `--status blocked`; transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
@@ -54,7 +56,11 @@ this change does not reclassify them. Use `ub-agent retry` to clear them.
 
 ## Selection order
 
-1. Eligibility first: live claims, stop labels, retry backoff and attempt limits.
+1. Eligibility first: live claims, stop labels, retry backoff, attempt limits and
+   [maintainer starts and outside-input approval](approvals.md). Every issue run
+   needs a start; outside PRs also need an eligible head. Trusted PRs need no start.
+   Outside feedback suspends outside PRs, while issues and trusted PRs only exclude
+   uncleared feedback.
 2. PR work before new issue starts: PR assignments, recovery and completion of
    already-started runs. Neither queue gate holds back this work.
 3. New issues pass the milestone gate and the dependency gate when configured, as
@@ -72,6 +78,31 @@ contention, and there is no global order across machines. Dependency reads skip
 issues whose list summary reliably reports zero blockers; a failed read stops
 selection rather than becoming an empty list. Like milestone rechecks, this is
 cooperative observation, not an atomic snapshot.
+
+## Assignment input
+
+Approval checks at pickup park disallowed items with their reason, without claims,
+writes or attempts. After winning a claim, the launcher rereads and validates input.
+A failed check withdraws that claim before execution, preserves attempts and returns
+the item to parked; approval makes it eligible without `ub-agent retry`. Preparation
+uses the same gate: a maintainer's `needs-preparation` starts it, and the preparer's
+rewrite is trusted. There is no switch to bypass enforcement.
+
+Context holds the post-claim title, body and trusted or cleared outside comments.
+PR context adds the assigned head, reviews and review comments. Uncleared and
+later-edited outside feedback, coordination records and approval records are
+excluded. The prompt makes this snapshot the assignment input; other GitHub
+comments are not input. Outside changes during execution do not stop that run,
+replace its context or gate its durable completion and recovery.
+
+An outside PR head requires a valid pinned approval record, a maintainer approving
+review on that head, or an accepted agent outcome from an eligible assignment head
+when the head repository is the base repository. Changed fork heads need explicit
+maintainer approval, even if an accepted successful run observed them.
+A trigger label alone cannot identify a pushed head. Fork PR review is supported;
+agent revision of a fork PR remains blocked. `ub-agent approve --number N` accepts
+issues and PRs and clears the outside feedback it records; PR records also pin the
+head. See the [complete PR rules](approvals.md#pull-requests).
 
 ## Trusted comments
 
@@ -235,9 +266,9 @@ and for an issue handoff that the PR is ready, links the issue, and that no othe
 open PR sits on an earlier run branch. It then applies the transition as the
 [configuration reference](configuration.md#outcomes-and-transitions) describes:
 reread both items, block on a missing trigger or pause on a stop label with a
-durable rejection, persist `started: true`, remove assignment labels, add
-destination labels, persist `transition_complete: true`, accept the outcome, copy
-it to the handoff PR, and release.
+durable rejection, persist `started: true`, copy the pending outcome to the handoff
+PR, remove assignment labels, add destination labels, persist
+`transition_complete: true`, accept the outcome, update its handoff copy, and release.
 
 An exit without an outcome, zero or nonzero, increments the consecutive failure
 count and retries with backoff until `max-attempts`, then parks. A report made
@@ -289,7 +320,7 @@ the blockage, and releases. Repeated recovery claims cost no attempts, and a cra
 during recovery recovers again without execution. A started transition has already
 passed validation, so recovery finishes its recorded changes even if the PR head or
 issue link changed since; provenance keeps the originally validated SHA, so an
-independent role blocks on a newer head until a new implementation outcome exists.
+independent role uses the missing-source fallback on a newer head.
 An unstarted transition is validated in full, and a durably rejected outcome is
 never applied later. Replay treats removing an absent label or adding a present one
 as a no-op; a label in both lists ends up added.
@@ -305,14 +336,32 @@ host has died.
 
 ## Runtime independence and candidate provenance
 
-`different-runtime-from: NAME` requires accepted source provenance for the **current
-PR head**, backed by a successful source release or successful outcome recovery.
-Source issue outcomes are copied to the PR at handoff. A revision records provenance
-for its new head. Missing/unaccepted/stale provenance blocks; the rule never falls
-back to a guessed author or runtime.
+`different-runtime-from: NAME` requires a PR. When an accepted report from `NAME`
+identifies the source runtime for the **current PR head**, it must be backed by a
+successful source release or successful outcome recovery; invalid source provenance
+still blocks. Source issue outcomes are copied to the PR before the handoff's
+trigger labels are added, then the same copy is updated on acceptance. A revision
+records provenance for its new head.
 
-The eligible runtime must have a different CLI **and** model from the source;
-`codex` and `claude` imply OpenAI and Anthropic. Effort is ignored. Restarting the
+A started, unfinished handoff for the current head blocks the independent role
+until acceptance and successful source release or recovery. A failure while
+publishing the pending copy prevents trigger publication. A failure while accepting
+the copy leaves the pending record in place; lease expiry alone does not enable the
+fallback. Recovery repairs the same comment without executing the source again.
+Planning rereads the source outcome and lease, so a rejected report, a failed
+supervised verdict or an operator reset that abandons the handoff no longer makes
+its stale copy block the fallback.
+
+If no accepted report from `NAME` exists for the current head, the agent uses only
+its first configured runtime, without filtering, unless a started handoff is still
+pending. This covers missing, rejected, other unaccepted and earlier-head reports.
+If that runtime's CLI isn't installed, planning blocks
+with `No eligible runtime executable is installed`; later alternatives are not
+tried. The launcher does not detect authorship or infer the unknown source runtime.
+
+When the source is identified, the eligible runtime must have a different CLI
+**and** model from the source; `codex` and `claude` imply OpenAI and Anthropic.
+Effort is ignored. Restarting the
 same author/runtime with a fresh run ID cannot satisfy this. Configured identity is
 the contract: use concrete model identifiers, since the launcher cannot attest to a
 provider's alias resolution.

@@ -84,23 +84,95 @@ class CoordinationTests(unittest.TestCase):
         with self.assertRaises(AgentError):
             records([comment])
 
+    def test_missing_provenance_plans_first_runtime(self):
+        first = Runtime("codex", "model-a", "high")
+        reviewer = agent(self.root, name="checker", command=(),
+                         runtimes=(first, Runtime("claude", "model-b", "high")),
+                         different_from="builder", triggers=("needs-review",), kind="pr")
+        candidate = pr(labels=("needs-review",))
+        with patch("ub_agents.coordination.shutil.which", return_value="installed") as which:
+            plan = self.plan(candidate, reviewer)
+        self.assertEqual((plan.state, plan.runtime), ("ready", first))
+        which.assert_called_once_with("codex")
+
+    def test_missing_provenance_blocks_when_only_later_runtime_is_installed(self):
+        reviewer = agent(self.root, name="checker", command=(),
+                         runtimes=(Runtime("codex", "model-a", "high"), Runtime("claude", "model-b", "high")),
+                         different_from="builder", triggers=("needs-review",), kind="pr")
+        with patch("ub_agents.coordination.shutil.which",
+                   side_effect=lambda cli: "installed" if cli == "claude" else None) as which:
+            plan = self.plan(pr(labels=("needs-review",)), reviewer)
+        self.assertEqual((plan.state, plan.runtime), ("blocked", None))
+        self.assertEqual(plan.reason, "No eligible runtime executable is installed")
+        which.assert_called_once_with("codex")
+
+    def test_unaccepted_source_report_plans_first_runtime(self):
+        first = Runtime("codex", "model-a", "high")
+        source = agent(self.root, name="builder", command=(), runtimes=(first,))
+        reviewer = agent(self.root, name="checker", command=(),
+                         runtimes=(first, Runtime("claude", "model-b", "high")),
+                         different_from="builder", triggers=("needs-review",), kind="pr")
+        with patch("ub_agents.coordination.shutil.which", return_value="installed"):
+            lease = self.start(self.github.item(2), source)
+            self.co.report(lease, "success", "Unaccepted revision", outcome="done")
+            self.co.release(lease, "success", "Unaccepted revision")
+            plan = self.plan(pr(labels=("needs-review",)), reviewer)
+        self.assertEqual((plan.state, plan.runtime), ("ready", first))
+
+    def test_different_runtime_still_requires_pr_without_provenance(self):
+        reviewer = agent(self.root, command=(), runtimes=(Runtime("codex", "model-a", "high"),),
+                         different_from="builder")
+        plan = self.plan(agent=reviewer)
+        self.assertEqual(plan.state, "blocked")
+        self.assertEqual(plan.reason, "Independent candidate execution requires a PR")
+
+    def test_stale_pending_copy_does_not_block_rejected_or_failed_source(self):
+        for verdict in ("rejected", "failed"):
+            with self.subTest(verdict=verdict):
+                self.setUp()
+                first = Runtime("codex", "model-a", "high")
+                source = agent(self.root, name="builder", command=(), runtimes=(first,))
+                reviewer = agent(self.root, name="checker", command=(),
+                                 runtimes=(first, Runtime("claude", "model-b", "high")),
+                                 different_from="builder", triggers=("needs-review",), kind="pr")
+                with patch("ub_agents.coordination.shutil.which", return_value="installed"):
+                    lease = self.start(agent=source)
+                    outcome = self.co.report(lease, "success", "Candidate implemented", handoff=2, outcome="done")
+                    self.co.update_outcome(lease, outcome, transition=outcome["transition"] | {"started": True})
+                    self.co.copy_handoff(lease, outcome)
+                    candidate = pr(labels=("needs-review",))
+                    self.assertEqual(self.plan(candidate, reviewer).state, "blocked")
+                    newer = self.plan(replace(candidate, head="b" * 40), reviewer)
+                    self.assertEqual((newer.state, newer.runtime), ("ready", first))
+                    if verdict == "rejected":
+                        self.co.update_outcome(lease, outcome, rejected="Handoff rejected")
+                    else:
+                        self.co.update(lease, result="blocked", attempt_effect="failure")
+                    plan = self.plan(candidate, reviewer)
+                self.assertEqual((plan.state, plan.runtime), ("ready", first))
+
     def test_runtime_exclusion_uses_exact_accepted_candidate_and_not_effort_or_account(self):
         codex = Runtime("codex", "model-a", "high")
         claude = Runtime("claude", "model-b", "high")
         source = agent(self.root, name="builder", command=(), runtimes=(codex,))
-        reviewer = agent(self.root, name="checker", command=(), runtimes=(replace(codex, effort="low"), claude),
+        first = replace(codex, effort="low")
+        reviewer = agent(self.root, name="checker", command=(),
+                         runtimes=(first, replace(codex, model="model-b"), replace(claude, model="model-a"), claude),
                          different_from="builder", triggers=("needs-review",), kind="pr")
         with patch("ub_agents.coordination.shutil.which", return_value="installed"):
             lease = self.start(agent=source)
             outcome = self.co.report(lease, "success", "Candidate implemented", handoff=2, outcome="done")
             self.co.accept(lease, outcome)
-            self.co.release(lease, "success", "Candidate implemented")
             candidate = replace(self.github.item(2), labels=frozenset({"needs-review"}))
-            self.assertEqual(self.co.choose_runtime(candidate, reviewer, self.co.history(2)), claude)
-            with self.assertRaises(AgentError):
+            with self.assertRaisesRegex(AgentError, "no successfully released source lease"):
+                self.co.choose_runtime(candidate, reviewer, self.co.history(2))
+            self.co.release(lease, "success", "Candidate implemented")
+            plan = self.plan(candidate, reviewer)
+            self.assertEqual((plan.state, plan.runtime), ("ready", claude))
+            with self.assertRaisesRegex(AgentError, "No runtime has a different CLI and model"):
                 self.co.choose_runtime(candidate, replace(reviewer, runtimes=(replace(codex, effort="low"),)), self.co.history(2))
-            with self.assertRaises(AgentError):
-                self.co.choose_runtime(replace(candidate, head="b" * 40), reviewer, self.co.history(2))
+            plan = self.plan(replace(candidate, head="b" * 40), reviewer)
+            self.assertEqual((plan.state, plan.runtime), ("ready", first))
 
     def test_pr_revision_and_reapplied_issue_trigger_have_reset_failure_budgets(self):
         lease = self.start()
@@ -296,6 +368,7 @@ class TrustTests(unittest.TestCase):
         ]
         for index, record in enumerate(forged, 1000):
             github.store[1].append({"id": index, "body": body(record), "user": {"login": "drive-by"},
+                                   "created_at": iso(timestamp()), "updated_at": iso(timestamp()),
                                    "issue_url": "https://api.github.com/repos/org/project/issues/1"})
         github.store[7] = [{"id": 2000, "body": MARKER + "\nquoting a record",
                             "user": {"login": "someone"}}]

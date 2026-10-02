@@ -6,11 +6,25 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- The launcher enforces maintainer starts and outside-input approvals for every
+  issue and PR run, including preparation. Failed pickup or post-claim checks park
+  work without spending attempts; agent context includes only trusted or cleared
+  feedback. Outside PRs require an approved head, with accepted agent revisions
+  in the base repository inheriting eligibility; changed fork heads need explicit
+  maintainer approval. `ub-agent approve` accepts PRs, pins their head and clears
+  outside comments, reviews and review comments (#39).
+
 ### Fixed
 
 - Agent prompts and check-running roles require a single session that is never
   resumed: finish checks in the foreground or wait for every background job,
   then end the run with `ub-agent report` (#70).
+- Agents with `different-runtime-from` use only their first configured runtime when
+  the PR's current head has no accepted report from the named agent, blocking if that
+  runtime's CLI isn't installed. Pending handoffs wait for acceptance and successful
+  source release or recovery; identified sources retain the independence checks (#61).
 - Claude runs record tool calls, tool results and the final result, including
   permission denials, in `process.log` using verbose streaming JSON. `check` rejects
   Claude `runtime-args` that override `--output-format` (#68).

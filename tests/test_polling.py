@@ -74,7 +74,7 @@ class PollingTests(unittest.TestCase):
 
     def test_failed_reads_through_claim_revalidation_never_write(self):
         cases = [("observe", [], Queue()), ("repository_comments", [], Queue()),
-                 ("comments", [], Queue()), ("comments", [None], Queue()),
+                 ("comments", [], Queue()), ("comments", [None, None], Queue()),
                  ("item", [], Queue()), ("active_milestone", [], Queue(milestones="gate")),
                  ("active_milestone", [None], Queue(milestones="gate")),
                  ("blocked_by", [], Queue()), ("blocked_by", [None], Queue())]
@@ -366,7 +366,7 @@ class PollingTests(unittest.TestCase):
                 if stage == "lease write":
                     failure_patch = patch.object(self.github, "create_comment", side_effect=failure)
                 elif stage == "election read":
-                    self.github.read_results["comments"] = [None, None, failure]
+                    self.github.read_results["comments"] = [None, None, None, failure]
                     failure_patch = patch("ub_agents.loop.supervise")
                 else:
                     # A lost claim can return False and try another item in the same
@@ -402,7 +402,7 @@ class PollingTests(unittest.TestCase):
         lease = self.loop.coordinator.claim(plan)
         self.loop.coordinator.update(lease, state="running", started=True)
         self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
-        self.loop.coordinator.update(lease, expires=iso(timestamp() - 1))
+        self.loop.coordinator.clock = lambda: timestamp() + 61
         writes = list(self.github.writes)
         self.github.read_results["comments"] = [None, self.http_error()]
 

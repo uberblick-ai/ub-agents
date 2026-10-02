@@ -50,7 +50,7 @@ def parser():
     retry.add_argument("--number", type=int, required=True)
     retry.add_argument("--agent", required=True)
     retry.add_argument("--reason", required=True)
-    approve = commands.add_parser("approve", help="Approve current issue content and outside comments as a maintainer")
+    approve = commands.add_parser("approve", help="Approve current issue or PR input as a maintainer")
     approve.add_argument("--number", type=int, required=True)
     return result
 
@@ -134,6 +134,10 @@ def status_rows(loop):
             history = loop.coordinator.history(plan.item.number)
         except RecordError:
             history = []  # The plan already displays the item's coordination error.
+        except AgentError:
+            if plan.state != "parked" or "unreadable" not in plan.reason:
+                raise
+            history = []  # No authority or attempt count can be recovered from unreadable input.
         active = live_leases(history, timestamp())
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None
