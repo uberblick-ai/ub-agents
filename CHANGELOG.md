@@ -6,6 +6,17 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Before each new claim, the launcher reloads `ub-agent.yaml` from its refreshed
+  checkout and replans with the current agent, triggers, runtime and outcomes.
+  Each run keeps its claimed configuration; invalid reloads stop without charging
+  an attempt (#52).
+- SIGTERM stops further claims, lets the current run or recovery finish its report,
+  label transitions and cleanup, and exits 0; idle launchers exit promptly. SIGINT
+  and SIGHUP still terminate active execution, including during a graceful stop
+  (#52).
+
 ## 0.1.4 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. The launcher now stops on a dirty

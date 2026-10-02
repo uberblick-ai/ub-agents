@@ -5,28 +5,46 @@ import os
 import threading
 from dataclasses import replace
 
+from .config import instruction_text, load_config
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
-from .execution import Workspace, command_for, supervise
+from .execution import Workspace, command_for, repository_checks, supervise
 from .github import closing_issues, links_issue
 from .hooks import run_hook
 from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
-from .refresh import refresh_instructions
+from .refresh import refresh_checkout, refresh_instructions
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
 POLL_FAILURE_LIMIT = 6
 
 
+class _GracefulStop(Exception):
+    pass
+
+
+class _InvalidReload(AgentError):
+    pass
+
+
 class Loop:
-    def __init__(self, config, github, actor, stop_event=None, output=print):
+    def __init__(self, config, github, actor, stop_event=None, output=print,
+                 config_path=None, interrupt_event=None):
         self.config = config
         self.github = github
         self.coordinator = Coordinator(github, actor, queue=config.queue)
         self.stop_event = stop_event or threading.Event()
+        self.interrupt_event = interrupt_event or self.stop_event
+        self.config_path = config_path
         self.output = output
+
+    def _before_claim(self):
+        if self.interrupt_event.is_set():
+            raise KeyboardInterrupt
+        if self.stop_event.is_set():
+            raise _GracefulStop
 
     def plans(self):
         plans = []
@@ -118,12 +136,15 @@ class Loop:
             seconds(plan.item.created_at), plan.item.number))
 
     def tick(self):
+        config = self.config
         for plan in self.plans():
-            if self.stop_event.is_set():
-                raise KeyboardInterrupt
+            self._before_claim()
             if plan.state == "ready":
                 if self.execute(plan):
                     return True
+                if self.config != config:
+                    # Remaining discovery plans belong to the old configuration.
+                    return False
             elif plan.state == "recover":
                 if self.recover(plan):
                     return True
@@ -134,9 +155,31 @@ class Loop:
     def execute(self, plan):
         # Between supervised runs and cleanup hooks, before any assignment writes.
         # Refresh errors belong to the operator, not to an assignment attempt.
-        instructions = refresh_instructions(self.config, plan.agent, self.github)
-        if self.stop_event.is_set():
-            raise KeyboardInterrupt
+        if self.config_path is None:
+            instructions = refresh_instructions(self.config, plan.agent, self.github)
+        else:
+            refresh_checkout(self.config, self.github)
+            try:
+                config = load_config(self.config_path)
+                texts = {a.name: instruction_text(config.root, a.instructions, f"{a.name} instructions")
+                         for a in config.agents}
+            except AgentError as exc:
+                # Configuration errors stop with the same diagnostic as check,
+                # without entering discovery retries or writing an assignment.
+                raise _InvalidReload(str(exc)) from exc
+            if config.repository != self.github.repository:
+                for _, error in repository_checks(config):
+                    if error is not None:
+                        raise error
+                self.github.repository = config.repository
+            self.config = config
+            self.coordinator.queue = config.queue
+            plan = next((p for p in self.plans() if p.item.number == plan.item.number
+                         and p.agent.name == plan.agent.name and p.state == "ready"), None)
+            if plan is None:
+                return False
+            instructions = texts[plan.agent.name]
+        self._before_claim()
         lease = self.coordinator.claim(plan, self.config.stop_labels, before_write=self._end_poll)
         if lease is None:
             return False
@@ -238,7 +281,7 @@ class Loop:
             diagnostic("started", cwd=str(cwd))
             setup = False
             code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
-                             plan.agent.timeout_seconds, self.stop_event,
+                             plan.agent.timeout_seconds, self.interrupt_event,
                              self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
                              expires=seconds(lease["expires"]), process_started=process_started)
             # No acceptance or release until all attributable execution has ended.
@@ -473,6 +516,7 @@ class Loop:
         return True
 
     def _end_poll(self):
+        self._before_claim()
         # Even an unsuccessful lease write ends discovery. Never retry a tick that
         # may already have written a claim or withdrawn from a claim election.
         self._poll_complete = True
@@ -483,7 +527,9 @@ class Loop:
             self._poll_complete = False
             try:
                 worked = self.tick()
-            except (CleanupError, LostOwnership, RecordError):
+            except _GracefulStop:
+                return
+            except (_InvalidReload, CleanupError, LostOwnership, RecordError):
                 raise
             except AgentError as exc:
                 if once or self._poll_complete:
@@ -505,9 +551,14 @@ class Loop:
                 self.stop_event.wait(delay)
                 continue
             failures = 0
+            if self.interrupt_event.is_set():
+                raise KeyboardInterrupt
+            if self.stop_event.is_set():
+                return
             if once:
                 return
             if not worked:
                 self.output("Waiting for eligible GitHub work")
                 self.stop_event.wait(self.config.poll_seconds)
-        raise KeyboardInterrupt
+        if self.interrupt_event.is_set():
+            raise KeyboardInterrupt

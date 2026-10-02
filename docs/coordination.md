@@ -282,8 +282,9 @@ normally; no credentials or grants are copied or added. `runtime-args` is the
 operator's explicit extension. All sessions start fresh. Before claiming each new
 agent run, the launcher fetches the repository's default branch from `origin` and
 fast-forwards the operator's control checkout (the root holding `ub-agent.yaml`).
-It then validates and rereads that role's configured Markdown. Instruction text
-is fixed for that run's prompt and is never cached across runs, including private
+It then reloads `ub-agent.yaml`, replans the claim, and validates and rereads the
+configured Markdown. Configuration and instruction text stay fixed for that run
+and are never cached across runs, including private
 PR executions. Candidate edits to those files are changes to inspect, not
 replacement policy for the assignment. Shared candidate guidance
 is still task input; an independent agent is directed to use the configured task
@@ -295,8 +296,9 @@ and does not refresh. A clean, already-current checkout needs no merge. Refresh
 requires the default branch to be checked out, no staged, modified or untracked
 non-ignored files, and no local commits absent from `origin`. It never resets,
 stashes or switches branches, and refuses to overwrite ignored local files.
-Incoming instruction paths and text are validated before advancing HEAD; missing,
-outside-project or unreadable instructions stop the launcher. Unsafe checkout
+After the fast-forward, configuration and instruction paths and text are validated;
+invalid configuration or missing, outside-project or unreadable instructions stop
+the launcher. Unsafe checkout
 state, fetch or fast-forward failures also stop it with a nonzero exit and a
 message telling the operator what to fix before restarting. These failures do
 not claim an assignment, charge an attempt, or mark work blocked or retrying.
@@ -305,12 +307,18 @@ The GitHub read of the default branch is part of pre-claim discovery. Continuous
 launch retries its transient failures under the [poll limits](configuration.md#top-level);
 Git fetch and local checkout or instruction failures still stop immediately.
 
-`ub-agent.yaml` remains the configuration loaded at launcher startup; restart to
-apply configuration changes. New issue worktrees still start from the remote
+`ub-agent.yaml` is reloaded before each new execution claim. If the refreshed
+configuration no longer plans the item for that agent, it is not claimed. New
+issue worktrees still start from the remote
 default branch. PR worktrees retain their exact candidate SHA. Agents continuing
 draft checkpoints still fetch and check out their exact heads; refresh never
 rebases them. Coordination between two launchers sharing a checkout, or a concurrent
 manual cleanup, is outside this serial execution boundary.
+
+SIGTERM stops further claims and drains the current execution or recovery, including
+reporting, transitions and cleanup, before exiting 0. Idle waits wake promptly.
+SIGINT and SIGHUP still terminate active execution, including during this drain.
+Launcher errors retain their nonzero exit. Code updates require a launcher restart.
 
 Each process owns a new POSIX session/group. Termination sends TERM then KILL and
 checks that no live owned group members remain. Even failed process inspection

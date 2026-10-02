@@ -79,9 +79,9 @@ def validate_incoming(root, head, path, where, links=0):
     raise AgentError(f"{where} is not an instruction file: {path}")
 
 
-def refresh_instructions(config, agent, github):
+def refresh_checkout(config, github, agent=None):
     root = config.root
-    where = f"{agent.name} instructions"
+    where = f"{agent.name} instructions" if agent else None
     try:
         default = github.default_branch()
         branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
@@ -106,8 +106,9 @@ def refresh_instructions(config, agent, github):
         if behind:
             # Check filesystem readability before a merge too. Git's object
             # database alone cannot diagnose permissions on the control checkout.
-            instruction_text(root, agent.instructions, where)
-            validate_incoming(root, head, agent.instructions, where)
+            if agent is not None:
+                instruction_text(root, agent.instructions, where)
+                validate_incoming(root, head, agent.instructions, where)
             try:
                 # Never inherit autostash or execute checkout-mutating merge hooks.
                 git(root, "-c", "merge.autostash=false", "-c", "core.hooksPath=/dev/null",
@@ -115,8 +116,8 @@ def refresh_instructions(config, agent, github):
             except AgentError as exc:
                 raise AgentError(f"fast-forward to origin/{default} failed; fix the checkout "
                                  f"before restarting: {exc}") from exc
-        # This text belongs to this run, even if a candidate edits its own copy.
-        return instruction_text(root, agent.instructions, where)
+        if agent is not None:
+            return instruction_text(root, agent.instructions, where)
     except GitHubError:
         # This pre-claim read is discovery: preserve its request and retry metadata.
         raise
@@ -124,3 +125,8 @@ def refresh_instructions(config, agent, github):
         raise AgentError(f"Control checkout refresh stopped at {root}: {exc}. "
                          "Fix the operator checkout or instruction file and restart ub-agent launch; "
                          "no assignment attempt was charged") from exc
+
+
+def refresh_instructions(config, agent, github):
+    # Callers without a configuration file still validate their supplied role.
+    return refresh_checkout(config, github, agent)
