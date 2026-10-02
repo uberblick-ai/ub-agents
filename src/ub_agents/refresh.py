@@ -8,7 +8,14 @@ from .errors import AgentError
 from .execution import git
 
 
-def validate_incoming(root, head, path, where):
+def instruction_blob(root, oid, where):
+    try:
+        return git(root, "cat-file", "blob", oid, strip=False)
+    except (AgentError, UnicodeError) as exc:
+        raise AgentError(f"{where} is unreadable in the refreshed checkout: {exc}") from exc
+
+
+def validate_incoming(root, head, path, where, links=0):
     """Validate a Git tree's instruction path before changing the checkout.
 
     Follow file and directory symlinks in that tree, not in the current checkout.
@@ -16,11 +23,13 @@ def validate_incoming(root, head, path, where):
     """
     if path is None:
         return
+    if links > 40:
+        raise AgentError(f"{where} has a symlink loop: {path}")
     try:
         pending = deque(path.relative_to(root).parts)
     except ValueError as exc:
         raise AgentError(f"{where} must remain inside the project") from exc
-    resolved, links = [], 0
+    resolved = []
     while pending:
         part = pending.popleft()
         if part == ".":
@@ -33,13 +42,25 @@ def validate_incoming(root, head, path, where):
         name = "/".join([*resolved, part])
         entry = git(root, "ls-tree", "-z", head, "--", f":(literal){name}")
         if not entry:
+            # A clean checkout can contain ignored, local instruction files.
+            # They survive the merge unless a tracked path removes/replaces them.
+            local = root.joinpath(*resolved, part, *pending)
+            old = git(root, "ls-tree", "-z", "HEAD", "--",
+                      f":(literal){local.relative_to(root)}")
+            parents = [root.joinpath(*resolved[:i]) for i in range(1, len(resolved) + 1)]
+            if not old and not any(parent.is_symlink() for parent in parents):
+                instruction_text(root, local, where)
+                actual = local.resolve()
+                if actual != local:
+                    validate_incoming(root, head, actual, where, links + 1)
+                return
             raise AgentError(f"{where} does not exist in the refreshed checkout: {path}")
         mode, kind, oid = entry.split("\t", 1)[0].split()
         if mode == "120000":
             links += 1
             if links > 40:
                 raise AgentError(f"{where} has a symlink loop: {path}")
-            target = Path(git(root, "cat-file", "blob", oid, strip=False))
+            target = Path(instruction_blob(root, oid, where))
             if target.is_absolute():
                 try:
                     target = target.relative_to(root)
@@ -51,7 +72,7 @@ def validate_incoming(root, head, path, where):
             resolved.append(part)
         elif not pending and mode in {"100644", "100755"}:
             # Decode now too: invalid text must not advance the operator's HEAD.
-            git(root, "cat-file", "blob", oid)
+            instruction_blob(root, oid, where)
             return
         else:
             raise AgentError(f"{where} is not an instruction file: {path}")

@@ -182,8 +182,9 @@ operator's control checkout on the repository's default branch, and rereads that
 role's instruction file. Keep that checkout clean and free of local-only commits.
 Unsafe checkout state, refresh failures or invalid instructions stop the launcher
 with a nonzero exit and an actionable message; fix the checkout and restart.
-No assignment attempt is charged or marked blocked. Refresh happens between
-executions and cleanup hooks, never during a run or durable-outcome recovery.
+No attempt is charged, and the assignment is not marked blocked or retrying.
+Refresh happens between executions and cleanup hooks, never during a run or
+durable-outcome recovery.
 Instruction text stays fixed for each prompt. Configuration changes in
 `ub-agent.yaml` still require a launcher restart; PR candidates are not rebased.
 

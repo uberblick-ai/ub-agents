@@ -117,6 +117,32 @@ class RefreshTests(unittest.TestCase):
         self.assertFalse(any("merge" in call for call in calls))
         self.assertEqual(self.snapshot()[:3], before[:3])
 
+    def test_ignored_local_instructions_remain_valid_after_refresh(self):
+        local = self.root / ".ub-agent" / "local-role.md"
+        local.parent.mkdir()
+        local.write_text("Local ignored operator policy")
+        self.worker = replace(self.worker, instructions=local)
+        self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lambda *_: None)
+        self.push_policy()
+        self.execute(lambda cwd, prompt: self.assertIn("Local ignored operator policy", prompt))
+
+    def test_incoming_symlink_to_ignored_local_instructions_remains_valid(self):
+        local = self.root / "ignored"
+        local.write_text("Policy from local ignored file")
+        (self.upstream / "role.md").unlink()
+        (self.upstream / "role.md").symlink_to("ignored")
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        self.execute(lambda cwd, prompt: self.assertIn("Policy from local ignored file", prompt))
+
+    def test_incoming_cycle_through_ignored_symlink_stops_before_fast_forward(self):
+        (self.root / "ignored").symlink_to("role.md")
+        (self.upstream / "role.md").unlink()
+        (self.upstream / "role.md").symlink_to("ignored")
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        self.stopped("symlink loop")
+
     def test_modified_checkout_stops(self):
         (self.root / "role.md").write_text("Local edits")
         self.stopped("dirty")
@@ -293,8 +319,8 @@ class RefreshTests(unittest.TestCase):
     def test_durable_recovery_never_refreshes(self):
         now = timestamp()
         self.loop.coordinator.clock = lambda: now
-        plan = self.loop.coordinator.plan(self.github.item(1), self.worker, ())
         with patch("ub_agents.coordination.shutil.which", return_value="installed"):
+            plan = self.loop.coordinator.plan(self.github.item(1), self.worker, ())
             lease = self.loop.coordinator.claim(plan)
         self.loop.coordinator.update(lease, state="running", started=True)
         self.github.change(1, labels=frozenset())
