@@ -12,7 +12,7 @@ from ub_agents.config import Priority, Queue
 from ub_agents.errors import GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
-from ub_agents.records import records
+from ub_agents.records import iso, records
 from tests.support import FakeGitHub, RecordingRunner, agent, config, issue, pr, stub_refresh
 
 
@@ -92,6 +92,36 @@ class ETagTests(unittest.TestCase):
         self.assertEqual([validator(c) for c, _ in runner.calls],
                          [None, None, None, '"page1"', '"page2"', '"closed"'])
         self.assertEqual(github.quota_requests, 3)
+
+    def test_discovery_polls_do_not_retain_moving_cursor_responses(self):
+        batches = [[{'id': 1, 'body': f'update {poll}', 'updated_at': iso(1000 + poll * 30)}]
+                   for poll in range(100)]
+        runner = SequenceRunner(*(response(payload=batch, etag=f'"poll{poll}"')
+                                  for poll, batch in enumerate(batches)))
+        github = GitHub('org/project', runner)
+        with patch('ub_agents.github.timestamp', side_effect=range(1000, 4000, 30)):
+            for batch in batches:
+                self.assertEqual(github.repository_comments(), batch)
+                self.assertEqual(len(github._etag_cache), 1)
+        endpoints = [command[command.index('--include') + 1] for command, _ in runner.calls]
+        self.assertNotIn('since=', endpoints[0])
+        self.assertEqual(len(set(endpoints)), 100)
+        self.assertTrue(all('since=' in endpoint for endpoint in endpoints[1:]))
+        self.assertEqual(list(github._etag_cache), endpoints[:1])
+        self.assertTrue(all(validator(command) is None for command, _ in runner.calls))
+        self.assertEqual(github.quota_requests, 100)
+
+    def test_since_queries_skip_validators_even_when_repeated_and_paginated(self):
+        for query, paginate in (('since=2026-10-02T00%3A00%3A00Z', True),
+                                ('since=cursor', False), ('since=', False),
+                                ('s%69nce=cursor', True)):
+            with self.subTest(query=query, paginate=paginate):
+                runner = SequenceRunner(*(response(payload=[], etag='"cursor"') for _ in range(2)))
+                github = GitHub('org/project', runner)
+                for _ in range(2):
+                    self.assertEqual(github.request(f'items?{query}', paginate=paginate, array=True), [])
+                self.assertEqual(github._etag_cache, {})
+                self.assertEqual([validator(c) for c, _ in runner.calls], [None, None])
 
     def test_writes_and_graphql_are_never_conditional(self):
         runner = SequenceRunner(response(payload={}, etag='"read"'),

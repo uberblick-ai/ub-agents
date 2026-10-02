@@ -187,7 +187,11 @@ class GitHub:
             command += ["--input", "-"]
         rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
         conditional = rest and method == "GET"
-        cached = self._etag_cache.get(endpoint) if conditional else None
+        # Discovery's moving since cursor produces one-shot URLs. Retaining
+        # their validators and payloads would grow memory on every poll.
+        cacheable = conditional and "since" not in dict(
+            parse_qsl(urlsplit(endpoint).query, keep_blank_values=True))
+        cached = self._etag_cache.get(endpoint) if cacheable else None
         status, headers, payload = self._response(command, endpoint, method, data, cached)
         if status == 304:
             if not conditional:
@@ -209,7 +213,7 @@ class GitHub:
                 raise ValueError("expected an array" if array else "expected an object")
         except (ValueError, TypeError) as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
-        if conditional and status != 304:
+        if cacheable and status != 304:
             # Keep the wire payload so callers cannot mutate later cache hits.
             if headers.get("etag"):
                 self._etag_cache[endpoint] = (headers["etag"], payload)

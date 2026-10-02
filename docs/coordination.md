@@ -255,6 +255,9 @@ REST quota; it still satisfies the reread before every durable write. A 304 with
 no stored response is refetched once without a validator. Changed responses
 replace the cached ETag and payload. Writes and GraphQL are unconditional. This
 cache lasts only for the client process, with no configuration or on-disk state.
+Queries with a `since` cursor skip ETag storage and validators because discovery
+advances the cursor on each poll; these one-shot URLs would otherwise accumulate
+unused responses in memory.
 
 GitHub rate limits during claim election, ownership checks and completion reads
 (including recovery) wait and retry without treating the limit as changed ownership.
