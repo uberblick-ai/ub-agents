@@ -6,6 +6,11 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- The README recommends Homebrew for installation and upgrades, links to release
+  configuration guidance, and keeps checkout installs as a development alternative (#48).
+
 ## 0.1.4 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. The launcher now stops on a dirty
