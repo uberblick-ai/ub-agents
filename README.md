@@ -48,6 +48,13 @@ Upgrade with `brew upgrade ub-agents`. Before upgrading, check the
 [changelog](CHANGELOG.md) and [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases)
 for any required configuration edits.
 
+Launch output is flushed immediately to the terminal and appended to
+`.ub-agent/launch.log` in the control checkout, with a UTC timestamp on each file
+line, including stop and error messages. This also applies to `launch --once`;
+the log is never truncated or rotated. Follow it from another terminal with
+`tail -f .ub-agent/launch.log`. Ctrl-C exits with status 130 and reports a stop,
+including during a GitHub request.
+
 The continuous loop retries transient GitHub discovery failures with bounded waits.
 See [polling and retry limits](docs/configuration.md#top-level) for the fixed delays,
 failure limit and rate-limit behavior. `launch --once` and `status` fail on the first

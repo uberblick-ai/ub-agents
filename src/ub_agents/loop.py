@@ -580,6 +580,8 @@ class Loop:
             except (_InvalidReload, CleanupError, LostOwnership, RecordError):
                 raise
             except AgentError as exc:
+                if self.interrupt_event.is_set():
+                    raise KeyboardInterrupt from None
                 if once or self._poll_complete:
                     raise
                 failures += 1
