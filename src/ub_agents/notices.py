@@ -40,13 +40,16 @@ class Notices:
     def approval(self, number, check, stops, triggers):
         if not stops:
             return
-        key = (number, check.gate_key)
+        comments = self.github.comments(number)
+        # Claims/resets define a new parking episode even if advisory notice
+        # minimization failed. Presentation state must not suppress a later gate.
+        epoch = max((r["id"] for r in records(comments, self.actor)
+                     if r["assignment"] == number and r["kind"] in {"lease", "reset"}), default=0)
+        key = (number, check.gate_key, epoch)
         if key in self._approval_attempted:
             return
-        marker = f"{ACTION_MARKER}approval-{check.gate_key} -->"
-        matching = [c for c in self.github.comments(number) if own_comment(c, self.actor)
-                    and (c.get("body") or "").startswith(marker)]
-        if matching and self.github.unminimized_comments(matching):
+        marker = f"{ACTION_MARKER}approval-{check.gate_key}-{epoch} -->"
+        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(marker) for c in comments):
             self._approval_attempted.add(key)
             return
         # Failed writes are advisory and are not retried for this gate in this

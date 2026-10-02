@@ -157,6 +157,24 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual(self.notices(), [])
         self.assertFalse(any(w[0] == 'add-labels' for w in self.github.writes))
 
+    def test_failed_minimization_cannot_suppress_a_gate_after_resume(self):
+        self.github.timelines[1] = []
+        self.assert_parked('No maintainer', writes=True)
+        notice = self.notices()[0]
+        self.start()
+        self.remove_stop()
+        with patch.object(self.github, 'minimize_comment', side_effect=GitHubError('POST', 'graphql', 'Unavailable')):
+            self.execute()
+        self.assertNotIn(notice['id'], self.github.minimized_ids)
+        # Revoking the maintainer's role makes the original start gate recur.
+        self.github.roles['maintainer'] = 'write'
+        self.github.change(1, labels=frozenset({'ready'}))
+        self.loop = Loop(self.loop.config, self.github, 'operator', output=self.output.append)
+        self.assertFalse(self.loop.tick())
+        self.assertEqual(len(self.notices()), 2)
+        self.assertIn('needs-human', self.github.item(1).labels)
+        self.assertEqual(len([w for w in self.github.writes if w[0] == 'add-labels']), 2)
+
     def test_outside_pr_head_notice_requires_head_approval_and_resumes(self):
         self.use_pr()
         self.start(2, 'needs-changes')
@@ -260,7 +278,7 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
 
     def test_gate_reapproved_or_item_changed_before_writes_is_not_parked(self):
-        for change in ('approval', 'closed', 'stop', 'trigger'):
+        for change in ('approval', 'closed', 'stop', 'trigger', 'dependency', 'milestone', 'during-read'):
             with self.subTest(change=change):
                 self.setUp()
                 self.github.timelines[1] = []
@@ -272,9 +290,24 @@ class EnforcementTests(unittest.TestCase):
                         self.github.change(1, state='closed')
                     elif change == 'stop':
                         self.github.change(1, labels=frozenset({'ready', 'needs-human'}))
-                    else:
+                    elif change == 'trigger':
                         self.github.change(1, labels=frozenset())
-                    original(plan)
+                    elif change == 'dependency':
+                        self.github.items[2] = issue(2, labels=())
+                        self.github.dependencies[1] = [2]
+                    elif change == 'milestone':
+                        self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
+                        self.github.milestones = [dict(number=1, state='open', created_at=at(1))]
+                        self.github.items[2] = issue(2, labels=(), milestone=1)
+                    if change == 'during-read':
+                        read = self.github.issue_content
+                        def content(number):
+                            self.github.change(number, state='closed')
+                            return read(number)
+                        with patch.object(self.github, 'issue_content', side_effect=content):
+                            original(plan)
+                    else:
+                        original(plan)
                 with patch.object(self.loop, 'park_approval', side_effect=park):
                     self.assertFalse(self.loop.tick())
                 self.assertEqual(self.github.writes, [])

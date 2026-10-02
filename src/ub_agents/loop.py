@@ -226,6 +226,14 @@ class Loop:
             return
         if self.coordinator.plan(current, plan.agent, self.config.stop_labels).state != "ready":
             return
+        if current.kind == "issue":
+            if self.config.queue.milestones == "gate":
+                active = self.github.active_milestone()
+                if active is not None and current.milestone != active:
+                    return
+            if (self.config.queue.dependencies == "wait"
+                    and any(b.state == "open" for b in self.github.blocked_by(current.number))):
+                return
         approval = self.input_check(current)
         if approval.gate_key != plan.approval_gate.gate_key:
             return
