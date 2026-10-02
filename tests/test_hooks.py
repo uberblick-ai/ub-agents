@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -28,7 +29,8 @@ class HookTests(unittest.TestCase):
 
     def loop(self, script="pass", timeout=3):
         cfg = replace(config(self.root, self.agent), cleanup=CleanupHook((sys.executable, "-c", script), timeout))
-        self.current = Loop(cfg, self.github, "operator", output=lambda *_: None)
+        self.current = Loop(cfg, self.github, "operator", output=lambda *_: None,
+                            interrupt_event=threading.Event())
         return self.current
 
     def prepare(self, workspace):
@@ -87,6 +89,7 @@ class HookTests(unittest.TestCase):
         self.assertEqual(len(self.removed), 1)
         self.assertFalse(self.workspace.created)
         self.assertTrue(loop.stop_event.is_set())
+        self.assertTrue(loop.interrupt_event.is_set())
 
     def test_interrupt_recording_hook_failure_keeps_verdict_best_effort(self):
         for method in ("assert_owned", "update"):
@@ -109,6 +112,7 @@ class HookTests(unittest.TestCase):
                     with self.assertRaises(KeyboardInterrupt):
                         self.execute(loop, report_then_interrupt)
                 self.assertTrue(loop.stop_event.is_set())
+                self.assertTrue(loop.interrupt_event.is_set())
                 lease, outcome = loop.coordinator.history(1)
                 self.assertTrue(outcome["accepted"])
                 self.assertEqual(lease["result"], "success")
@@ -131,6 +135,7 @@ class HookTests(unittest.TestCase):
                         self.execute(loop, uncertain)
                 self.assertIs(caught.exception, failure)
                 self.assertTrue(loop.stop_event.is_set())
+                self.assertTrue(loop.interrupt_event.is_set())
                 self.assertFalse(self.removed)
                 self.assertTrue(self.workspace.created)
                 lease = loop.coordinator.history(1)[0]

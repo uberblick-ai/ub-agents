@@ -120,6 +120,30 @@ class LaunchTests(unittest.TestCase):
                     self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
                     self.assertEqual(self.log_lines()[-1], "Stopped; supervised execution terminated")
 
+    def test_sigterm_after_claim_drains_and_logs_output_with_exit_zero(self):
+        for once in (False, True):
+            with self.subTest(once=once):
+                stdout, stderr = io.StringIO(), io.StringIO()
+
+                def tick(loop):
+                    loop._end_poll()
+                    signal.raise_signal(signal.SIGTERM)
+                    self.assertTrue(loop.stop_event.is_set())
+                    self.assertFalse(loop.interrupt_event.is_set())
+                    loop.output("Finished current assignment")
+                    return True
+
+                with patch("ub_agents.cli.load_config", return_value=self.config), \
+                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch.object(Loop, "tick", autospec=True, side_effect=tick) as ticks, \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(main(self.argv + (["--once"] if once else [])), 0)
+                self.assertEqual(ticks.call_count, 1)
+                self.assertEqual(stdout.getvalue(), "Finished current assignment\n")
+                self.assertEqual(stderr.getvalue(), "")
+                self.assertEqual(self.log_lines()[-1], "Finished current assignment")
+
     def test_interrupt_during_initial_authentication_is_logged(self):
         github = GitHub("org/project")
         stderr = io.StringIO()

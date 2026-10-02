@@ -269,7 +269,7 @@ class TransitionTests(unittest.TestCase):
                         else:
                             update = self.github.update_comment
                             def interrupt_write(comment_id, text):
-                                record = json.loads(text.rsplit('\n```json\n', 1)[1].removesuffix('\n```\n'))
+                                record = json.loads(text.rsplit('\n```json\n', 1)[1].split('\n```', 1)[0])
                                 matches = (record.get('accepted') if stage == 'accept-after' else
                                            record.get('transition', {}).get('started'))
                                 if matches:
