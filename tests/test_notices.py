@@ -14,17 +14,20 @@ from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import LEGACY_MARKER, MARKER, attempts, body, iso, records, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh, write_legacy_records
 
 
 class NoticeTests(unittest.TestCase):
+    def github_for(self, *items):
+        return FakeGitHub(*items)
+
     def setUp(self):
         stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.worker = agent(self.root)
-        self.github = FakeGitHub(issue(), pr())
+        self.github = self.github_for(issue(), pr())
         self.output = []
         self.now = 1000
         self.co = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
@@ -207,7 +210,7 @@ class NoticeTests(unittest.TestCase):
     def parked_loop(self, handoff=None):
         worker = agent(self.root, kind="issue" if handoff else "pr",
                        outcomes={"human": {"add": ("needs-human",), "remove": ()}})
-        github = FakeGitHub(issue(), pr(labels=("ready",)))
+        github = self.github_for(issue(), pr(labels=("ready",)))
         loop = Loop(config(self.root, worker), github, "operator", output=self.output.append)
 
         def run(*args, **kwargs):
@@ -258,11 +261,17 @@ class NoticeTests(unittest.TestCase):
         lease = loop.coordinator.claim(plan, loop.config.stop_labels)
         loop.coordinator.report(lease, "success", "Human must merge", outcome="human")
         self.now += 61
+        changed = agent(self.root, kind="pr", triggers=("different",),
+                        outcomes={"other": {"add": ("wrong",), "remove": ()}})
+        loop = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
+        loop.coordinator.clock = lambda: self.now
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         notice = self.notices(2)[0]["body"]
         self.assertIn("Human must merge", notice)
         self.assertIn("Remove the stop label(s) `needs-human`", notice)
+        self.assertIn("`ready`, `needs-changes`", notice)
+        self.assertNotIn("`different`", notice)
         self.assertIn("a" * 40, notice)
         loop.tick()
         self.assertEqual(len(self.notices(2)), 1)
@@ -296,7 +305,7 @@ class NoticeTests(unittest.TestCase):
     def test_exhausted_exit_without_report_names_host_and_log_directory(self):
         for code in (0, 7):
             with self.subTest(code=code):
-                github = FakeGitHub(issue())
+                github = self.github_for(issue())
                 worker = agent(self.root, kind="issue", backoff_seconds=10, max_backoff_seconds=100)
                 cfg = config(self.root, worker)
                 for attempt in range(1, worker.max_attempts + 1):
@@ -416,6 +425,13 @@ class NoticeTests(unittest.TestCase):
         loop.tick()
         self.assertEqual(len(self.output), 3)
         self.assertIn("parked", self.output[-1])
+
+
+class LegacyNoticeTests(NoticeTests):
+    def github_for(self, *items):
+        github = super().github_for(*items)
+        write_legacy_records(github)
+        return github
 
 
 if __name__ == "__main__":

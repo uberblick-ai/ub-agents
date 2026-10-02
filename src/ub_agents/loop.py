@@ -15,7 +15,8 @@ from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, Recor
 from .execution import Workspace, command_for, repository_checks, supervise
 from .github import closing_issues, links_issue
 from .hooks import run_hook
-from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
+from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
+                      lease_summary, resolve_transition, seconds, timestamp)
 from .refresh import refresh_checkout, refresh_instructions
 
 POLL_RETRY_BASE_SECONDS = 5
@@ -549,12 +550,14 @@ class Loop:
         name = outcome.get("outcome")
         if name not in declarations or transition is None:
             raise ValidationError("Success report must name a declared outcome")
-        if {k: v for k, v in transition.items() if k != "started"} != declarations[name]:
+        declaration = declared_transition(source, name)
+        transition = resolve_transition(transition, declaration)
+        if {k: v for k, v in transition.items() if k != "started"} != declaration:
             raise ValidationError("Reported transition does not match the running agent's declaration")
         return transition
 
     def apply_transition(self, lease, outcome):
-        transition = outcome["transition"]
+        transition = self.validate_report(outcome)
         self.coordinator.assert_owned(lease)
         assignment = self.github.item(outcome["assignment"])
         target = outcome.get("handoff") or outcome["assignment"]
@@ -568,8 +571,7 @@ class Loop:
                 raise TransitionPaused("Transition blocked: assignment trigger disappeared before label changes")
             # Persist intent before the first mutation. Recovery must not mistake
             # our own trigger removal or human-gate addition for external pausing.
-            self.coordinator.update_outcome(lease, outcome, transition=transition | {"started": True})
-            transition = outcome["transition"]
+            self.coordinator.update_outcome(lease, outcome, transition=outcome["transition"] | {"started": True})
         # Publish pending provenance before the next role's trigger can appear.
         # Recovery refreshes this same comment before replaying the transition.
         self.coordinator.copy_handoff(lease, outcome)

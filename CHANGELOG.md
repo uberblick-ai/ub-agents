@@ -15,6 +15,11 @@ notes are copied from that section.
   in the base repository inheriting eligibility; changed fork heads need explicit
   maintainer approval. `ub-agent approve` accepts PRs, pins their head and clears
   outside comments, reviews and review comments (#39).
+- Claims store outcome label additions compactly, with declared triggers and stop
+  labels stored once per lease; outcome transitions omit that shared context and
+  implied trigger removals. Upgraded launchers still read and recover 0.1.5 records.
+  **Upgrading:** stop all of a project's launchers and upgrade them together before
+  restarting; 0.1.5 launchers reject compact records as malformed (#63).
 
 ### Fixed
 

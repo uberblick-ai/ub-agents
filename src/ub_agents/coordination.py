@@ -254,10 +254,11 @@ class Coordinator:
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False,
                   "attempt_effect": "pending"}
         if not recovery:
+            record["declared_triggers"] = list(plan.agent.triggers)
+            record["stop_labels"] = list(stop_labels)
             record["outcomes"] = {
-                name: {"add": list(changes["add"]),
-                       "remove": sorted(set(plan.agent.triggers).union(changes["remove"])),
-                       "triggers": list(plan.agent.triggers), "stop_labels": list(stop_labels)}
+                name: ({"add": list(changes["add"]), "remove": list(changes["remove"])}
+                       if changes["remove"] else list(changes["add"]))
                 for name, changes in plan.agent.outcomes.items()}
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, now)
@@ -342,7 +343,13 @@ class Coordinator:
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         if outcome is not None:
-            record |= {"outcome": outcome, "transition": declarations[outcome] | {"started": False}}
+            declaration = declarations[outcome]
+            if "declared_triggers" not in lease:
+                extra = sorted(set(declaration["remove"]).difference(declaration["triggers"]))
+                declaration = {"add": declaration["add"]} | ({"remove": extra} if extra else {})
+            elif isinstance(declaration, list):
+                declaration = {"add": declaration}
+            record |= {"outcome": outcome, "transition": declaration | {"started": False}}
         self.assert_owned(lease)
         return records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
 
