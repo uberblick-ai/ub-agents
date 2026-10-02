@@ -26,7 +26,7 @@ class SignalTests(unittest.TestCase):
         stub_refresh(self)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.github = FakeGitHub(issue(), issue(3))
         self.config = config(self.root, agent(self.root, kind="issue"))
         self.loop = Loop(self.config, self.github, "operator", output=lambda *_: None)
