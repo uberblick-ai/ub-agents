@@ -276,6 +276,38 @@ class NoticeTests(unittest.TestCase):
         loop.tick()
         self.assertEqual(len(self.notices(2)), 1)
 
+    def test_recovered_handoff_copy_resolves_resume_context_from_the_issue(self):
+        worker = agent(self.root, kind="issue", outcomes={"human": {"add": ("needs-human",), "remove": ()}})
+        loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
+        loop.coordinator.clock = lambda: self.now
+        lease = loop.coordinator.claim(loop.plans()[0], loop.config.stop_labels)
+        loop.coordinator.report(lease, "success", "Human must merge", handoff=2, outcome="human")
+        self.now += 61
+        changed = agent(self.root, kind="issue", triggers=("different",),
+                        outcomes={"other": {"add": ("wrong",), "remove": ()}})
+        restarted = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
+        restarted.coordinator.clock = lambda: self.now
+        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+            self.assertTrue(restarted.tick())
+        copied, = restarted.coordinator.history(2)
+        self.assertTrue(copied["accepted"])
+        self.assertTrue(copied["transition_complete"])
+        self.assertEqual(copied["assignment"], 1)
+        self.assertEqual(restarted.validate_report(copied)["triggers"], ["ready", "needs-changes"])
+        recovery = next(r for r in restarted.coordinator.history(1)
+                        if r["kind"] == "lease" and r.get("mode") == "recovery")
+        self.assertNotIn("outcomes", recovery)
+        # A later notice retry can receive the copy on the PR and a recovery
+        # lease with no declarations; the original issue still owns the context.
+        restarted.coordinator.notices.released(recovery, None, copied["summary"], parking_outcome=copied)
+        notices = self.notices(2)
+        self.assertEqual(len(notices), 1)
+        self.assertIn("Remove the stop label(s) `needs-human`", notices[0]["body"])
+        self.assertIn("`ready`, `needs-changes`", notices[0]["body"])
+        self.assertNotIn("`different`", notices[0]["body"])
+        self.assertFalse(self.notices(1))
+        self.assertFalse(any("Advisory" in line for line in self.output))
+
     def test_resume_minimize_failure_cannot_change_a_claim_or_retry_reset(self):
         lease = self.start()
         self.co.report(lease, "blocked", "Decision needed")

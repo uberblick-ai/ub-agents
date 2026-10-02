@@ -72,7 +72,11 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(outcome['outcome'], 'handed-off')
         self.assertTrue(outcome['accepted'])
         self.assertEqual(self.loop.validate_report(outcome)['remove'], ['needs-changes', 'old', 'ready'])
-        self.assertTrue(self.loop.coordinator.history(2)[0]['accepted'])
+        copied, = self.loop.coordinator.history(2)
+        self.assertTrue(copied['accepted'])
+        self.assertTrue(copied['transition_complete'])
+        self.assertEqual(copied['transition'], outcome['transition'])
+        self.assertEqual(self.loop.validate_report(copied), self.loop.validate_report(outcome))
         self.assertEqual(self.labels_changed(), [('remove-label', 1, 'needs-changes'),
                                                 ('remove-label', 1, 'old'), ('remove-label', 1, 'ready'),
                                                 ('add-labels', 2, ('needs-review',))])
@@ -102,6 +106,10 @@ class TransitionTests(unittest.TestCase):
             copied, = self.loop.coordinator.history(2)
             self.assertTrue(copied['transition']['started'])
             self.assertFalse(copied['accepted'])
+            resolved = self.loop.validate_report(copied)
+            self.assertEqual(resolved['remove'], ['needs-changes', 'old', 'ready'])
+            self.assertEqual(resolved['triggers'], ['ready', 'needs-changes'])
+            self.assertEqual(resolved['stop_labels'], ['needs-human'])
             add_labels(number, labels)
         def check_before_accept(lease, outcome):
             plan = self.reviewer_plan(reviewer)
