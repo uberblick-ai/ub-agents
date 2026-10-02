@@ -1,6 +1,6 @@
 """Cooperative leases and durable attempts, deliberately not an atomic lock service."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import shutil
 import uuid
 
@@ -26,6 +26,7 @@ class Plan:
     priority_from_issue: int | None = None
     blockers: tuple[str, ...] = ()
     approval_gate: ApprovalCheck | None = None
+    history: tuple[dict, ...] = field(default=(), compare=False, repr=False)
 
 
 class Coordinator:

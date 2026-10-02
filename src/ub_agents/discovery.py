@@ -16,8 +16,10 @@ class Discovery:
         self.cache = {}
         self.scope = None
         self.graph_loaded = False
+        self.pass_roles = {}
 
     def observe(self):
+        self.pass_roles = {}
         items = {item.number: item for item in self.github.observe(details=False)}
         comments = self.github.repository_comments()
         groups = {}
@@ -61,17 +63,32 @@ class Discovery:
                     self.cache[("blocked_by", (number,), None)] = deepcopy(graph[number])
             self.graph_loaded = True
 
+    def role(self, login):
+        # Unchanged items retain their own observations between polls (#79).
+        # Only fresh reads share this pass's memo; an older item's cached role
+        # must not supply authority to an item whose inputs changed.
+        if not isinstance(login, str) or not login:
+            return None
+        account = login.casefold()
+        key = ("role", (account,), self.scope)
+        if key not in self.cache:
+            if account not in self.pass_roles:
+                self.pass_roles[account] = self.github.role(login)
+            value = self.pass_roles[account]
+            if value is None:
+                return None  # Share unreadable roles this pass, retry next pass.
+            self.cache[key] = value
+        return self.cache[key]
+
     def __getattr__(self, name):
-        if name not in self.ITEM_READS | {"role", "prs_for_branch"}:
+        if name not in self.ITEM_READS | {"prs_for_branch"}:
             raise AttributeError(name)
 
         def read(*args):
-            key = (name, args, self.scope if name == "role" else None)
+            key = (name, args, None)
             if key not in self.cache:
                 # Failed reads are never retained, so later polls can recover.
                 value = getattr(self.github, name)(*args)
-                if name == "role" and value is None:
-                    return None  # An unreadable permission must be retried.
                 self.cache[key] = deepcopy(value)
             result = deepcopy(self.cache[key])
             if name == "blocked_by":

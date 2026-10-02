@@ -1,3 +1,4 @@
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -5,9 +6,12 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Priority, Queue
+from ub_agents.cli import status_rows
 from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
+from ub_agents.records import attempts
+from tests.test_approvals import at
 from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
 
 
@@ -114,6 +118,114 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(loop.plans()), 2)
         self.assertEqual(self.item_reads(loop.github), {1, 2})
         self.assertEqual(loop.github.writes, [])
+
+    def test_each_pass_shares_comments_and_permissions_for_all_approval_inputs(self):
+        for kind in ("issue", "pr"):
+            for size in (1, 7):
+                for status in (False, True):
+                    with self.subTest(kind=kind, size=size, status=status):
+                        loop = self.loop([issue(n) if kind == "issue" else pr(n, body="")
+                                          for n in range(1, size + 1)])
+                        github = loop.github
+                        accounts = {"maintainer", "commenter", "editor", "renamer"}
+                        github.roles.update(commenter="write", editor="write", renamer="write",
+                                            reviewer="maintain", inline="write", outsider="read")
+                        for number, item in github.items.items():
+                            github.timelines[number] = [
+                                {"event": "labeled", "actor": {"login": "MAINTAINER"},
+                                 "label": {"name": next(iter(item.labels))}, "created_at": at(5)},
+                                {"event": "renamed", "actor": {"login": "renamer"},
+                                 "rename": {"from": "Old title", "to": item.title}, "created_at": at(22)}]
+                            github.content_histories[number] = {"lastEditedAt": at(20), "edits": [
+                                {"editedAt": at(20), "editor": {"login": "editor"},
+                                 "diff": item.body, "deletedAt": None}]}
+                            github.store[number] = [{"id": number, "body": "Feedback",
+                                "user": {"login": "COMMENTER" if number % 2 else "commenter"},
+                                "created_at": at(8), "updated_at": at(8)}]
+                            if kind == "pr":
+                                github.review_store[number] = [{"id": number + 100, "body": "Approved",
+                                    "user": {"login": "reviewer"}, "created_at": at(15), "updated_at": at(15),
+                                    "state": "APPROVED", "commit_id": item.head}]
+                                github.review_comment_store[number] = [{"id": number + 200, "body": "Inline",
+                                    "user": {"login": "inline"}, "created_at": at(16), "updated_at": at(16)}]
+                        if kind == "pr":
+                            accounts |= {"reviewer", "inline", "outsider"}
+                        original = github.pr_content
+                        with patch.object(github, "pr_content", side_effect=lambda n:
+                                          original(n) | {"author": {"login": "outsider"}}):
+                            # Status stays fresh even on a Loop with a warm discovery cache.
+                            if status:
+                                list(loop.iter_plans())
+                            for observation in range(2):
+                                if not status and observation:
+                                    # A changed item must refresh its roles on the next pass.
+                                    for n in github.items:
+                                        github.change(n, updated_at=at(30))
+                                github.reads.clear()
+                                rows = status_rows(loop) if status else list(loop.iter_plans())
+                                self.assertEqual(len(rows), size)
+                                self.assertTrue(all((r["state"] if status else r.state) == "ready" for r in rows))
+                                self.assertEqual(Counter(args[0] for name, args in github.reads
+                                                         if name == "comments"), Counter(range(1, size + 1)))
+                                self.assertEqual(Counter(args[0].casefold() for name, args in github.reads
+                                                         if name == "role"), Counter(accounts))
+                        self.assertEqual(github.writes, [])
+
+    def test_changed_item_does_not_inherit_another_items_old_permission(self):
+        loop = self.loop([issue(1), issue(2), issue(3)])
+        self.assertTrue(all(p.state == "ready" for p in loop.iter_plans()))
+        loop.github.roles["maintainer"] = "read"
+        for number in (2, 3):
+            loop.github.change(number, updated_at=at(30))
+        loop.github.reads.clear()
+        self.assertEqual([p.state for p in loop.iter_plans()], ["ready", "parked", "parked"])
+        self.assertEqual([args for name, args in loop.github.reads if name == "role"], [("maintainer",)])
+
+    def test_unreadable_permissions_are_shared_only_until_next_pass(self):
+        loop = self.loop([issue(1), issue(2)])
+        loop.github.roles.pop("maintainer")
+        self.assertEqual([p.state for p in loop.iter_plans()], ["parked", "parked"])
+        self.assertEqual([args for name, args in loop.github.reads if name == "role"], [("maintainer",)])
+        loop.github.roles["maintainer"] = "maintain"
+        loop.github.reads.clear()
+        self.assertEqual([p.state for p in loop.iter_plans()], ["ready", "ready"])
+        self.assertEqual([args for name, args in loop.github.reads if name == "role"], [("maintainer",)])
+
+    def test_each_claim_check_rereads_permissions_after_planning(self):
+        for status in (False, True):
+            for revoke in ("before-write", "after-election"):
+                with self.subTest(status=status, revoke=revoke):
+                    loop = self.loop([issue(1), issue(2)])
+                    plans = loop.plans() if status else list(loop.iter_plans())
+                    claim = loop.coordinator.claim
+                    def elect(*args, **kwargs):
+                        lease = claim(*args, **kwargs)
+                        if revoke == "after-election":
+                            loop.github.roles["maintainer"] = "read"
+                        return lease
+                    if revoke == "before-write":
+                        loop.github.roles["maintainer"] = "read"
+                    loop.github.reads.clear()
+                    with patch.object(loop.coordinator, "claim", side_effect=elect), \
+                            patch("ub_agents.loop.supervise") as run:
+                        self.assertEqual(loop.execute(plans[0]), revoke == "after-election")
+                    run.assert_not_called()
+                    expected = [("maintainer",)] if revoke == "before-write" else [
+                        ("maintainer",), ("maintainer",), ("operator",)]
+                    self.assertEqual([args for name, args in loop.github.reads if name == "role"], expected)
+                    history = loop.coordinator.history(1)
+                    self.assertEqual(attempts(history, "worker", loop.coordinator.clock()), [])
+                    if revoke == "before-write":
+                        self.assertEqual(loop.github.writes, [])
+                    else:
+                        self.assertEqual(len(history), 1)
+                        self.assertEqual((history[0]["state"], history[0]["started"]), ("withdrawn", False))
+
+    def test_status_reuses_history_for_multiple_agents_on_one_item(self):
+        loop = self.loop([issue()])
+        loop.config = config(self.root, agent(self.root, name="first"), agent(self.root, name="second"))
+        self.assertEqual(len(status_rows(loop)), 2)
+        self.assertEqual([args for name, args in loop.github.reads if name == "comments"], [(1,)])
 
     def test_cached_approval_never_authorizes_a_claim(self):
         loop = self.loop([issue(1)])
