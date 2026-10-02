@@ -114,9 +114,9 @@ class FakeGitHub:
             return deepcopy([comment for comments in self.store.values() for comment in comments])
 
     def create_comment(self, number, body):
-        data = json.loads(body.rsplit("\n```json\n", 1)[1].removesuffix("\n```\n")) if body.startswith(MARKER) else {}
+        data = records([{"body": body, "id": 0, "user": {"login": self.login}}])[0] if body.startswith(MARKER) else {}
         with self.lock:
-            comment = {"id": self.next_id, "body": body, "user": {"login": self.login},
+            comment = {"id": self.next_id, "node_id": f"node-{self.next_id}", "body": body, "user": {"login": self.login},
                        "issue_url": f"https://api.github.com/repos/org/project/issues/{number}",
                        "html_url": f"https://github.com/org/project/issues/{number}#issuecomment-{self.next_id}"}
             self.next_id += 1
@@ -135,6 +135,18 @@ class FakeGitHub:
                         self.writes.append(("update", comment_id))
                         return deepcopy(comment)
         raise AssertionError(f"Unknown comment {comment_id}")
+
+    def minimize_comment(self, comment):
+        for comments in self.store.values():
+            for stored in comments:
+                if stored["id"] == comment["id"]:
+                    stored["isMinimized"] = True
+                    self.writes.append(("minimize", comment["id"], "OUTDATED"))
+                    return
+        raise AssertionError(f"Unknown comment {comment['id']}")
+
+    def candidate_evidence(self, number, sha):
+        return "APPROVED", "SUCCESS"
 
 
 class PollGitHub(FakeGitHub):

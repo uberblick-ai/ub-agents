@@ -7,7 +7,8 @@ import uuid
 from .config import Agent, Queue, Runtime
 from .errors import AgentError, GitHubError, LostOwnership, RecordError
 from .github import Item
-from .records import (MARKER, attempts, backoff, body, iso, latest_leases, lease_by_id, live_leases,
+from .notices import Notices
+from .records import (MARKER, LEGACY_MARKER, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       own_comment, payload, records, same_run, seconds, timestamp)
 
 
@@ -26,11 +27,12 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, queue=Queue()):
+    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
+        self.notices = Notices(github, actor, output)
 
     def history(self, number):
         comments = self.github.comments(number)
@@ -49,11 +51,13 @@ class Coordinator:
                                   "Unreadable repository comment")
             if not own_comment(comment, self.actor):
                 continue
-            if not isinstance(comment.get("body"), str) or not comment["body"].startswith(MARKER):
+            if not isinstance(comment.get("body"), str) or not comment["body"].startswith((MARKER, LEGACY_MARKER)):
                 continue
             try:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
-            except (KeyError, ValueError, AttributeError) as exc:
+            except (KeyError, ValueError, AttributeError, IndexError) as exc:
+                if comment["body"].startswith(LEGACY_MARKER):
+                    continue
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Coordination comment has no GitHub assignment URL") from exc
             groups.setdefault(number, []).append(comment)
@@ -88,9 +92,13 @@ class Coordinator:
             else:
                 state, reason = "owned", f"A live run on #{owner['assignment']} owns this item's branch"
         elif item.labels.intersection(stop_labels):
-            state, reason = "parked", "Configured stop label is present"
+            labels = ', '.join(sorted(item.labels.intersection(stop_labels)))
+            outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == agent.name]
+            summary = lease_summary(history, latest[-1]) if latest else (outcomes[-1]["summary"] if outcomes else "")
+            state, reason = "parked", f"Stop label {labels} is present" + (f": {summary}" if summary else "")
         elif finished and finished[-1].get("result") == "blocked":
-            state, reason = "blocked", "Previous assignment stopped; inspect outcome and use ub-agent retry"
+            state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
+                                        "inspect outcome and use ub-agent retry")
         elif attempt > agent.max_attempts:
             state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agent retry"
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
@@ -253,6 +261,7 @@ class Coordinator:
                 return None
         if self.clock() >= seconds(created["expires"]):
             raise LostOwnership("Lease expired during claiming")
+        self.notices.resumed(current.number)
         return created
 
     def update(self, lease, **changes):
@@ -271,11 +280,9 @@ class Coordinator:
             raise LostOwnership("Assignment ownership was lost or expired")
         return contenders[0]
 
-    def release(self, lease, result, summary, backoff=0, attempt_effect=None):
+    def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
-        if reported and (reported["status"], reported["summary"]) == (result, summary):
-            summary = None  # The outcome comment already says it.
         now = self.clock()
         if attempt_effect is None:
             attempt_effect = ("reset" if result == "success" and reported and reported["accepted"]
@@ -285,6 +292,8 @@ class Coordinator:
         changes = {"attempt_effect": attempt_effect} if "attempt_effect" in lease else {}
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, **changes)
+        self.notices.advisory("released run comments", lambda:
+                              self.notices.released(lease, reported, summary, parking_outcome))
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])
@@ -323,6 +332,8 @@ class Coordinator:
     def accept(self, lease, outcome):
         self.assert_owned(lease)
         accepted = payload(outcome) | {"accepted": True}
-        self.github.update_comment(outcome["id"], body(accepted))
+        updated = records([self.github.update_comment(outcome["id"], body(accepted))], self.actor)[0]
+        outcome.clear()
+        outcome.update(updated)
         if outcome.get("handoff") and outcome["handoff"] != lease["assignment"]:
             self.github.create_comment(outcome["handoff"], body(accepted))

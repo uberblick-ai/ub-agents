@@ -6,6 +6,13 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Coordination comments lead with a readable summary and collapsed JSON. Released
+  runs minimize superseded records, and parked runs post an Action needed notice
+  with evidence and resume steps. Unchanged blocked and parked items print once
+  per launch session (#44).
+
 ## 0.1.4 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. The launcher now stops on a dirty

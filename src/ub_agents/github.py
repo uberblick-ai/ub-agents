@@ -322,6 +322,46 @@ class GitHub:
     def update_comment(self, comment_id, body):
         return self.request(f"{self.prefix}/issues/comments/{comment_id}", "PATCH", {"body": body})
 
+    def graphql(self, query, variables):
+        result = self.request("graphql", "POST", {"query": query, "variables": variables})
+        if result.get("errors") or not isinstance(result.get("data"), dict):
+            raise GitHubError("POST", "graphql", f"Unreadable GraphQL response: {result.get('errors')}")
+        return result["data"]
+
+    def minimize_comment(self, comment):
+        node = comment.get("node_id")
+        if not isinstance(node, str) or not node:
+            raise GitHubError("POST", "graphql", "Comment has no node ID")
+        data = self.graphql(
+            "mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) "
+            "{ minimizedComment { isMinimized } } }", {"id": node})
+        if not data.get("minimizeComment", {}).get("minimizedComment", {}).get("isMinimized"):
+            raise GitHubError("POST", "graphql", "Comment minimization was not confirmed")
+
+    def candidate_evidence(self, number, sha):
+        owner, name = self.repository.split("/")
+        data = self.graphql(
+            "query($owner: String!, $name: String!, $number: Int!, $sha: GitObjectID!) { "
+            "repository(owner: $owner, name: $name) { "
+            "pullRequest(number: $number) { headRefOid reviewDecision } "
+            "object(oid: $sha) { ... on Commit { oid statusCheckRollup { state } } } } }",
+            {"owner": owner, "name": name, "number": number, "sha": sha})
+        try:
+            repository = data["repository"]
+            candidate, pr = repository["object"], repository["pullRequest"]
+            if candidate["oid"] != sha:
+                raise ValueError("evidence names another candidate")
+            review = pr["reviewDecision"] or "no decision"
+            if pr["headRefOid"] != sha:
+                review = f"unavailable for this SHA (current head {pr['headRefOid'][:7]})"
+            rollup = candidate["statusCheckRollup"]
+            ci = rollup["state"] if rollup is not None else "no checks or statuses"
+            if not isinstance(review, str) or not isinstance(ci, str):
+                raise ValueError("invalid review or CI state")
+            return review, ci
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GitHubError("POST", "graphql", "Unreadable candidate evidence") from exc
+
     def default_branch(self):
         raw = self.request(self.prefix)
         if not isinstance(raw.get("default_branch"), str):

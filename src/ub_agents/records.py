@@ -5,7 +5,8 @@ import json
 
 from .errors import AgentError, RecordError
 
-MARKER = "<!-- ub-agent:v1 -->"
+MARKER = "<!-- ub-agent:v2 -->"
+LEGACY_MARKER = "<!-- ub-agent:v1 -->"
 LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
 OUTCOMES = {"success", "retry", "blocked"}
 # Fields that tie an outcome, a recovery or a contender to the run that owns it.
@@ -43,19 +44,26 @@ def seconds(value):
 
 
 def body(record):
-    title = f"**ub-agent {record['kind']} — {record['agent']}**"
     if record["kind"] == "lease":
-        note = record.get("summary") or (f"Result: {record['result']}; reported in the outcome."
-                                         if record["state"] == "released" else "Assignment claimed.")
-        description = (f"Owner: @{record['actor']} · {record['runtime']}\n\n"
-                       f"State: {record['state']} · Lease expires: {record['expires']}\n\n{note}")
+        state = record.get("result") or record["state"]
+        note = record.get("summary") or "Assignment claimed."
     elif record["kind"] == "outcome":
-        description = f"{record['status']}: {record['summary']}"
+        state = record.get("outcome") or record["status"]
+        note = record["summary"]
     else:
-        description = f"Attempt budget reset: {record['summary']}"
+        state, note = "reset", record["summary"]
+    icon = {"success": "✅", "blocked": "⏸️", "retry": "↻", "reset": "↻"}.get(
+        record.get("status") or record.get("result") or state, "▶️")
+    sha = record.get("candidate_sha") or record.get("assignment_sha")
+    candidate = f" {sha[:7]}" if sha else ""
+    note = " ".join(note.split())
+    if len(note) > 240:
+        note = note[:237] + "…"
+    line = f"{icon} {record['agent']} {state}{candidate} · {record['runtime']} — {note}"
     # The comment author is the actor; empty fields are omitted.
     shown = {k: v for k, v in record.items() if v is not None and k != "actor"}
-    return f"{MARKER}\n{title}\n\n{description}\n\n```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n"
+    return (f"{MARKER}\n{line}\n\n<details>\n<summary>Coordination record</summary>\n\n"
+            f"```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n\n</details>\n")
 
 
 def records(comments, actor=None):
@@ -68,8 +76,14 @@ def records(comments, actor=None):
             continue
         try:
             text = comment["body"] or ""
-            if not text.startswith(MARKER):
+            legacy = text.startswith(LEGACY_MARKER)
+            if not text.startswith(MARKER) and not legacy:
                 continue
+            if not legacy:
+                text = text.removesuffix("\n")
+                if not text.endswith("\n\n</details>") or "<details>\n<summary>Coordination record</summary>\n" not in text:
+                    raise ValueError("missing collapsed record")
+                text = text.removesuffix("\n\n</details>")
             payload = text.rsplit("\n```json\n", 1)[1].removesuffix("\n")
             if not payload.endswith("\n```"):
                 raise ValueError("missing JSON fence")
@@ -87,6 +101,8 @@ def records(comments, actor=None):
                     raise ValueError("record is posted on the wrong item")
             result.append(record | {"id": comment["id"], "url": comment.get("html_url", "")})
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, AgentError) as exc:
+            if isinstance(comment.get("body"), str) and comment["body"].startswith(LEGACY_MARKER):
+                continue  # Old layouts must never mark an item malformed.
             raise RecordError(f"Malformed ub-agent comment {comment.get('id', '?')}: {exc}") from exc
     return sorted(result, key=lambda record: record["id"])
 
