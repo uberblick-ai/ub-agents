@@ -3,6 +3,9 @@
 repository: uberblick-ai/ub-agents
 queue:
   milestones: gate
+  priority:
+    labels: [priority:urgent, priority:high, priority:medium, priority:low]
+    default: priority:medium
 
 agents:
   issue-preparer:
