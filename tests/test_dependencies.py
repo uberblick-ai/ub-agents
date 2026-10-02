@@ -13,11 +13,12 @@ from ub_agents.errors import AgentError
 from ub_agents.github import Dependency
 from ub_agents.loop import Loop
 from ub_agents.records import iso, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class DependencyTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

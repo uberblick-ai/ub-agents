@@ -22,7 +22,7 @@ def command_for(agent, runtime):
     return command + list(agent.runtime_args)
 
 
-def git(root, *arguments):
+def git(root, *arguments, strip=True):
     try:
         result = subprocess.run(["git", "-C", str(root), *arguments], capture_output=True,
                                 text=True, timeout=120, check=False)
@@ -30,7 +30,7 @@ def git(root, *arguments):
         raise AgentError(f"Git operation failed: {exc}") from exc
     if result.returncode:
         raise AgentError(f"Git operation failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+    return result.stdout.strip() if strip else result.stdout
 
 
 def repository_checks(config, read_git=None):
