@@ -25,10 +25,36 @@ another terminal. Ctrl-C, including during a GitHub request, prints
 
 `poll-seconds` measures the minimum time between the starts of successful
 continuous discovery passes. A run's report, transitions and cleanup finish
-immediately; the launcher then waits only for the part of that interval still
-remaining. If the run already took the interval, the next pass starts immediately.
+immediately; after a pass that ran or recovered work, the launcher waits for the
+part of that interval still remaining. If the run already took the interval, the
+next pass starts immediately.
 Stop signals wake the wait. Failed-poll retry delays below are independent of this
 interval, and `launch --once` never waits after its pass.
+
+Empty passes back off under a fixed budget rule, not a configuration key: **ten
+idle launchers** sharing one account together get at most half the common **5,000
+REST requests/hour** quota. Each launcher's share is **250 REST requests/hour**
+(`5000 × 0.5 / 10`), leaving the other half for busy loops and agents' `gh` calls.
+After an empty pass making `N` REST requests, the next pass starts
+`max(poll-seconds, N × 14.4 seconds)` after this pass started, capped at **one hour**.
+Every REST request counts, including extra pages, rate-limit retries and
+approval-parking writes; GraphQL requests do not. A cached five-request pass waits
+72 seconds; a cold 230-request pass waits 3,312 seconds (about 55 minutes). Time
+already spent in the pass, including rate-limit waits, counts toward the gap.
+The next pass that runs or recovers work returns to normal `poll-seconds` pacing.
+
+The launcher retains `X-RateLimit-Remaining`, `X-RateLimit-Limit` and
+`X-RateLimit-Reset` from the latest response for each `X-RateLimit-Resource`
+(`core`, `graphql`), read through `gh api --include`. It makes no `GET /rate_limit`
+probe. If any resource has **less than 20%** remaining, the empty-pass gap doubles.
+The extra wait stops at that resource's reset (the earliest reset if several are
+low), never shortens the ordinary gap, and remains capped at **one hour**.
+Incomplete or unreadable quota headers do not add a wait.
+
+When the launcher becomes idle, and again when the set of low-quota resources
+changes, it prints `No eligible work; next poll in <n> min (<k> requests last poll)`.
+It does not repeat the message on every empty pass. Ctrl-C and SIGHUP wake this
+wait with exit 130; SIGTERM wakes it with exit 0.
 
 Claiming discovery evaluates candidates in rank order and stops once it claims
 work. Lower-ranked rows are evaluated, announced and approval-parked by a later
@@ -53,14 +79,15 @@ paginated dependency-graph list on cold discovery; very large dependency lists m
 need extra pages. Fresh claim/recovery reads, approval-parking writes, execution
 heartbeats and completion add their own requests. `status` pays for every row.
 
-For interval `P` seconds and average discovery cost `R`, budget up to
-`R × 3600 / P` requests per loop per hour, then add execution/write costs. For
-example, a two-request unchanged pass at 30 seconds is about 240 requests/hour;
-five loops sharing one account use about 1,200 before execution. Sum all loops
-using the account, including loops on other repositories, and leave headroom
-within GitHub's account limit (commonly 5,000 REST requests/hour). GraphQL has a
-separate point budget; graph-list query cost depends on its connections. Long
-runs reduce the number of discovery passes per hour.
+For a REST discovery cost `R`, the idle interval is at least `R × 14.4` seconds,
+so idle traffic averages at most 250 requests/hour per loop for passes below the
+one-hour cap. A two-request unchanged pass at the default 30 seconds is about
+240 requests/hour; ten such loops use about 2,400. Cold passes can spend requests
+in a burst, and a pass exceeding 250 requests reaches the cap; this pacing is not
+a strict rolling-hour limiter. Sum all loops using the account, including other
+repositories, and add busy discovery, execution/write costs and agents' calls.
+GraphQL has a separate point budget; graph-list query cost depends on its
+connections. Long runs reduce discovery frequency.
 
 Continuous `ub-agent launch` retries failed discovery polls for request timeouts,
 connection failures and HTTP 5xx responses. The fixed backoff starts at **5 seconds**,
@@ -77,9 +104,9 @@ of margin. Secondary limits wait for `Retry-After` seconds. Missing or unreadabl
 wait metadata falls back to **one minute**. Each wait is capped at **one hour**;
 afterward the read is retried, and another rate limit starts another wait.
 
-Time spent waiting for a rate limit counts toward the minimum `poll-seconds` gap
-between discovery-pass starts. A completed pass waits only for any gap still left;
-if the wait or run already used that time, the next pass starts immediately.
+Time spent waiting for a rate limit counts toward the `poll-seconds` or empty-pass
+budget gap between discovery-pass starts. A completed pass waits only for any gap
+still left; if the wait or run already used that time, the next pass starts immediately.
 
 Rate limits do not count toward the poll failure limit or an item's attempts.
 Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)`
