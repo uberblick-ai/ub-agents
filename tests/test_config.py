@@ -89,6 +89,35 @@ stop-labels: []
         with self.assertRaisesRegex(AgentError, "codex, claude"):
             self.load(content.replace("codex:model-b:low", "example:model-b:low"))
 
+    def test_check_rejects_claude_output_format_overrides(self):
+        (self.root / "instructions.md").write_text("Do the task")
+        base = '''repository: org/project
+agents:
+  task:
+    runtime: RUNTIME
+    instructions: instructions.md
+    trigger: ready
+    outcomes: {done: {}}
+    runtime-args: ARGS
+'''
+        for runtime in ("claude:model:high", "[codex:model:high, claude:model:high]"):
+            for args in ("[--output-format, text]", "[--output-format=json]"):
+                with self.subTest(runtime=runtime, args=args):
+                    self.path.write_text(base.replace("RUNTIME", runtime).replace("ARGS", args))
+                    stderr = io.StringIO()
+                    with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                        self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                    self.assertIn("task: runtime-args must not set --output-format", stderr.getvalue())
+                    self.assertIn("stream-json", stderr.getvalue())
+
+        accepted = "[--verbose, --allowedTools, 'Bash(git *)']"
+        configured = self.load(base.replace("RUNTIME", "claude:model:high").replace("ARGS", accepted))
+        self.assertEqual(configured.agents[0].runtime_args, ("--verbose", "--allowedTools", "Bash(git *)"))
+        for args in ("[--output-format, text]", "[--output-format=json]"):
+            with self.subTest(runtime="codex:model:high", args=args):
+                configured = self.load(base.replace("RUNTIME", "codex:model:high").replace("ARGS", args))
+                self.assertTrue(configured.agents[0].runtime_args)
+
     def test_init_and_installed_template_preservation(self):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "init", "--repository", "org/project"]), 0)

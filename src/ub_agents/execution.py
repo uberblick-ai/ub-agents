@@ -17,7 +17,8 @@ def command_for(agent, runtime):
         command = ["codex", "exec", "--model", runtime.model,
                    "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}"]
     else:
-        command = ["claude", "--print", "--model", runtime.model, "--effort", runtime.effort]
+        command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
+                   "--model", runtime.model, "--effort", runtime.effort]
     # No permission flags, auth stores, or hidden provider fallback; never a shell.
     return command + list(agent.runtime_args)
 

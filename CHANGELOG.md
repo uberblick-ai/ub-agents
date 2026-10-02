@@ -11,6 +11,9 @@ notes are copied from that section.
 - Agent prompts and check-running roles require a single session that is never
   resumed: finish checks in the foreground or wait for every background job,
   then end the run with `ub-agent report` (#70).
+- Claude runs record tool calls, tool results and the final result, including
+  permission denials, in `process.log` using verbose streaming JSON. `check` rejects
+  Claude `runtime-args` that override `--output-format` (#68).
 
 ## 0.1.5 — 2026-10-02
 
