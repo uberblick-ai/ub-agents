@@ -2,8 +2,11 @@
 
 Read any shared repository guidance (such as AGENTS.md) and the project's acceptance
 and merge rules. Verify that every owed review and check applies to the current
-candidate SHA; old-head evidence is insufficient. Run the declared final checks. Do
-not infer permission to merge from a label alone.
+candidate SHA; old-head evidence is insufficient. Run the declared final checks.
+This run is a single, non-interactive session that is never resumed: ending your
+turn ends the run, so run checks in the foreground or wait for every background
+job to finish before ending your turn, and end the run with `ub-agent report`.
+Do not infer permission to merge from a label alone.
 
 If the project's merge policy authorizes this merge and its gates pass, merge exactly
 the assigned SHA with the project's merge method (for example `gh pr merge PR

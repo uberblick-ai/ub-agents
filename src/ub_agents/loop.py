@@ -433,6 +433,9 @@ class Loop:
                 workflow_labels.update(changes["add"])
                 workflow_labels.update(changes["remove"])
         return (f"You are the project-configured agent {plan.agent.name}.\n"
+                "This run is a single, non-interactive session that is never resumed. "
+                "Ending your turn ends the run. Run checks in the foreground or wait for every "
+                "background job to finish before ending your turn. End the run with ub-agent report.\n"
                 f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                 f"Project instructions:\n{instructions}\n\n"
                 "Read shared repository guidance and the original issue requirements, acceptance "
