@@ -94,6 +94,8 @@ def historical_content(content, renames, at):
     before = [e for e in edits if seconds(e["editedAt"]) <= at]
     if before:
         revision = before[-1]
+        if len(before) > 1 and seconds(before[-2]["editedAt"]) == seconds(revision["editedAt"]):
+            return None  # Revision order within a second cannot prove the posted content.
         if revision.get("deletedAt") or not isinstance(revision.get("diff"), str):
             return None
         body = revision["diff"]

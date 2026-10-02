@@ -183,6 +183,30 @@ class ApprovalTests(unittest.TestCase):
         self.approval(second=10)
         self.assertFalse(self.check().allowed)
 
+    def test_same_second_body_revisions_cannot_validate_an_approval_record(self):
+        for reverse in (False, True):
+            for body in ("Reviewed requirements", "Unseen requirements"):
+                with self.subTest(reverse=reverse, body=body):
+                    self.setUp()
+                    self.label()
+                    comment = self.comment()
+                    self.body_edit(second=10, text="Reviewed requirements")
+                    self.body_edit(second=10, text="Unseen requirements")
+                    if reverse:
+                        self.github.content_histories[1]["edits"].reverse()
+                    self.assertFalse(self.check().allowed)
+                    self.approval(second=15, body=body, comments=[comment])
+                    result = self.check()
+                    self.assertFalse(result.allowed)
+                    self.assertEqual(result.cleared_comment_ids, frozenset())
+                    self.body_edit("operator", 20, "Prepared requirements")
+                    self.assertFalse(self.check().allowed)
+                    # A later unambiguous revision can be approved normally.
+                    self.approval(second=25, comments=[comment])
+                    result = self.check()
+                    self.assertTrue(result.allowed)
+                    self.assertEqual(result.cleared_comment_ids, {comment["id"]})
+
     def test_unicode_encoding_and_record_format(self):
         title, body = "Café ☕", "Line 1\r\nLine 2\n"
         self.assertEqual(content_sha(title, body), body_sha('["Café ☕","Line 1\\r\\nLine 2\\n"]'))

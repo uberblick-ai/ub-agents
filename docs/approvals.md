@@ -48,6 +48,10 @@ or incomplete history. GitHub timestamps cannot order changes in the same second
 ambiguous records are ignored and an outside edit in the approval's second suspends
 work. Reapprove in a later second.
 
+If the latest body revision at posting shares its second with another revision,
+the record cannot prove which body was current, even when posted later. Apply a
+maintainer trigger label again, or create a later body revision before reapproving.
+
 Outside comments are excluded unless cleared by a start or a valid record. Records
 clear exactly their listed comment IDs whose body digests still match. A comment
 created or edited after clearance is excluded again, even if its body later returns
