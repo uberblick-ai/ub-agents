@@ -6,6 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Fixed
+
+- `status` shows the owning run's report (or the agent's latest run's report when no
+  lease is live), following recovery leases to the original run. A run that has not
+  reported no longer shows an earlier run's outcome (#35).
+
 ### Changed
 
 - Before each run, the launcher fetches `origin`, fast-forwards its control checkout on

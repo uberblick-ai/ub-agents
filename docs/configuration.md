@@ -352,6 +352,9 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 - `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
 - `ub-agent status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+  `reported:` (JSON `outcome`) describes the live lease's run, or the agent's latest
+  lease's run when none is live. Recovery leases show the original run's report.
+  If that run has not reported, `reported:` is omitted and JSON `outcome` is `null`.
 - `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
