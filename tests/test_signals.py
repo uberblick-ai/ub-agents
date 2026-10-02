@@ -172,7 +172,7 @@ class SignalTests(unittest.TestCase):
     def test_sigterm_interrupts_slow_discovery_subprocess_promptly(self):
         pid_path = self.root / "poll-pid"
 
-        def observe():
+        def observe(details=True):
             script = ("import os,signal,time; "
                       f"open({str(pid_path)!r}, 'w').write(str(os.getpid())); "
                       "os.kill(os.getppid(), signal.SIGTERM); time.sleep(10)")

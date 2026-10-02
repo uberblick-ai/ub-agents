@@ -10,7 +10,7 @@ errors; `ub-agent check` validates the file.
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
-| `poll-seconds` | How often an idle loop checks GitHub (default 30). |
+| `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
@@ -22,6 +22,43 @@ to both destinations, including the final stop or error message. The log is neve
 truncated or rotated. Use `tail -f .ub-agent/launch.log` to follow the loop from
 another terminal. Ctrl-C, including during a GitHub request, prints
 `Stopped; supervised execution terminated` and exits with status 130.
+
+`poll-seconds` measures the minimum time between the starts of successful
+continuous discovery passes. A run's report, transitions and cleanup finish
+immediately; the launcher then waits only for the part of that interval still
+remaining. If the run already took the interval, the next pass starts immediately.
+Stop signals wake the wait. Failed-poll retry delays below are independent of this
+interval, and `launch --once` never waits after its pass.
+
+Claiming discovery evaluates candidates in rank order and stops once it claims
+work. Lower-ranked rows are evaluated, announced and approval-parked by a later
+pass that reaches them. `status` evaluates every row and remains read-only.
+Each launcher retains per-item discovery inputs in memory: history, approval
+inputs and permissions, PR details, and dependency links. Changes in the issue
+list (including `updated_at`) or the incremental repository comment scan invalidate
+that item's reads. Claims and approval parking always revalidate with fresh reads;
+cached input never authorizes a claim or a write. Restarting a launcher drops its
+cache. With configured priorities, cold discovery lists the dependency graph in
+pages to preserve inheritance without one REST request per queued issue.
+
+For a rough request budget, an unchanged warm pass costs one request per page of
+open issues/PRs, plus the incremental repository comment scan (usually one page),
+and an optional milestone list. List pages hold up to 100 rows; a full REST page
+also needs a request to check for a following page. A cold pass or changed item adds
+roughly 5–10 reads for each candidate actually reached, with extra pages for long
+histories and additional authors' permission checks. Configured priorities add a
+paginated dependency-graph list on cold discovery; very large dependency lists may
+need extra pages. Fresh claim/recovery reads, approval-parking writes, execution
+heartbeats and completion add their own requests. `status` pays for every row.
+
+For interval `P` seconds and average discovery cost `R`, budget up to
+`R × 3600 / P` requests per loop per hour, then add execution/write costs. For
+example, a two-request unchanged pass at 30 seconds is about 240 requests/hour;
+five loops sharing one account use about 1,200 before execution. Sum all loops
+using the account, including loops on other repositories, and leave headroom
+within GitHub's account limit (commonly 5,000 REST requests/hour). GraphQL has a
+separate point budget; graph-list query cost depends on its connections. Long
+runs reduce the number of discovery passes per hour.
 
 Continuous `ub-agent launch` retries failed discovery polls for request timeouts,
 connection failures and HTTP 5xx responses. The fixed backoff starts at **5 seconds**,

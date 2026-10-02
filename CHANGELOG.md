@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- `poll-seconds` is the minimum gap between discovery-pass starts, including
+  after runs. Claiming polls evaluate candidates lazily and reuse unchanged
+  per-item discovery reads in memory, while claims and approval parking still
+  revalidate fresh GitHub input. Cold priority ranking lists dependency links
+  in pages instead of reading every issue separately (#79).
+
 ## 0.1.7 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,

@@ -72,9 +72,9 @@ class Coordinator:
                              "created": record["created"]})
         return feedback
 
-    def repository_history(self):
+    def repository_history(self, comments=None, by_item=False):
         groups = {}
-        for comment in self.github.repository_comments():
+        for comment in self.github.repository_comments() if comments is None else comments:
             if not isinstance(comment, dict):
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Unreadable repository comment")
@@ -90,13 +90,15 @@ class Coordinator:
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Coordination comment has no GitHub assignment URL") from exc
             groups.setdefault(number, []).append(comment)
-        history, invalid = [], set()
+        history, invalid, histories = [], set(), {}
         for number, comments in groups.items():
             try:
-                history.extend(records(comments, self.actor))
+                histories[number] = records(comments, self.actor)
+                history.extend(histories[number])
             except RecordError:
                 invalid.add(number)
-        return sorted(history, key=lambda record: record["id"]), invalid
+        result = sorted(history, key=lambda record: record["id"]), invalid
+        return (*result, histories) if by_item else result
 
     def plan(self, item, agent, stop_labels, history=None, index=None):
         history = self.history(item.number) if history is None else history
@@ -254,7 +256,7 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False, before_write=None):
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -271,6 +273,8 @@ class Coordinator:
                 return None
         if (self.queue.dependencies == "wait" and not recovery and current.kind == "issue"
                 and any(b.state == "open" for b in self.github.blocked_by(current.number))):
+            return None
+        if authorize is not None and not authorize(current):
             return None
         now = self.clock()
         record = {"kind": "lease", "run": uuid.uuid4().hex,

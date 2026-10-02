@@ -333,9 +333,11 @@ closed items and items whose trigger was removed, then polls updated comments wi
 scan. Each page advances `since` to one second before its last update and
 deduplicates by comment id, because page offsets skip rows when comments move. A
 full page within one second cannot be paginated safely and stops visibly. The cache
-and cursor live in memory, a failed page commits neither, and item comments are
-always reread before planning or claiming, so stale cached records never supply
-authority.
+and cursor live in memory, and a failed page commits neither. Claiming discovery
+reuses unchanged per-item reads and evaluates only rows it reaches in rank order;
+`status` evaluates every row. Item comments and approval inputs are always reread
+before a claim or approval-parking write, so stale cached records never supply
+authority. See [poll timing and request budgeting](configuration.md#top-level).
 
 Discovery follows the latest non-withdrawn lease after the last reset for each
 item and agent. A released retry or blocked result, or an expired run without an
