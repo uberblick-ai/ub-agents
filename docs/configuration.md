@@ -228,7 +228,8 @@ agent input; later outside edits do not stop a running assignment.
 Trusted-authored PRs need no start and outside feedback does not suspend them.
 Outside PRs need a maintainer trigger and an eligible head: a pinned approval
 record, a maintainer approving review on that head, or accepted agent ancestry
-from an eligible assigned head. Outside edits or feedback after approval suspend
+from an eligible assigned head in the base repository. Every changed fork head
+needs explicit maintainer approval. Outside edits or feedback after approval suspend
 outside PRs again. Fork PRs can be reviewed, but agents cannot revise them and
 revision runs remain blocked.
 

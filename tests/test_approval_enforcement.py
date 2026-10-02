@@ -136,12 +136,13 @@ class EnforcementTests(unittest.TestCase):
         self.execute(verify)
         self.assertEqual(self.loop.coordinator.history(1)[-2]['result'], 'success')
 
-    def use_pr(self, trusted=False):
+    def use_pr(self, trusted=False, head_repository='org/project'):
         self.github.items = {2: pr()}
         self.github.timelines[2] = []
         original = self.github.pr_content
         if not trusted:
-            patcher = patch.object(self.github, 'pr_content', side_effect=lambda n: original(n) | {'author': {'login': 'outsider'}})
+            patcher = patch.object(self.github, 'pr_content', side_effect=lambda n: original(n) | {
+                'author': {'login': 'outsider'}, 'head_repository': head_repository})
             self.addCleanup(patcher.stop)
             patcher.start()
 
@@ -249,7 +250,7 @@ class EnforcementTests(unittest.TestCase):
             self.assertNotIn(100, [r['id'] for r in result.snapshot[name]])
 
     def test_accepted_agent_revision_inherits_eligible_head_only(self):
-        self.use_pr()
+        self.use_pr(head_repository='ORG/PROJECT')
         self.start(2, 'needs-changes')
         self.approve()
         def revise(c):
@@ -271,6 +272,31 @@ class EnforcementTests(unittest.TestCase):
                 changed['candidate_sha'] = 'd' * 40
             self.github.update_comment(record['id'], body(changed))
         self.assertEqual(self.loop.plans()[0].state, 'parked')
+
+    def test_fork_push_during_successful_run_cannot_inherit_head_approval(self):
+        for repository in ('outsider/project', None):
+            with self.subTest(head_repository=repository):
+                self.setUp()
+                self.use_pr(head_repository=repository)
+                self.start(2, 'needs-changes')
+                self.approve()
+                self.execute(lambda c: self.github.change(2, head='b' * 40))
+                lease, outcome = self.loop.coordinator.history(2)[-2:]
+                self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
+                self.assertTrue(outcome['accepted'])
+                self.assertEqual((outcome['assignment_sha'], outcome['candidate_sha']), ('a' * 40, 'b' * 40))
+                self.github.change(2, labels=frozenset({'needs-changes'}))
+                self.assertEqual(self.loop.plans()[0].state, 'parked')
+                # Relabeling cannot approve the fork's newly observed head either.
+                self.start(2, 'needs-changes', second=20)
+                self.assertEqual(self.loop.plans()[0].state, 'parked')
+                self.approve(second=25)
+                self.execute()
+                # A maintainer approving review can also approve a new fork head.
+                self.github.change(2, head='c' * 40, labels=frozenset({'needs-changes'}))
+                self.github.review_store[2] = [feedback(100, 'maintainer', 'Approved', 30,
+                                                       state='APPROVED', commit_id='c' * 40)]
+                self.execute()
 
     def test_approve_pr_pins_head_and_feedback_and_refuses_display_races(self):
         self.use_pr()

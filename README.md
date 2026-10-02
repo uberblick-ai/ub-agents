@@ -114,7 +114,8 @@ Outside-authored PRs need both a maintainer trigger label and an approved head;
 later outside edits or feedback suspend pickup. Maintainers approve current input
 with `ub-agent approve --number N`, including a PR's head and outside feedback.
 A maintainer approving review can approve its head; accepted agent revisions from
-eligible heads need no new approval. Fork PRs can be reviewed, but agent revision
+eligible heads in the base repository need no new approval. Every changed fork head
+needs explicit maintainer approval. Fork PRs can be reviewed, but agent revision
 runs remain blocked. The [approval contract](docs/approvals.md) describes the rules.
 
 Use a dedicated launcher account with `write`; `doctor` warns about `maintain` or

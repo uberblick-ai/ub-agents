@@ -246,7 +246,8 @@ class GitHub:
         }"""
         if kind == "pullRequest":
             query = query.replace("issue(number:", "pullRequest(number:").replace(
-                "title body createdAt lastEditedAt", "title body createdAt lastEditedAt author { login } headRefOid")
+                "title body createdAt lastEditedAt",
+                "title body createdAt lastEditedAt author { login } headRefOid headRepository { nameWithOwner }")
         edits, cursor, content, seen = [], None, None, set()
         while True:
             raw = self.request("graphql", "POST", {"query": query, "variables": {
@@ -257,7 +258,13 @@ class GitHub:
                 issue = raw["data"]["repository"][kind]
                 current = {key: issue[key] for key in ("title", "body", "createdAt", "lastEditedAt")}
                 if kind == "pullRequest":
-                    current |= {"author": issue["author"], "head": issue["headRefOid"]}
+                    head_repository = issue["headRepository"]
+                    head_repository = head_repository["nameWithOwner"] if head_repository is not None else None
+                    if head_repository is not None and (not isinstance(head_repository, str)
+                                                       or not re.fullmatch(REPOSITORY, head_repository)):
+                        raise ValueError("invalid PR head repository")
+                    current |= {"author": issue["author"], "head": issue["headRefOid"],
+                                "head_repository": head_repository}
                     if not isinstance(current["head"], str) or not re.fullmatch(r"[0-9a-f]{40}", current["head"]):
                         raise ValueError("invalid PR head")
                 if content is not None and current != content:

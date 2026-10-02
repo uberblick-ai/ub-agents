@@ -64,21 +64,40 @@ class ApprovalGitHubTests(unittest.TestCase):
             self.assertEqual(github.timeline(42), [])
             request.assert_called_once_with("repos/org/project/issues/42/timeline", paginate=True)
 
-    def test_pr_content_pins_author_and_head_across_history_pages(self):
+    def test_pr_content_pins_author_head_and_repository_across_history_pages(self):
         github = GitHub("org/project")
         first, second = self.page(True, "next"), self.page()
         for page in (first, second):
             item = page["data"]["repository"].pop("issue")
-            item |= {"author": {"login": "outside"}, "headRefOid": "a" * 40}
+            item |= {"author": {"login": "outside"}, "headRefOid": "a" * 40,
+                     "headRepository": {"nameWithOwner": "outside/project"}}
             page["data"]["repository"]["pullRequest"] = item
         with patch.object(github, "request", side_effect=[first, second]) as request:
             content = github.pr_content(42)
         self.assertEqual((content["head"], content["author"]), ("a" * 40, {"login": "outside"}))
+        self.assertEqual(content["head_repository"], "outside/project")
         self.assertIn("pullRequest(number:", request.call_args.args[2]["query"])
-        second["data"]["repository"]["pullRequest"]["headRefOid"] = "b" * 40
-        with patch.object(github, "request", side_effect=[first, second]):
-            with self.assertRaisesRegex(GitHubError, "Unreadable PR content history"):
-                github.pr_content(42)
+        self.assertIn("headRepository { nameWithOwner }", request.call_args.args[2]["query"])
+        for changed in ({"headRefOid": "b" * 40}, {"headRepository": {"nameWithOwner": "org/project"}}):
+            altered = deepcopy(second)
+            altered["data"]["repository"]["pullRequest"].update(changed)
+            with patch.object(github, "request", side_effect=[first, altered]):
+                with self.assertRaisesRegex(GitHubError, "Unreadable PR content history"):
+                    github.pr_content(42)
+
+    def test_pr_head_repository_may_be_deleted_but_malformed_data_fails(self):
+        github = GitHub("org/project")
+        page = self.page()
+        item = page["data"]["repository"].pop("issue")
+        item |= {"author": {"login": "outside"}, "headRefOid": "a" * 40, "headRepository": None}
+        page["data"]["repository"]["pullRequest"] = item
+        with patch.object(github, "request", return_value=page):
+            self.assertIsNone(github.pr_content(42)["head_repository"])
+        for repository in ({}, {"nameWithOwner": ""}, {"nameWithOwner": []}, "org/project"):
+            item["headRepository"] = repository
+            with self.subTest(repository=repository), patch.object(github, "request", return_value=page):
+                with self.assertRaisesRegex(GitHubError, "Unreadable PR content history"):
+                    github.pr_content(42)
 
     def review_page(self, more=False, cursor=None):
         return {"repository": {"pullRequest": {"reviews": {

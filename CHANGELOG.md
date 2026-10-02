@@ -6,6 +6,16 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- The launcher enforces maintainer starts and outside-input approvals for every
+  issue and PR run, including preparation. Failed pickup or post-claim checks park
+  work without spending attempts; agent context includes only trusted or cleared
+  feedback. Outside PRs require an approved head, with accepted agent revisions
+  in the base repository inheriting eligibility; changed fork heads need explicit
+  maintainer approval. `ub-agent approve` accepts PRs, pins their head and clears
+  outside comments, reviews and review comments (#39).
+
 ## 0.1.5 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. Stop every launcher for a project
@@ -22,16 +32,9 @@ between runs. From 0.1.5, `kill -TERM` lets the current run finish and exits 0 (
   records that reject ambiguous body revisions; `ub-agent approve --number N` reviews
   current input and clears outside comments. `doctor` warns when the launcher account
   can start or approve its own work.
-  (#38)
+  Pickup enforcement follows in #39. (#38)
 
 ### Changed
-
-- The launcher enforces maintainer starts and outside-input approvals for every
-  issue and PR run, including preparation. Failed pickup or post-claim checks park
-  work without spending attempts; agent context includes only trusted or cleared
-  feedback. Outside PRs require an approved head, with accepted agent revisions
-  inheriting eligibility. `ub-agent approve` accepts PRs, pins their head and clears
-  outside comments, reviews and review comments (#39).
 
 - Before each new claim, the launcher reloads `ub-agent.yaml` from its refreshed
   checkout and replans with the current agent, triggers, runtime and outcomes.

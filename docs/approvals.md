@@ -95,9 +95,14 @@ eligible when a valid PR approval record pins it, a maintainer's approving revie
 names it as `commit_id`, or an accepted successful agent outcome produced it as
 `candidate_sha` from a run whose `assignment_sha` was eligible when assigned.
 The outcome must belong to this PR and match its successfully released source
-lease (including completed recovery). Chained agent revisions inherit eligibility;
-unaccepted, rejected or unrelated outcomes do not. Every other head needs explicit
-maintainer approval, even when its push preceded the start.
+lease (including completed recovery), and the PR's head repository must be the
+base repository. Only trusted accounts can push there. A report records the head
+observed at reporting time and cannot distinguish an agent push from an outside
+fork author's push during a run. Fork heads therefore always need an explicit
+approval record or maintainer approving review. A missing head repository cannot
+grant inherited eligibility. Chained agent revisions in the base repository inherit
+eligibility; unaccepted, rejected or unrelated outcomes do not. Every other head
+needs explicit maintainer approval, even when its push preceded the start.
 
 Outside title or body edits, comments, reviews and review comments at or after the
 latest maintainer approval suspend outside-authored PR work. The latest approval
@@ -111,7 +116,8 @@ feedback removes its clearance even if its text returns to the approved body.
 
 Fork PRs may be reviewed on their approved head. Agents cannot revise fork PRs;
 revision runs must report `blocked` instead of attempting a handoff through the
-base repository's branch. The existing blocked revision behavior is unchanged.
+base repository's branch. Every changed fork head needs explicit maintainer approval,
+including a head observed by an accepted successful run.
 
 ## Approving current input
 

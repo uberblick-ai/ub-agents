@@ -96,7 +96,9 @@ comments are not input. Outside changes during execution do not stop that run,
 replace its context or gate its durable completion and recovery.
 
 An outside PR head requires a valid pinned approval record, a maintainer approving
-review on that head, or an accepted agent outcome from an eligible assignment head.
+review on that head, or an accepted agent outcome from an eligible assignment head
+when the head repository is the base repository. Changed fork heads need explicit
+maintainer approval, even if an accepted successful run observed them.
 A trigger label alone cannot identify a pushed head. Fork PR review is supported;
 agent revision of a fork PR remains blocked. `ub-agent approve --number N` accepts
 issues and PRs and clears the outside feedback it records; PR records also pin the

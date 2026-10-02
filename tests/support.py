@@ -83,7 +83,8 @@ class FakeGitHub:
                 "lastEditedAt": None, "edits": []} | deepcopy(self.content_histories.get(number, {}))
 
     def pr_content(self, number):
-        return self.issue_content(number) | {"head": self.items[number].head, "author": {"login": "operator"}}
+        return self.issue_content(number) | {"head": self.items[number].head, "author": {"login": "operator"},
+                                            "head_repository": self.repository}
 
     def reviews(self, number):
         return deepcopy(self.review_store.get(number, []))
