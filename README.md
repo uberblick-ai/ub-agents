@@ -182,6 +182,13 @@ stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
 
 ## When things go wrong
 
+Maintainers can record approval of an issue's current title, body and outside comments
+with `ub-agent approve --number N`. The [issue approval contract](docs/approvals.md)
+describes repository roles, maintainer starts and suspension after outside edits.
+The check and records are available; launcher pickup enforcement follows in #39.
+Use a dedicated launcher account with `write`; `doctor` warns about `maintain` or
+`admin` accounts that would let agents start and approve their own work.
+
 Before every new agent run, the launcher fetches `origin`, fast-forwards the
 operator's control checkout on the repository's default branch, and rereads that
 role's instruction file. Keep that checkout clean and free of local-only commits.

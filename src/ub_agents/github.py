@@ -203,6 +203,64 @@ class GitHub:
             raise GitHubError("GET", "user", "GitHub authentication returned no actor")
         return data["login"]
 
+    def role(self, login):
+        """Unknown/unreadable roles never grant input or approval authority."""
+        if not isinstance(login, str) or not login:
+            return None
+        try:
+            raw = self.request(f"{self.prefix}/collaborators/{quote(login, safe='')}/permission")
+        except AgentError:
+            return None
+        role = raw.get("role_name")
+        return role if isinstance(role, str) and role in {"admin", "maintain", "write", "triage", "read", "none"} else None
+
+    def timeline(self, number):
+        return self.request(f"{self.prefix}/issues/{number}/timeline", paginate=True)
+
+    def issue_content(self, number):
+        """Read current content and every body revision, including its editor.
+
+        GitHub's userContentEdits.diff contains the body at that revision, despite
+        its name. Deleted revisions have a null diff and cannot prove a digest.
+        """
+        owner, name = self.repository.split("/", 1)
+        query = """query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+          repository(owner:$owner, name:$name) { issue(number:$number) {
+            title body createdAt lastEditedAt
+            userContentEdits(first:100, after:$cursor) {
+              nodes { editedAt editor { login } diff deletedAt }
+              pageInfo { hasNextPage endCursor }
+            }
+          } }
+        }"""
+        edits, cursor, content, seen = [], None, None, set()
+        while True:
+            raw = self.request("graphql", "POST", {"query": query, "variables": {
+                "owner": owner, "name": name, "number": number, "cursor": cursor}})
+            try:
+                if raw.get("errors"):
+                    raise ValueError("GraphQL errors")
+                issue = raw["data"]["repository"]["issue"]
+                current = {key: issue[key] for key in ("title", "body", "createdAt", "lastEditedAt")}
+                if content is not None and current != content:
+                    raise ValueError("issue changed while reading history")
+                content = current
+                connection = issue["userContentEdits"]
+                if not isinstance(connection["nodes"], list):
+                    raise ValueError("invalid edit history")
+                edits.extend(connection["nodes"])
+                page = connection["pageInfo"]
+                if type(page["hasNextPage"]) is not bool:
+                    raise ValueError("invalid pagination")
+                if not page["hasNextPage"]:
+                    return content | {"edits": edits}
+                if not isinstance(page["endCursor"], str) or page["endCursor"] in seen:
+                    raise ValueError("invalid edit cursor")
+                cursor = page["endCursor"]
+                seen.add(cursor)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GitHubError("POST", "graphql", "Unreadable issue content history") from exc
+
     def labels(self):
         rows = self.request(f"{self.prefix}/labels", paginate=True)
         if any(not isinstance(row, dict) or not isinstance(row.get("name"), str)

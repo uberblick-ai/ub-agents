@@ -60,6 +60,20 @@ class FakeGitHub:
         self.unreadable = False
         self.writes = []
         self.login = "operator"
+        self.roles = {"operator": "write"}
+        self.timelines = {}
+        self.content_histories = {}
+
+    def role(self, login):
+        return self.roles.get(login.casefold()) if isinstance(login, str) else None
+
+    def timeline(self, number):
+        return deepcopy(self.timelines.get(number, []))
+
+    def issue_content(self, number):
+        item = self.items[number]
+        return {"title": item.title, "body": item.body, "createdAt": item.created_at,
+                "lastEditedAt": None, "edits": []} | deepcopy(self.content_histories.get(number, {}))
 
     def actor(self):
         return self.login
@@ -114,9 +128,12 @@ class FakeGitHub:
             return deepcopy([comment for comments in self.store.values() for comment in comments])
 
     def create_comment(self, number, body):
+        from ub_agents.records import iso, timestamp
         data = json.loads(body.rsplit("\n```json\n", 1)[1].removesuffix("\n```\n")) if body.startswith(MARKER) else {}
         with self.lock:
+            created_at = iso(timestamp())
             comment = {"id": self.next_id, "body": body, "user": {"login": self.login},
+                       "created_at": created_at, "updated_at": created_at,
                        "issue_url": f"https://api.github.com/repos/org/project/issues/{number}",
                        "html_url": f"https://github.com/org/project/issues/{number}#issuecomment-{self.next_id}"}
             self.next_id += 1
