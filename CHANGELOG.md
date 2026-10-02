@@ -6,6 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Fixed
+
+- Nonzero exits without a report retry with backoff up to `max-attempts`. A report
+  made before a nonzero exit is validated and applied normally, preserving label
+  transitions and accepted handoff provenance; the exit code is logged (#42).
+
 ## 0.1.4 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. The launcher now stops on a dirty

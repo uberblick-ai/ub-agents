@@ -241,18 +241,17 @@ class Loop:
                              plan.agent.timeout_seconds, self.stop_event,
                              self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
                              expires=seconds(lease["expires"]), process_started=process_started)
+            diagnostic("execution-exited", code=code)
             # No acceptance or release until all attributable execution has ended.
             cleanup_workspace()
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
             if outcome is None:
-                result = "blocked" if code != 0 else "retry"
+                result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             elif outcome["status"] != "success":
                 result, summary = outcome["status"], outcome["summary"]
                 effect = "unchanged" if result == "blocked" else "failure"
-            elif code != 0:
-                result, summary = "blocked", f"Success report conflicts with execution exit {code}"
             else:
                 try:
                     self.finalize(lease, plan, outcome, "completion")
