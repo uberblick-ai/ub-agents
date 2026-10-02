@@ -253,8 +253,8 @@ GitHub rate limits during claim election, ownership checks and completion reads
 Waits use real response headers and the [rate-limit rules](configuration.md#top-level).
 A wait that would reach or outlast the active lease expiry instead takes the usual
 lost-ownership path: no further coordination writes, followed by expiry recovery.
-SIGTERM keeps draining the run; Ctrl-C and SIGHUP interrupt waits through the
-existing run interruption path. Rate-limited writes keep their existing handling.
+See [Stopping and restarting](../README.md#stopping-and-restarting) for signals
+during these waits. Rate-limited writes keep their existing handling.
 
 ## Draft checkpoints
 
@@ -461,13 +461,10 @@ draft checkpoints still fetch and check out their exact heads; refresh never
 rebases them. Coordination between two launchers sharing a checkout, or a concurrent
 manual cleanup, is outside this serial execution boundary.
 
-SIGTERM stops further claims and drains the current execution or recovery, including
-reporting, transitions and cleanup, before exiting 0. Idle waits wake promptly.
-An in-progress checkout refresh finishes before stopping, without a claim, so
-SIGTERM cannot kill a fast-forward partway through updating the control checkout.
-SIGINT and SIGHUP still terminate active execution, including during this drain.
-Later SIGTERM signals leave process-group termination and cleanup to finish.
-Launcher errors retain their nonzero exit. Code updates require a launcher restart.
+See [Stopping and restarting](../README.md#stopping-and-restarting) for signal
+handling during execution, recovery and checkout refresh, and for restarting after
+code updates. The SIGTERM refresh rule prevents a fast-forward from being killed
+partway through updating the control checkout.
 
 Each process owns a new POSIX session/group. Termination sends TERM then KILL and
 checks that no live owned group members remain. Even failed process inspection
