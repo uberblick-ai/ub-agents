@@ -13,6 +13,7 @@ from .execution import Workspace, command_for, supervise
 from .github import closing_issues, links_issue
 from .hooks import run_hook
 from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
+from .refresh import refresh_instructions
 
 
 class Loop:
@@ -22,9 +23,6 @@ class Loop:
         self.coordinator = Coordinator(github, actor, queue=config.queue)
         self.stop_event = stop_event or threading.Event()
         self.output = output
-        # The candidate cannot rewrite the operator's configured task policy.
-        self.instructions = {a.name: a.instructions.read_text() if a.instructions else ""
-                             for a in config.agents}
 
     def plans(self):
         plans = []
@@ -130,6 +128,11 @@ class Loop:
         return False
 
     def execute(self, plan):
+        # Between supervised runs and cleanup hooks, before any assignment writes.
+        # Refresh errors belong to the operator, not to an assignment attempt.
+        instructions = refresh_instructions(self.config, plan.agent, self.github)
+        if self.stop_event.is_set():
+            raise KeyboardInterrupt
         lease = self.coordinator.claim(plan, self.config.stop_labels)
         if lease is None:
             return False
@@ -232,7 +235,7 @@ class Loop:
             setup = False
             code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
                              plan.agent.timeout_seconds, self.stop_event,
-                             self.prompt_for(plan, lease, context) if plan.runtime else None,
+                             self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
                              expires=seconds(lease["expires"]), process_started=process_started)
             # No acceptance or release until all attributable execution has ended.
             cleanup_workspace()
@@ -310,7 +313,7 @@ class Loop:
         return sorted({r["branch"] for r in self.coordinator.history(item.number) if r["kind"] == "lease"
                        and r["agent"] == agent.name and r.get("branch") and r["run"] != run})
 
-    def prompt_for(self, plan, lease, context):
+    def prompt_for(self, plan, lease, context, instructions):
         earlier = context["earlier_branches"]
         continuation = (f"Earlier runs of this issue recorded branches {json.dumps(earlier)}; check each with "
                         "gh pr list --state open --head BRANCH and continue an open draft PR there instead "
@@ -323,7 +326,7 @@ class Loop:
                 workflow_labels.update(changes["remove"])
         return (f"You are the project-configured agent {plan.agent.name}.\n"
                 f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
-                f"Project instructions:\n{self.instructions[plan.agent.name]}\n\n"
+                f"Project instructions:\n{instructions}\n\n"
                 "Read shared repository guidance and the original issue requirements, acceptance "
                 "criteria, current code/diff, and candidate-specific checks on GitHub. "
                 "Use a fresh session; do not consume implementation reasoning transcripts. "

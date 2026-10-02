@@ -279,12 +279,34 @@ Use argv directly; there is no shell interpolation. Runtimes receive a prompt on
 stdin; direct commands receive context through `UB_AGENT_CONTEXT` and run identity
 through `UB_AGENT_*` variables. Operator environment/auth stores are inherited
 normally; no credentials or grants are copied or added. `runtime-args` is the
-operator's explicit extension. All sessions start fresh. Task instructions are
-snapshotted from the operator's configuration checkout at launcher startup,
-including for private PR executions. Candidate edits to those files are changes
-to inspect, not replacement policy for the assignment. Shared candidate guidance
+operator's explicit extension. All sessions start fresh. Before claiming each new
+agent run, the launcher fetches the repository's default branch from `origin` and
+fast-forwards the operator's control checkout (the root holding `ub-agent.yaml`).
+It then validates and rereads that role's configured Markdown. Instruction text
+is fixed for that run's prompt and is never cached across runs, including private
+PR executions. Candidate edits to those files are changes to inspect, not
+replacement policy for the assignment. Shared candidate guidance
 is still task input; an independent agent is directed to use the configured task
 instructions to judge it.
+
+Refresh happens only between runs, after all of this launcher's supervised agent
+processes and cleanup hooks have ended. Durable-outcome recovery starts no agent
+and does not refresh. A clean, already-current checkout needs no merge. Refresh
+requires the default branch to be checked out, no staged, modified or untracked
+non-ignored files, and no local commits absent from `origin`. It never resets,
+stashes or switches branches, and refuses to overwrite ignored local files.
+Incoming instruction paths and text are validated before advancing HEAD; missing,
+outside-project or unreadable instructions stop the launcher. Unsafe checkout
+state, fetch or fast-forward failures also stop it with a nonzero exit and a
+message telling the operator what to fix before restarting. These failures do
+not claim an assignment, charge an attempt, or mark work blocked or retrying.
+
+`ub-agent.yaml` remains the configuration loaded at launcher startup; restart to
+apply configuration changes. New issue worktrees still start from the remote
+default branch. PR worktrees retain their exact candidate SHA. Agents continuing
+draft checkpoints still fetch and check out their exact heads; refresh never
+rebases them. Coordination between two launchers sharing a checkout, or a concurrent
+manual cleanup, is outside this serial execution boundary.
 
 Each process owns a new POSIX session/group. Termination sends TERM then KILL and
 checks that no live owned group members remain. Even failed process inspection

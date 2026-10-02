@@ -10,11 +10,12 @@ from ub_agents.cli import main, status_rows
 from ub_agents.errors import AgentError, CleanupError, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class FailureCountTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -224,6 +225,23 @@ class FailureCountTests(unittest.TestCase):
                 patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
             self.loop.tick()
         self.assertEqual((self.count(), self.plan().state), (1, 'backoff'))
+
+    def test_instruction_refresh_failure_preserves_count_without_claiming(self):
+        self.execute()
+        self.finish_backoff()
+        writes = list(self.github.writes)
+        with patch('ub_agents.loop.refresh_instructions', side_effect=AgentError('Refresh failed')), \
+                patch('ub_agents.loop.Workspace.prepare') as prepare, \
+                patch('ub_agents.loop.supervise') as supervise:
+            with self.assertRaisesRegex(AgentError, 'Refresh failed'):
+                self.loop.tick()
+        prepare.assert_not_called()
+        supervise.assert_not_called()
+        self.assertEqual(self.github.writes, writes)
+        self.loop = self.restart()
+        self.assertEqual((self.count(), self.plan().state), (1, 'ready'))
+        self.execute('success')
+        self.assertEqual(self.count(), 0)
 
     def test_pre_execution_head_trigger_and_state_changes_retry_with_backoff(self):
         for changed in ('head', 'trigger', 'state'):
