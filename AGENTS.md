@@ -60,6 +60,20 @@ to a maintainer, and says why, when the PR:
 - changes `README.md` or other public documentation under `docs/`, or needs such a
   change to stay accurate.
 
+## Changelog
+
+`CHANGELOG.md` records user-facing changes.
+
+- The implementer adds an entry under `## Unreleased` in the same PR, in the Added,
+  Changed, Removed or Fixed group, ending with the issue or PR number. Internal-only
+  changes such as tests, CI or refactors without behavior change need no entry; say
+  so in the PR body.
+- The reviewer treats a missing or inaccurate entry as a required correction.
+- The integrator checks the entry again, together with the candidate's conflicts with
+  `main`, and sends the PR back with the `changes-requested` outcome if either fails.
+- A release turns `Unreleased` into the version's section, and the GitHub release notes
+  are copied from it.
+
 ## Changes
 
 - Keep `README.md` and the docs under `docs/` accurate for any behavior you change,

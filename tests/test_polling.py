@@ -13,7 +13,7 @@ from ub_agents.config import Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RecordError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop, POLL_FAILURE_LIMIT, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
-from ub_agents.records import iso, timestamp
+from ub_agents.records import attempts, iso, timestamp
 from tests.support import stub_refresh, PollGitHub, RecordingRunner, agent, config, issue, pr
 
 
@@ -147,6 +147,46 @@ class PollingTests(unittest.TestCase):
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         self.assertEqual(delays, [5, 5])
+
+    def test_poll_retries_preserve_item_failures_and_success_resets_them(self):
+        lease = self.loop.coordinator.claim(self.loop.plans()[0])
+        self.loop.coordinator.update(lease, state="running", started=True)
+        self.loop.coordinator.report(lease, "retry", "Earlier execution failed")
+        self.loop.coordinator.release(lease, "retry", "Earlier execution failed")
+        earlier_writes = list(self.github.writes)
+        failure = self.http_error()
+        self.github.read_results["observe"] = [failure, None, failure, None]
+        delays = []
+        executions = []
+
+        def count():
+            return len(attempts(self.loop.coordinator.history(1), "worker", timestamp()))
+
+        def wait(delay):
+            delays.append(delay)
+            self.assertEqual(count(), len(delays))
+            if len(delays) == 1:
+                self.assertEqual(self.github.writes, earlier_writes)
+            leases = [r for r in self.loop.coordinator.history(1) if r["kind"] == "lease"]
+            self.assertEqual(len(leases), len(delays))
+            self.assertEqual(leases[-1]["result"], "retry")
+
+        def execute(*args, **kwargs):
+            lease = self.loop.coordinator.history(1)[-1]
+            executions.append(lease["attempt"])
+            if len(executions) == 1:
+                self.loop.coordinator.report(lease, "retry", "Execution failed again")
+            else:
+                self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
+                self.loop.stop_event.set()
+            return 0
+
+        with patch("ub_agents.loop.supervise", side_effect=execute), \
+                patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        self.assertEqual(delays, [5, 5])
+        self.assertEqual(executions, [2, 3])
+        self.assertEqual(count(), 0)
 
     def test_rate_limit_waits_for_reset_and_shares_failure_count(self):
         with patch("ub_agents.github.timestamp", return_value=1000):

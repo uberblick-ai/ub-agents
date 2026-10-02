@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from ub_agents.cli import main, status_rows
 from ub_agents.config import Priority, Queue, Runtime
-from ub_agents.errors import AgentError, CleanupError, LostOwnership
+from ub_agents.errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, iso, timestamp
 from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
@@ -465,7 +465,7 @@ class RecoveryTests(unittest.TestCase):
         return Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
 
     def test_report_then_timeout_or_interrupt_never_recovers_as_success(self):
-        for error in (AgentError("Execution timed out"), KeyboardInterrupt()):
+        for error in (RetryableExecutionError("Execution timed out"), KeyboardInterrupt()):
             with self.subTest(error=type(error).__name__):
                 github = FakeGitHub(issue())
                 loop = self.loop(github)
@@ -488,7 +488,7 @@ class RecoveryTests(unittest.TestCase):
                 # The trigger is still present, so a fresh attempt is offered; the
                 # early report is never promoted to a recoverable completion.
                 plan = restarted.plans()[0]
-                self.assertEqual((plan.state, plan.attempt), ("ready", 2))
+                self.assertEqual((plan.state, plan.attempt), ("ready", 1 if isinstance(error, KeyboardInterrupt) else 2))
                 history = restarted.coordinator.history(1)
                 self.assertIsNone(restarted.coordinator.pending_completion(history, self.agent.name, timestamp() + 120))
                 self.assertFalse(history[1]["accepted"])
@@ -501,7 +501,7 @@ class RecoveryTests(unittest.TestCase):
 
                 def execute(*args, **kwargs):
                     github.change(1, labels=frozenset(), state=state)
-                    raise AgentError("Execution timed out")
+                    raise RetryableExecutionError("Execution timed out")
 
                 with patch("ub_agents.loop.supervise", side_effect=execute):
                     loop.tick()
@@ -560,7 +560,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual((history[2]["state"], history[2]["result"]), ("released", "success"))
         self.assertEqual(restarted.plans(), [])
 
-    def test_repeated_recovery_read_failure_keeps_outcome_pending_and_preserves_start_budget(self):
+    def test_repeated_recovery_read_failure_keeps_outcome_pending_without_charging_failures(self):
         github = FakeGitHub(issue())
         loop = self.loop(github)
         now = timestamp()
@@ -578,13 +578,13 @@ class RecoveryTests(unittest.TestCase):
             self.assertNotIn("result", history[-1])
             self.assertFalse(history[1]["accepted"])
         now += 61
-        self.assertEqual(len(attempts(history, self.agent.name, now)), 1)
+        self.assertEqual(len(attempts(history, self.agent.name, now)), 0)
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         self.assertTrue(loop.coordinator.history(1)[1]["accepted"])
         self.assertEqual(loop.plans(), [])
 
-    def test_later_success_supersedes_old_crash_without_resetting_attempts(self):
+    def test_later_success_resets_old_crash_failure_count(self):
         github = FakeGitHub(issue())
         loop = self.loop(github)
         lease = loop.coordinator.claim(loop.plans()[0])
@@ -599,7 +599,7 @@ class RecoveryTests(unittest.TestCase):
             loop.tick()
         self.assertEqual(loop.plans(), [])
         github.change(1, labels=frozenset({"ready"}))
-        self.assertEqual((loop.plans()[0].state, loop.plans()[0].attempt), ("ready", 3))
+        self.assertEqual((loop.plans()[0].state, loop.plans()[0].attempt), ("ready", 1))
 
     def test_crash_during_outcome_recovery_still_does_not_reexecute(self):
         github = FakeGitHub(issue())

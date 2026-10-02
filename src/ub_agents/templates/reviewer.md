@@ -14,6 +14,9 @@ If the project requires independent cross-provider review, configure
 different-runtime-from and an eligible runtime. Changing effort or
 resetting the author's conversation does not establish independent review.
 
+If the project keeps a changelog, a missing or inaccurate entry for a user-facing change
+is a required correction.
+
 Post concrete findings tied to the assigned SHA. Report changes-requested for
 required corrections, or approved if the project's acceptance criteria pass.
 Both are successful review handoffs: use `ub-agent report --outcome NAME
