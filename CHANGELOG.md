@@ -13,9 +13,10 @@ notes are copied from that section.
   Each run keeps its claimed configuration; invalid reloads stop without charging
   an attempt (#52).
 - SIGTERM stops further claims, lets the current run or recovery finish its report,
-  label transitions and cleanup, and exits 0; idle launchers exit promptly. SIGINT
-  and SIGHUP still terminate active execution, including during a graceful stop
-  (#52).
+  label transitions and cleanup, and exits 0; idle launchers exit promptly after
+  any in-progress checkout refresh finishes. Later SIGTERM signals allow process
+  termination and cleanup to complete. SIGINT and SIGHUP still terminate active
+  execution, including during a graceful stop (#52).
 
 ## 0.1.4 — 2026-10-02
 

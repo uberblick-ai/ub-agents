@@ -2,7 +2,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
 from pathlib import Path
+import signal
+import subprocess
+import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -130,6 +134,68 @@ class RefreshTests(unittest.TestCase):
         path = self.root / "ub-agent.yaml"
         self.loop.config = load_config(path)
         self.loop.config_path = path
+
+    def test_sigterm_during_fast_forward_finishes_refresh_without_claiming(self):
+        for reload in (False, True):
+            with self.subTest(reload=reload):
+                self.setUp()
+                if reload:
+                    self.enable_reload()
+                self.push_policy()
+                merges = []
+
+                def refresh_git(root, *args, **kwargs):
+                    if "merge" not in args:
+                        return git(root, *args, **kwargs)
+                    # Exercise subprocess.run's actual exception/child cleanup
+                    # while a delayed merge receives SIGTERM from its child.
+                    command = ["git", "-C", str(root), *args]
+                    script = ("import os,signal,sys,time; "
+                              "os.kill(os.getppid(), signal.SIGTERM); time.sleep(.2); "
+                              "os.execvp('git', sys.argv[1:])")
+                    result = subprocess.run([sys.executable, "-c", script, *command],
+                                            capture_output=True, text=True, timeout=10, check=True)
+                    merges.append(result.returncode)
+                    return result.stdout.strip()
+
+                def loop(config, github, actor, stop, **kwargs):
+                    self.loop.stop_event = stop
+                    self.loop.interrupt_event = kwargs["interrupt_event"]
+                    return self.loop
+
+                with patch("ub_agents.refresh.git", side_effect=refresh_git), \
+                        patch("ub_agents.cli.load_config", return_value=self.loop.config), \
+                        patch("ub_agents.cli.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli.Loop", side_effect=loop), \
+                        patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                        patch("ub_agents.loop.supervise") as execution, \
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["launch"]), 0)
+                execution.assert_not_called()
+                self.assertEqual(merges, [0])
+                self.assertEqual(git(self.root, "rev-parse", "HEAD"),
+                                 git(self.upstream, "rev-parse", "HEAD"))
+                self.assertEqual((self.root / "role.md").read_text(), "Second operator policy\n")
+                self.assertEqual(git(self.root, "status", "--porcelain"), "")
+                self.assertFalse((self.root / ".git" / "index.lock").exists())
+                self.assertEqual(self.github.writes, [])
+
+    def test_sigterm_during_failed_refresh_preserves_launcher_error(self):
+        def fail(*args):
+            signal.raise_signal(signal.SIGTERM)
+            raise AgentError("Fast-forward failed")
+
+        self.loop.interrupt_event = threading.Event()
+        previous = signal.signal(signal.SIGTERM, lambda *_: self.loop.stop_gracefully())
+        try:
+            with patch("ub_agents.loop.refresh_instructions", side_effect=fail), \
+                    patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                    self.assertRaisesRegex(AgentError, "Fast-forward failed"):
+                self.loop.launch(once=True)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+        self.assertEqual(self.github.writes, [])
 
     def test_reload_between_runs_changes_runtime_instructions_triggers_and_report_outcomes(self):
         self.enable_reload()

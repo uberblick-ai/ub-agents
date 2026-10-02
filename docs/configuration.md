@@ -225,10 +225,11 @@ An invalid reloaded configuration stops with a nonzero exit and the same error a
 SIGTERM stops further claims and lets the current run or recovery finish, including
 its report, label transitions and cleanup, then exits 0. When idle (polling, waiting
 or between runs), it exits 0 promptly. An error that stops the launcher retains its
-nonzero exit. Ctrl-C (SIGINT) and SIGHUP still terminate the active agent and exit
-130, including during a graceful SIGTERM stop. The launcher does not reload code:
-to pick up a code update or `brew upgrade`, send SIGTERM and let tmux, systemd or
-similar restart it.
+nonzero exit. A checkout refresh already in progress finishes before the launcher
+exits, without claiming work. Ctrl-C (SIGINT) and SIGHUP still terminate the active
+agent and exit 130, including during a graceful SIGTERM stop. The launcher does not
+reload code: to pick up a code update or `brew upgrade`, send SIGTERM and let tmux,
+systemd or similar restart it.
 See [execution boundaries](coordination.md#execution-boundaries) for the full rules.
 
 ## Outcomes and transitions

@@ -194,7 +194,8 @@ Refresh happens between executions and cleanup hooks, never during a run or
 durable-outcome recovery.
 Instruction text and configuration stay fixed for each run; PR candidates are not
 rebased. SIGTERM stops further claims, lets the current run or recovery finish, and
-exits 0. When idle it exits promptly. Ctrl-C and SIGHUP terminate the active agent,
+exits 0. When idle it exits promptly; an in-progress checkout refresh finishes
+before it exits without claiming work. Ctrl-C and SIGHUP terminate the active agent,
 including during a graceful stop. Code changes require a launcher restart: send
 SIGTERM and let tmux, systemd or similar restart it.
 

@@ -40,12 +40,16 @@ class Loop:
         self.config_path = config_path
         self.output = output
         self._poll_complete = False
+        self._refreshing_checkout = False
 
     def stop_gracefully(self):
         if self.interrupt_event.is_set():
-            raise KeyboardInterrupt
+            # SIGINT/SIGHUP already requested termination. Leave process-group
+            # cleanup and durable release to finish without another exception.
+            self.stop_event.set()
+            return
         self.stop_event.set()
-        if not self._poll_complete:
+        if not self._poll_complete and not self._refreshing_checkout:
             # Unwind even a slow discovery subprocess. Once a claim write starts,
             # it must finish election, execution/recovery and durable completion.
             raise _GracefulStop
@@ -165,10 +169,19 @@ class Loop:
     def execute(self, plan):
         # Between supervised runs and cleanup hooks, before any assignment writes.
         # Refresh errors belong to the operator, not to an assignment attempt.
-        if self.config_path is None:
-            instructions = refresh_instructions(self.config, plan.agent, self.github)
-        else:
-            refresh_checkout(self.config, self.github)
+        self._refreshing_checkout = True
+        try:
+            if self.config_path is None:
+                instructions = refresh_instructions(self.config, plan.agent, self.github)
+            else:
+                refresh_checkout(self.config, self.github)
+        finally:
+            # An asynchronous exception in subprocess.run kills its child. Let
+            # the checkout refresh finish so a fast-forward is never torn down
+            # by SIGTERM, then stop before doing any assignment writes.
+            self._refreshing_checkout = False
+        self._before_claim()
+        if self.config_path is not None:
             try:
                 config = load_config(self.config_path)
                 texts = {a.name: instruction_text(config.root, a.instructions, f"{a.name} instructions")

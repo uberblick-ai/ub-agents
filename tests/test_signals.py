@@ -15,7 +15,7 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.config import CleanupHook
 from ub_agents.errors import CleanupError
-from ub_agents.execution import supervise
+from ub_agents.execution import group_members, supervise
 from ub_agents.loop import Loop
 from ub_agents.records import timestamp
 from tests.support import FakeGitHub, agent, config, issue, stub_refresh
@@ -117,6 +117,57 @@ class SignalTests(unittest.TestCase):
                 timer.join()
         self.assertLess(time.monotonic() - start, 1)
         self.assertEqual(self.github.writes, [])
+
+    def test_sigterm_after_interrupt_does_not_interrupt_group_cleanup_or_release(self):
+        for interrupt in (signal.SIGINT, signal.SIGHUP):
+            with self.subTest(interrupt=interrupt):
+                self.setUp()
+                groups = []
+                cleaned = []
+
+                def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
+                    # Notify the launcher precisely when stop_group sends TERM.
+                    # The child stays alive until that cleanup escalates to KILL.
+                    script = ("import os,signal,time; signal.alarm(10); "
+                              "signal.signal(signal.SIGTERM, "
+                              "lambda *_: os.kill(os.getppid(), signal.SIGTERM)); "
+                              f"os.kill(os.getppid(), {int(interrupt)}); time.sleep(30)")
+                    try:
+                        return supervise([sys.executable, "-c", script], cwd, env, run_dir,
+                                         5, stop, prompt, **kwargs)
+                    finally:
+                        groups.append(int((run_dir / "pid").read_text()))
+
+                def cleanup(workspace, before_remove):
+                    self.assertEqual(group_members(groups[0]), [])
+                    signal.raise_signal(signal.SIGTERM)
+                    self.assertTrue(before_remove())
+                    cleaned.append(True)
+
+                release = self.loop.coordinator.release
+
+                def finish_release(*args, **kwargs):
+                    signal.raise_signal(signal.SIGTERM)
+                    return release(*args, **kwargs)
+
+                try:
+                    with patch("ub_agents.loop.supervise", side_effect=run), \
+                            patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup), \
+                            patch.object(self.loop.coordinator, "release", side_effect=finish_release):
+                        self.assertEqual(self.launch(), 130)
+                    self.assertEqual(group_members(groups[0]), [])
+                    self.assertEqual(cleaned, [True])
+                    lease, outcome = self.loop.coordinator.history(1)
+                    self.assertEqual((lease["state"], lease["result"]), ("released", "retry"))
+                    self.assertEqual(lease["attempt_effect"], "unchanged")
+                    self.assertFalse(outcome["accepted"])
+                    self.assertEqual(self.loop.coordinator.history(3), [])
+                finally:
+                    for group in groups:
+                        try:
+                            os.killpg(group, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
 
     def test_sigterm_interrupts_slow_discovery_subprocess_promptly(self):
         pid_path = self.root / "poll-pid"

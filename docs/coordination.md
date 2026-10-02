@@ -317,7 +317,10 @@ manual cleanup, is outside this serial execution boundary.
 
 SIGTERM stops further claims and drains the current execution or recovery, including
 reporting, transitions and cleanup, before exiting 0. Idle waits wake promptly.
+An in-progress checkout refresh finishes before stopping, without a claim, so
+SIGTERM cannot kill a fast-forward partway through updating the control checkout.
 SIGINT and SIGHUP still terminate active execution, including during this drain.
+Later SIGTERM signals leave process-group termination and cleanup to finish.
 Launcher errors retain their nonzero exit. Code updates require a launcher restart.
 
 Each process owns a new POSIX session/group. Termination sends TERM then KILL and
