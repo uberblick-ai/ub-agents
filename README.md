@@ -189,14 +189,20 @@ stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
 
 Before every new agent run, the launcher fetches `origin`, fast-forwards the
 operator's control checkout on the repository's default branch, and rereads that
-role's instruction file. Keep that checkout clean and free of local-only commits.
-Unsafe checkout state, Git refresh failures or invalid instructions stop the launcher
+role's instruction file and `ub-agent.yaml`. It replans the claim with the refreshed
+configuration. Keep that checkout clean and free of local-only commits.
+Unsafe checkout state, Git refresh failures, invalid configuration or invalid
+instructions stop the launcher
 with a nonzero exit and an actionable message; fix the checkout and restart.
 No attempt is charged, and the assignment is not marked blocked or retrying.
 Refresh happens between executions and cleanup hooks, never during a run or
 durable-outcome recovery.
-Instruction text stays fixed for each prompt. Configuration changes in
-`ub-agent.yaml` still require a launcher restart; PR candidates are not rebased.
+Instruction text and configuration stay fixed for each run; PR candidates are not
+rebased. SIGTERM stops further claims, lets the current run or recovery finish, and
+exits 0. When idle it exits promptly; an in-progress checkout refresh finishes
+before it exits without claiming work. Ctrl-C and SIGHUP terminate the active agent,
+including during a graceful stop. Code changes require a launcher restart: send
+SIGTERM and let tmux, systemd or similar restart it.
 
 Each claim has a lease that outlasts the run's timeout. If a launcher dies, its
 claims expire and another launcher recovers the work: a recorded outcome is
@@ -205,14 +211,16 @@ validated and its label transition finished without rerunning the role.
 success resets the count, including outcome-only recovery and PR revisions. An
 operator interrupt preserves the count and allows pickup on the next launch without
 backoff. Agent-reported `blocked` outcomes and human-paused transitions preserve the
-count and park the item. Crashes without a report, timeouts, missing reports after
-exit zero, setup failures and agent-reported `retry` increment it and retry with
-backoff. Invalid success reports, nonzero exits without a report, unconfirmed cleanup
-and unclassified failures increment it and park the item. `ub-agent retry` resets
+count and park the item. Crashes without a report, timeouts, exits without a report
+(zero or nonzero), setup failures and agent-reported `retry` increment it and retry
+with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures
+increment it and park the item. `ub-agent retry` resets
 the count to 0 and clears the parked state. The issue and handoff PR keep separate
 counts; `ub-agent status` shows the consecutive failure count in `attempts`.
 A success counts only after the launcher has checked the result on GitHub; an exit
 code alone never does.
+A report followed by a nonzero exit is validated and applied normally after
+confirmed cleanup; the launcher logs the exit code.
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
 transition before it starts. After removing it, set the workflow labels you want or

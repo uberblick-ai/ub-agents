@@ -33,7 +33,8 @@ Each skipped poll prints its error and next delay, makes no GitHub writes and do
 not report an empty queue. Discovery includes fresh reads immediately before a
 claim, including the default-branch read for instruction refresh; the lease comment
 write ends that poll, and failures from that write onward
-retain their existing handling. Ctrl-C, SIGTERM and SIGHUP interrupt retry waits.
+retain their existing handling. Ctrl-C and SIGHUP interrupt retry waits with exit
+130; SIGTERM wakes retry waits and exits 0.
 `launch --once` and `status` still fail on their first error.
 
 ## Project cleanup hook
@@ -208,14 +209,27 @@ Each agent has exactly one of `runtime` or `command`.
 | Limit keys | Override `limits` for this agent. |
 
 Before each new agent run, the launcher fetches `origin` and fast-forwards the
-control checkout's default branch, then rereads the configured instruction file.
+control checkout's default branch, then reloads `ub-agent.yaml` and rereads the
+configured instruction files. It replans the claim with the refreshed agent,
+triggers, runtime and declared outcomes. If that item no longer plans for that
+agent, it is not claimed.
 Run `launch` from a clean checkout on that branch with no local-only commits.
 An unsafe checkout, failed Git refresh, or missing, outside-project or unreadable
 instruction file stops the launcher for the operator to fix and restart; it
 charges no attempt and does not mark the assignment blocked or retrying. Refresh
 runs only between supervised executions and cleanup hooks, and is skipped for
-durable-outcome recovery. Each prompt's text stays fixed during its run.
-`ub-agent.yaml` is not reloaded: restart the launcher for configuration changes.
+durable-outcome recovery. Each run keeps its claimed configuration and prompt text.
+An invalid reloaded configuration stops with a nonzero exit and the same error as
+`ub-agent check`, without charging an assignment attempt.
+
+SIGTERM stops further claims and lets the current run or recovery finish, including
+its report, label transitions and cleanup, then exits 0. When idle (polling, waiting
+or between runs), it exits 0 promptly. An error that stops the launcher retains its
+nonzero exit. A checkout refresh already in progress finishes before the launcher
+exits, without claiming work. Ctrl-C (SIGINT) and SIGHUP still terminate the active
+agent and exit 130, including during a graceful SIGTERM stop. The launcher does not
+reload code: to pick up a code update or `brew upgrade`, send SIGTERM and let tmux,
+systemd or similar restart it.
 See [execution boundaries](coordination.md#execution-boundaries) for the full rules.
 
 ## Outcomes and transitions
