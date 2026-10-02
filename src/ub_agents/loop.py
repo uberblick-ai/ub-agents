@@ -69,7 +69,7 @@ class Loop:
                     for label in a.triggers}
         check = (check_issue(self.github, item.number, triggers) if item.kind == "issue" else
                  check_pr(self.github, item.number, triggers, self.coordinator.actor))
-        if check.allowed and (check.snapshot["title"], check.snapshot["body"],
+        if check.snapshot and (check.snapshot["title"], check.snapshot["body"],
                               check.snapshot.get("head")) != (item.title, item.body, item.head):
             return ApprovalCheck(False, "Assignment changed while reading approval input; retry")
         return check
@@ -131,7 +131,9 @@ class Loop:
                         if approval is None:
                             approval = self.input_check(item)
                         if not approval.allowed:
-                            plan = replace(plan, state="parked", runtime=None, reason=approval.reason)
+                            gate = approval if plan.state == "ready" and approval.gate else None
+                            plan = replace(plan, state="parked", runtime=None, reason=approval.reason,
+                                           approval_gate=gate)
                     plans.append(plan)
                 elif record and (record["state"] in {"claiming", "running"}
                                  or record.get("result") in {"retry", "blocked"}):
@@ -167,13 +169,14 @@ class Loop:
                             priority_config.labels.index(label) < priority_config.labels.index(priority)):
                         priority, from_issue = label, number
             reasons = []
-            if plan.state == "ready" and plan.item.kind == "issue":
+            if (plan.state == "ready" or plan.approval_gate) and plan.item.kind == "issue":
                 if active_milestone is not None and plan.item.milestone != active_milestone:
                     reasons.append(f"Waiting for active milestone #{active_milestone}")
                 if blockers:
                     reasons.append(f"Waiting for blockers {', '.join(blockers)}")
             if reasons:
-                plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons))
+                plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons),
+                               approval_gate=None)
             ranked.append(replace(plan, priority=priority, priority_source=source,
                                   priority_from_issue=from_issue, blockers=blockers))
         # PR work and recovery rank before new issue starts. Stable sorting keeps
@@ -204,6 +207,9 @@ class Loop:
                 if self.recover(plan):
                     return True
             else:
+                if plan.approval_gate:
+                    self.coordinator.notices.advisory(f"approval parking on #{plan.item.number}",
+                                                      lambda: self.park_approval(plan))
                 key, value = (plan.item.number, plan.agent.name), (plan.state, plan.reason)
                 released = self._released_blockers.pop(key, None)
                 announced = plan.state == "blocked" and released is not None and released in plan.reason
@@ -211,6 +217,23 @@ class Loop:
                     self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
                 self._shown[key] = value
         return False
+
+    def park_approval(self, plan):
+        # Recheck authority before advisory writes; stale discovery cannot park
+        # closed, stopped, already owned or newly approved work.
+        current = self.github.item(plan.item.number, plan.item.kind)
+        if current.state != "open" or not current.labels.intersection(plan.agent.triggers):
+            return
+        if self.coordinator.plan(current, plan.agent, self.config.stop_labels).state != "ready":
+            return
+        approval = self.input_check(current)
+        if approval.gate_key != plan.approval_gate.gate_key:
+            return
+        if self.github.item(current.number, current.kind) != current:
+            return
+        triggers = sorted({label for a in self.config.agents if a.kind in {current.kind, "either"}
+                           for label in a.triggers})
+        self.coordinator.notices.approval(current.number, approval, self.config.stop_labels, triggers)
 
     def execute(self, plan):
         # Between supervised runs and cleanup hooks, before any assignment writes.

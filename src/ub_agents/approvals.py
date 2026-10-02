@@ -96,6 +96,8 @@ class ApprovalCheck:
     cleared_review_ids: frozenset[int] = frozenset()
     cleared_review_comment_ids: frozenset[int] = frozenset()
     snapshot: dict = field(default_factory=dict)
+    gate: str | None = None
+    gate_key: str | None = None
 
 
 def historical_content(content, renames, at):
@@ -230,17 +232,18 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None):
                           (roles(c.get("user")) in TRUSTED or c["id"] in cleared_groups[name])]
     if kind == "pr":
         snapshot["head"] = content["head"]
-    def verdict(allowed, reason):
+    def verdict(allowed, reason, gate=None, evidence=None):
+        key = body_sha(json.dumps([kind, gate, evidence], sort_keys=True)) if gate else None
         return ApprovalCheck(allowed, reason, cleared_groups["comments"],
                              cleared_groups.get("reviews", frozenset()),
-                             cleared_groups.get("review_comments", frozenset()), snapshot)
+                             cleared_groups.get("review_comments", frozenset()), snapshot, gate, key)
 
     approving_reviews = []
     if kind == "pr" and roles(content.get("author")) in TRUSTED:
         return verdict(True, "Trusted PR author; outside feedback requires clearance")
     if not starts:
         article = "an issue" if kind == "issue" else "a PR"
-        return verdict(False, f"No maintainer has applied {article} agent's trigger label")
+        return verdict(False, f"No maintainer has applied {article} agent's trigger label", "start")
     if kind == "pr":
         for review in groups["reviews"]:
             if roles(review.get("user")) in MAINTAINERS and review["state"] == "APPROVED":
@@ -251,18 +254,23 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None):
                              comments, roles, actor,
                              allow_revisions=(content["head_repository"] is not None and
                                               content["head_repository"].casefold() == github.repository.casefold())):
-            return verdict(False, "PR head is not approved; a maintainer must approve the current head")
+            return verdict(False, "PR head is not approved; a maintainer must approve the current head",
+                           "head", content["head"])
     latest = max(starts + [at for at, _ in approvals] + [at for at, _ in approving_reviews])
     for event in renames:
         if seconds(event["created_at"]) >= latest and roles(event.get("actor")) not in TRUSTED:
-            return verdict(False, "Outside title edit after approval; a maintainer must approve")
+            return verdict(False, "Outside title edit after approval; a maintainer must approve",
+                           "input", [latest, event])
     for edit in edits:
         at = seconds(edit["editedAt"])
         if at > created and at >= latest and roles(edit.get("editor")) not in TRUSTED:
-            return verdict(False, "Outside body edit after approval; a maintainer must approve")
-    if kind == "pr" and any(max(seconds(c["updated_at"]), seconds(c["created_at"])) >= latest
-                            for rows in outside_groups.values() for c in rows):
-        return verdict(False, "Outside PR feedback after approval; a maintainer must approve")
+            return verdict(False, "Outside body edit after approval; a maintainer must approve",
+                           "input", [latest, edit])
+    feedback = {name: [c for c in rows if max(seconds(c["updated_at"]), seconds(c["created_at"])) >= latest]
+                for name, rows in outside_groups.items()}
+    if kind == "pr" and any(feedback.values()):
+        return verdict(False, "Outside PR feedback after approval; a maintainer must approve",
+                       "input", [latest, feedback])
     return verdict(True, "Maintainer start approved; no later outside input edits")
 
 

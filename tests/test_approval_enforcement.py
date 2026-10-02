@@ -10,8 +10,10 @@ from unittest.mock import patch
 from ub_agents.approvals import (approval_body, approve_issue, body_sha,
                                 check_pr, parse_approval)
 from ub_agents.cli import main, status_rows
-from ub_agents.errors import AgentError
+from ub_agents.config import Queue
+from ub_agents.errors import AgentError, GitHubError
 from ub_agents.loop import Loop
+from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import attempts, body, payload, timestamp
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 from tests.test_approvals import at
@@ -43,15 +45,28 @@ class EnforcementTests(unittest.TestCase):
         self.github.content_histories[number] = dict(lastEditedAt=at(second), edits=[
             dict(editedAt=at(second), editor={'login': 'outsider'}, diff='Edited input', deletedAt=None)])
 
-    def assert_parked(self, reason):
+    def assert_parked(self, reason, writes=False):
+        before = self.github.writes[:]
         rows = status_rows(self.loop)
         self.assertEqual((rows[0]['state'], rows[0]['attempts']), ('parked', 0))
         self.assertIn(reason, rows[0]['reason'])
+        self.assertEqual(self.github.writes, before)  # status is always read-only
         with patch('ub_agents.loop.supervise') as run:
             self.assertFalse(self.loop.tick())
         run.assert_not_called()
-        self.assertEqual(self.github.writes, [])
+        if writes:
+            self.assertIn('needs-human', self.github.item(rows[0]['number']).labels)
+            self.assertIn(reason, self.notices(rows[0]['number'])[-1]['body'])
+            self.assertEqual(self.loop.coordinator.history(rows[0]['number']), [])
+        else:
+            self.assertEqual(self.github.writes, before)
         self.assertTrue(any('parked' in line and reason in line for line in self.output))
+
+    def notices(self, number=1):
+        return [c for c in self.github.comments(number) if c['body'].startswith(ACTION_MARKER)]
+
+    def remove_stop(self, number=1):
+        self.github.change(number, labels=self.github.item(number).labels - {'needs-human'})
 
     def execute(self, verify=None):
         def run(command, cwd, env, run_dir, *args, **kwargs):
@@ -65,17 +80,204 @@ class EnforcementTests(unittest.TestCase):
             self.assertTrue(self.loop.tick())
         run_mock.assert_called_once()
 
-    def test_issue_pickup_parks_without_writes_or_attempts(self):
+    def test_issue_pickup_parks_with_notices_and_without_attempts(self):
         self.github.timelines[1] = []
-        self.assert_parked('No maintainer')
+        self.assert_parked('No maintainer', writes=True)
         self.start()
+        self.remove_stop()
         self.outside_edit()
-        self.assert_parked('Outside body edit')
+        self.assert_parked('Outside body edit', writes=True)
         self.start(second=15)
+        self.remove_stop()
         self.github.content_histories[1]['edits'] = []
         self.assert_parked('unreadable')
         self.github.content_histories.clear()
         self.execute()
+
+    def test_agent_started_issue_gets_one_start_notice_and_resumes(self):
+        self.github.timelines[1] = [dict(event='labeled', actor={'login': 'operator'},
+                                       label={'name': 'ready'}, created_at=at(5))]
+        self.assert_parked('No maintainer', writes=True)
+        notice = self.notices()[0]
+        for text in ('**Action needed**', 'A maintainer', 'remove', '`needs-human`',
+                     're-apply a trigger label', '`ready`', '`needs-changes`'):
+            self.assertIn(text, notice['body'])
+        writes = self.github.writes[:]
+        for _ in range(3):
+            self.assertFalse(self.loop.tick())
+        self.assertEqual(self.github.writes, writes)
+        self.assertEqual(len(self.notices()), 1)
+        self.remove_stop()
+        # Removing the label alone does not authorize a claim or repeat parking,
+        # including after a launcher restart.
+        self.loop = Loop(self.loop.config, self.github, 'operator', output=self.output.append)
+        self.assertFalse(self.loop.tick())
+        self.assertEqual(self.github.writes, writes)
+        self.start(second=15)
+        self.execute(lambda c: self.assertEqual(c['comments'], []))
+        self.assertIn(notice['id'], self.github.minimized_ids)
+        self.assertEqual(len(self.notices()), 1)
+
+    def test_outside_issue_title_and_body_edits_get_reapproval_instructions(self):
+        for change in ('title', 'body'):
+            with self.subTest(change=change):
+                self.setUp()
+                self.github.timelines[1] = []
+                self.start()
+                if change == 'title':
+                    self.github.change(1, title='Outside title')
+                    self.github.timelines[1].append(dict(event='renamed', actor={'login': 'outsider'},
+                        rename={'from': 'Requirements', 'to': 'Outside title'}, created_at=at(10)))
+                else:
+                    self.outside_edit()
+                self.assert_parked(f'Outside {change} edit', writes=True)
+                notice = self.notices()[0]
+                for text in ('re-apply a trigger label', 'ub-agent approve --number 1',
+                             'then remove', '`needs-human`'):
+                    self.assertIn(text, notice['body'])
+                before = self.github.writes[:]
+                self.loop.tick()
+                self.loop.tick()
+                self.assertEqual(self.github.writes, before)
+                self.start(second=20)
+                self.remove_stop()
+                self.execute()
+                self.assertIn(notice['id'], self.github.minimized_ids)
+                self.outside_edit(second=30)
+                self.github.change(1, labels=frozenset({'ready'}))
+                self.assertFalse(self.loop.tick())
+                self.assertEqual(len(self.notices()), 2)
+                self.assertEqual(len([w for w in self.github.writes if w[0] == 'add-labels']), 2)
+
+    def test_uncleared_outside_issue_comment_does_not_park(self):
+        self.github.timelines[1] = []
+        self.start()
+        self.github.store[1] = [feedback(100, second=10)]
+        self.execute(lambda c: self.assertEqual(c['comments'], []))
+        self.assertEqual(self.notices(), [])
+        self.assertFalse(any(w[0] == 'add-labels' for w in self.github.writes))
+
+    def test_outside_pr_head_notice_requires_head_approval_and_resumes(self):
+        self.use_pr()
+        self.start(2, 'needs-changes')
+        self.assert_parked('head is not approved', writes=True)
+        notice = self.notices(2)[0]
+        for text in ('ub-agent approve --number 2', 'approving review of the current head',
+                     'then remove', 'Re-applying a trigger label does not approve a head'):
+            self.assertIn(text, notice['body'])
+        self.start(2, 'needs-changes', second=20)
+        self.remove_stop(2)
+        before = self.github.writes[:]
+        self.assertFalse(self.loop.tick())
+        self.assertEqual(self.github.writes, before)
+        self.github.review_store[2] = [feedback(100, 'maintainer', second=25,
+                                               state='APPROVED', commit_id='a' * 40)]
+        self.execute()
+        self.assertIn(notice['id'], self.github.minimized_ids)
+        self.github.change(2, head='b' * 40, labels=frozenset({'needs-changes'}))
+        self.assertFalse(self.loop.tick())
+        self.assertEqual(len(self.notices(2)), 2)
+
+    def test_outside_pr_feedback_notice_has_input_reapproval_instructions(self):
+        self.use_pr()
+        self.start(2, 'needs-changes')
+        self.approve()
+        self.github.review_store[2] = [feedback(100, second=20, state='COMMENTED', commit_id='a' * 40)]
+        self.assert_parked('Outside PR feedback', writes=True)
+        self.assertIn('re-apply a trigger label', self.notices(2)[0]['body'])
+        self.assertIn('ub-agent approve --number 2', self.notices(2)[0]['body'])
+        self.start(2, 'needs-changes', second=25)
+        self.remove_stop(2)
+        self.execute()
+
+    def test_parking_write_failures_are_advisory_without_records_or_claims(self):
+        for operation in ('add_labels', 'create_comment'):
+            with self.subTest(operation=operation):
+                self.setUp()
+                self.github.timelines[1] = []
+                error = GitHubError('POST', 'synthetic', 'Write unavailable')
+                with patch.object(self.github, operation, side_effect=error) as write, \
+                        patch('ub_agents.loop.supervise') as run:
+                    for _ in range(3):
+                        self.assertFalse(self.loop.tick())
+                write.assert_called_once()
+                run.assert_not_called()
+                history = self.loop.coordinator.history(1)
+                self.assertEqual(history, [])
+                self.assertEqual(attempts(history, self.worker.name, timestamp()), [])
+                self.assertTrue(any('Advisory' in line and 'failed' in line for line in self.output))
+                if operation == 'add_labels':
+                    self.assertNotIn('needs-human', self.github.item(1).labels)
+                    self.assertEqual(len(self.notices()), 1)
+                    # A posted notice also suppresses the failed label write after restart.
+                    self.loop = Loop(self.loop.config, self.github, 'operator', output=self.output.append)
+                    self.assertFalse(self.loop.tick())
+                    self.assertNotIn('needs-human', self.github.item(1).labels)
+                else:
+                    self.assertIn('needs-human', self.github.item(1).labels)
+                    self.assertEqual(self.notices(), [])
+
+    def test_approval_is_not_the_only_obstacle_so_no_parking_writes(self):
+        for obstacle in ('stop', 'closed', 'dependency', 'milestone', 'backoff', 'blocked', 'runtime', 'owned'):
+            with self.subTest(obstacle=obstacle):
+                self.setUp()
+                if obstacle == 'stop':
+                    self.github.change(1, labels=frozenset({'ready', 'needs-human'}))
+                elif obstacle == 'closed':
+                    self.github.change(1, state='closed')
+                elif obstacle == 'dependency':
+                    self.github.items[2] = issue(2, labels=())
+                    self.github.dependencies[1] = [2]
+                elif obstacle == 'milestone':
+                    self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
+                    self.github.milestones = [dict(number=1, state='open', created_at=at(1))]
+                    self.github.items[2] = issue(2, labels=(), milestone=1)
+                elif obstacle == 'runtime':
+                    self.loop.config = config(self.root, replace(self.worker, command=('missing-ub-agent-command',)))
+                else:
+                    lease = self.loop.coordinator.claim(self.loop.plans()[0])
+                    if obstacle in {'backoff', 'blocked'}:
+                        result = 'blocked' if obstacle == 'blocked' else 'retry'
+                        self.loop.coordinator.report(lease, result, 'Existing blocker')
+                        self.loop.coordinator.release(lease, result, 'Existing blocker')
+                        if obstacle == 'backoff':
+                            self.loop.coordinator.update(lease, retry_after='2099-01-01T00:00:00Z')
+                self.github.timelines[1] = []
+                before = self.github.writes[:]
+                with patch('ub_agents.loop.supervise') as run:
+                    self.assertFalse(self.loop.tick())
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, before)
+
+    def test_changed_input_during_discovery_retries_without_parking_writes(self):
+        self.github.timelines[1] = []
+        original = self.github.issue_content
+        def content(number):
+            self.github.change(number, title=self.github.item(number).title + ' changed')
+            return original(number)
+        with patch.object(self.github, 'issue_content', side_effect=content):
+            self.assert_parked('changed while reading')
+        self.assertEqual(self.github.writes, [])
+
+    def test_gate_reapproved_or_item_changed_before_writes_is_not_parked(self):
+        for change in ('approval', 'closed', 'stop', 'trigger'):
+            with self.subTest(change=change):
+                self.setUp()
+                self.github.timelines[1] = []
+                original = self.loop.park_approval
+                def park(plan):
+                    if change == 'approval':
+                        self.start()
+                    elif change == 'closed':
+                        self.github.change(1, state='closed')
+                    elif change == 'stop':
+                        self.github.change(1, labels=frozenset({'ready', 'needs-human'}))
+                    else:
+                        self.github.change(1, labels=frozenset())
+                    original(plan)
+                with patch.object(self.loop, 'park_approval', side_effect=park):
+                    self.assertFalse(self.loop.tick())
+                self.assertEqual(self.github.writes, [])
 
     def test_post_claim_issue_edit_withdraws_and_resumes_without_retry(self):
         self.github.timelines[1] = []
@@ -162,12 +364,14 @@ class EnforcementTests(unittest.TestCase):
 
     def test_outside_pr_needs_start_and_current_head_approval(self):
         self.use_pr()
-        self.assert_parked('No maintainer')
+        self.assert_parked('No maintainer', writes=True)
         self.start(2, 'needs-changes')
-        self.assert_parked('head is not approved')
+        self.remove_stop(2)
+        self.assert_parked('head is not approved', writes=True)
         self.approve(head='b' * 40)
         self.assertEqual(self.loop.plans()[0].state, 'parked')
         self.approve(second=20)
+        self.remove_stop(2)
         self.execute()
 
     def test_maintainer_approving_review_allows_head_but_does_not_clear_feedback(self):

@@ -109,6 +109,12 @@ post-claim title, body and trusted or cleared comments; PR context also includes
 the assigned head, reviews and review comments. Other GitHub comments are not input.
 Outside edits during a run do not stop it.
 
+When approval is the only pickup obstacle, `launch` adds the configured stop
+label (`needs-human` in the starter) and posts one **Action needed** notice with
+the steps to start or reapprove work. Follow those steps and remove the stop label
+to resume; the next claim minimizes the notice. Unreadable history is retried
+without parking writes, and `status` stays read-only.
+
 Trusted-authored PRs need no start, and outside feedback cannot stall them.
 Outside-authored PRs need both a maintainer trigger label and an approved head;
 later outside edits or feedback suspend pickup. Maintainers approve current input
