@@ -22,8 +22,9 @@ class StatusTests(unittest.TestCase):
         self.now = 1000
         self.loop.coordinator.clock = lambda: self.now
 
-    def claim(self):
-        lease = self.loop.coordinator.claim(self.loop.plans()[0])
+    def claim(self, agent_name=None):
+        plan = next(p for p in self.loop.plans() if p.agent.name == (agent_name or self.agent.name))
+        lease = self.loop.coordinator.claim(plan)
         self.loop.coordinator.update(lease, state="running", started=True)
         return lease
 
@@ -122,3 +123,35 @@ class StatusTests(unittest.TestCase):
                 rows, plain = self.status()
                 self.assertIsNone(rows[0]["outcome"])
                 self.assertNotIn("reported:", plain)
+
+    def test_another_agents_live_lease_does_not_supply_the_rows_report(self):
+        other = agent(self.root, name="other", kind="issue")
+        for has_previous_report in (False, True):
+            with self.subTest(has_previous_report=has_previous_report):
+                self.github = FakeGitHub(issue())
+                self.loop = Loop(config(self.root, self.agent, other), self.github, "operator",
+                                 output=lambda *_: None)
+                self.loop.coordinator.clock = lambda: self.now
+                previous = None
+                if has_previous_report:
+                    earlier = self.claim()
+                    previous = self.loop.coordinator.report(earlier, "retry", "Earlier worker report")
+                    self.loop.coordinator.release(earlier, "retry", "Earlier worker report")
+                    self.now += 1
+
+                lease = self.claim(other.name)
+                reported = self.loop.coordinator.report(lease, "success", "Other completed", outcome="done")
+                rows, plain = self.status()
+                by_agent = {row["agent"]: row for row in rows}
+                worker_row, other_row = by_agent[self.agent.name], by_agent[other.name]
+                self.assertEqual(worker_row["state"], "owned")
+                self.assertEqual(worker_row["lease"]["run"], lease["run"])
+                self.assertEqual(other_row["outcome"]["id"], reported["id"])
+                worker_line = next(line for line in plain.splitlines() if line.startswith("#1 worker:"))
+                if previous:
+                    self.assertEqual(worker_row["outcome"]["id"], previous["id"])
+                    self.assertIn("reported: retry", worker_line)
+                else:
+                    self.assertIsNone(worker_row["outcome"])
+                    self.assertNotIn("reported:", worker_line)
+                self.assertIn("reported: success (unaccepted)", plain)

@@ -8,9 +8,10 @@ notes are copied from that section.
 
 ### Fixed
 
-- `status` shows the owning run's report (or the agent's latest run's report when no
-  lease is live), following recovery leases to the original run. A run that has not
-  reported no longer shows an earlier run's outcome (#35).
+- `status` shows each agent's owning run's report (or its latest run's report when
+  that agent has no live lease), following recovery leases to the original run.
+  A run that has not reported no longer shows an earlier run's outcome, and a row
+  no longer shows another agent's report (#35).
 
 ### Changed
 

@@ -133,10 +133,10 @@ def status_rows(loop):
         active = live_leases(history, timestamp())
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None
-        source = lease or latest
+        source = next((r for r in active if r["agent"] == plan.agent.name), None) or latest
         if source and source.get("mode") == "recovery":
             source = lease_by_id(history, source.get("recovered_lease_id"))
-        outcomes = [r for r in history if source and r["kind"] == "outcome"
+        outcomes = [r for r in history if source and r["kind"] == "outcome" and r["agent"] == plan.agent.name
                     and r["lease_id"] == source["id"] and same_run(r, source)]
         rows.append({"number": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
                      "priority": plan.priority, "priority_inherited_from": plan.priority_source,
