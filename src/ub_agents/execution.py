@@ -112,10 +112,13 @@ class Workspace:
             raise AgentError(f"Configured cwd does not exist at the candidate: {cwd}")
         return cwd
 
-    def cleanup(self):
+    def cleanup(self, before_remove=None):
         if not self.created:
             return
         # Shared project directories are never passed to private cleanup.
+        self.check_private_boundary()
+        if before_remove is not None and not before_remove():
+            return
         self.check_private_boundary()
         try:
             git(self.root, "worktree", "remove", "--force", str(self.private))
@@ -194,7 +197,8 @@ def _stop_group(process, grace):
     raise CleanupError(f"Process group {process.pid} survived termination; preserve artifacts")
 
 
-def supervise(command, cwd, env, run_dir, timeout, heartbeat, stop_event, prompt=None):
+def supervise(command, cwd, env, run_dir, timeout, heartbeat, stop_event, prompt=None,
+              process_started=None):
     if os.name != "posix":
         raise AgentError("Process supervision requires Linux or macOS")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -207,9 +211,11 @@ def supervise(command, cwd, env, run_dir, timeout, heartbeat, stop_event, prompt
                 stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         except OSError as exc:
             raise AgentError(f"Cannot start configured execution: {exc}") from exc
-        (run_dir / "pid").write_text(str(process.pid))
         deadline = time.monotonic() + timeout
         try:
+            (run_dir / "pid").write_text(str(process.pid))
+            if process_started is not None:
+                process_started(process.pid)
             while process.poll() is None:
                 if stop_event.is_set():
                     raise KeyboardInterrupt

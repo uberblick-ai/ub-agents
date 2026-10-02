@@ -11,6 +11,7 @@ from .dependencies import Dependencies
 from .errors import AgentError, CleanupError, LostOwnership, RecordError, ValidationError
 from .execution import Workspace, command_for, supervise
 from .github import closing_issues, links_issue
+from .hooks import run_hook
 from .records import attempts, iso, latest_leases, lease_summary, seconds, timestamp
 
 
@@ -157,12 +158,36 @@ class Loop:
             except AgentError as failure:
                 diagnostic("cleanup-verdict-unrecorded", error=str(failure))
 
+        hook_attempted = False
+
         def cleanup_workspace(record=True):
+            def before_remove():
+                nonlocal hook_attempted
+                if hook_attempted:
+                    return False
+                hook_attempted = True
+                try:
+                    reported = self.coordinator.outcome(lease)
+                except AgentError:
+                    reported = outcome
+                failure = run_hook(self.config, lease, workspace.private, reported,
+                                   heartbeat=heartbeat if record else None)
+                if failure:
+                    if record:
+                        try:
+                            self.coordinator.assert_owned(lease)
+                            self.coordinator.update(lease, cleanup_hook_error=failure)
+                        except AgentError as exc:
+                            diagnostic("cleanup-hook-verdict-unrecorded", error=str(exc))
+                    return False
+                return True
             try:
-                workspace.cleanup()
+                workspace.cleanup(before_remove)
             except CleanupError as exc:
                 if record:
                     record_uncertainty(exc)
+                else:
+                    diagnostic("cleanup-unconfirmed", error=str(exc))
                 raise
 
         next_renewal = time.monotonic() + plan.agent.renewal_seconds
@@ -175,6 +200,11 @@ class Loop:
                 self.coordinator.renew(lease, plan.agent.lease_seconds)
                 next_renewal = time.monotonic() + plan.agent.renewal_seconds
                 diagnostic("renewed", expires=lease["expires"])
+
+        def process_started(pid):
+            self.coordinator.assert_owned(lease)
+            self.coordinator.update(lease, process_group=pid)
+            self.coordinator.assert_owned(lease)
 
         interrupted = False
         result, summary = "retry", "Assignment ended without a validated outcome"
@@ -250,9 +280,10 @@ class Loop:
             diagnostic("started", cwd=str(cwd))
             code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
                              plan.agent.timeout_seconds, heartbeat, self.stop_event,
-                             prompt if plan.runtime else None)
+                             prompt if plan.runtime else None,
+                             process_started=process_started)
             # No acceptance or release until all attributable execution has ended.
-            workspace.cleanup()
+            cleanup_workspace()
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
             if outcome is None:
