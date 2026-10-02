@@ -114,6 +114,17 @@ excluded. The prompt makes this snapshot the assignment input; other GitHub
 comments are not input. Outside changes during execution do not stop that run,
 replace its context or gate its durable completion and recovery.
 
+Context also includes `feedback`: accepted outcome summaries from other agents on
+the assigned item and, for an issue, its handoff PRs. Each entry contains `agent`,
+`outcome`, `summary`, `candidate_sha` (or null) and `created` (UTC time). On each
+item, only outcomes recorded after the receiving agent's latest accepted outcome
+are included; its handoff copy counts as its own outcome. Without an own accepted
+outcome there, all other agents' accepted outcomes are included. Outcomes appear
+once, in comment record order, even when copied to a handoff PR. Only the launcher
+account's coordination records supply this trusted input; other accounts' records
+stay excluded. Revisions must address `feedback` alongside comments and reviews.
+This field does not change approval requirements.
+
 An outside PR head requires a valid pinned approval record, a maintainer approving
 review on that head, or an accepted agent outcome from an eligible assignment head
 when the head repository is the base repository. Changed fork heads need explicit

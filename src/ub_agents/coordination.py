@@ -45,6 +45,33 @@ class Coordinator:
         except AgentError as exc:
             raise GitHubError("GET", f"repos/{self.github.repository}/issues/{number}/comments", str(exc)) from exc
 
+    def feedback(self, item, agent):
+        """Other agents' accepted outcomes since this agent last handled each item."""
+        history = self.history(item.number)
+        histories = [history]
+        if item.kind == "issue":
+            handoffs = sorted({r["handoff"] for r in history if r["kind"] == "outcome"
+                               and r["accepted"] and not r.get("rejected") and r.get("handoff")})
+            histories.extend(self.history(number) for number in handoffs if number != item.number)
+        pending = []
+        for history in histories:
+            accepted = [r for r in history if r["kind"] == "outcome"
+                        and r["accepted"] and not r.get("rejected")]
+            cutoff = max((r["id"] for r in accepted if r["agent"] == agent), default=0)
+            pending.extend(r for r in accepted if r["id"] > cutoff and r["agent"] != agent)
+        seen, feedback = set(), []
+        for record in sorted(pending, key=lambda r: r["id"]):
+            # A handoff copy has a different comment ID but belongs to the same run.
+            key = (record["assignment"], record["agent"], record["run"], record["lease_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            feedback.append({"agent": record["agent"],
+                             "outcome": record.get("outcome", record["status"]),
+                             "summary": record["summary"], "candidate_sha": record["candidate_sha"],
+                             "created": record["created"]})
+        return feedback
+
     def repository_history(self):
         groups = {}
         for comment in self.github.repository_comments():

@@ -1,7 +1,8 @@
 # Implement or revise the assigned work
 
 Read shared repository guidance (such as AGENTS.md), the original issue and its
-comments, and the project's checks. For a revision, read the PR's feedback. Work
+comments, and the project's checks. For a revision, address the assignment context's
+`feedback` as well as its comments, reviews and review comments. Work
 only in the launcher-provided directory. Never remove another session's worktree
 or kill its processes.
 This run is a single, non-interactive session that is never resumed: ending your

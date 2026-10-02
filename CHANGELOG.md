@@ -14,6 +14,12 @@ notes are copied from that section.
   alone; the next claim minimizes its notice. Parking writes are advisory and
   `status` remains read-only (#66).
 
+### Fixed
+
+- Assignment context passes other agents' accepted outcome summaries as trusted
+  `feedback`, so revisions receive routing corrections such as an integrator's
+  changelog request without repeating outcomes already handled by the agent (#77).
+
 ## 0.1.6 — 2026-10-02
 
 **Upgrading:** agents now work only on issues and PRs that a maintainer (`maintain` or
