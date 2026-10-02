@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import shutil
 import uuid
 
+from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime
 from .errors import AgentError, GitHubError, LostOwnership, RecordError
 from .github import Item
@@ -24,6 +25,7 @@ class Plan:
     priority_source: int | None = None
     priority_from_issue: int | None = None
     blockers: tuple[str, ...] = ()
+    approval_gate: ApprovalCheck | None = None
 
 
 class Coordinator:

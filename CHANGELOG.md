@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- `launch` parks open, triggered items whose only pickup obstacle is missing
+  maintainer approval with the configured stop label and one Action needed notice
+  explaining how to start or reapprove them. Repeated polls leave the same gate
+  alone; the next claim minimizes its notice. Parking writes are advisory and
+  `status` remains read-only (#66).
+
 ### Fixed
 
 - Assignment context passes other agents' accepted outcome summaries as trusted

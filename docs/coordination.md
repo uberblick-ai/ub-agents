@@ -81,8 +81,27 @@ cooperative observation, not an atomic snapshot.
 
 ## Assignment input
 
-Approval checks at pickup park disallowed items with their reason, without claims,
-writes or attempts. After winning a claim, the launcher rereads and validates input.
+Approval checks at pickup park disallowed items with their reason, without claims
+or attempts. When approval is the only obstacle for an open, triggered item,
+`launch` adds the project's configured stop label (`needs-human` in the starter)
+and posts one **Action needed** notice. `status` stays read-only. Unreadable
+approval history or input that changes during the read is retried on the next
+poll without label or notice writes. Uncleared outside comments do not suspend
+issues or trusted-authored PRs.
+
+| Approval gate | Maintainer action to resume (starter labels) |
+|---|---|
+| No maintainer start | Remove `needs-human` and re-apply a trigger label. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agent approve --number N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agent approve --number N` or submit an approving review of the current head; then remove `needs-human`. A trigger label does not approve a head. |
+
+Each gate state gets the stop label and notice at most once. Later polls of the
+same unresolved gate add nothing; a new gate after resuming parks the item again.
+These writes are advisory: a failure is logged, never writes coordination records
+or changes attempt counts, and cannot cause a claim. A later claim minimizes the
+notice using the same launcher notice marker as other Action needed notices.
+
+After winning a claim, the launcher rereads and validates input.
 A failed check withdraws that claim before execution, preserves attempts and returns
 the item to parked; approval makes it eligible without `ub-agent retry`. Preparation
 uses the same gate: a maintainer's `needs-preparation` starts it, and the preparer's
@@ -90,7 +109,7 @@ rewrite is trusted. There is no switch to bypass enforcement.
 
 Context holds the post-claim title, body and trusted or cleared outside comments.
 PR context adds the assigned head, reviews and review comments. Uncleared and
-later-edited outside feedback, coordination records and approval records are
+later-edited outside feedback, coordination records, launcher notices and approval records are
 excluded. The prompt makes this snapshot the assignment input; other GitHub
 comments are not input. Outside changes during execution do not stop that run,
 replace its context or gate its durable completion and recovery.
@@ -170,7 +189,7 @@ names the launcher host and run log directory. When a transition parks a handoff
 PR, the notice is posted on that PR.
 
 These notices carry a separate `ub-agent:action-needed` marker and are not
-coordination records: they never affect routing, verdicts, labels or attempt
+coordination records: they never affect routing authority, verdicts or attempt
 counts. A later claim by any agent on the item, or an explicit retry
 reset, minimizes its earlier Action needed notices. Minimization, notice posts
 and evidence reads are advisory: a failure is logged and does not change the
