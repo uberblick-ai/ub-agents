@@ -8,6 +8,8 @@ errors; `ub-agent check` validates the file.
 | Key | Meaning |
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
+| `approvers` | Explicit list of GitHub logins allowed to approve issue input (default `[]`). |
+| `launcher-account` | Optional GitHub login used by the launcher and agents; required by `approve` to exclude that account. |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | How often an idle loop checks GitHub (default 30). |
@@ -35,6 +37,26 @@ claim, including the default-branch read for instruction refresh; the lease comm
 write ends that poll, and failures from that write onward
 retain their existing handling. Ctrl-C, SIGTERM and SIGHUP interrupt retry waits.
 `launch --once` and `status` still fail on their first error.
+
+## Approval settings
+
+```yaml
+approvers: [alice, bob]
+launcher-account: project-agent
+```
+
+`approvers` must be a list of GitHub logins without `@`, unique case-insensitively.
+An omitted or empty list trusts nobody. Only GitHub's comment author login grants
+trust; the launcher account is always excluded even if listed. `launcher-account`
+must identify the actual account used by every launcher for this project.
+`approve` needs this separate identity because it authenticates as the human
+approver. It refuses to post when the setting is omitted. These optional settings
+do not enable pickup gating or change coordination trust.
+
+Run `ub-agent approve --number N --stage implementation` as a listed approver on a
+separate GitHub account. See [issue approvals](approvals.md) for the canonical input,
+record format, validator and test vector. Configure your own project explicitly;
+the starter template does not add approval settings.
 
 ## Project cleanup hook
 
@@ -381,6 +403,10 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 - `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
+- `ub-agent approve --number N --stage implementation` prints the current issue
+  input digest and included comments, then posts a content-bound approval as the
+  current `gh` user. It requires a listed approver other than `launcher-account`.
+  See [issue approvals](approvals.md).
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
   an item once you have fixed the cause.
 - `--config PATH` selects a different configuration file.

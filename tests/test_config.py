@@ -20,6 +20,25 @@ class ConfigTests(unittest.TestCase):
         self.path.write_text(content)
         return load_config(self.path)
 
+    def test_approval_configuration_is_explicit_and_optional(self):
+        base = ("repository: org/project\nagents:\n  task:\n    command: [echo]\n"
+                "    trigger: ready\n    outcomes: {done: {}}\n")
+        default = self.load(base)
+        self.assertEqual(default.approvers, ())
+        self.assertIsNone(default.launcher_account)
+        configured = self.load(base + "approvers: [Alice, Bob, launcher]\nlauncher-account: launcher\n")
+        self.assertEqual(configured.approvers, ("Alice", "Bob", "launcher"))
+        self.assertEqual(configured.launcher_account, "launcher")
+        self.assertEqual(self.load(base + "approvers: []\n").approvers, ())
+        for settings in ("approvers: Alice\n", "approvers: [Alice, ALICE]\n",
+                         "approvers: [null]\n", "approvers: ['@Alice']\n",
+                         "approvers: [' Alice']\n", "launcher-account: null\n",
+                         "launcher-account: []\n", "launcher-account: '@bot'\n"):
+            with self.subTest(settings=settings), self.assertRaises(AgentError):
+                self.load(base + settings)
+        self.assertEqual(self.load(base + "launcher-account: github-actions[bot]\n").launcher_account,
+                         "github-actions[bot]")
+
     def test_outcome_configuration_and_check_rejections(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
         valid = self.load(base + "    outcomes:\n      done: {add: [needs-review], remove: [old]}\n      merged: {}\n")

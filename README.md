@@ -86,6 +86,13 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agent retry` | Let stopped work run again, with a recorded reason |
 | `ub-agent check` | Validate the configuration files only |
 | `ub-agent report` | Used by agents to record their outcome |
+| `ub-agent approve --number N --stage implementation` | Print covered input and post a trusted issue approval |
+
+To produce [content-bound issue approvals](docs/approvals.md), configure explicit
+`approvers` and the actual `launcher-account`, then run `approve` using a listed
+human's separate `gh` account. The launcher account can never approve, even if
+listed. Approval records and validation are available; pickup does not yet require
+them. See the [approval settings](docs/configuration.md#approval-settings).
 
 ## Configure the agents
 

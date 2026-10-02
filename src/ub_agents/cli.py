@@ -48,6 +48,9 @@ def parser():
     retry.add_argument("--number", type=int, required=True)
     retry.add_argument("--agent", required=True)
     retry.add_argument("--reason", required=True)
+    approve = commands.add_parser("approve", help="Approve the current issue input as a trusted human")
+    approve.add_argument("--number", type=int, required=True)
+    approve.add_argument("--stage", choices=["implementation"], required=True)
     return result
 
 
@@ -172,6 +175,10 @@ def run(args):
         return
     github = GitHub(config.repository)
     actor = github.actor()
+    if args.command == "approve":
+        from .approvals import approve
+        approve(config, github, actor, args.number, args.stage)
+        return
     coordinator = Coordinator(github, actor)
     if args.command == "cleanup":
         from .cleanup import Cleaner

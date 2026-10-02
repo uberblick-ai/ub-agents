@@ -6,6 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- Trusted, content-bound issue approval records and validation, explicit `approvers`
+  and `launcher-account` settings, and `ub-agent approve --number N --stage implementation`
+  to print covered input and post an approval from a separate human account (#38).
+
 ## 0.1.4 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. The launcher now stops on a dirty
