@@ -1,8 +1,10 @@
 from contextlib import redirect_stdout
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import io
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -113,6 +115,33 @@ class NoticeTests(unittest.TestCase):
         self.assertFalse(comments[1].get("isMinimized", False))
         self.assertFalse(comments[2].get("isMinimized", False))
 
+    def test_release_never_minimizes_its_own_claim_after_a_later_contender_withdraws(self):
+        plan = self.co.plan(self.github.item(1), self.worker, ())
+        self.github.claim_barrier = threading.Barrier(2)
+        self.github.claim_read_barrier = threading.Barrier(2)
+        other = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            claims = list(pool.map(lambda co: co.claim(plan), (self.co, other)))
+        lease = next(c for c in claims if c is not None)
+        self.co.report(lease, "retry", "Transient failure")
+        self.co.release(lease, "retry", "Transient failure")
+        comments = self.github.comments(1)
+        self.assertEqual([r["state"] for r in self.co.history(1) if r["kind"] == "lease"],
+                         ["released", "withdrawn"])
+        self.assertFalse(any(c.get("isMinimized") for c in comments))
+
+    def test_superseded_handoff_copies_are_minimized_but_remain_readable(self):
+        for summary in ("First candidate", "Revised candidate"):
+            lease = self.start()
+            outcome = self.co.report(lease, "success", summary, handoff=2, outcome="done")
+            self.co.accept(lease, outcome)
+            self.co.release(lease, "success", summary)
+        copies = self.github.comments(2)
+        self.assertEqual(len(copies), 2)
+        self.assertTrue(copies[0]["isMinimized"])
+        self.assertFalse(copies[1].get("isMinimized", False))
+        self.assertEqual([r["summary"] for r in self.co.history(2)], ["First candidate", "Revised candidate"])
+
     def test_blocked_notice_has_reason_evidence_links_and_exact_retry(self):
         lease = self.start(2)
         outcome = self.co.report(lease, "blocked", "Choose a migration strategy")
@@ -179,6 +208,49 @@ class NoticeTests(unittest.TestCase):
         source = loop.coordinator.history(1)
         for record in source:
             self.assertIn(record["url"], notices[0]["body"])
+
+    def test_expiry_recovery_posts_one_notice_for_the_original_stop_outcome(self):
+        worker = agent(self.root, kind="pr", outcomes={"human": {"add": ("needs-human",), "remove": ()}})
+        loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
+        loop.coordinator.clock = lambda: self.now
+        plan = loop.plans()[0]
+        lease = loop.coordinator.claim(plan, loop.config.stop_labels)
+        loop.coordinator.report(lease, "success", "Human must merge", outcome="human")
+        self.now += 61
+        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+            self.assertTrue(loop.tick())
+        notice = self.notices(2)[0]["body"]
+        self.assertIn("Human must merge", notice)
+        self.assertIn("Remove the stop label(s) `needs-human`", notice)
+        self.assertIn("a" * 40, notice)
+        loop.tick()
+        self.assertEqual(len(self.notices(2)), 1)
+
+    def test_resume_minimize_failure_cannot_change_a_claim_or_retry_reset(self):
+        lease = self.start()
+        self.co.report(lease, "blocked", "Decision needed")
+        self.co.release(lease, "blocked", "Decision needed")
+        error = GitHubError("POST", "graphql", "No minimization permission")
+        with patch.object(self.github, "minimize_comment", side_effect=error):
+            self.retry()
+        self.assertEqual(self.co.history(1)[-1]["kind"], "reset")
+        self.assertEqual(attempts(self.co.history(1), "worker", self.now), [])
+        with patch.object(self.github, "minimize_comment", side_effect=error):
+            next_lease = self.start()
+        self.assertEqual(next_lease["state"], "running")
+        self.assertTrue(any("minimize comment" in line and "failed" in line for line in self.output))
+        self.assertFalse(self.notices()[0].get("isMinimized", False))
+
+    def test_delayed_notice_does_not_park_an_item_again_after_a_reset(self):
+        lease = self.start()
+        outcome = self.co.report(lease, "blocked", "Decision needed")
+        with patch.object(self.github, "create_comment", side_effect=GitHubError("POST", "comments", "Notice failed")):
+            self.co.release(lease, "blocked", "Decision needed")
+        self.assertEqual(self.notices(), [])
+        self.retry()
+        self.co.notices.released(lease, outcome, "Decision needed")
+        self.assertEqual(self.notices(), [])
+        self.assertEqual(self.co.plan(self.github.item(1), self.worker, ()).state, "ready")
 
     def test_blocked_exit_without_report_names_host_and_log_directory(self):
         loop = Loop(config(self.root, agent(self.root, kind="issue")), self.github, "operator", output=self.output.append)

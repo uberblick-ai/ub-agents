@@ -16,6 +16,60 @@ from tests.support import RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_minimize_comment_uses_node_id_and_outdated_graphql_classifier(self):
+        runner = RecordingRunner(Path('/synthetic'))
+        command = ('gh', 'api', '--hostname', 'github.com', '--method', 'POST', '-H',
+                   'Accept: application/vnd.github+json', '--include', 'graphql', '--input', '-')
+        runner.responses[command] = json.dumps({"data": {"minimizeComment": {
+            "minimizedComment": {"isMinimized": True}}}})
+        github = GitHub('org/project', runner)
+        github.minimize_comment({"id": 123, "node_id": "IC_node"})
+        sent = json.loads(runner.calls[-1][1]['input'])
+        self.assertEqual(sent['variables'], {"id": "IC_node"})
+        self.assertIn('minimizeComment', sent['query'])
+        self.assertIn('classifier: OUTDATED', sent['query'])
+        self.assertIn('subjectId: $id', sent['query'])
+        for response in ({"errors": [{"message": "not authorized"}]},
+                         {"data": {"minimizeComment": {"minimizedComment": {"isMinimized": False}}}}):
+            with self.subTest(response=response):
+                runner.responses[command] = json.dumps(response)
+                with self.assertRaises(GitHubError):
+                    github.minimize_comment({"node_id": "IC_node"})
+        with self.assertRaises(GitHubError):
+            github.minimize_comment({"id": 123})
+
+    def test_candidate_evidence_reads_exact_sha_and_identifies_changed_review_head(self):
+        sha = 'a' * 40
+        query_result = {"data": {"repository": {
+            "pullRequest": {"headRefOid": sha, "reviewDecision": "APPROVED"},
+            "object": {"oid": sha, "statusCheckRollup": {"state": "SUCCESS"}}}}}
+        runner = RecordingRunner(Path('/synthetic'))
+        command = ('gh', 'api', '--hostname', 'github.com', '--method', 'POST', '-H',
+                   'Accept: application/vnd.github+json', '--include', 'graphql', '--input', '-')
+        runner.responses[command] = json.dumps(query_result)
+        github = GitHub('org/project', runner)
+        self.assertEqual(github.candidate_evidence(2, sha), ('APPROVED', 'SUCCESS'))
+        sent = json.loads(runner.calls[-1][1]['input'])
+        self.assertEqual(sent['variables'], {"owner": "org", "name": "project", "number": 2, "sha": sha})
+        self.assertIn('object(oid: $sha)', sent['query'])
+        for head, review, rollup, expected in (
+                (sha, None, None, ('no decision', 'no checks or statuses')),
+                ('b' * 40, 'APPROVED', {"state": "FAILURE"},
+                 ('unavailable for this SHA (current head bbbbbbb)', 'FAILURE'))):
+            with self.subTest(head=head):
+                repository = query_result['data']['repository']
+                repository['pullRequest'] = {"headRefOid": head, "reviewDecision": review}
+                repository['object']['statusCheckRollup'] = rollup
+                runner.responses[command] = json.dumps(query_result)
+                self.assertEqual(github.candidate_evidence(2, sha), expected)
+        for response in ({"data": {"repository": None}}, {"data": {"repository": {"object": None}}},
+                         {"data": {"repository": {"object": {"oid": 'b' * 40}}}},
+                         {"data": {}, "errors": [{"message": "evidence unavailable"}]}):
+            with self.subTest(response=response):
+                runner.responses[command] = json.dumps(response)
+                with self.assertRaises(GitHubError):
+                    github.candidate_evidence(2, sha)
+
     def test_include_parses_success_and_empty_delete_headers(self):
         runner = RecordingRunner(Path('/synthetic'))
         prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',

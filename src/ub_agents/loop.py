@@ -135,6 +135,8 @@ class Loop:
         for plan in plans:
             if self.stop_event.is_set():
                 raise KeyboardInterrupt
+            if plan.state in {"ready", "recover"}:
+                self._shown.pop((plan.item.number, plan.agent.name), None)
             if plan.state == "ready":
                 if self.execute(plan):
                     return True
@@ -148,8 +150,6 @@ class Loop:
                 if not announced and (plan.state not in {"blocked", "parked"} or self._shown.get(key) != value):
                     self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
                 self._shown[key] = value
-            if plan.state in {"ready", "recover"}:
-                self._shown.pop((plan.item.number, plan.agent.name), None)
         return False
 
     def execute(self, plan):

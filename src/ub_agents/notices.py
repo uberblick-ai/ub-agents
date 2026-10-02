@@ -31,14 +31,17 @@ class Notices:
                     self.minimize(comment)
         self.advisory(f"resume notices on #{number}", minimize_actions)
 
-    def superseded(self, number, agent):
+    def superseded(self, number, agent, run):
         def minimize_records():
             comments = self.github.comments(number)
             history = [r for r in records(comments, self.actor)
                        if r["agent"] == agent and r["kind"] in {"lease", "outcome"}]
+            current = [r["id"] for r in history if r["run"] == run]
+            if not current:
+                return
             latest = {r["kind"]: r for r in history}
             outdated = {r["id"] for r in history
-                        if r["run"] != latest[r["kind"]]["run"]}
+                        if r["id"] < min(current) and r["run"] != latest[r["kind"]]["run"]}
             for comment in comments:
                 if comment["id"] in outdated:
                     self.minimize(comment)
@@ -53,9 +56,9 @@ class Notices:
                   and reported.get("accepted") and reported.get("transition_complete") and stops)
         if parked:
             target = reported.get("handoff") or target
-        self.superseded(lease["assignment"], lease["agent"])
+        self.superseded(lease["assignment"], lease["agent"], lease["run"])
         if reported and reported.get("handoff") and reported["handoff"] != lease["assignment"]:
-            self.superseded(reported["handoff"], lease["agent"])
+            self.superseded(reported["handoff"], lease["agent"], reported["run"])
         if lease["result"] == "blocked" or parked:
             self.advisory(f"Action needed post on #{target}",
                           lambda: self.post_action(target, lease, reported, summary, stops if parked else ()))
@@ -85,7 +88,7 @@ class Notices:
             links += " · No outcome was reported."
         if stops:
             labels = ", ".join(f"`{label}`" for label in stops)
-            triggers = ", ".join(f"`{label}`" for label in transition_triggers(outcome))
+            triggers = ", ".join(f"`{label}`" for label in outcome["transition"]["triggers"])
             resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
         else:
             command = (f"ub-agent retry --number {number} --agent {lease['agent']} "
@@ -101,7 +104,3 @@ class Notices:
         reason = " ".join(summary.split())
         self.github.create_comment(number,
             f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n")
-
-
-def transition_triggers(outcome):
-    return outcome.get("transition", {}).get("triggers", ())

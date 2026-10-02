@@ -119,7 +119,7 @@ posted on that PR.
 
 These notices carry a separate `ub-agent:action-needed` marker and are not
 coordination records: they never affect routing, verdicts, labels or attempt
-counts. A later winning claim by any agent on the item, or an explicit retry
+counts. A later claim by any agent on the item, or an explicit retry
 reset, minimizes its earlier Action needed notices. Minimization, notice posts
 and evidence reads are advisory: a failure is logged and does not change the
 durable result. A failed notice post is not retried on each poll.
