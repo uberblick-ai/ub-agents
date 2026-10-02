@@ -47,6 +47,9 @@ between runs. From 0.1.5, `kill -TERM` lets the current run finish and exits 0 (
 - Ctrl-C during a GitHub request reports a stop with exit status 130 instead of a
   GitHub or retry failure, preserving reported outcomes for expiry recovery when
   completion is interrupted and still running cleanup hooks (#55).
+- Agents with `different-runtime-from` use only their first configured runtime when
+  the PR's current head has no accepted report from the named agent, blocking if that
+  runtime's CLI isn't installed. Identified sources retain the independence checks (#61).
 - Nonzero exits without a report retry with backoff up to `max-attempts`. A report
   made before a nonzero exit is validated and applied normally, preserving label
   transitions and accepted handoff provenance; the exit code is logged (#42).

@@ -305,14 +305,21 @@ host has died.
 
 ## Runtime independence and candidate provenance
 
-`different-runtime-from: NAME` requires accepted source provenance for the **current
-PR head**, backed by a successful source release or successful outcome recovery.
-Source issue outcomes are copied to the PR at handoff. A revision records provenance
-for its new head. Missing/unaccepted/stale provenance blocks; the rule never falls
-back to a guessed author or runtime.
+`different-runtime-from: NAME` requires a PR. When an accepted report from `NAME`
+identifies the source runtime for the **current PR head**, it must be backed by a
+successful source release or successful outcome recovery; invalid source provenance
+still blocks. Source issue outcomes are copied to the PR at handoff. A revision
+records provenance for its new head.
 
-The eligible runtime must have a different CLI **and** model from the source;
-`codex` and `claude` imply OpenAI and Anthropic. Effort is ignored. Restarting the
+If no accepted report from `NAME` exists for the current head, the agent uses only
+its first configured runtime, without filtering. This covers missing, unaccepted
+and earlier-head reports. If that runtime's CLI isn't installed, planning blocks
+with `No eligible runtime executable is installed`; later alternatives are not
+tried. The launcher does not detect authorship or infer the unknown source runtime.
+
+When the source is identified, the eligible runtime must have a different CLI
+**and** model from the source; `codex` and `claude` imply OpenAI and Anthropic.
+Effort is ignored. Restarting the
 same author/runtime with a fresh run ID cannot satisfy this. Configured identity is
 the contract: use concrete model identifiers, since the launcher cannot attest to a
 provider's alias resolution.

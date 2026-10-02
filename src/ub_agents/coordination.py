@@ -129,21 +129,22 @@ class Coordinator:
                       and r.get("accepted") is True and r["agent"] == agent.different_from
                       and r.get("candidate_sha") == item.head]
             if not source:
-                raise AgentError(f"No accepted {agent.different_from} provenance for candidate {item.head}")
-            source = source[-1]
-            origin = self.history(source["assignment"])
-            lease = lease_by_id(origin, source["lease_id"])
-            if lease and not same_run(source, lease):
-                raise AgentError("Candidate provenance does not match its source lease")
-            if not self.released_success(origin, source):
-                raise AgentError("Candidate provenance has no successfully released source lease")
-            try:
-                cli, model, effort = source["runtime"].split(":")
-            except ValueError as exc:
-                raise AgentError("Candidate runtime provenance is incomplete") from exc
-            eligible = [r for r in eligible if r.different_from(Runtime(cli, model, effort))]
-            if not eligible:
-                raise AgentError("No runtime has a different CLI and model from the candidate author")
+                eligible = eligible[:1]
+            else:
+                source = source[-1]
+                origin = self.history(source["assignment"])
+                lease = lease_by_id(origin, source["lease_id"])
+                if lease and not same_run(source, lease):
+                    raise AgentError("Candidate provenance does not match its source lease")
+                if not self.released_success(origin, source):
+                    raise AgentError("Candidate provenance has no successfully released source lease")
+                try:
+                    cli, model, effort = source["runtime"].split(":")
+                except ValueError as exc:
+                    raise AgentError("Candidate runtime provenance is incomplete") from exc
+                eligible = [r for r in eligible if r.different_from(Runtime(cli, model, effort))]
+                if not eligible:
+                    raise AgentError("No runtime has a different CLI and model from the candidate author")
         for runtime in eligible:
             if shutil.which(runtime.cli):
                 return runtime

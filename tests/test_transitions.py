@@ -412,10 +412,12 @@ class TransitionTests(unittest.TestCase):
         plan = next(p for p in self.loop.plans() if p.item.number == 2)
         self.assertEqual(plan.state, 'ready')
         if 'head' in changes:
-            independent = replace(reviewer, command=(), different_from=self.agent.name)
-            independent_plan = restarted.coordinator.plan(self.github.item(2), independent, ())
-            self.assertEqual(independent_plan.state, 'blocked')
-            self.assertIn('No accepted worker provenance for candidate', independent_plan.reason)
+            first = Runtime('claude', 'reviewer-model', 'high')
+            independent = replace(reviewer, command=(), different_from=self.agent.name,
+                                  runtimes=(first, Runtime('codex', 'other-model', 'high')))
+            with patch('ub_agents.coordination.shutil.which', return_value='installed'):
+                independent_plan = restarted.coordinator.plan(self.github.item(2), independent, ())
+            self.assertEqual((independent_plan.state, independent_plan.runtime), ('ready', first))
             self.github.change(2, labels=frozenset({'needs-changes'}))
             revision = next(p for p in restarted.plans()
                             if p.item.number == 2 and p.agent.name == self.agent.name)

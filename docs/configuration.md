@@ -211,7 +211,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. Validated and reread from the refreshed control checkout before each new run. |
 | `command` | An argv list to run instead of an LLM session. A relative executable resolves against the configuration's directory. |
-| `different-runtime-from` | Another agent's name. This agent must run on a different CLI and model from the one that produced the PR's current commit; a different effort doesn't count. |
+| `different-runtime-from` | Another agent's name; requires a PR. When an accepted report identifies that agent's runtime for the current head, this agent must run on a different CLI and model; a different effort doesn't count. Without such a report, use only the first configured runtime, blocking if its CLI isn't installed. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
