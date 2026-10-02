@@ -22,5 +22,5 @@ Run the checks relevant to the assigned change and record the results.
   issue number.
 - Never approve your own PR or enable auto-merge. Follow the project's review and
   merge policy.
-- The launcher owns claim renewal and configured label transitions. Leave workflow
-  labels to the launcher when reporting a declared outcome.
+- The launcher owns the configured label transitions. Leave workflow labels to it
+  when reporting a declared outcome.

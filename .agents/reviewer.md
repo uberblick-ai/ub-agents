@@ -10,7 +10,7 @@ If the PR is a draft, report blocked; the implementer must mark it ready first.
 Never add ready-to-merge to a draft.
 
 This project requires independent cross-provider review: the launcher runs you on a
-different CLI, provider and model from the implementer of this candidate. Changing
+different CLI and model from the implementer of this candidate. Changing
 effort or resetting the author's conversation does not establish independent review.
 
 Apply any review focus the shared guidance names. Never edit the candidate to fix it
@@ -22,5 +22,3 @@ Both are successful review handoffs: use `ub-agent report --outcome NAME
 
 Do not merge. Native GitHub approvals require an eligible reviewer account and remain
 subject to branch protection. Explicit outcomes do not bypass those rules.
-
-The runner applies the configured transition. Do not change workflow labels.

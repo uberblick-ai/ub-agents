@@ -22,9 +22,10 @@ def stub_refresh(test):
 def agent(root, **overrides):
     defaults = dict(name="worker", triggers=("ready", "needs-changes"), instructions=None,
                     runtimes=(), command=(sys.executable, "-c", "pass"), runtime_args=(),
-                    different_from=None, kind="either", cwd=Path(root), worktree=False,
-                    lease_seconds=60, renewal_seconds=10, timeout_seconds=10,
-                    max_attempts=3, backoff_seconds=0, max_backoff_seconds=0)
+                    different_from=None, kind="either", worktree=False,
+                    lease_seconds=60, timeout_seconds=10,
+                    max_attempts=3, backoff_seconds=0, max_backoff_seconds=0,
+                    outcomes={"done": {"add": (), "remove": ()}})
     return Agent(**(defaults | overrides))
 
 
@@ -35,12 +36,12 @@ def config(root, *agents, queue=Queue()):
 
 def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milestone=None):
     return Item(number, "issue", "Requirements", "Acceptance criteria", frozenset(labels), "open",
-                "operator", created_at, milestone=milestone)
+                created_at, milestone=milestone)
 
 
 def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1", draft=False, milestone=None):
-    return Item(number, "pr", "Candidate", body, frozenset(labels), "open", "operator",
-                "2026-01-01T00:00:00Z", head, "feature/test", milestone, draft, "org/project")
+    return Item(number, "pr", "Candidate", body, frozenset(labels), "open",
+                "2026-01-01T00:00:00Z", head, "feature/test", milestone, draft)
 
 
 class FakeGitHub:
@@ -143,15 +144,10 @@ class RecordingRunner:
         self.root = Path(root)
         self.calls = []
         self.responses = {
-            ("git", "--version"): "git version 2.49.0\n",
-            ("gh", "--version"): "gh version 2.80.0\n",
             ("git", "-C", str(root), "rev-parse", "--show-toplevel"): str(root),
             ("git", "-C", str(root), "remote", "get-url", "origin"): "git@github.com:org/project.git",
             ("git", "-C", str(root), "check-ignore", "-q", ".ub-agent/"): "",
-            ("git", "-C", str(root), "worktree", "list", "--porcelain"): "worktree fixture\n",
             ("ps", "-axo", "pid=,pgid=,stat="): f"{os.getpid()} {os.getpgrp()} S\n",
-            ("codex", "--version"): "codex-cli 0.120.0\n",
-            ("claude", "--version"): "2.1.268 (Claude Code)\n",
             ("codex", "login", "status"): "sk-auth-secret\n",
             ("claude", "auth", "status"): "sk-auth-secret\n",
         }

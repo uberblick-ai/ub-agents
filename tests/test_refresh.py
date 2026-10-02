@@ -27,12 +27,13 @@ class RefreshTests(unittest.TestCase):
         (self.upstream / "role.md").write_text("First operator policy\n")
         (self.upstream / "ub-agent.yaml").write_text("repository: org/project\nagents:\n  worker:\n"
                                                     "    runtime: codex:model:high\n"
-                                                    "    trigger: ready\n    instructions: role.md\n")
+                                                    "    trigger: ready\n    instructions: role.md\n"
+                                                    "    outcomes: {done: {}}\n")
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
         git(base, "clone", str(self.origin), str(self.root))
         self.worker = agent(self.root, kind="issue", instructions=self.root / "role.md",
-                            command=(), runtimes=(Runtime("codex", "model", "high", "openai"),))
+                            command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.github = FakeGitHub(issue(), issue(3))
         self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lambda *_: None)
 
@@ -79,17 +80,25 @@ class RefreshTests(unittest.TestCase):
         return str(error.exception)
 
     def execute(self, callback=None):
-        def run(command, cwd, env, run_dir, timeout, heartbeat, stop, prompt, **kwargs):
+        def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             if callback:
                 callback(cwd, prompt)
             number = int(env["UB_AGENT_ASSIGNMENT"])
             lease = self.loop.coordinator.history(number)[0]
-            self.github.change(number, labels=frozenset())
-            self.loop.coordinator.report(lease, "success", "Synthetic run finished")
+            self.loop.coordinator.report(lease, "success", "Synthetic run finished", outcome="done")
             return 0
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.loop.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
+        for item in self.github.items.values():
+            if self.loop.coordinator.history(item.number):
+                self.assert_success(item.number)
+
+    def assert_success(self, number):
+        history = self.loop.coordinator.history(number)
+        lease = next(record for record in reversed(history) if record["kind"] == "lease")
+        self.assertEqual((lease["state"], lease["result"]), ("released", "success"))
+        self.assertTrue(self.loop.coordinator.outcome(lease)["accepted"])
 
     def test_pushed_policy_appears_in_second_prompt_without_restart(self):
         prompts = []
@@ -303,18 +312,19 @@ class RefreshTests(unittest.TestCase):
         self.github = FakeGitHub(pr(head=candidate))
         self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lambda *_: None)
         self.push_policy()
-        def run(command, cwd, env, run_dir, timeout, heartbeat, stop, prompt, **kwargs):
+        def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             self.assertEqual(git(cwd, "rev-parse", "HEAD"), candidate)
             self.assertIn("Second operator policy", prompt)
             (cwd / "role.md").write_text("Candidate replacement policy")
             self.assertIn("Second operator policy", prompt)
             self.assertNotIn("Candidate replacement policy", prompt)
-            self.github.change(2, labels=frozenset())
-            self.loop.coordinator.report(self.loop.coordinator.history(2)[0], "success", "Checked candidate")
+            self.loop.coordinator.report(self.loop.coordinator.history(2)[0], "success", "Checked candidate",
+                                         outcome="done")
             return 0
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.loop.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
+        self.assert_success(2)
 
     def test_durable_recovery_never_refreshes(self):
         now = timestamp()
@@ -323,12 +333,15 @@ class RefreshTests(unittest.TestCase):
             plan = self.loop.coordinator.plan(self.github.item(1), self.worker, ())
             lease = self.loop.coordinator.claim(plan)
         self.loop.coordinator.update(lease, state="running", started=True)
-        self.github.change(1, labels=frozenset())
-        self.loop.coordinator.report(lease, "success", "Durable completion")
+        self.loop.coordinator.report(lease, "success", "Durable completion", outcome="done")
         now += 61
         (self.root / "role.md").write_text("Dirty checkout must not affect recovery")
         with patch("ub_agents.loop.refresh_instructions", side_effect=AssertionError("must not refresh")):
             self.assertTrue(self.loop.tick())
+        history = self.loop.coordinator.history(1)
+        self.assertTrue(self.loop.coordinator.outcome(lease)["accepted"])
+        recovery = next(record for record in history if record.get("mode") == "recovery")
+        self.assertEqual((recovery["state"], recovery["result"]), ("released", "success"))
 
     def test_resume_keeps_checkpoint_sha_after_control_refresh(self):
         checkpoint = git(self.root, "rev-parse", "HEAD")
@@ -342,18 +355,25 @@ class RefreshTests(unittest.TestCase):
         self.loop.coordinator.update(lease, state="running", started=True, branch="feature/test")
         self.loop.coordinator.release(lease, "retry", "Interrupted")
         self.push_policy()
-        def run(command, cwd, env, run_dir, timeout, heartbeat, stop, prompt, **kwargs):
+        def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
+            # #32 delegates draft continuation to the agent in a fresh issue worktree.
+            self.assertEqual(git(cwd, "rev-parse", "HEAD"), git(self.upstream, "rev-parse", "HEAD"))
+            self.assertIn("Second operator policy", prompt)
+            self.assertIn('"earlier_branches": [\n    "feature/test"\n  ]', prompt)
+            self.assertIn("continue an open draft PR", prompt)
+            draft = self.github.prs_for_branch("feature/test")[0]
+            git(cwd, "fetch", "origin", draft.branch)
+            git(cwd, "checkout", "--detach", "FETCH_HEAD")
             self.assertEqual(git(cwd, "rev-parse", "HEAD"), checkpoint)
             self.assertIn("Second operator policy", prompt)
-            self.assertIn("Resume existing draft PR #2", prompt)
-            self.github.change(1, labels=frozenset())
             self.github.change(2, draft=False)
             current = self.loop.coordinator.history(1)[-1]
-            self.loop.coordinator.report(current, "success", "Continued checkpoint", handoff=2)
+            self.loop.coordinator.report(current, "success", "Continued checkpoint", handoff=2, outcome="done")
             return 0
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.loop.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
+        self.assert_success(1)
 
     def test_idle_launcher_does_not_refresh(self):
         self.github.change(1, labels=frozenset())

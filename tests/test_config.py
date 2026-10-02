@@ -34,50 +34,60 @@ class ConfigTests(unittest.TestCase):
                     self.assertEqual(main(["--config", str(self.path), "check"]), 1)
         with self.assertRaisesRegex(AgentError, "remove a stop label"):
             self.load(base.replace("trigger: ready", "trigger: needs-human") + "    outcomes: {done: {}}\n")
+        with self.assertRaisesRegex(AgentError, "outcomes must be"):
+            self.load(base)
 
     def test_direct_command_and_distinct_clock_overrides(self):
         result = self.load('''repository: org/project
 agents:
   investigate:
-    command: [python3, task.py]
+    command: [./scripts/task.py, --fast]
     trigger: investigate
-    lease-minutes: 90
-    renewal-minutes: 10
+    outcomes: {done: {}}
     agent-timeout-minutes: 240
 limits:
   max-attempts: 7
+cleanup:
+  command: [./scripts/cleanup]
+  timeout-seconds: 120
 ''')
         agent = result.agents[0]
-        self.assertEqual((agent.lease_seconds, agent.renewal_seconds, agent.timeout_seconds), (5400, 600, 14400))
+        # The lease covers the run, a fifteen-minute grace and the cleanup hook.
+        self.assertEqual((agent.lease_seconds, agent.timeout_seconds), (14400 + 900 + 120, 14400))
         self.assertEqual(agent.max_attempts, 7)
+        # Relative executables resolve against the configuration's directory.
+        self.assertEqual(agent.command, (str(self.root.resolve() / "scripts/task.py"), "--fast"))
 
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n"
-        for content in [base.replace("[true]", "[echo]") + "    renewal-minutes: 60\n",
-                        base.replace("[true]", "[echo]") + "    lease-minutes: .nan\n",
+        base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        for content in [base.replace("[true]", "[echo]") + "    agent-timeout-minutes: .nan\n",
+                        base.replace("[true]", "[echo]") + "    lease-minutes: 90\n",
                         base.replace("[true]", "[echo]") + "    mystery: true\n",
                         base + "repository: other/project\n", base + "    instructions: /etc/passwd\n",
                         base + "    agent-timeout-minutes: false\n", base + "    max-attempts: 2.5\n",
+                        base.replace("[true]", "[echo]") + "    runtime-args: [--model, other]\n",
+                        base.replace("[true]", "[echo]") + "    runtime-args: [-c, model=other]\n",
+                        base.replace("[true]", "[echo]") + "    runtime-args: [--config=model_reasoning_effort=low]\n",
                         base + "    runtime: codex:model:high\n", base]:
             with self.subTest(content=content), self.assertRaises(AgentError):
                 self.load(content)
 
-    def test_custom_runtime_and_alternatives_require_no_python_workflow(self):
+    def test_runtime_alternatives_and_unknown_cli(self):
         (self.root / "instructions.md").write_text("Do the task")
-        result = self.load('''repository: org/project
-runtimes:
-  example:
-    provider: example-provider
-    command: [example-cli, --model, "{model}", --effort, "{effort}"]
+        content = '''repository: org/project
 agents:
   investigate:
-    runtime: [example:model-a:high, codex:model-b:low]
+    runtime: [claude:model-a:high, codex:model-b:low]
     trigger: investigate
+    outcomes: {done: {}}
     instructions: instructions.md
 stop-labels: []
-''')
-        self.assertEqual(len(result.agents[0].runtimes), 2)
+'''
+        result = self.load(content)
+        self.assertEqual([r.name for r in result.agents[0].runtimes], ["claude:model-a:high", "codex:model-b:low"])
         self.assertEqual(result.stop_labels, ())
+        with self.assertRaisesRegex(AgentError, "codex, claude"):
+            self.load(content.replace("codex:model-b:low", "example:model-b:low"))
 
     def test_init_and_installed_template_preservation(self):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -93,14 +103,13 @@ stop-labels: []
         for configured in agents:
             instructions = configured.instructions.read_text()
             self.assertIn('--outcome', instructions)
-            self.assertIn('Do not change workflow labels', instructions)
             self.assertNotIn('--status success', instructions)
         self.assertIn("queue:\n  milestones: ignore\n", original)
         self.assertEqual(load_config(self.path).queue, Queue())
         self.assertIn(".ub-agent/", (self.root / ".gitignore").read_text())
 
     def test_queue_defaults_and_configured_priority(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         for extra in ("", "queue: {}\n", "queue:\n  milestones: ignore\n"):
             with self.subTest(extra=extra):
                 self.assertEqual(self.load(base + extra).queue, Queue())
@@ -113,7 +122,7 @@ stop-labels: []
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
 
     def test_queue_validation_through_check(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         for extra in ("queue: null", "queue: []", "queue:\n  unknown: true",
                       "queue:\n  dependencies: gate", "queue:\n  dependencies: null",
                       "queue:\n  dependencies: []", "queue:\n  dependencies: false",
@@ -155,11 +164,3 @@ agents:
                          {"handed-off": {"add": ("needs-review",), "remove": ("old",)}})
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "check"]), 0)
-
-    def test_operator_allowlist_is_explicit_and_strict(self):
-        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"
-        self.assertEqual(self.load(base + "operators: [Operator, automation-bot]\n").operators,
-                         ("Operator", "automation-bot"))
-        for value in ("false", "0", "{}", "[anonymous/user]", "[null]"):
-            with self.subTest(value=value), self.assertRaises(AgentError):
-                self.load(base + f"operators: {value}\n")

@@ -31,7 +31,9 @@ Observe GitHub → match a label → claim the item → run the agent → record
 ## Use it in your project
 
 You need macOS or Linux, Python 3.11+, `git`, an authenticated `gh`, and the agent CLIs
-you want to use, such as `codex` or `claude`.
+you want to use, such as `codex` or `claude`. Every launcher for a project must
+authenticate `gh` as the same GitHub account: only that account's coordination
+comments count, so launchers on different accounts would not see each other's claims.
 
 ```sh
 pipx install .        # from a checkout of this repository
@@ -68,8 +70,6 @@ Customize these parts:
 A trigger selects work. An agent reports a declared outcome with
 `ub-agent report --outcome NAME --summary TEXT [--handoff PR]`; the launcher validates
 it and applies the project's transition. `--status retry|blocked` changes no labels.
-Agents without `outcomes` retain the earlier contract: they change labels themselves
-and report `--status success`, and the launcher checks that the trigger was consumed.
 Review the [coordination contract](docs/coordination.md) and
 [configuration reference](docs/configuration.md) for recovery and permissions.
 
@@ -133,16 +133,15 @@ agents:
   then adds `add` labels to the handoff PR, or to the assignment without a handoff.
 - **`runtime`**: `cli:model:effort`. A list gives alternatives; the first one that is
   installed and allowed runs.
-- **`different-runtime-from`**: run on a different CLI, provider and model from the
-  agent that produced the PR's current commit.
+- **`different-runtime-from`**: run on a different CLI and model from the agent that
+  produced the PR's current commit.
 - **`instructions`**: the agent's task, in your words. `init` writes starters for the
   four roles above.
 - **`worktree`**: run in a private checkout of the PR's exact commit, or on a fresh
   branch for an issue.
 
-An agent can also be a plain command instead of an LLM session, and other agent CLIs
-can be added with a small adapter. [docs/configuration.md](docs/configuration.md)
-lists every option.
+An agent can also be a plain command instead of an LLM session.
+[docs/configuration.md](docs/configuration.md) lists every option.
 
 ## The starter workflow
 
@@ -188,28 +187,18 @@ durable-outcome recovery.
 Instruction text stays fixed for each prompt. Configuration changes in
 `ub-agent.yaml` still require a launcher restart; PR candidates are not rebased.
 
-Each claim has a lease that the launcher renews while the agent runs. If a launcher
-dies, its claims expire and a launcher can recover the work. Timeouts, interruptions
-and failures the agent reports as `retry` are retried with backoff, up to
-`max-attempts`. Other failures stop the item until a person runs `ub-agent retry`. A
-success counts only after the launcher has checked the result on GitHub; an exit code
-alone never does.
+Each claim has a lease that outlasts the run's timeout. If a launcher dies, its
+claims expire and another launcher recovers the work: a recorded outcome is
+validated and its label transition finished without rerunning the role. Timeouts,
+interruptions and failures the agent reports as `retry` are retried with backoff, up
+to `max-attempts`. Other failures stop the item until a person runs `ub-agent retry`.
+A success counts only after the launcher has checked the result on GitHub; an exit
+code alone never does.
 
-A stop label on the assignment or handoff PR before a transition starts blocks
-the run without changing labels. Removing it does not revive that outcome: set
-the desired workflow labels or use `ub-agent retry` to rerun the role. A stop label
-added after a transition starts stays in place while the transition completes.
-Interrupted transitions recover their recorded changes without rerunning the role
-or consuming another attempt. Assignment labels are removed before destination
-labels are added; a crash between those steps leaves items idle when no other
-trigger is present. Transitions create no cross-item reservations. If an operator
-reset supersedes recovery, inspect both items and restore the desired triggers.
-Once a transition starts, recovery finishes it even if the PR head or issue link
-changes. Provenance retains the original SHA; a newer head still needs its own
-implementation outcome before an independent review can run.
-
-The exact rules for claims, attempts and recovery are in the
-[coordination contract](docs/coordination.md).
+A stop label such as `needs-human` on the assignment or its handoff PR pauses a
+transition before it starts. After removing it, set the workflow labels you want or
+run `ub-agent retry`. The exact rules for claims, attempts, transitions and recovery
+are in the [coordination contract](docs/coordination.md).
 
 Private worktrees left by crashed runs and retained local branches can be inspected
 with `ub-agent cleanup` and removed with `ub-agent cleanup --apply`. Removal needs

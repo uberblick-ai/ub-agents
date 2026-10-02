@@ -47,7 +47,7 @@ def configured_labels(config):
         kind = {"issue": "an issue", "pr": "a PR", "either": "an issue or PR"}[agent.kind]
         for name in agent.triggers:
             add(name, LabelUse(agent.name, f"starts {agent.name} on {kind}"))
-        for outcome, transition in (agent.outcomes or {}).items():
+        for outcome, transition in agent.outcomes.items():
             for action in ("add", "remove"):
                 for name in transition[action]:
                     meaning = (f"{'added to the destination' if action == 'add' else 'removed from the assignment'} "

@@ -41,8 +41,7 @@ class HookTests(unittest.TestCase):
             lease = loop.coordinator.history(1)[0]
             if effect:
                 return effect(lease)
-            self.github.change(1, labels=frozenset())
-            loop.coordinator.report(lease, "success", "done", handoff=2)
+            loop.coordinator.report(lease, "success", "done", handoff=2, outcome="done")
             return 0
         def remove(*args):
             self.removed.append(args)
@@ -84,43 +83,36 @@ class HookTests(unittest.TestCase):
                 self.assertEqual(group_members(group), [])
                 self.assertEqual(next((run_dir / "cleanup").glob("*/stopped")).read_text(), "confirmed\n")
 
-    def test_long_hook_renews_lease_and_success_is_accepted(self):
+    def test_hook_runs_under_the_lease_expiry_and_success_is_accepted(self):
         loop = self.loop()
-        now = timestamp()
-        elapsed = 0
-        loop.coordinator.clock = lambda: now + elapsed
+        started = timestamp()
+        seen = []
 
-        def slow_hook(command, cwd, env, directory, timeout, heartbeat, stop_event):
-            nonlocal elapsed
-            original_deadline = loop.coordinator.history(1)[0]["expires"]
-            # Simulate a hook spanning two original leases. Renewal uses the
-            # same launcher heartbeat as agent execution, on each interval.
-            for elapsed in range(10, 121, 10):
-                heartbeat()
-            self.assertNotEqual(loop.coordinator.history(1)[0]["expires"], original_deadline)
+        def hook(command, cwd, env, directory, timeout, stop_event, expires=None, **kwargs):
+            seen.append(expires)
             return 0
 
-        with patch("ub_agents.loop.timestamp", side_effect=lambda: now + elapsed), \
-                patch("ub_agents.loop.time.monotonic", side_effect=lambda: elapsed), \
-                patch("ub_agents.hooks.supervise", side_effect=slow_hook):
+        with patch("ub_agents.hooks.supervise", side_effect=hook):
             self.assertTrue(self.execute(loop))
+        self.assertEqual(len(seen), 1)
+        self.assertGreater(seen[0], started)  # the live lease's wall-clock deadline
         lease, outcome = loop.coordinator.history(1)
         self.assertEqual(lease["result"], "success")
         self.assertTrue(outcome["accepted"])
         self.assertEqual(len(self.removed), 1)
 
-    def test_ownership_loss_during_hook_stops_real_group_and_retains_artifacts(self):
+    def test_lease_expiry_during_hook_stops_real_group_and_retains_artifacts(self):
         loop = self.loop("import time; time.sleep(30)")
-        self.agent = replace(self.agent, renewal_seconds=0)
-        loop.config = replace(loop.config, agents=(self.agent,))
 
-        def lose(lease, duration):
+        def report(lease):
+            loop.coordinator.report(lease, "success", "done", handoff=2, outcome="done")
             self.last_writes = self.github.writes.copy()
-            raise LostOwnership("renewal lost during hook")
+            return 0
 
-        with patch.object(loop.coordinator, "renew", side_effect=lose):
-            with self.assertRaisesRegex(LostOwnership, "renewal lost during hook"):
-                self.execute(loop)
+        # The wall clock jumps past the lease while the hook runs, as after a sleep.
+        with patch("ub_agents.execution.time.time", return_value=timestamp() + 10_000), \
+                self.assertRaisesRegex(LostOwnership, "lease deadline"):
+            self.execute(loop, report)
         self.assertFalse(self.removed)
         self.assertEqual(self.github.writes, self.last_writes)
         lease, outcome = loop.coordinator.history(1)
@@ -193,8 +185,7 @@ class HookTests(unittest.TestCase):
         self.agent = replace(self.agent, worktree=False)
         loop = self.loop("raise AssertionError('shared hook')")
         def execution(*args, **kwargs):
-            self.github.change(1, labels=frozenset())
-            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "done")
+            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "done", outcome="done")
             return 0
         with patch("ub_agents.loop.supervise", side_effect=execution), patch("ub_agents.loop.run_hook") as hook:
             self.assertTrue(loop.tick())
@@ -202,7 +193,7 @@ class HookTests(unittest.TestCase):
 
     def test_configuration_requires_argv_and_bounded_finite_positive_timeout(self):
         path = self.root / "ub-agent.yaml"
-        base = "repository: org/project\nagents:\n  task:\n    trigger: ready\n    command: [echo]\n"
+        base = "repository: org/project\nagents:\n  task:\n    trigger: ready\n    command: [echo]\n    outcomes: {done: {}}\n"
         path.write_text(base)
         self.assertIsNone(load_config(path).cleanup)
         path.write_text(base + "cleanup:\n  command: [./cleanup, 'literal;arg']\n")
@@ -216,7 +207,7 @@ class HookTests(unittest.TestCase):
                 with self.assertRaises(AgentError):
                     load_config(path)
 
-    def test_relative_hook_uses_operator_script_and_resumed_context(self):
+    def test_relative_hook_uses_operator_script_and_handoff_context(self):
         script = self.root / "cleanup-script"
         script.write_text("#!/bin/sh\nprintf '%s' operator > \"$UB_AGENT_WORKTREE/operator-ran\"\n")
         script.chmod(0o755)
@@ -225,15 +216,13 @@ class HookTests(unittest.TestCase):
         def reported(lease):
             (self.workspace.private / "cleanup-script").write_text("candidate contents")
             lease = self.workspace.lease
-            loop.coordinator.update(lease, resume_pr=2, resume_sha="a" * 40)
-            self.github.change(1, labels=frozenset())
-            loop.coordinator.report(lease, "success", "done", handoff=2)
+            loop.coordinator.report(lease, "success", "done", handoff=2, outcome="done")
             return 0
         self.assertTrue(self.execute(loop, reported))
         self.assertEqual((self.workspace.private / "operator-ran").read_text(), "operator")
         lease = loop.coordinator.history(1)[0]
         context = next((self.root / ".ub-agent" / "runs" / lease["run"] / "cleanup").glob("*/context.json"))
-        self.assertEqual(json.loads(context.read_text())["resume_pr"], 2)
+        self.assertEqual(json.loads(context.read_text())["handoff"], 2)
 
     def test_unconfirmed_hook_after_ownership_loss_keeps_local_evidence_without_writes(self):
         loop = self.loop()

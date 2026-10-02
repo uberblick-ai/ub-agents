@@ -4,38 +4,21 @@ import json
 import os
 from pathlib import Path
 import signal
-import shutil
 import subprocess
 import time
 
-from .errors import AgentError, CleanupError
-
-
-def resolve_executable(executable, cwd, which=None):
-    """Match runtime selection: slash paths are relative to the agent cwd."""
-    if "/" in executable:
-        path = Path(executable) if Path(executable).is_absolute() else Path(cwd) / executable
-        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
-    return (which or shutil.which)(executable)
-
-
-def runtime_argv(runtime, argv):
-    # Only these two literal substitutions are supported; never use a shell.
-    return [arg.replace("{model}", runtime.model).replace("{effort}", runtime.effort)
-            for arg in argv]
+from .errors import AgentError, CleanupError, LostOwnership
 
 
 def command_for(agent, runtime):
     if agent.command:
         return list(agent.command)
-    if runtime.command:
-        command = runtime_argv(runtime, runtime.command)
-    elif runtime.cli == "codex":
+    if runtime.cli == "codex":
         command = ["codex", "exec", "--model", runtime.model,
                    "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}"]
     else:
         command = ["claude", "--print", "--model", runtime.model, "--effort", runtime.effort]
-    # No permission flags, auth stores, resume ids, or hidden provider fallback.
+    # No permission flags, auth stores, or hidden provider fallback; never a shell.
     return command + list(agent.runtime_args)
 
 
@@ -83,7 +66,7 @@ class Workspace:
 
     def prepare(self):
         if not self.agent.worktree:
-            return self.agent.cwd
+            return self.root
         self.private.parent.mkdir(parents=True, exist_ok=True)
         self.check_private_boundary()
         if self.item.kind == "pr":
@@ -92,14 +75,6 @@ class Workspace:
             if head != self.item.head:
                 raise AgentError("Candidate changed while preparing its private worktree")
             git(self.root, "worktree", "add", "--detach", str(self.private), head)
-        elif self.lease.get("resume_pr"):
-            git(self.root, "fetch", "origin", f"refs/heads/{self.lease['branch']}")
-            head = git(self.root, "rev-parse", "FETCH_HEAD")
-            if head != self.lease["resume_sha"]:
-                raise AgentError("Checkpoint changed while preparing its private worktree")
-            # A prior worktree may still have the local branch checked out. Never
-            # reset it or remove it; push HEAD explicitly to the recorded branch.
-            git(self.root, "worktree", "add", "--detach", str(self.private), head)
         else:
             base = self.github.default_branch()
             git(self.root, "fetch", "origin", base)
@@ -107,10 +82,7 @@ class Workspace:
             self.lease["branch"] = branch
             git(self.root, "worktree", "add", "-b", branch, str(self.private), "FETCH_HEAD")
         self.created = True
-        cwd = self.private / self.agent.cwd.resolve().relative_to(self.root)
-        if not cwd.is_dir() or not cwd.resolve().is_relative_to(self.private):
-            raise AgentError(f"Configured cwd does not exist at the candidate: {cwd}")
-        return cwd
+        return self.private
 
     def cleanup(self, before_remove=None):
         if not self.created:
@@ -197,7 +169,7 @@ def _stop_group(process, grace):
     raise CleanupError(f"Process group {process.pid} survived termination; preserve artifacts")
 
 
-def supervise(command, cwd, env, run_dir, timeout, heartbeat, stop_event, prompt=None,
+def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expires=None,
               process_started=None):
     if os.name != "posix":
         raise AgentError("Process supervision requires Linux or macOS")
@@ -221,7 +193,9 @@ def supervise(command, cwd, env, run_dir, timeout, heartbeat, stop_event, prompt
                     raise KeyboardInterrupt
                 if time.monotonic() >= deadline:
                     raise AgentError(f"Execution timed out after {timeout:g} seconds")
-                heartbeat()
+                # The lease expires by wall clock; monotonic time pauses while a machine sleeps.
+                if expires is not None and time.time() >= expires:
+                    raise LostOwnership("Local lease deadline expired")
                 stop_event.wait(min(0.2, max(0, deadline - time.monotonic())))
             return process.returncode
         finally:

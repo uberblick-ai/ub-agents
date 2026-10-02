@@ -106,9 +106,6 @@ class CleanupTests(unittest.TestCase):
                 elif mode == "actor":
                     self.github.login = "other"
                     self.github.store[1][0]["user"]["login"] = "other"
-                    self.cleaner.coordinator.trusted_actors.add("other")
-                    self.coordinator.trusted_actors.add("other")
-                    self.update(actor="other")
                 elif mode == "missing":
                     self.github.store = {}
                 else:
@@ -244,7 +241,7 @@ class CleanupTests(unittest.TestCase):
         git(self.root, "init", "--bare", str(remote))
         git(self.root, "remote", "set-url", "origin", str(remote))
         git(self.root, "push", "origin", "main", f"{tip}:refs/pull/2/head")
-        self.github.change(2, state="closed", merged=True, head=tip)
+        self.github.change(2, state="closed", head=tip)
         self.assertEqual(self.actions(True)["branch"]["action"], "removed")
 
     def test_apply_rechecks_lease_and_worktree_after_preview_and_hook(self):
@@ -302,13 +299,12 @@ class CleanupTests(unittest.TestCase):
         self.assertFalse(any("legacy" in r["name"] for r in self.cleaner.clean(True)))
         self.assertTrue(legacy.exists())
 
-    def test_later_live_resumed_lease_protects_original_branch_without_attached_tree(self):
+    def test_later_live_lease_on_the_branch_protects_it_without_attached_tree(self):
         git(self.root, "worktree", "remove", str(self.path))
         current = self.lease.copy()
         current.pop("id")
         current.pop("url")
-        current.update(run="resumed", state="running", expires=iso(timestamp() + 60),
-                       resume_pr=2, resume_sha=self.head)
+        current.update(run="continued", state="running", expires=iso(timestamp() + 60))
         from ub_agents.records import body
         self.github.create_comment(1, body(current))
         self.assertIn("live", self.actions(True)["branch"]["reason"])
@@ -383,7 +379,8 @@ class CleanupTests(unittest.TestCase):
     def test_cli_preview_and_apply_dispatch(self):
         from ub_agents.cli import main
         path = self.root / "ub-agent.yaml"
-        path.write_text("repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n")
+        path.write_text("repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n"
+                        "    outcomes: {done: {}}\n")
         with patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cleanup.Cleaner.clean") as clean:

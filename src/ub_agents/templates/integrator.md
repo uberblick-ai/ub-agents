@@ -17,5 +17,3 @@ the reason and record `ub-agent report --outcome maintainer-merge
 maintainer is a successful handoff; report blocked only when a gate fails or evidence
 is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
-
-The runner applies the configured transition. Do not change workflow labels.

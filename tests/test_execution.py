@@ -21,26 +21,23 @@ class ExecutionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_process(self, script, timeout=3, heartbeat=lambda: None, stop=None):
+    def run_process(self, script, timeout=3, stop=None):
         return supervise([sys.executable, "-c", script], self.root, os.environ.copy(),
-                         self.root / "run", timeout, heartbeat, stop or threading.Event())
+                         self.root / "run", timeout, stop or threading.Event())
 
     def test_thin_adapters_keep_argv_model_effort_and_explicit_permissions(self):
         configured = agent(self.root, command=(), runtime_args=("--sandbox", "read-only"))
-        codex = command_for(configured, Runtime("codex", "configured-model", "high", "openai"))
+        codex = command_for(configured, Runtime("codex", "configured-model", "high"))
         self.assertEqual(codex, ["codex", "exec", "--model", "configured-model", "--config",
                                  'model_reasoning_effort="high"', "--sandbox", "read-only"])
-        claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high", "anthropic"))
+        claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high"))
         self.assertEqual(claude, ["claude", "--print", "--model", "opus", "--effort", "high"])
-        custom = Runtime("example", "m; echo injected", "low", "example",
-                         ("tool", "--model", "{model}", "--effort", "{effort}"))
-        self.assertEqual(command_for(replace(configured, runtime_args=()), custom)[2], "m; echo injected")
 
     def test_prompt_cwd_environment_and_exit_are_delivered_to_recording_command(self):
         script = "import os,sys; print(os.getcwd()); print(os.environ['TEST_UB_CONTEXT']); print(sys.stdin.read())"
         env = os.environ.copy() | {"TEST_UB_CONTEXT": "context"}
         result = supervise([sys.executable, "-c", script], self.root, env, self.root / "run", 3,
-                           lambda: None, threading.Event(), "project instructions")
+                           threading.Event(), "project instructions")
         self.assertEqual(result, 0)
         log = (self.root / "run" / "process.log").read_text()
         self.assertIn("project instructions", log)
@@ -55,12 +52,13 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(group_members(pid), [])
         self.assertLess(time.monotonic() - start, 6)
 
-    def test_lost_ownership_and_interruption_end_the_process(self):
-        def lost():
-            raise LostOwnership("lease replaced")
-        with self.assertRaises(LostOwnership):
-            self.run_process("import time; time.sleep(30)", heartbeat=lost)
+    def test_wall_clock_lease_expiry_ends_the_process(self):
+        with self.assertRaisesRegex(LostOwnership, "lease deadline"):
+            supervise([sys.executable, "-c", "import time; time.sleep(30)"], self.root, os.environ.copy(),
+                      self.root / "run", 3, threading.Event(), expires=time.time() - 1)
         self.assertEqual(group_members(int((self.root / "run" / "pid").read_text())), [])
+
+    def test_interruption_ends_the_process(self):
         stop = threading.Event()
         stop.set()
         with self.assertRaises(KeyboardInterrupt):
@@ -136,49 +134,14 @@ else:
             moved.prepare()
         self.assertFalse(moved.created)
 
-    def test_resume_fetches_existing_checkpoint_without_touching_old_worktree_or_branch(self):
-        git(self.root, "init", "-b", "main")
-        source = self.root / "file.txt"
-        source.write_text("base")
-        git(self.root, "add", "file.txt")
-        git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.com",
-            "-c", "commit.gpgsign=false", "commit", "-m", "base fixture")
-        git(self.root, "remote", "add", "origin", str(self.root))
-        previous = self.root / "old-worktree"
-        git(self.root, "worktree", "add", "-b", "feature/test", str(previous))
-        (previous / "file.txt").write_text("checkpoint")
-        git(previous, "add", "file.txt")
-        git(previous, "-c", "user.name=Test", "-c", "user.email=test@example.com",
-            "-c", "commit.gpgsign=false", "commit", "-m", "checkpoint fixture")
-        head = git(previous, "rev-parse", "HEAD")
-        (previous / "file.txt").write_text("uncommitted old work")
-        lease = {"run": "resumed", "resume_pr": 2, "resume_sha": head, "branch": "feature/test"}
-        workspace = Workspace(config(self.root), agent(self.root, worktree=True), issue(), lease, FakeGitHub(issue()))
-        branches = git(self.root, "for-each-ref", "refs/heads")
-        cwd = workspace.prepare()
-        self.assertEqual(git(cwd, "rev-parse", "HEAD"), head)
-        self.assertEqual(git(cwd, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD")
-        self.assertEqual((cwd / "file.txt").read_text(), "checkpoint")
-        workspace.cleanup()
-        self.assertEqual(source.read_text(), "base")
-        self.assertEqual((previous / "file.txt").read_text(), "uncommitted old work")
-        self.assertEqual(git(self.root, "for-each-ref", "refs/heads"), branches)
-        changed = Workspace(config(self.root), agent(self.root, worktree=True), issue(),
-                            lease | {"run": "changed", "resume_sha": "a" * 40}, FakeGitHub(issue()))
-        with self.assertRaisesRegex(AgentError, "Checkpoint changed"):
-            changed.prepare()
-        self.assertFalse(changed.created)
-
     def test_process_group_is_recorded_before_execution_and_callback_failure_stops_child(self):
         groups = []
         self.assertEqual(supervise([sys.executable, "-c", "pass"], self.root, os.environ.copy(),
-                         self.root / "recorded", 3, lambda: None, threading.Event(),
-                         process_started=groups.append), 0)
+                         self.root / "recorded", 3, threading.Event(), process_started=groups.append), 0)
         self.assertEqual(groups, [int((self.root / "recorded" / "pid").read_text())])
         def fail(group):
             raise LostOwnership("Cannot persist process group")
         with self.assertRaises(LostOwnership):
             supervise([sys.executable, "-c", "import time; time.sleep(30)"], self.root,
-                      os.environ.copy(), self.root / "failure", 3, lambda: None,
-                      threading.Event(), process_started=fail)
+                      os.environ.copy(), self.root / "failure", 3, threading.Event(), process_started=fail)
         self.assertEqual(group_members(int((self.root / "failure" / "pid").read_text())), [])

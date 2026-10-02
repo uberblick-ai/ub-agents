@@ -5,11 +5,10 @@ import shutil
 import uuid
 
 from .config import Agent, Queue, Runtime
-from .errors import AgentError, LostOwnership, RecordError, ValidationError
-from .execution import resolve_executable, runtime_argv
-from .github import Item, links_issue
-from .records import (MARKER, attempts, body, iso, latest_leases, live_leases,
-                      payload, records, seconds, timestamp, trusted_comment)
+from .errors import AgentError, LostOwnership, RecordError
+from .github import Item
+from .records import (MARKER, attempts, body, iso, latest_leases, lease_by_id, live_leases,
+                      own_comment, payload, records, same_run, seconds, timestamp)
 
 
 @dataclass(frozen=True)
@@ -20,7 +19,6 @@ class Plan:
     state: str
     reason: str
     attempt: int
-    resume_pr: Item | None = None
     priority: str | None = None
     priority_source: int | None = None
     priority_from_issue: int | None = None
@@ -28,22 +26,21 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, trusted_actors=(), queue=Queue()):
+    def __init__(self, github, actor, clock=timestamp, queue=Queue()):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
-        self.trusted_actors = {login.casefold() for login in (*trusted_actors, actor)}
 
     def history(self, number):
-        return records(self.github.comments(number), self.trusted_actors)
+        return records(self.github.comments(number), self.actor)
 
     def repository_history(self):
         groups = {}
         for comment in self.github.repository_comments():
             if not isinstance(comment, dict):
                 raise AgentError("Unreadable repository comment")
-            if not trusted_comment(comment, self.trusted_actors):
+            if not own_comment(comment, self.actor):
                 continue
             if not isinstance(comment.get("body"), str) or not comment["body"].startswith(MARKER):
                 continue
@@ -55,12 +52,12 @@ class Coordinator:
         history, invalid = [], set()
         for number, comments in groups.items():
             try:
-                history.extend(records(comments, self.trusted_actors))
+                history.extend(records(comments, self.actor))
             except RecordError:
                 invalid.add(number)
         return sorted(history, key=lambda record: record["id"]), invalid
 
-    def plan(self, item, agent, stop_labels, history=None):
+    def plan(self, item, agent, stop_labels, history=None, index=None):
         history = self.history(item.number) if history is None else history
         now = self.clock()
         previous = attempts(history, agent.name, now)
@@ -69,106 +66,36 @@ class Coordinator:
         attempt = len(previous) + 1
         state, reason = "ready", "Trigger matched"
         runtime = None
-        resume_pr = None
         if live_leases(history, now):
             state, reason = "owned", "An unexpired assignment owns this work item"
         elif self.pending_completion(history, agent.name, now):
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
         elif latest and latest[-1].get("cleanup") == "unconfirmed":
             state, reason = "blocked", "Previous cleanup was unconfirmed; establish termination before an operator reset"
+        elif (owner := self.shared_branch_owner(item, agent, history, index)) is not None:
+            if owner.get("cleanup") == "unconfirmed":
+                state, reason = "blocked", (f"Cleanup of #{owner['assignment']}, which shares this item's branch, "
+                                            "was unconfirmed; establish termination before an operator reset")
+            else:
+                state, reason = "owned", f"A live run on #{owner['assignment']} owns this item's branch"
         elif item.labels.intersection(stop_labels):
             state, reason = "parked", "Configured stop label is present"
-        elif item.kind == "issue" and any(r["kind"] == "outcome" and r["agent"] == agent.name
-                and r.get("accepted") is True and r["status"] == "success"
-                and r.get("handoff") and self.released_success(history, r)
-                and r["id"] > self.reset_boundary(history, agent.name) for r in history):
-            state, reason = "completed", "Issue assignment completed; durable handoff suppresses duplicate pickup"
+        elif finished and finished[-1].get("result") == "blocked":
+            state, reason = "blocked", "Previous assignment stopped; inspect outcome and use ub-agent retry"
+        elif attempt > agent.max_attempts:
+            state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agent retry"
+        elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
+            state, reason = "backoff", "Durable retry backoff has not elapsed"
         else:
             try:
-                if item.kind == "issue":
-                    resume_pr = self.reusable_issue_pr(item, agent, history)
-                elif self.pr_owners(item.number):
-                    raise ValidationError("A live issue run owns this PR checkpoint")
-                if finished and finished[-1].get("result") == "blocked":
-                    state, reason = "blocked", "Previous assignment stopped; inspect outcome and use ub-agent retry"
-                elif attempt > agent.max_attempts:
-                    state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agent retry"
-                elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
-                    state, reason = "backoff", "Durable retry backoff has not elapsed"
-                else:
-                    try:
-                        runtime = self.choose_runtime(item, agent, history)
-                    except AgentError as exc:
-                        state, reason = "blocked", str(exc)
-                    else:
-                        if resume_pr:
-                            reason = f"Resume draft PR #{resume_pr.number} on {resume_pr.branch}"
-            except ValidationError as exc:
+                runtime = self.choose_runtime(item, agent, history)
+            except AgentError as exc:
                 state, reason = "blocked", str(exc)
-        return Plan(item, agent, runtime, state, reason, attempt, resume_pr)
-
-    def prior_issue_prs(self, item, agent, history):
-        # Resets clear attempt/completion gates, not branch history. Check every
-        # recorded branch for this issue/agent, even if a newer lease superseded it.
-        branches = sorted({r["branch"] for r in history if r["kind"] == "lease"
-                           and r["assignment"] == item.number and r["agent"] == agent.name
-                           and r.get("branch")})
-        prs = {pr.number: pr for branch in branches for pr in self.github.prs_for_branch(branch)}
-        return sorted(prs.values(), key=lambda pr: pr.number)
-
-    def pr_owners(self, number):
-        # The repository scan only discovers related issues. Fresh comments, even
-        # before resets, establish ownership of the shared checkpoint branch.
-        index, _ = self.repository_history()
-        assignments = {number} | {r["assignment"] for r in index
-                                  if r["kind"] == "lease" and r.get("resume_pr") == number}
-        return sorted((r for assignment in assignments for r in
-                       live_leases(self.history(assignment), self.clock())
-                       if r["assignment"] == number or r.get("resume_pr") == number),
-                      key=lambda r: r["id"])
-
-    def reusable_issue_pr(self, item, agent, history):
-        prs = self.prior_issue_prs(item, agent, history)
-        if not prs:
-            return None
-        numbers = ", ".join(f"#{pr.number}" for pr in prs)
-        problem = None
-        if len(prs) != 1:
-            problem = "multiple open PRs"
-        else:
-            pr = self.github.item(prs[0].number, "pr")
-            branches = {r.get("branch") for r in history if r["kind"] == "lease"
-                        and r["assignment"] == item.number and r["agent"] == agent.name}
-            if (pr.state != "open" or pr.merged or not pr.draft or not pr.head
-                    or not pr.branch or pr.branch not in branches):
-                problem = "PR is no longer a reusable draft on a recorded branch"
-            elif pr.head_repository != self.github.repository:
-                problem = "PR head is not in this repository"
-            elif not links_issue(pr, self.github.repository, item.number):
-                problem = "PR body does not link the issue"
-            elif not agent.worktree:
-                problem = "resuming requires a private worktree"
-            elif self.pr_owners(pr.number):
-                problem = "PR checkpoint has conflicting live ownership"
-            else:
-                pr_history = self.history(pr.number)
-                if any(r.get("cleanup") == "unconfirmed" for r in latest_leases(pr_history).values()):
-                    problem = "PR cleanup is unconfirmed"
-                elif any(self.pending_completion(pr_history, r["agent"], self.clock())
-                         for r in latest_leases(pr_history).values()):
-                    problem = "PR has an outcome awaiting recovery"
-            if problem is None:
-                return pr
-        raise ValidationError(f"Cannot safely resume recorded PR {numbers}: {problem}; inspect and continue "
-                              "the existing PR manually. If abandoned, close it before "
-                              f"ub-agent retry --number {item.number} --agent {agent.name} --reason TEXT")
+        return Plan(item, agent, runtime, state, reason, attempt)
 
     def choose_runtime(self, item, agent, history):
-        def installed(executable):
-            return resolve_executable(executable, agent.cwd, which=shutil.which)
-
         if agent.command:
-            if not installed(agent.command[0]):
+            if not shutil.which(agent.command[0]):
                 raise AgentError(f"Command is not installed: {agent.command[0]}")
             return None
         eligible = list(agent.runtimes)
@@ -182,36 +109,27 @@ class Coordinator:
                 raise AgentError(f"No accepted {agent.different_from} provenance for candidate {item.head}")
             source = source[-1]
             origin = self.history(source["assignment"])
-            lease = next((r for r in origin if r["kind"] == "lease" and r["id"] == source["lease_id"]), None)
-            if lease and any(lease.get(k) != source.get(k) for k in
-                             ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha")):
+            lease = lease_by_id(origin, source["lease_id"])
+            if lease and not same_run(source, lease):
                 raise AgentError("Candidate provenance does not match its source lease")
             if not self.released_success(origin, source):
                 raise AgentError("Candidate provenance has no successfully released source lease")
             try:
                 cli, model, effort = source["runtime"].split(":")
-                prior = Runtime(cli, model, effort, source["provider"])
-            except (KeyError, ValueError) as exc:
+            except ValueError as exc:
                 raise AgentError("Candidate runtime provenance is incomplete") from exc
-            eligible = [r for r in eligible if r.different_from(prior)]
+            eligible = [r for r in eligible if r.different_from(Runtime(cli, model, effort))]
             if not eligible:
-                raise AgentError("No runtime has a different CLI, provider, and model from the candidate author")
+                raise AgentError("No runtime has a different CLI and model from the candidate author")
         for runtime in eligible:
-            executable = runtime_argv(runtime, runtime.command)[0] if runtime.command else runtime.cli
-            if installed(executable):
+            if shutil.which(runtime.cli):
                 return runtime
         raise AgentError("No eligible runtime executable is installed")
 
     @staticmethod
-    def reset_boundary(history, agent):
-        return max((r["id"] for r in history if r["kind"] == "reset" and r["agent"] == agent), default=0)
-
-    @staticmethod
     def released_success(history, outcome):
-        source = next((r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"]), None)
-        if (source is None or source.get("cleanup") == "unconfirmed"
-                or any(source.get(k) != outcome.get(k) for k in
-                       ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha"))):
+        source = lease_by_id(history, outcome["lease_id"])
+        if source is None or source.get("cleanup") == "unconfirmed" or not same_run(outcome, source):
             return False
         return ((source["state"] == "released" and source.get("result") == "success")
                 or any(r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
@@ -225,17 +143,39 @@ class Coordinator:
         if lease["state"] not in {"running", "claiming"} or seconds(lease["expires"]) > now:
             return None
         source_id = lease.get("recovered_lease_id", lease["id"])
-        source = next((r for r in history if r["kind"] == "lease" and r["id"] == source_id), None)
+        source = lease_by_id(history, source_id)
         if source is None or source["state"] not in {"running", "claiming"} or source.get("cleanup") == "unconfirmed":
             return None
-        matches = [outcome for outcome in history
-                   if (outcome["kind"] == "outcome" and outcome["lease_id"] == source_id
-                    and all(outcome.get(k) == source.get(k) for k in
-                            ("run", "agent", "actor", "runtime", "provider", "assignment", "assignment_sha"))
-                    and seconds(outcome["created"]) <= seconds(source["expires"]))]
+        matches = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == source_id
+                   and same_run(r, source) and seconds(r["created"]) <= seconds(source["expires"])]
         if len(matches) > 1:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
         return matches[0] if matches else None
+
+    def shared_branch_owner(self, item, agent, history, index=None):
+        """A live lease, or an unconfirmed cleanup, on another item that shares this item's branch.
+
+        An issue's earlier run branches may carry an open draft PR that a PR-kind run can
+        own, and a PR's branch may belong to an issue whose run is continuing it. One agent
+        at a time touches a branch, so either side waits for the other."""
+        if item.kind == "issue":
+            branches = sorted({r["branch"] for r in history if r["kind"] == "lease"
+                               and r["agent"] == agent.name and r.get("branch")})
+            related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
+        else:
+            index = self.repository_history()[0] if index is None else index
+            related = sorted({r["assignment"] for r in index if r["kind"] == "lease"
+                              and r["assignment_sha"] is None and r.get("branch") == item.branch})
+        now = self.clock()
+        for number in related:
+            other = self.history(number)
+            live = live_leases(other, now)
+            if live:
+                return live[0]
+            unconfirmed = [r for r in latest_leases(other).values() if r.get("cleanup") == "unconfirmed"]
+            if unconfirmed:
+                return unconfirmed[0]
+        return None
 
     def claim(self, plan, stop_labels=(), recovery=False):
         # Reobserve state immediately before claiming. This also handles a label/head
@@ -246,16 +186,13 @@ class Coordinator:
             return None
         history = self.history(current.number)
         fresh = self.plan(current, plan.agent, stop_labels, history)
-        if fresh.state != ("recover" if recovery else "ready") or (not recovery and
-                (fresh.runtime != plan.runtime or fresh.resume_pr != plan.resume_pr)):
+        if fresh.state != ("recover" if recovery else "ready") or (not recovery and fresh.runtime != plan.runtime):
             return None
-        if (self.queue.milestones == "gate" and not recovery
-                and current.kind == "issue" and fresh.resume_pr is None):
+        if self.queue.milestones == "gate" and not recovery and current.kind == "issue":
             active_milestone = self.github.active_milestone()
             if active_milestone is not None and current.milestone != active_milestone:
                 return None
-        if (self.queue.dependencies == "wait" and not recovery
-                and current.kind == "issue" and fresh.resume_pr is None
+        if (self.queue.dependencies == "wait" and not recovery and current.kind == "issue"
                 and any(b.state == "open" for b in self.github.blocked_by(current.number))):
             return None
         now = self.clock()
@@ -264,11 +201,10 @@ class Coordinator:
                   "assignment_sha": current.head,
                   "branch": current.branch, "runtime": plan.runtime.name if plan.runtime else "direct",
                   "triggers": sorted(current.labels.intersection(plan.agent.triggers)),
-                  "provider": plan.runtime.provider if plan.runtime else "direct",
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
-        if not recovery and plan.agent.outcomes is not None:
+        if not recovery:
             record["outcomes"] = {
                 name: {"add": list(changes["add"]),
                        "remove": sorted(set(plan.agent.triggers).union(changes["remove"])),
@@ -280,24 +216,18 @@ class Coordinator:
                 return None
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
-            source = next(r for r in history if r["kind"] == "lease" and r["id"] == outcome["lease_id"])
-            if source.get("resume_pr"):
-                record |= {k: source[k] for k in ("resume_pr", "resume_sha", "branch")}
-        elif fresh.resume_pr:
-            record |= {"branch": fresh.resume_pr.branch, "resume_pr": fresh.resume_pr.number,
-                       "resume_sha": fresh.resume_pr.head}
-        created = records([self.github.create_comment(current.number, body(record))], self.trusted_actors)[0]
+        created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.
         if not contenders or contenders[0]["id"] != created["id"]:
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
             return None
-        pr_number = created.get("resume_pr") or (current.number if current.kind == "pr" else None)
-        if pr_number:
-            owners = self.pr_owners(pr_number)
-            if owners and owners[0]["id"] != created["id"]:
-                self.update(created, state="withdrawn", summary="Lost the checkpoint claim election.")
+        if not recovery:
+            # Across an issue and a PR on its branch, the lowest live comment id wins too.
+            owner = self.shared_branch_owner(current, plan.agent, self.history(current.number))
+            if owner is not None and (owner.get("cleanup") == "unconfirmed" or owner["id"] < created["id"]):
+                self.update(created, state="withdrawn", summary="Lost the shared-branch election.")
                 return None
         if self.clock() >= seconds(created["expires"]):
             raise LostOwnership("Lease expired during claiming")
@@ -305,7 +235,7 @@ class Coordinator:
 
     def update(self, lease, **changes):
         updated = payload(lease) | changes
-        result = records([self.github.update_comment(lease["id"], body(updated))], self.trusted_actors)[0]
+        result = records([self.github.update_comment(lease["id"], body(updated))], self.actor)[0]
         lease.clear()
         lease.update(result)
         return lease
@@ -315,30 +245,9 @@ class Coordinator:
             contenders = live_leases(self.history(lease["assignment"]), self.clock())
         except AgentError as exc:
             raise LostOwnership(f"Cannot establish ownership: {exc}") from exc
-        if (not contenders or contenders[0]["id"] != lease["id"]
-                or contenders[0]["run"] != lease["run"]
-                or contenders[0]["actor"].casefold() != self.actor.casefold()
-                or any(contenders[0].get(k) != lease.get(k) for k in
-                       ("agent", "runtime", "provider", "assignment", "assignment_sha"))):
+        if not contenders or contenders[0]["id"] != lease["id"] or not same_run(contenders[0], lease):
             raise LostOwnership("Assignment ownership was lost or expired")
-        pr_number = lease.get("resume_pr") or (lease["assignment"] if lease["assignment_sha"] else None)
-        if pr_number:
-            try:
-                owners = self.pr_owners(pr_number)
-            except AgentError as exc:
-                raise LostOwnership(f"Cannot establish checkpoint ownership: {exc}") from exc
-            if not owners or owners[0]["id"] != lease["id"]:
-                raise LostOwnership("Checkpoint ownership was lost or expired")
         return contenders[0]
-
-    def renew(self, lease, duration):
-        self.assert_owned(lease)
-        # Reuse the same durable comment. No model or detached renewal helper.
-        try:
-            self.update(lease, expires=iso(self.clock() + duration))
-        except AgentError as exc:
-            raise LostOwnership(f"Lease renewal failed: {exc}") from exc
-        self.assert_owned(lease)
 
     def release(self, lease, result, summary, backoff=0):
         self.assert_owned(lease)
@@ -352,11 +261,7 @@ class Coordinator:
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])
-                   if r["kind"] == "outcome" and r["run"] == lease["run"]
-                   and r["lease_id"] == lease["id"] and r["actor"] == lease["actor"]
-                   and r["assignment_sha"] == lease["assignment_sha"]
-                   and r["agent"] == lease["agent"] and r["runtime"] == lease["runtime"]
-                   and r.get("provider") == lease["provider"]]
+                   if r["kind"] == "outcome" and r["lease_id"] == lease["id"] and same_run(r, lease)]
         if len(matches) > 1:
             raise RecordError("Run reported conflicting outcomes")
         return matches[0] if matches else None
@@ -367,27 +272,24 @@ class Coordinator:
             if declarations is None or outcome not in declarations or status != "success":
                 raise AgentError("Outcome is not declared by the running agent")
         elif status == "success" and declarations is not None:
-            raise AgentError("Agent declares outcomes; report --outcome NAME instead of --status success")
+            raise AgentError("Success must name a declared outcome: report --outcome NAME")
         self.assert_owned(lease)
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")
         destination = self.github.item(handoff, "pr") if handoff else self.github.item(lease["assignment"])
-        record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_sha",
-                                        "runtime", "provider", "actor")}
+        record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_sha", "runtime", "actor")}
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         if outcome is not None:
             record |= {"outcome": outcome, "transition": declarations[outcome] | {"started": False}}
-        if lease.get("resume_pr"):
-            record["resume_pr"] = lease["resume_pr"]
         self.assert_owned(lease)
-        return records([self.github.create_comment(lease["assignment"], body(record))], self.trusted_actors)[0]
+        return records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
 
     def update_outcome(self, lease, outcome, **changes):
         self.assert_owned(lease)
         updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))],
-                          self.trusted_actors)[0]
+                          self.actor)[0]
         outcome.clear()
         outcome.update(updated)
 
@@ -396,4 +298,4 @@ class Coordinator:
         accepted = payload(outcome) | {"accepted": True}
         self.github.update_comment(outcome["id"], body(accepted))
         if outcome.get("handoff") and outcome["handoff"] != lease["assignment"]:
-            self.github.create_comment(outcome["handoff"], body(accepted | {"recorded_by": self.actor}))
+            self.github.create_comment(outcome["handoff"], body(accepted))
