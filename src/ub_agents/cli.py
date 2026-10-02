@@ -16,7 +16,7 @@ from .coordination import Coordinator
 from .errors import AgentError, RecordError
 from .execution import repository_checks
 from .github import GitHub
-from .loop import Loop
+from .loop import Loop, _GracefulStop
 from .labels import provision_labels
 from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
 
@@ -203,7 +203,9 @@ def run(args):
         print(json.dumps({"agent": args.agent, "number": item.number, "url": created["url"]}))
         return
     stop = threading.Event()
-    loop = Loop(config, github, actor, stop)
+    interrupt = threading.Event()
+    loop = Loop(config, github, actor, stop, config_path=Path(args.config).resolve(),
+                interrupt_event=interrupt)
     if args.command == "status":
         rows = status_rows(loop)
         if args.json:
@@ -233,10 +235,17 @@ def run(args):
             raise error
     local = config.root / ".ub-agent"
     local.mkdir(mode=0o700, exist_ok=True)
-    handlers = {sig: signal.signal(sig, lambda *_: stop.set())
-                for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    def stop_now(*_):
+        interrupt.set()
+        stop.set()
+
+    handlers = {sig: signal.signal(sig, stop_now)
+                for sig in (signal.SIGINT, signal.SIGHUP)}
+    handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: loop.stop_gracefully())
     try:
         loop.launch(once=args.once)
+    except _GracefulStop:
+        return
     finally:
         for sig, handler in handlers.items():
             signal.signal(sig, handler)

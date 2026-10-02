@@ -45,11 +45,16 @@ class LoopTests(unittest.TestCase):
         lease, outcome = self.loop.coordinator.history(1)
         self.assertEqual((lease["result"], outcome["status"], outcome["accepted"]), ("retry", "retry", False))
 
-    def test_nonzero_without_explicit_retry_stops_for_operator_attention(self):
+    def test_nonzero_without_report_retries_and_logs_exit_code(self):
         with patch("ub_agents.loop.supervise", return_value=1):
             self.loop.tick()
-        self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "blocked")
-        self.assertEqual(self.loop.plans()[0].state, "blocked")
+        lease, outcome = self.loop.coordinator.history(1)
+        self.assertEqual((lease["result"], outcome["status"]), ("retry", "retry"))
+        self.assertIn("Execution exited 1", outcome["summary"])
+        self.assertEqual((self.loop.plans()[0].state, self.loop.plans()[0].attempt), ("ready", 2))
+        events = [json.loads(line) for line in
+                  (self.root / ".ub-agent" / "runs" / lease["run"] / "events.jsonl").read_text().splitlines()]
+        self.assertTrue(any(event["event"] == "execution-exited" and event["code"] == 1 for event in events))
 
     def test_loss_of_ownership_causes_no_release_report_or_acceptance_writes(self):
         def lose(*args, **kwargs):
@@ -120,16 +125,21 @@ class LoopTests(unittest.TestCase):
                 github = FakeGitHub(issue(), pr(2, labels=(), draft=True), pr(3, labels=()))
                 github.change(3, branch="later/branch")
                 loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
-                old = loop.coordinator.claim(loop.plans()[0])
-                loop.coordinator.update(old, state="running", started=True, branch="feature/test")
-                loop.coordinator.release(old, "retry", "Interrupted")
+                def prepare(workspace):
+                    workspace.lease['branch'] = "feature/test"
+                    return self.root
+                with patch("ub_agents.loop.Workspace.prepare", prepare), \
+                        patch("ub_agents.loop.supervise", return_value=1):
+                    self.assertTrue(loop.tick())
+                self.assertEqual(loop.coordinator.history(1)[0]['result'], 'retry')
+                loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
 
                 def execute(command, cwd, env, *args, **kwargs):
                     context = json.loads(Path(env["UB_AGENT_CONTEXT"]).read_text())
                     self.assertEqual(context["earlier_branches"], ["feature/test"])
                     github.change(2, draft=False)
-                    loop.coordinator.report(loop.coordinator.history(1)[-1], "success", "Handed off",
-                                            handoff=handoff, outcome="done")
+                    lease = next(r for r in reversed(loop.coordinator.history(1)) if r['kind'] == 'lease')
+                    loop.coordinator.report(lease, "success", "Handed off", handoff=handoff, outcome="done")
                     return 0
 
                 with patch("ub_agents.loop.supervise", side_effect=execute):

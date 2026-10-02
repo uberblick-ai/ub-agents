@@ -60,7 +60,7 @@ class FailureCountTests(unittest.TestCase):
 
     def test_repeated_failures_reach_limit_and_cli_retry_resets_count_and_backoff(self):
         for expected in range(1, self.agent.max_attempts + 1):
-            self.execute()
+            self.execute(None, exit_code=1)
             self.assertEqual(self.count(), expected)
             self.loop = self.restart()
             latest = self.loop.coordinator.history(1)[-2]
@@ -77,9 +77,36 @@ class FailureCountTests(unittest.TestCase):
                                    '--reason', 'Transient failure resolved']), 0)
         self.loop = self.restart()
         self.assertEqual((self.plan().state, self.count()), ('ready', 0))
-        self.execute()
+        self.execute(None, exit_code=1)
         self.assertEqual(self.count(), 1)
         self.assertEqual(seconds(self.loop.coordinator.history(1)[-2]['retry_after']) - self.now, 10)
+
+    def test_nonzero_without_report_then_success_resets_count_and_backoff(self):
+        self.execute(None, exit_code=1)
+        self.finish_backoff()
+        self.execute('success', exit_code=1)
+        lease, outcome = self.loop.coordinator.history(1)[-2:]
+        self.assertEqual((lease['result'], lease['attempt_effect']), ('success', 'reset'))
+        self.assertTrue(outcome['accepted'])
+        self.loop = self.restart()
+        self.assertEqual(self.count(), 0)
+        self.github.change(1, labels=frozenset({'ready'}))
+        self.assertEqual((self.plan().state, self.plan().attempt), ('ready', 1))
+        self.execute(None, exit_code=1)
+        self.assertEqual(self.count(), 1)
+        self.assertEqual(seconds(self.loop.coordinator.history(1)[-2]['retry_after']) - self.now, 10)
+
+    def test_failure_report_before_nonzero_exit_keeps_its_count_effect(self):
+        for status, count, state in (('retry', 2, 'backoff'), ('blocked', 1, 'blocked')):
+            with self.subTest(status=status):
+                self.setUp()
+                self.execute(None, exit_code=1)
+                self.finish_backoff()
+                self.execute(status, exit_code=1)
+                self.loop = self.restart()
+                lease, outcome = self.loop.coordinator.history(1)[-2:]
+                self.assertEqual((lease['result'], outcome['status']), (status, status))
+                self.assertEqual((self.count(), self.plan().state), (count, state))
 
     def test_interrupt_preserves_prior_count_and_next_launch_has_no_backoff(self):
         self.execute()
@@ -205,8 +232,7 @@ class FailureCountTests(unittest.TestCase):
         cases = [('timeout', RetryableExecutionError('Timeout'), None, 0, 'backoff'),
                  ('launch', RetryableExecutionError('Cannot start'), None, 0, 'backoff'),
                  ('exit-zero', None, None, 0, 'backoff'),
-                 ('nonzero', None, None, 1, 'blocked'),
-                 ('conflicting-success', None, 'success', 1, 'blocked'),
+                 ('nonzero', None, None, 1, 'backoff'),
                  ('unknown', AgentError('Unclassified failure'), None, 0, 'blocked'),
                  ('unexpected', RuntimeError('Unclassified failure'), None, 0, 'blocked')]
         for name, error, result, code, state in cases:
@@ -309,7 +335,7 @@ class FailureCountTests(unittest.TestCase):
     def test_unconfirmed_cleanup_counts_even_with_success_report_and_never_recovers(self):
         with patch('ub_agents.loop.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
             with self.assertRaises(CleanupError):
-                self.execute('success')
+                self.execute('success', exit_code=1)
         self.assertEqual(self.count(), 1)
         self.now += 61
         self.loop = self.restart()
