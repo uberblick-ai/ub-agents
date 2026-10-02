@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.8 — 2026-10-03
+
+**Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,
+restart. Claiming polls now cost a few requests when nothing changed instead of one
+read per triggered item, and GitHub rate limits pause the launcher until the reset
+instead of stopping it. `poll-seconds` is now the minimum gap between polls, also after
+a run.
+
 ### Changed
 
 - `poll-seconds` is the minimum gap between discovery-pass starts, including
