@@ -1,4 +1,4 @@
-# Coordination contract (version 1)
+# Coordination contract
 
 This is a cooperative serial launcher, not a distributed lock service. GitHub is
 durable truth; `.ub-agent/` is disposable. The project is trusted executable
@@ -75,6 +75,29 @@ cooperative observation, not an atomic snapshot.
 
 ## Trusted comments
 
+Lease, outcome and retry-reset comments start with one readable line naming the
+state, agent, runtime, short candidate SHA when available, and a short summary.
+The full JSON record follows inside a collapsed `<details>` block headed
+**Coordination record**, with the marker `<!-- ub-agent:v2 -->`. The parser reads
+the JSON, including on comments minimized by GitHub. Valid earlier `v1` records
+remain readable; an earlier-layout comment that cannot be read is ignored and
+never makes its item malformed.
+
+Before upgrading to this layout, stop every launcher for a project and upgrade
+them together before restarting. Older launchers ignore v2 records, including
+live claims and outcomes, so a mixed fleet can claim and run an item that an
+upgraded launcher already owns. Reading v1 records in the new launcher does not
+make mixed versions safe.
+
+After releasing a run, the launcher minimizes its own lease and outcome comments
+from superseded runs of the same agent on that item (and copied outcomes on a
+handoff PR), using GitHub's `OUTDATED` classifier. The latest lease and latest
+outcome for each agent stay expanded. Minimizing preserves every record and its
+authority; it never deletes history or resets attempts.
+The launcher reads minimization state through GraphQL in batches before sending
+mutations, so later releases and claims skip comments already minimized. REST
+comment reads still supply the coordination records.
+
 Only the authenticated GitHub account's comments supply coordination authority, so
 every launcher for a project must authenticate as the same account; launchers on
 different accounts would not see each other's claims and could run one item twice.
@@ -85,6 +108,35 @@ themselves; author filtering is not a security boundary against a compromised
 agent session. Malformed or contradictory trusted records park their item
 visibly without stopping unrelated work. Transport and read failures still stop
 the loop; they never become an empty queue.
+
+## Human action and launch output
+
+A released `blocked` run, or an accepted outcome whose completed transition adds
+a configured stop label, posts one short **Action needed** comment. It gives the
+release or outcome reason, the recorded candidate SHA, links to the claim and
+outcome, and, on a PR, its review decision and the CI rollup for that exact SHA.
+If the PR head has moved, the current head's review decision is not attributed to
+the old candidate. Unavailable evidence is identified in the comment.
+
+For a stop-label outcome, the comment names the stop label to remove and the
+agent's triggers to apply to resume work. For a blocked release, it gives an
+exact `ub-agent retry --number N --agent NAME --reason "Human resolved the blocker"`
+command and reminds the human to restore a matching trigger and remove stop
+labels. Exits without an agent report, zero or nonzero, retry with backoff; they
+post a notice only when they exhaust `max-attempts` and park. That notice also
+names the launcher host and run log directory. When a transition parks a handoff
+PR, the notice is posted on that PR.
+
+These notices carry a separate `ub-agent:action-needed` marker and are not
+coordination records: they never affect routing, verdicts, labels or attempt
+counts. A later claim by any agent on the item, or an explicit retry
+reset, minimizes its earlier Action needed notices. Minimization, notice posts
+and evidence reads are advisory: a failure is logged and does not change the
+durable result. A failed notice post is not retried on each poll.
+
+Within one `ub-agent launch` session, an unchanged blocked or parked item is
+printed once. A change to its state or reason prints it again. Stop-label outcomes
+remain visible as parked even when their transition consumed every trigger.
 
 ## Distinct clocks
 
@@ -166,7 +218,7 @@ recovery.
 
 `ub-agent report` uses the supervised environment to verify the run's current
 ownership and create one versioned outcome comment. Human summaries lead; JSON is
-fenced in `json` blocks, and arbitrary prose is never parsed for routing. A declared
+fenced in `json` blocks inside collapsed details, and arbitrary prose is never parsed for routing. A declared
 outcome is reported with `--outcome NAME` and has status `success`;
 `--status retry|blocked` changes no labels. Undeclared names are rejected, and the
 runner blocks records that bypass reporting validation.

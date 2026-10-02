@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** stop every launcher for a project and upgrade them together before
+restarting. Older launchers ignore the new v2 coordination records, so a mixed
+fleet can claim and run an item that an upgraded launcher already owns (#44).
+
 ### Added
 
 - Repository-role issue approval checks, maintainer starts and content-bound approval
@@ -27,6 +31,10 @@ notes are copied from that section.
   execution, including during a graceful stop (#52).
 - The README recommends Homebrew for installation and upgrades, links to release
   configuration guidance, and keeps checkout installs as a development alternative (#48).
+- Coordination comments lead with a readable summary and collapsed JSON. Released
+  runs minimize superseded records, and parked runs post an Action needed notice
+  with evidence and resume steps. Unchanged blocked and parked items print once
+  per launch session (#44).
 
 ### Fixed
 

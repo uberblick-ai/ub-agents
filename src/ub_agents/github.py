@@ -380,6 +380,70 @@ class GitHub:
     def update_comment(self, comment_id, body):
         return self.request(f"{self.prefix}/issues/comments/{comment_id}", "PATCH", {"body": body})
 
+    def graphql(self, query, variables):
+        result = self.request("graphql", "POST", {"query": query, "variables": variables})
+        if result.get("errors") or not isinstance(result.get("data"), dict):
+            raise GitHubError("POST", "graphql", f"Unreadable GraphQL response: {result.get('errors')}")
+        return result["data"]
+
+    def unminimized_comments(self, comments):
+        """REST comments omit minimization state; read it in bounded GraphQL batches."""
+        pending = []
+        for offset in range(0, len(comments), 100):
+            batch = comments[offset:offset + 100]
+            ids = [comment.get("node_id") for comment in batch]
+            if any(not isinstance(node, str) or not node for node in ids):
+                raise GitHubError("POST", "graphql", "Comment has no node ID")
+            data = self.graphql(
+                "query($ids: [ID!]!) { nodes(ids: $ids) { "
+                "... on IssueComment { id isMinimized } } }", {"ids": ids})
+            try:
+                nodes = data["nodes"]
+                if not isinstance(nodes, list) or len(nodes) != len(batch):
+                    raise ValueError("missing comment nodes")
+                for comment, node in zip(batch, nodes):
+                    if node["id"] != comment["node_id"] or type(node["isMinimized"]) is not bool:
+                        raise ValueError("invalid comment minimization state")
+                    if not node["isMinimized"]:
+                        pending.append(comment)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GitHubError("POST", "graphql", "Unreadable comment minimization state") from exc
+        return pending
+
+    def minimize_comment(self, comment):
+        node = comment.get("node_id")
+        if not isinstance(node, str) or not node:
+            raise GitHubError("POST", "graphql", "Comment has no node ID")
+        data = self.graphql(
+            "mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) "
+            "{ minimizedComment { isMinimized } } }", {"id": node})
+        if not data.get("minimizeComment", {}).get("minimizedComment", {}).get("isMinimized"):
+            raise GitHubError("POST", "graphql", "Comment minimization was not confirmed")
+
+    def candidate_evidence(self, number, sha):
+        owner, name = self.repository.split("/")
+        data = self.graphql(
+            "query($owner: String!, $name: String!, $number: Int!, $sha: GitObjectID!) { "
+            "repository(owner: $owner, name: $name) { "
+            "pullRequest(number: $number) { headRefOid reviewDecision } "
+            "object(oid: $sha) { ... on Commit { oid statusCheckRollup { state } } } } }",
+            {"owner": owner, "name": name, "number": number, "sha": sha})
+        try:
+            repository = data["repository"]
+            candidate, pr = repository["object"], repository["pullRequest"]
+            if candidate["oid"] != sha:
+                raise ValueError("evidence names another candidate")
+            review = pr["reviewDecision"] or "no decision"
+            if pr["headRefOid"] != sha:
+                review = f"unavailable for this SHA (current head {pr['headRefOid'][:7]})"
+            rollup = candidate["statusCheckRollup"]
+            ci = rollup["state"] if rollup is not None else "no checks or statuses"
+            if not isinstance(review, str) or not isinstance(ci, str):
+                raise ValueError("invalid review or CI state")
+            return review, ci
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GitHubError("POST", "graphql", "Unreadable candidate evidence") from exc
+
     def default_branch(self):
         raw = self.request(self.prefix)
         if not isinstance(raw.get("default_branch"), str):

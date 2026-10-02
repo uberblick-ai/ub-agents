@@ -2,6 +2,7 @@
 
 import json
 import os
+import socket
 import threading
 from dataclasses import replace
 
@@ -34,11 +35,13 @@ class Loop:
                  config_path=None, interrupt_event=None):
         self.config = config
         self.github = github
-        self.coordinator = Coordinator(github, actor, queue=config.queue)
+        self.coordinator = Coordinator(github, actor, queue=config.queue, output=output)
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
         self.output = output
+        self._shown = {}
+        self._released_blockers = {}
         self._poll_complete = False
         self._refreshing_checkout = False
 
@@ -76,7 +79,8 @@ class Loop:
         for item in items.values():
             matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
                        and a.kind in {"either", item.kind} and item.state == "open"]
-            if not matched and item.number not in (unfinished | invalid):
+            if (not matched and item.number not in (unfinished | invalid)
+                    and not item.labels.intersection(self.config.stop_labels)):
                 continue
             # Discovery is cached, but authority always comes from a fresh item read.
             try:
@@ -88,13 +92,19 @@ class Loop:
             latest = latest_leases(history)
             for agent in self.config.agents:
                 record = latest.get((item.number, agent.name))
+                parked = (item.state == "open" and item.labels.intersection(self.config.stop_labels)
+                          and any(r["kind"] == "outcome" and r["agent"] == agent.name
+                                  and r.get("accepted") and r.get("transition_complete")
+                                  and item.number == (r.get("handoff") or r["assignment"])
+                                  and item.labels.intersection(r.get("transition", {}).get("add", ()))
+                                      .intersection(self.config.stop_labels) for r in history))
                 try:
                     pending = self.coordinator.pending_completion(history, agent.name, now)
                 except RecordError as exc:
                     plans.append(Plan(item, agent, None, "blocked", str(exc),
                                       len(attempts(history, agent.name, now)) + 1))
                     continue
-                if (agent in matched or pending or (record and record["state"] in {"claiming", "running"}
+                if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
                                                     and seconds(record["expires"]) > now)):
                     plan = self.coordinator.plan(item, agent, self.config.stop_labels, history, history_index)
                     plans.append(plan)
@@ -151,8 +161,14 @@ class Loop:
 
     def tick(self):
         config = self.config
-        for plan in self.plans():
+        plans = self.plans()
+        present = {(p.item.number, p.agent.name) for p in plans}
+        self._shown = {key: value for key, value in self._shown.items() if key in present}
+        self._released_blockers = {key: value for key, value in self._released_blockers.items() if key in present}
+        for plan in plans:
             self._before_claim()
+            if plan.state in {"ready", "recover"}:
+                self._shown.pop((plan.item.number, plan.agent.name), None)
             if plan.state == "ready":
                 if self.execute(plan):
                     return True
@@ -163,7 +179,12 @@ class Loop:
                 if self.recover(plan):
                     return True
             else:
-                self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
+                key, value = (plan.item.number, plan.agent.name), (plan.state, plan.reason)
+                released = self._released_blockers.pop(key, None)
+                announced = plan.state == "blocked" and released is not None and released in plan.reason
+                if not announced and (plan.state not in {"blocked", "parked"} or self._shown.get(key) != value):
+                    self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
+                self._shown[key] = value
         return False
 
     def execute(self, plan):
@@ -276,7 +297,8 @@ class Loop:
         try:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
-            self.coordinator.update(lease, state="running", started=True)
+            self.coordinator.update(lease, state="running", started=True,
+                                    host=socket.gethostname(), log_dir=str(run_dir))
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
             fresh = self.github.item(plan.item.number, plan.item.kind)
@@ -367,10 +389,14 @@ class Loop:
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
         if outcome is None:
+            self.coordinator.update(lease, unreported=True)
             self.coordinator.report(lease, result, summary)
-        self.coordinator.release(lease, result, summary, delay, attempt_effect=effect)
+        self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
+                                 max_attempts=plan.agent.max_attempts)
         diagnostic("released", result=result, summary=summary)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
+        if result == "blocked":
+            self._released_blockers[(plan.item.number, plan.agent.name)] = summary
         if interrupted:
             raise KeyboardInterrupt
         return True
@@ -533,7 +559,7 @@ class Loop:
         failures = len(attempts(self.coordinator.history(plan.item.number), plan.agent.name, self.coordinator.clock()))
         delay = backoff(plan.agent, max(1, failures)) if result == "retry" else 0
         self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
-                                 attempt_effect=effect)
+                                 attempt_effect=effect, parking_outcome=outcome)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 

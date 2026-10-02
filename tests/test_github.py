@@ -11,11 +11,114 @@ from unittest.mock import patch
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
+from ub_agents.notices import Notices
 from ub_agents.records import body, iso, seconds, timestamp
 from tests.support import RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_minimization_state_reads_rest_node_ids_in_bounded_batches(self):
+        comments = [{"id": i, "node_id": f"IC_{i}"} for i in range(205)]
+        github = GitHub('org/project')
+
+        def response(endpoint, method, data):
+            self.assertEqual((endpoint, method), ('graphql', 'POST'))
+            self.assertIn('... on IssueComment { id isMinimized }', data['query'])
+            return {"data": {"nodes": [{"id": node, "isMinimized": int(node[3:]) % 2 == 0}
+                                       for node in data['variables']['ids']]}}
+
+        with patch.object(github, 'request', side_effect=response) as request:
+            self.assertEqual(github.unminimized_comments(comments), comments[1::2])
+            self.assertEqual([len(call.args[2]['variables']['ids']) for call in request.call_args_list],
+                             [100, 100, 5])
+            request.reset_mock()
+            self.assertEqual(github.unminimized_comments([]), [])
+            request.assert_not_called()
+
+    def test_missing_or_invalid_minimization_state_fails_visibly(self):
+        github = GitHub('org/project')
+        comments = [{"id": 1, "node_id": "IC_1"}]
+        for nodes in (None, {}, [], [None], [{}], [{"id": "IC_2", "isMinimized": False}],
+                      [{"id": "IC_1", "isMinimized": 0}],
+                      [{"id": "IC_1", "isMinimized": False}] * 2):
+            with self.subTest(nodes=nodes), patch.object(github, 'request', return_value={"data": {"nodes": nodes}}):
+                with self.assertRaisesRegex(GitHubError, 'Unreadable comment minimization state'):
+                    github.unminimized_comments(comments)
+        with patch.object(github, 'request') as request:
+            for node in (None, '', 42):
+                with self.subTest(node=node), self.assertRaisesRegex(GitHubError, 'no node ID'):
+                    github.unminimized_comments([{"id": 1, "node_id": node}])
+            request.assert_not_called()
+
+    def test_failed_later_state_batch_logs_without_partial_minimization(self):
+        comments = [{"id": i, "node_id": f"IC_{i}"} for i in range(101)]
+        github = GitHub('org/project')
+        first = {"data": {"nodes": [{"id": comment['node_id'], "isMinimized": False}
+                                    for comment in comments[:100]]}}
+        output = []
+        for failure in (GitHubError('POST', 'graphql', 'State unavailable'),
+                        {"data": {"nodes": [None]}}):
+            with self.subTest(failure=failure), \
+                    patch.object(github, 'request', side_effect=[first, failure]), \
+                    patch.object(github, 'minimize_comment') as minimize:
+                Notices(github, 'operator', output.append).minimize(comments)
+                minimize.assert_not_called()
+                self.assertIn('Advisory comment minimization state read failed', output[-1])
+
+    def test_minimize_comment_uses_node_id_and_outdated_graphql_classifier(self):
+        runner = RecordingRunner(Path('/synthetic'))
+        command = ('gh', 'api', '--hostname', 'github.com', '--method', 'POST', '-H',
+                   'Accept: application/vnd.github+json', '--include', 'graphql', '--input', '-')
+        runner.responses[command] = json.dumps({"data": {"minimizeComment": {
+            "minimizedComment": {"isMinimized": True}}}})
+        github = GitHub('org/project', runner)
+        github.minimize_comment({"id": 123, "node_id": "IC_node"})
+        sent = json.loads(runner.calls[-1][1]['input'])
+        self.assertEqual(sent['variables'], {"id": "IC_node"})
+        self.assertIn('minimizeComment', sent['query'])
+        self.assertIn('classifier: OUTDATED', sent['query'])
+        self.assertIn('subjectId: $id', sent['query'])
+        for response in ({"errors": [{"message": "not authorized"}]},
+                         {"data": {"minimizeComment": {"minimizedComment": {"isMinimized": False}}}}):
+            with self.subTest(response=response):
+                runner.responses[command] = json.dumps(response)
+                with self.assertRaises(GitHubError):
+                    github.minimize_comment({"node_id": "IC_node"})
+        with self.assertRaises(GitHubError):
+            github.minimize_comment({"id": 123})
+
+    def test_candidate_evidence_reads_exact_sha_and_identifies_changed_review_head(self):
+        sha = 'a' * 40
+        query_result = {"data": {"repository": {
+            "pullRequest": {"headRefOid": sha, "reviewDecision": "APPROVED"},
+            "object": {"oid": sha, "statusCheckRollup": {"state": "SUCCESS"}}}}}
+        runner = RecordingRunner(Path('/synthetic'))
+        command = ('gh', 'api', '--hostname', 'github.com', '--method', 'POST', '-H',
+                   'Accept: application/vnd.github+json', '--include', 'graphql', '--input', '-')
+        runner.responses[command] = json.dumps(query_result)
+        github = GitHub('org/project', runner)
+        self.assertEqual(github.candidate_evidence(2, sha), ('APPROVED', 'SUCCESS'))
+        sent = json.loads(runner.calls[-1][1]['input'])
+        self.assertEqual(sent['variables'], {"owner": "org", "name": "project", "number": 2, "sha": sha})
+        self.assertIn('object(oid: $sha)', sent['query'])
+        for head, review, rollup, expected in (
+                (sha, None, None, ('no decision', 'no checks or statuses')),
+                ('b' * 40, 'APPROVED', {"state": "FAILURE"},
+                 ('unavailable for this SHA (current head bbbbbbb)', 'FAILURE'))):
+            with self.subTest(head=head):
+                repository = query_result['data']['repository']
+                repository['pullRequest'] = {"headRefOid": head, "reviewDecision": review}
+                repository['object']['statusCheckRollup'] = rollup
+                runner.responses[command] = json.dumps(query_result)
+                self.assertEqual(github.candidate_evidence(2, sha), expected)
+        for response in ({"data": {"repository": None}}, {"data": {"repository": {"object": None}}},
+                         {"data": {"repository": {"object": {"oid": 'b' * 40}}}},
+                         {"data": {}, "errors": [{"message": "evidence unavailable"}]}):
+            with self.subTest(response=response):
+                runner.responses[command] = json.dumps(response)
+                with self.assertRaises(GitHubError):
+                    github.candidate_evidence(2, sha)
+
     def test_include_parses_success_and_empty_delete_headers(self):
         runner = RecordingRunner(Path('/synthetic'))
         prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',

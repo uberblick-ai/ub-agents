@@ -200,6 +200,7 @@ def run(args):
                   "agent": args.agent, "actor": actor, "runtime": "operator",
                   "assignment": item.number, "assignment_sha": item.head, "created": iso(timestamp()), "summary": args.reason}
         created = records([github.create_comment(item.number, body(record))])[0]
+        coordinator.notices.resumed(item.number)
         print(json.dumps({"agent": args.agent, "number": item.number, "url": created["url"]}))
         return
     stop = threading.Event()

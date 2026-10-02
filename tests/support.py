@@ -59,6 +59,7 @@ class FakeGitHub:
         self.claim_read_barrier = None
         self.unreadable = False
         self.writes = []
+        self.minimized_ids = set()
         self.login = "operator"
         self.roles = {"operator": "write"}
         self.timelines = {}
@@ -129,10 +130,10 @@ class FakeGitHub:
 
     def create_comment(self, number, body):
         from ub_agents.records import iso, timestamp
-        data = json.loads(body.rsplit("\n```json\n", 1)[1].removesuffix("\n```\n")) if body.startswith(MARKER) else {}
+        data = records([{"body": body, "id": 0, "user": {"login": self.login}}])[0] if body.startswith(MARKER) else {}
         with self.lock:
             created_at = iso(timestamp())
-            comment = {"id": self.next_id, "body": body, "user": {"login": self.login},
+            comment = {"id": self.next_id, "node_id": f"node-{self.next_id}", "body": body, "user": {"login": self.login},
                        "created_at": created_at, "updated_at": created_at,
                        "issue_url": f"https://api.github.com/repos/org/project/issues/{number}",
                        "html_url": f"https://github.com/org/project/issues/{number}#issuecomment-{self.next_id}"}
@@ -152,6 +153,21 @@ class FakeGitHub:
                         self.writes.append(("update", comment_id))
                         return deepcopy(comment)
         raise AssertionError(f"Unknown comment {comment_id}")
+
+    def unminimized_comments(self, comments):
+        return [comment for comment in comments if comment["id"] not in self.minimized_ids]
+
+    def minimize_comment(self, comment):
+        for comments in self.store.values():
+            for stored in comments:
+                if stored["id"] == comment["id"]:
+                    self.minimized_ids.add(comment["id"])
+                    self.writes.append(("minimize", comment["id"], "OUTDATED"))
+                    return
+        raise AssertionError(f"Unknown comment {comment['id']}")
+
+    def candidate_evidence(self, number, sha):
+        return "APPROVED", "SUCCESS"
 
 
 class PollGitHub(FakeGitHub):

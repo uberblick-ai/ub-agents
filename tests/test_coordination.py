@@ -74,13 +74,13 @@ class CoordinationTests(unittest.TestCase):
         record = self.start()
         comment = self.github.store[1][0]
         self.assertIn("```json\n", comment["body"])
-        written = json.loads(comment["body"].rsplit("```json\n", 1)[1].removesuffix("\n```\n"))
+        written = json.loads(comment["body"].rsplit("```json\n", 1)[1].split("\n```", 1)[0])
         self.assertFalse(written.keys() & {"actor", "assignment_kind", "assignment_sha", "handoff", "version"})
         parsed = records([comment])[0]
         self.assertEqual((parsed["run"], parsed["actor"]), (record["run"], "operator"))
         self.assertIsNone(parsed["assignment_sha"])
         self.assertEqual(records([{"body": "Done!", "id": 9}]), [])
-        comment["body"] = "<!-- ub-agent:v1 -->\nbad json"
+        comment["body"] = MARKER + "\nbad json"
         with self.assertRaises(AgentError):
             records([comment])
 
@@ -239,16 +239,16 @@ class CoordinationTests(unittest.TestCase):
         self.github.change(2, labels=frozenset())
         self.assertFalse(loop.tick())
 
-    def test_released_lease_leaves_a_repeated_summary_to_its_outcome(self):
+    def test_released_lease_shows_its_summary_above_the_collapsed_record(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         loop.coordinator = self.co
         lease = self.start()
         self.co.report(lease, "blocked", "Need a decision")
         self.co.release(lease, "blocked", "Need a decision")
         comment = self.github.store[1][0]["body"]
-        written = json.loads(comment.rsplit("```json\n", 1)[1].removesuffix("\n```\n"))
-        self.assertNotIn("summary", written)
-        self.assertIn("Result: blocked; reported in the outcome.", comment)
+        written = json.loads(comment.rsplit("```json\n", 1)[1].split("\n```", 1)[0])
+        self.assertEqual(written["summary"], "Need a decision")
+        self.assertIn("worker blocked · direct — Need a decision", comment.split("<details>")[0])
         self.github.change(1, labels=frozenset())
         plan = next(p for p in loop.plans() if p.item.number == 1)
         self.assertIn("Last run blocked: Need a decision", plan.reason)
