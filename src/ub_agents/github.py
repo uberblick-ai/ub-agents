@@ -328,6 +328,30 @@ class GitHub:
             raise GitHubError("POST", "graphql", f"Unreadable GraphQL response: {result.get('errors')}")
         return result["data"]
 
+    def unminimized_comments(self, comments):
+        """REST comments omit minimization state; read it in bounded GraphQL batches."""
+        pending = []
+        for offset in range(0, len(comments), 100):
+            batch = comments[offset:offset + 100]
+            ids = [comment.get("node_id") for comment in batch]
+            if any(not isinstance(node, str) or not node for node in ids):
+                raise GitHubError("POST", "graphql", "Comment has no node ID")
+            data = self.graphql(
+                "query($ids: [ID!]!) { nodes(ids: $ids) { "
+                "... on IssueComment { id isMinimized } } }", {"ids": ids})
+            try:
+                nodes = data["nodes"]
+                if not isinstance(nodes, list) or len(nodes) != len(batch):
+                    raise ValueError("missing comment nodes")
+                for comment, node in zip(batch, nodes):
+                    if node["id"] != comment["node_id"] or type(node["isMinimized"]) is not bool:
+                        raise ValueError("invalid comment minimization state")
+                    if not node["isMinimized"]:
+                        pending.append(comment)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GitHubError("POST", "graphql", "Unreadable comment minimization state") from exc
+        return pending
+
     def minimize_comment(self, comment):
         node = comment.get("node_id")
         if not isinstance(node, str) or not node:

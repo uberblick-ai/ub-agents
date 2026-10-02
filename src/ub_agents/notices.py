@@ -19,16 +19,20 @@ class Notices:
             self.output(f"Advisory {operation} failed: {' '.join(str(exc).split())}")
             return None
 
-    def minimize(self, comment):
-        if not comment.get("isMinimized"):
+    def minimize(self, comments):
+        if not comments:
+            return
+        pending = self.advisory("comment minimization state read",
+                                lambda: self.github.unminimized_comments(comments))
+        for comment in pending or ():
             self.advisory(f"minimize comment {comment['id']}",
                           lambda: self.github.minimize_comment(comment))
 
     def resumed(self, number):
         def minimize_actions():
-            for comment in self.github.comments(number):
-                if own_comment(comment, self.actor) and comment.get("body", "").startswith(ACTION_MARKER):
-                    self.minimize(comment)
+            self.minimize([comment for comment in self.github.comments(number)
+                           if own_comment(comment, self.actor)
+                           and (comment.get("body") or "").startswith(ACTION_MARKER)])
         self.advisory(f"resume notices on #{number}", minimize_actions)
 
     def superseded(self, number, agent, run):
@@ -42,9 +46,7 @@ class Notices:
             latest = {r["kind"]: r for r in history}
             outdated = {r["id"] for r in history
                         if r["id"] < min(current) and r["run"] != latest[r["kind"]]["run"]}
-            for comment in comments:
-                if comment["id"] in outdated:
-                    self.minimize(comment)
+            self.minimize([comment for comment in comments if comment["id"] in outdated])
         self.advisory(f"superseded records on #{number}", minimize_records)
 
     def released(self, lease, outcome, summary, parking_outcome=None):
@@ -66,7 +68,7 @@ class Notices:
     def post_action(self, number, lease, outcome, summary, stops):
         marker = f"{ACTION_MARKER}{lease['run']} -->"
         comments = self.github.comments(number)
-        if any(own_comment(c, self.actor) and c.get("body", "").startswith(marker) for c in comments):
+        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(marker) for c in comments):
             return
         history = records(comments, self.actor)
         anchors = [r["id"] for r in history if r["run"] == lease["run"]

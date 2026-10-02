@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** stop every launcher for a project and upgrade them together before
+restarting. Older launchers ignore the new v2 coordination records, so a mixed
+fleet can claim and run an item that an upgraded launcher already owns (#44).
+
 ### Changed
 
 - Coordination comments lead with a readable summary and collapsed JSON. Released

@@ -59,6 +59,7 @@ class FakeGitHub:
         self.claim_read_barrier = None
         self.unreadable = False
         self.writes = []
+        self.minimized_ids = set()
         self.login = "operator"
 
     def actor(self):
@@ -136,11 +137,14 @@ class FakeGitHub:
                         return deepcopy(comment)
         raise AssertionError(f"Unknown comment {comment_id}")
 
+    def unminimized_comments(self, comments):
+        return [comment for comment in comments if comment["id"] not in self.minimized_ids]
+
     def minimize_comment(self, comment):
         for comments in self.store.values():
             for stored in comments:
                 if stored["id"] == comment["id"]:
-                    stored["isMinimized"] = True
+                    self.minimized_ids.add(comment["id"])
                     self.writes.append(("minimize", comment["id"], "OUTDATED"))
                     return
         raise AssertionError(f"Unknown comment {comment['id']}")

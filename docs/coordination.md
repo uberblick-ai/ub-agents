@@ -83,11 +83,20 @@ the JSON, including on comments minimized by GitHub. Valid earlier `v1` records
 remain readable; an earlier-layout comment that cannot be read is ignored and
 never makes its item malformed.
 
+Before upgrading to this layout, stop every launcher for a project and upgrade
+them together before restarting. Older launchers ignore v2 records, including
+live claims and outcomes, so a mixed fleet can claim and run an item that an
+upgraded launcher already owns. Reading v1 records in the new launcher does not
+make mixed versions safe.
+
 After releasing a run, the launcher minimizes its own lease and outcome comments
 from superseded runs of the same agent on that item (and copied outcomes on a
 handoff PR), using GitHub's `OUTDATED` classifier. The latest lease and latest
 outcome for each agent stay expanded. Minimizing preserves every record and its
 authority; it never deletes history or resets attempts.
+The launcher reads minimization state through GraphQL in batches before sending
+mutations, so later releases and claims skip comments already minimized. REST
+comment reads still supply the coordination records.
 
 Only the authenticated GitHub account's comments supply coordination authority, so
 every launcher for a project must authenticate as the same account; launchers on

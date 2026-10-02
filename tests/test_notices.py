@@ -95,12 +95,12 @@ class NoticeTests(unittest.TestCase):
         self.co.release(other, "retry", "Other run")
         latest = self.start()
         # Until release, even the earlier records stay expanded.
-        self.assertFalse(any(c.get("isMinimized") for c in self.github.comments(1)))
+        self.assertFalse(self.github.minimized_ids)
         self.co.report(latest, "retry", "Another transient failure")
         self.co.release(latest, "retry", "Another transient failure")
         history = self.co.history(1)
         for comment, record in zip(self.github.comments(1), history):
-            self.assertEqual(bool(comment.get("isMinimized")), record["run"] == first["run"])
+            self.assertEqual(comment["id"] in self.github.minimized_ids, record["run"] == first["run"])
         self.assertEqual(len(history), 6)
         self.assertEqual(len(attempts(history, "worker", self.now)), 2)
         self.assertTrue(all(w[2] == "OUTDATED" for w in self.github.writes if w[0] == "minimize"))
@@ -111,9 +111,50 @@ class NoticeTests(unittest.TestCase):
         self.co.release(first, "retry", "Earlier report")
         self.co.release(self.start(), "retry", "No report")
         comments = self.github.comments(1)
-        self.assertTrue(comments[0]["isMinimized"])
-        self.assertFalse(comments[1].get("isMinimized", False))
-        self.assertFalse(comments[2].get("isMinimized", False))
+        self.assertIn(comments[0]["id"], self.github.minimized_ids)
+        self.assertNotIn(comments[1]["id"], self.github.minimized_ids)
+        self.assertNotIn(comments[2]["id"], self.github.minimized_ids)
+
+    def test_repeated_releases_skip_already_minimized_rest_comments_after_restart(self):
+        for _ in range(4):
+            # Each run uses a fresh coordinator, so this cannot rely on a session cache.
+            self.co = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
+            lease = self.start()
+            self.co.report(lease, "success", "Done", outcome="done")
+            self.co.accept(lease, self.co.outcome(lease))
+            self.co.release(lease, "success", "Done")
+        comments = self.github.comments(1)
+        self.assertTrue(all("isMinimized" not in comment for comment in comments))
+        expected = [comment["id"] for comment in comments[:-2]]
+        minimized = [write[1] for write in self.github.writes if write[0] == "minimize"]
+        self.assertEqual(minimized, expected)
+        self.assertEqual(self.github.minimized_ids, set(expected))
+        self.assertEqual(len(self.co.history(1)), 8)
+
+    def test_retries_and_later_claims_minimize_a_notice_only_once(self):
+        lease = self.start()
+        self.co.report(lease, "blocked", "Decision needed")
+        self.co.release(lease, "blocked", "Decision needed")
+        notice = self.notices()[0]
+        self.retry()
+        self.retry()
+        self.co = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
+        self.start()
+        self.co.notices.resumed(1)
+        self.assertNotIn("isMinimized", self.notices()[0])
+        self.assertEqual([write[1] for write in self.github.writes if write[0] == "minimize"],
+                         [notice["id"]])
+
+    def test_null_body_does_not_prevent_later_notice_minimization(self):
+        self.github.create_comment(1, "Unrelated comment")
+        self.github.store[1][0]["body"] = None
+        lease = self.start()
+        self.co.report(lease, "blocked", "Decision needed")
+        self.co.release(lease, "blocked", "Decision needed")
+        notice = self.github.comments(1)[-1]
+        self.retry()
+        self.assertIn(notice["id"], self.github.minimized_ids)
+        self.assertEqual(self.output, [])
 
     def test_release_never_minimizes_its_own_claim_after_a_later_contender_withdraws(self):
         plan = self.co.plan(self.github.item(1), self.worker, ())
@@ -128,7 +169,7 @@ class NoticeTests(unittest.TestCase):
         comments = self.github.comments(1)
         self.assertEqual([r["state"] for r in self.co.history(1) if r["kind"] == "lease"],
                          ["released", "withdrawn"])
-        self.assertFalse(any(c.get("isMinimized") for c in comments))
+        self.assertFalse(self.github.minimized_ids)
 
     def test_superseded_handoff_copies_are_minimized_but_remain_readable(self):
         for summary in ("First candidate", "Revised candidate"):
@@ -138,8 +179,8 @@ class NoticeTests(unittest.TestCase):
             self.co.release(lease, "success", summary)
         copies = self.github.comments(2)
         self.assertEqual(len(copies), 2)
-        self.assertTrue(copies[0]["isMinimized"])
-        self.assertFalse(copies[1].get("isMinimized", False))
+        self.assertIn(copies[0]["id"], self.github.minimized_ids)
+        self.assertNotIn(copies[1]["id"], self.github.minimized_ids)
         self.assertEqual([r["summary"] for r in self.co.history(2)], ["First candidate", "Revised candidate"])
 
     def test_blocked_notice_has_reason_evidence_links_and_exact_retry(self):
@@ -160,7 +201,7 @@ class NoticeTests(unittest.TestCase):
         self.co.notices.released(lease, outcome, outcome["summary"])
         self.assertEqual(len(self.notices(2)), 1)
         self.retry(2)
-        self.assertTrue(self.notices(2)[0]["isMinimized"])
+        self.assertIn(self.notices(2)[0]["id"], self.github.minimized_ids)
         self.assertEqual(self.co.plan(self.github.item(2), self.worker, ()).state, "ready")
 
     def parked_loop(self, handoff=None):
@@ -196,7 +237,7 @@ class NoticeTests(unittest.TestCase):
         next_agent = agent(self.root, name="reviewer")
         lease = loop.coordinator.claim(loop.coordinator.plan(github.item(2), next_agent, ("needs-human",)))
         self.assertIsNotNone(lease)
-        self.assertTrue(next(c for c in github.comments(2) if c["id"] == notice["id"])["isMinimized"])
+        self.assertIn(notice["id"], github.minimized_ids)
         self.assertEqual(len([c for c in github.comments(2) if c["body"].startswith(ACTION_MARKER)]), 1)
 
     def test_handoff_stop_notice_is_on_the_parked_pr(self):
@@ -239,7 +280,7 @@ class NoticeTests(unittest.TestCase):
             next_lease = self.start()
         self.assertEqual(next_lease["state"], "running")
         self.assertTrue(any("minimize comment" in line and "failed" in line for line in self.output))
-        self.assertFalse(self.notices()[0].get("isMinimized", False))
+        self.assertNotIn(self.notices()[0]["id"], self.github.minimized_ids)
 
     def test_delayed_notice_does_not_park_an_item_again_after_a_reset(self):
         lease = self.start()
@@ -269,7 +310,7 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(sum(": blocked —" in line for line in self.output), 1)
 
     def test_advisory_failures_do_not_change_release_transition_or_counts(self):
-        for operation in ("minimize_comment", "create_comment", "candidate_evidence", "item"):
+        for operation in ("unminimized_comments", "minimize_comment", "create_comment", "candidate_evidence", "item"):
             with self.subTest(operation=operation):
                 self.setUp()
                 first = self.start(2)
