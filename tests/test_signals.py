@@ -1,8 +1,10 @@
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 import io
 import os
 from pathlib import Path
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -11,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
+from ub_agents.config import CleanupHook
 from ub_agents.errors import CleanupError
 from ub_agents.execution import supervise
 from ub_agents.loop import Loop
@@ -59,10 +62,21 @@ class SignalTests(unittest.TestCase):
         return result, marker
 
     def test_sigterm_finishes_active_process_report_transition_and_cleanup(self):
-        with patch("ub_agents.loop.Workspace.cleanup", autospec=True) as cleanup:
+        cleaned = self.root / ".ub-agent" / "hook-finished"
+        hook = CleanupHook((sys.executable, "-c",
+                            f"open({str(cleaned)!r}, 'w').write('cleaned')"))
+        self.config = replace(self.config, cleanup=hook)
+        self.loop.config = self.config
+
+        def cleanup(workspace, before_remove):
+            # Model an owned private worktree reaching its actual cleanup hook.
+            self.assertTrue(before_remove())
+
+        with patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup) as cleanup:
             result, marker = self.run_signals([signal.SIGTERM])
         self.assertEqual(result, 0)
         self.assertTrue(marker.is_file())
+        self.assertTrue(cleaned.is_file())
         cleanup.assert_called_once()
         lease, outcome = self.loop.coordinator.history(1)
         self.assertEqual((lease["state"], lease["result"]), ("released", "success"))
@@ -102,6 +116,24 @@ class SignalTests(unittest.TestCase):
             for timer in timers:
                 timer.join()
         self.assertLess(time.monotonic() - start, 1)
+        self.assertEqual(self.github.writes, [])
+
+    def test_sigterm_interrupts_slow_discovery_subprocess_promptly(self):
+        pid_path = self.root / "poll-pid"
+
+        def observe():
+            script = ("import os,signal,time; "
+                      f"open({str(pid_path)!r}, 'w').write(str(os.getpid())); "
+                      "os.kill(os.getppid(), signal.SIGTERM); time.sleep(10)")
+            subprocess.run([sys.executable, "-c", script], check=True, timeout=15)
+            self.fail("Discovery continued after SIGTERM")
+
+        start = time.monotonic()
+        with patch.object(self.github, "observe", side_effect=observe):
+            self.assertEqual(self.launch(), 0)
+        self.assertLess(time.monotonic() - start, 1)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int(pid_path.read_text()), 0)
         self.assertEqual(self.github.writes, [])
 
     def test_sigterm_before_claim_write_makes_no_claim(self):

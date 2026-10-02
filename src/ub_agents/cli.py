@@ -16,7 +16,7 @@ from .coordination import Coordinator
 from .errors import AgentError, RecordError
 from .execution import repository_checks
 from .github import GitHub
-from .loop import Loop
+from .loop import Loop, _GracefulStop
 from .labels import provision_labels
 from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
 
@@ -234,9 +234,11 @@ def run(args):
 
     handlers = {sig: signal.signal(sig, stop_now)
                 for sig in (signal.SIGINT, signal.SIGHUP)}
-    handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: loop.stop_gracefully())
     try:
         loop.launch(once=args.once)
+    except _GracefulStop:
+        return
     finally:
         for sig, handler in handlers.items():
             signal.signal(sig, handler)

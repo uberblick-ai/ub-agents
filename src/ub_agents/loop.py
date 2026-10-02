@@ -39,6 +39,16 @@ class Loop:
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
         self.output = output
+        self._poll_complete = False
+
+    def stop_gracefully(self):
+        if self.interrupt_event.is_set():
+            raise KeyboardInterrupt
+        self.stop_event.set()
+        if not self._poll_complete:
+            # Unwind even a slow discovery subprocess. Once a claim write starts,
+            # it must finish election, execution/recovery and durable completion.
+            raise _GracefulStop
 
     def _before_claim(self):
         if self.interrupt_event.is_set():
