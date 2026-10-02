@@ -48,6 +48,8 @@ def parser():
     retry.add_argument("--number", type=int, required=True)
     retry.add_argument("--agent", required=True)
     retry.add_argument("--reason", required=True)
+    approve = commands.add_parser("approve", help="Approve current issue content and outside comments as a maintainer")
+    approve.add_argument("--number", type=int, required=True)
     return result
 
 
@@ -172,6 +174,11 @@ def run(args):
         return
     github = GitHub(config.repository)
     actor = github.actor()
+    if args.command == "approve":
+        from .approvals import approve_issue
+        created = approve_issue(github, args.number, actor)
+        print(f"Approval posted: {created['html_url']}")
+        return
     coordinator = Coordinator(github, actor)
     if args.command == "cleanup":
         from .cleanup import Cleaner

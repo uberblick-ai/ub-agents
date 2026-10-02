@@ -123,6 +123,7 @@ class Doctor:
             for id in ("repository-root", "repository-remote"):
                 self.add(id, "skip", "configuration unavailable" if not config else "git unavailable")
         github = self.github or GitHub(config.repository if config else "", runner=self.runner)
+        login = None
         if gh_ready:
             try:
                 login = github.actor()
@@ -130,12 +131,23 @@ class Doctor:
                     raise AgentError("no login")
                 self.add("github-auth", "ok", f"authenticated as {login}; every launcher for this project must use this account")
             except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
+                login = None
                 self.add("github-auth", "fail", self.github_failure("authentication", exc), "gh auth login")
         else:
             self.add("github-auth", "skip", "gh unavailable")
         if config and gh_ready:
             self.repository_access(config, github)
             self.labels(config, github)
+            if login:
+                role = github.role(login)
+                elevated = role in {"maintain", "admin"}
+                self.add("github-launcher-role", "warn" if elevated else "ok" if role else "warn",
+                         (f"Launcher account {login} has {role}; agents can start and approve their own work"
+                          if elevated else f"Launcher account {login} has {role}"
+                          if role else "Launcher repository role could not be read"),
+                         "Use a dedicated launcher account with the write repository role"
+                         if elevated else "Ensure the token can read collaborator permissions" if not role else None,
+                         required=False)
         else:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
             self.add("github-permissions", "skip", "repository response unavailable")

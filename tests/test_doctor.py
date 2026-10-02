@@ -197,6 +197,20 @@ agents:
         self.assertEqual(self.one(result, "github-auth")["remedy"], "gh auth login")
         self.assertEqual(self.github.reads, ["user", "repos/org/project", "repos/org/project/labels"])
 
+    def test_elevated_launcher_role_warns_without_failing_or_writing(self):
+        for role in ("maintain", "admin", "write", None):
+            with self.subTest(role=role):
+                self.github.roles["operator"] = role
+                result = self.diagnose()
+                check = self.one(result, "github-launcher-role")
+                self.assertEqual(check["status"], "ok" if role == "write" else "warn")
+                self.assertFalse(check["required"])
+                self.assertTrue(result["ok"])
+                if role in {"maintain", "admin"}:
+                    self.assertIn("approve their own work", check["message"])
+                    self.assertIn("write", check["remedy"])
+                self.assertEqual(self.github.writes, [])
+
     def test_actual_github_actor_uses_read_only_api_and_hides_failure_output(self):
         for response in ('{"login":"operator"}', subprocess.CompletedProcess([], 4, 'sk-private', 'ghp-private'),
                          subprocess.TimeoutExpired("gh", 20), '{"login": null}'):
@@ -206,6 +220,7 @@ agents:
                 repo_command = command[:-1] + ("repos/org/project",)
                 self.runner.responses[command] = response
                 self.runner.responses[repo_command] = json.dumps(self.github.metadata)
+                self.runner.responses[command[:-1] + ("repos/org/project/collaborators/operator/permission",)] = '{"role_name":"write"}'
                 self.runner.responses[command[:-1] + ("repos/org/project/labels?per_page=100&page=1",)] = json.dumps(
                     [{"name": name} for name in self.github.label_names])
                 result = self.diagnose(github=GitHub("org/project", runner=self.runner))

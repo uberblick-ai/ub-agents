@@ -89,8 +89,18 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agent launch --once` | Run at most one assignment, then exit |
 | `ub-agent cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
 | `ub-agent retry` | Let stopped work run again, with a recorded reason |
+| `ub-agent approve --number N` | Print current issue input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agent check` | Validate the configuration files only |
 | `ub-agent report` | Used by agents to record their outcome |
+
+## Issue approvals
+
+Maintainers can record approval of an issue's current title, body and outside comments
+with `ub-agent approve --number N`. The [issue approval contract](docs/approvals.md)
+describes repository roles, maintainer starts and suspension after outside edits.
+The check and records are available; launcher pickup enforcement follows in #39.
+Use a dedicated launcher account with `write`; `doctor` warns about `maintain` or
+`admin` accounts that would let agents start and approve their own work.
 
 ## Configure the agents
 
