@@ -5,7 +5,7 @@ import shutil
 import uuid
 
 from .config import Agent, Queue, Runtime
-from .errors import AgentError, LostOwnership, RecordError
+from .errors import AgentError, GitHubError, LostOwnership, RecordError
 from .github import Item
 from .records import (MARKER, attempts, body, iso, latest_leases, lease_by_id, live_leases,
                       own_comment, payload, records, same_run, seconds, timestamp)
@@ -33,13 +33,20 @@ class Coordinator:
         self.queue = queue
 
     def history(self, number):
-        return records(self.github.comments(number), self.actor)
+        comments = self.github.comments(number)
+        try:
+            return records(comments, self.actor)
+        except RecordError:
+            raise
+        except AgentError as exc:
+            raise GitHubError("GET", f"repos/{self.github.repository}/issues/{number}/comments", str(exc)) from exc
 
     def repository_history(self):
         groups = {}
         for comment in self.github.repository_comments():
             if not isinstance(comment, dict):
-                raise AgentError("Unreadable repository comment")
+                raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
+                                  "Unreadable repository comment")
             if not own_comment(comment, self.actor):
                 continue
             if not isinstance(comment.get("body"), str) or not comment["body"].startswith(MARKER):
@@ -47,7 +54,8 @@ class Coordinator:
             try:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
             except (KeyError, ValueError, AttributeError) as exc:
-                raise AgentError("Coordination comment has no GitHub assignment URL") from exc
+                raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
+                                  "Coordination comment has no GitHub assignment URL") from exc
             groups.setdefault(number, []).append(comment)
         history, invalid = [], set()
         for number, comments in groups.items():
@@ -89,6 +97,8 @@ class Coordinator:
         else:
             try:
                 runtime = self.choose_runtime(item, agent, history)
+            except GitHubError:
+                raise  # A failed provenance read invalidates the whole discovery poll.
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
         return Plan(item, agent, runtime, state, reason, attempt)

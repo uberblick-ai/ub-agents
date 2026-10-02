@@ -458,9 +458,6 @@ class Loop:
                     delay = max(0, exc.reset_at - timestamp())
                     retryable = delay <= POLL_RETRY_MAX_SECONDS
                 detail = str(exc)
-                request = getattr(self.github, "last_request", None)
-                if request and not isinstance(exc, GitHubError):
-                    detail = f"{request} failed: {detail}"
                 # Keep each diagnostic on one line, even when gh prints several.
                 detail = " ".join(detail.split())
                 if not retryable or failures >= POLL_FAILURE_LIMIT:

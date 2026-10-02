@@ -1,6 +1,7 @@
 from contextlib import redirect_stderr
 from dataclasses import replace
 import io
+import signal
 from pathlib import Path
 import subprocess
 import tempfile
@@ -8,12 +9,12 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.config import Queue
+from ub_agents.config import Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RecordError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop, POLL_FAILURE_LIMIT, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
 from ub_agents.records import iso, timestamp
-from tests.support import PollGitHub, RecordingRunner, agent, config, issue
+from tests.support import PollGitHub, RecordingRunner, agent, config, issue, pr
 
 
 class PollingTests(unittest.TestCase):
@@ -199,7 +200,8 @@ class PollingTests(unittest.TestCase):
                   self.http_error(404, detail="Not Found"),
                   self.request_error("not json"), self.request_error("{}"),
                   self.request_error(subprocess.CompletedProcess([], 1, "", "unknown failure")),
-                  self.request_error(FileNotFoundError("gh is missing"))]
+                  self.request_error(FileNotFoundError("gh is missing")),
+                  self.request_error(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"))]
         for error in errors:
             with self.subTest(error=str(error)):
                 self.github.read_results["observe"] = [error]
@@ -210,8 +212,14 @@ class PollingTests(unittest.TestCase):
                 self.assertEqual(self.github.writes, [])
 
     def test_schema_error_names_request_and_stops(self):
-        self.github.last_request = "GitHub GET repos/org/project/milestones"
-        self.github.read_results["active_milestone"] = [AgentError("Unreadable GitHub milestone")]
+        runner = RecordingRunner(self.root)
+        endpoint = "repos/org/project/milestones?state=open&per_page=100&page=1"
+        command = ("gh", "api", "--hostname", "github.com", "--method", "GET", "-H",
+                   "Accept: application/vnd.github+json", "--include", endpoint)
+        runner.responses[command] = '[{"number":1,"created_at":"invalid"}]'
+        with self.assertRaises(GitHubError) as raised:
+            GitHub("org/project", runner).active_milestone()
+        self.github.read_results["active_milestone"] = [raised.exception]
         self.loop.config = replace(self.config, queue=Queue(milestones="gate"))
         with patch.object(self.loop.stop_event, "wait") as waits, \
                 self.assertRaisesRegex(AgentError, "GET repos/org/project/milestones.*Unreadable"):
@@ -238,6 +246,73 @@ class PollingTests(unittest.TestCase):
             self.loop.launch()
         self.assertEqual(self.github.reads, [("observe", ())])
         self.assertEqual(self.github.writes, [])
+
+    def test_cli_stop_signals_interrupt_retry_wait(self):
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=sig):
+                self.setUp()
+                self.github.read_results["observe"] = [self.http_error()]
+                handler = signal.getsignal(sig)
+                with patch("ub_agents.cli.load_config", return_value=self.config), \
+                        patch("ub_agents.cli.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli.Loop", return_value=self.loop), \
+                        patch("ub_agents.cli.threading.Event", return_value=self.loop.stop_event), \
+                        patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(sig)), \
+                        redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["launch"]), 130)
+                self.assertEqual(signal.getsignal(sig), handler)
+                self.assertEqual(self.github.reads, [("observe", ())])
+                self.assertEqual(self.github.writes, [])
+
+    def test_provenance_read_failure_skips_poll_instead_of_blocking_a_plan(self):
+        builder = agent(self.root, name="builder", kind="issue", command=(),
+                        runtimes=(Runtime("codex", "author-model", "high"),))
+        reviewer = agent(self.root, name="reviewer", kind="pr", different_from="builder", command=(),
+                         runtimes=(Runtime("claude", "review-model", "high"),))
+        self.github.items[2] = pr(head="a" * 40)
+        self.loop = Loop(config(self.root, builder, reviewer), self.github, "operator", output=self.lines.append)
+        with patch("ub_agents.coordination.shutil.which", return_value="/synthetic/runtime"):
+            plan = next(p for p in self.loop.plans() if p.agent.name == "builder")
+            lease = self.loop.coordinator.claim(plan)
+            self.loop.coordinator.update(lease, state="running", started=True)
+            outcome = self.loop.coordinator.report(lease, "success", "Implemented", 2, outcome="done")
+            self.loop.coordinator.accept(lease, outcome)
+            self.loop.coordinator.release(lease, "success", "Implemented")
+        self.github.change(1, labels=frozenset())
+        writes = list(self.github.writes)
+        # PR history succeeds, then independent-runtime provenance rereads issue #1.
+        self.github.read_results["comments"] = [None, self.http_error()]
+
+        def stop(delay):
+            self.assertEqual(self.github.writes, writes)
+            self.loop.stop_event.set()
+
+        with patch("ub_agents.coordination.shutil.which", return_value="/synthetic/runtime"), \
+                patch.object(self.loop.stop_event, "wait", side_effect=stop), self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        self.assertEqual(len(self.lines), 1)
+        self.assertTrue(self.lines[0].startswith("Skipped"))
+
+    def test_shared_branch_discovery_and_revalidation_failures_do_not_claim(self):
+        for earlier in ([], [None]):
+            with self.subTest(pr_reads_before_failure=len(earlier)):
+                self.setUp()
+                lease = self.loop.coordinator.claim(self.loop.plans()[0])
+                self.loop.coordinator.update(lease, branch="feature/test", state="released", result="retry",
+                                             started=True, expires=iso(timestamp() - 1))
+                writes = list(self.github.writes)
+                self.github.read_results["prs_for_branch"] = earlier + [self.http_error()]
+
+                def stop(delay):
+                    self.assertEqual(self.github.writes, writes)
+                    self.loop.stop_event.set()
+
+                with patch.object(self.loop.stop_event, "wait", side_effect=stop), \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.loop.launch()
+                self.assertEqual(len(self.lines), 1)
+                self.assertTrue(self.lines[0].startswith("Skipped"))
 
     def test_claim_write_and_post_write_reads_keep_first_failure_handling(self):
         for stage in ("lease write", "election read", "after withdrawn claim"):

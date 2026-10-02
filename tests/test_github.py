@@ -65,6 +65,16 @@ class GitHubTests(unittest.TestCase):
                 GitHub('org/project', runner).actor()
             self.assertFalse(raised.exception.retryable)
 
+    def test_malformed_issue_after_a_pr_still_names_issue_list_request(self):
+        github = GitHub('org/project')
+        raw = {'number': 2, 'title': 'Candidate', 'body': '', 'state': 'open',
+               'labels': [], 'created_at': iso(100), 'pull_request': {}}
+        with patch.object(github, 'request', return_value=[raw, {'number': 3}]), \
+                patch.object(github, 'item', return_value=pr()), self.assertRaises(GitHubError) as raised:
+            github.observe()
+        self.assertIn('GET repos/org/project/issues?state=open', str(raised.exception))
+        self.assertFalse(raised.exception.retryable)
+
     def test_labels_reads_all_pages_and_create_only_posts_the_new_label(self):
         runner = RecordingRunner(Path('/synthetic'))
         prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
