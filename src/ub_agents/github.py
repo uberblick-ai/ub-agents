@@ -1,6 +1,6 @@
 """Authenticated, unindexed GitHub reads through gh. Errors never mean no work."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import math
 import re
@@ -84,6 +84,8 @@ class Item:
     milestone: int | None = None
     draft: bool = False
     total_blocked_by: int | None = None
+    updated_at: str | None = None
+    open_blocked_by: int | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,8 @@ def dependency_total(data):
 def parse_item(data, kind, endpoint=None):
     try:
         seconds(data["created_at"])
+        if data.get("updated_at") is not None:
+            seconds(data["updated_at"])
         milestone = data["milestone"]["number"] if data.get("milestone") is not None else None
         if (not positive_int(data["number"])
                 or not isinstance(data["title"], str)
@@ -142,7 +146,9 @@ def parse_item(data, kind, endpoint=None):
                     data["head"]["sha"] if kind == "pr" else None,
                     data["head"]["ref"] if kind == "pr" else None, milestone,
                     data["draft"] if kind == "pr" else False,
-                    dependency_total(data) if kind == "issue" else None)
+                    dependency_total(data) if kind == "issue" else None, data.get("updated_at"),
+                    data["issue_dependencies_summary"]["blocked_by"]
+                    if kind == "issue" and dependency_total(data) is not None else None)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
             raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc
@@ -315,7 +321,7 @@ class GitHub:
         return self.request(f"{self.prefix}/labels", "POST",
                             {"name": name, "description": description, "color": color})
 
-    def observe(self):
+    def observe(self, details=True):
         # Repository issues include PRs. Do not use indexed search or a fixed --limit.
         endpoint = f"{self.prefix}/issues?state=open&sort=created&direction=asc&per_page=100"
         data = self.request(endpoint, paginate=True)
@@ -325,7 +331,8 @@ class GitHub:
                 raise GitHubError("GET", endpoint, "Unreadable GitHub issue list")
             item = parse_item(raw, "issue", endpoint)
             if "pull_request" in raw:
-                items.append(self.item(item.number, "pr"))
+                items.append(self.item(item.number, "pr") if details else
+                             replace(item, kind="pr", total_blocked_by=None, open_blocked_by=None))
             else:
                 items.append(item)
         return sorted(items, key=lambda item: item.number)
@@ -354,6 +361,55 @@ class GitHub:
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("GET", endpoint, "Unreadable GitHub milestone") from exc
         return min(active)[1] if active else None
+
+    def dependency_graph(self):
+        """List open issues and their links together for cold priority ranking."""
+        owner, name = self.repository.split("/", 1)
+        query = """query($owner:String!, $name:String!, $cursor:String) {
+          repository(owner:$owner, name:$name) {
+            issues(first:100, states:OPEN, after:$cursor) {
+              nodes { number blockedBy(first:100) {
+                nodes { number state repository { nameWithOwner } }
+                pageInfo { hasNextPage }
+              } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }"""
+        graph, cursor, seen = {}, None, set()
+        while True:
+            data = self.graphql(query, {"owner": owner, "name": name, "cursor": cursor})
+            try:
+                connection = data["repository"]["issues"]
+                if not isinstance(connection["nodes"], list) or len(connection["nodes"]) > 100:
+                    raise ValueError("invalid dependency graph page")
+                for issue in connection["nodes"]:
+                    number, links = issue["number"], issue["blockedBy"]
+                    if not positive_int(number) or number in graph:
+                        raise ValueError("invalid dependency graph issue")
+                    if (not isinstance(links["nodes"], list) or len(links["nodes"]) > 100
+                            or type(links["pageInfo"]["hasNextPage"]) is not bool):
+                        raise ValueError("invalid dependency connection")
+                    blockers = []
+                    for node in links["nodes"]:
+                        repository = node["repository"]["nameWithOwner"]
+                        if (not positive_int(node["number"]) or node["state"] not in {"OPEN", "CLOSED"}
+                                or not isinstance(repository, str) or not re.fullmatch(REPOSITORY, repository)):
+                            raise ValueError("invalid graph dependency")
+                        blockers.append(Dependency(repository, node["number"], node["state"].lower()))
+                    # Never truncate a large dependency connection.
+                    graph[number] = self.blocked_by(number) if links["pageInfo"]["hasNextPage"] else blockers
+                page = connection["pageInfo"]
+                if type(page["hasNextPage"]) is not bool:
+                    raise ValueError("invalid graph pagination")
+                if not page["hasNextPage"]:
+                    return graph
+                cursor = page["endCursor"]
+                if not isinstance(cursor, str) or not cursor or cursor in seen:
+                    raise ValueError("invalid graph cursor")
+                seen.add(cursor)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GitHubError("POST", "graphql", "Unreadable GitHub dependency graph") from exc
 
     def blocked_by(self, number):
         endpoint = f"{self.prefix}/issues/{number}/dependencies/blocked_by"
@@ -458,8 +514,8 @@ class GitHub:
         # Commit the index and cursor only after the entire scan completes.
         self._comment_cache.update(comments)
         self._comment_since = cursor
-        # Cached records only discover item numbers. Claims/status reread the
-        # item's comments, so a deleted cached record never supplies authority.
+        # Cached comments invalidate discovery reads. Claims and writes reread
+        # the item, so a deleted cached record never supplies authority.
         return sorted(self._comment_cache.values(), key=lambda comment: comment["id"])
 
     def create_comment(self, number, body):

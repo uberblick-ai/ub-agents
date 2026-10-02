@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- `poll-seconds` is the minimum gap between discovery-pass starts, including
+  after runs. Claiming polls evaluate candidates lazily and reuse unchanged
+  per-item discovery reads in memory, while claims and approval parking still
+  revalidate fresh GitHub input. Cold priority ranking lists dependency links
+  in pages instead of reading every issue separately (#79).
+
 ### Fixed
 
 - Continuous launch waits out GitHub rate limits without charging poll failures or

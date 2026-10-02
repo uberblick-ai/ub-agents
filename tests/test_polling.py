@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.config import Queue, Runtime
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RecordError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop, POLL_FAILURE_LIMIT, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
@@ -20,6 +20,9 @@ from tests.support import stub_refresh, PollGitHub, RecordingRunner, agent, conf
 
 class PollingTests(unittest.TestCase):
     def setUp(self):
+        clock = patch("ub_agents.loop.monotonic", return_value=0)
+        clock.start()
+        self.addCleanup(clock.stop)
         self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -74,7 +77,7 @@ class PollingTests(unittest.TestCase):
 
     def test_failed_reads_through_claim_revalidation_never_write(self):
         cases = [("observe", [], Queue()), ("repository_comments", [], Queue()),
-                 ("comments", [], Queue()), ("comments", [None, None], Queue()),
+                 ("comments", [], Queue()), ("comments", [None], Queue()),
                  ("item", [], Queue()), ("active_milestone", [], Queue(milestones="gate")),
                  ("active_milestone", [None], Queue(milestones="gate")),
                  ("blocked_by", [], Queue()), ("blocked_by", [None], Queue())]
@@ -141,13 +144,13 @@ class PollingTests(unittest.TestCase):
 
         def wait(delay):
             delays.append(delay)
-            if len(delays) == 2:
+            if len(delays) == 3:
                 self.loop.stop_event.set()
 
         with patch("ub_agents.loop.supervise", side_effect=execute), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(delays, [5, 5])
+        self.assertEqual(delays, [5, self.config.poll_seconds, 5])
 
     def test_poll_retries_preserve_item_failures_and_success_resets_them(self):
         lease = self.loop.coordinator.claim(self.loop.plans()[0])
@@ -165,11 +168,13 @@ class PollingTests(unittest.TestCase):
 
         def wait(delay):
             delays.append(delay)
-            self.assertEqual(count(), len(delays))
+            if delay == self.config.poll_seconds:
+                return
+            self.assertEqual(count(), sum(d != self.config.poll_seconds for d in delays))
             if len(delays) == 1:
                 self.assertEqual(self.github.writes, earlier_writes)
             leases = [r for r in self.loop.coordinator.history(1) if r["kind"] == "lease"]
-            self.assertEqual(len(leases), len(delays))
+            self.assertEqual(len(leases), sum(d != self.config.poll_seconds for d in delays))
             self.assertEqual(leases[-1]["result"], "retry")
 
         def execute(*args, **kwargs):
@@ -185,7 +190,7 @@ class PollingTests(unittest.TestCase):
         with patch("ub_agents.loop.supervise", side_effect=execute), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(delays, [5, 5])
+        self.assertEqual(delays, [5, self.config.poll_seconds, 5])
         self.assertEqual(executions, [2, 3])
         self.assertEqual(count(), 0)
 
@@ -230,6 +235,73 @@ class PollingTests(unittest.TestCase):
             self.loop.launch()
         self.assertEqual(delays, [10] * (POLL_FAILURE_LIMIT + 1) + [self.config.poll_seconds])
         self.assertEqual(self.github.writes, [])
+
+    def test_lazy_cached_reads_wait_then_claim_without_parking(self):
+        cases = [("comments", "issue"), ("timeline", "issue"), ("role", "issue"),
+                 ("issue_content", "issue"), ("blocked_by", "issue"),
+                 ("dependency_graph", "issue"), ("item", "pr"),
+                 ("pr_content", "pr"), ("reviews", "pr"), ("review_comments", "pr")]
+        for name, kind in cases:
+            with self.subTest(read=name, kind=kind):
+                self.setUp()
+                item = issue(1) if kind == "issue" else pr(1, body="")
+                self.github.items = {1: item, 2: replace(item, number=2)}
+                queue = Queue(priority=Priority(("urgent", "low"))) if name == "dependency_graph" else Queue()
+                self.loop.config = replace(self.config, agents=(agent(self.root, kind=kind),), queue=queue)
+                self.loop.coordinator.queue = queue
+                limited = GitHubError("GET", name, "secondary rate limit", rate_limited=True,
+                                      reset_at=1012)
+                self.github.read_results[name] = [limited]
+                self.loop.coordinator.clock = lambda: 1000
+
+                def wait(delay):
+                    self.assertEqual(delay, 12)
+                    self.assertEqual(self.github.writes, [])
+
+                with patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
+                        patch("ub_agents.loop.supervise", side_effect=self.finish), \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.loop.launch()
+                waits.assert_called_once_with(12)
+                self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "success")
+                self.assertEqual(sum(line.startswith("GitHub rate limit reached") for line in self.lines), 1)
+                self.assertFalse(any(line.startswith("Skipped") for line in self.lines))
+                self.assertNotIn("needs-human", self.github.items[1].labels)
+                self.assertFalse(any(read in {"item", "comments", "timeline", "issue_content", "pr_content"}
+                                     and args[0] == 2 for read, args in self.github.reads))
+
+    def test_rate_limit_wait_counts_toward_minimum_poll_gap(self):
+        for duration in (12, 40):
+            with self.subTest(duration=duration):
+                self.setUp()
+                self.github.items.clear()
+                self.github.read_results["observe"] = [GitHubError(
+                    "GET", "issues", "rate limited", rate_limited=True, reset_at=1000 + duration)]
+                now, delays, starts = [0], [], []
+                self.loop.coordinator.clock = lambda: 1000 + now[0]
+                tick = self.loop.tick
+
+                def discover():
+                    starts.append(now[0])
+                    if len(starts) == 2:
+                        self.loop.stop_event.set()
+                    return tick()
+
+                def wait(delay):
+                    self.assertEqual(self.github.writes, [])
+                    delays.append(delay)
+                    now[0] += delay
+
+                with patch("ub_agents.loop.monotonic", side_effect=lambda: now[0]), \
+                        patch.object(self.loop, "tick", side_effect=discover), \
+                        patch.object(self.loop.stop_event, "wait", side_effect=wait), \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.loop.launch()
+                self.assertEqual(starts, [0, max(duration, self.config.poll_seconds)])
+                expected = [duration]
+                if duration < self.config.poll_seconds:
+                    expected.append(self.config.poll_seconds - duration)
+                self.assertEqual(delays, expected)
 
     def test_primary_reset_an_hour_away_retries_at_cap_then_waits_for_margin(self):
         primary = self.http_error(403, "X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 4600\n",
@@ -464,6 +536,46 @@ class PollingTests(unittest.TestCase):
         with patch.object(self.loop.stop_event, "wait", side_effect=stop), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), 1)
+
+    def test_pass_start_gap_after_short_and_long_runs_and_idle_polls(self):
+        for worked in (False, True):
+            for duration in (3, 30, 45):
+                with self.subTest(worked=worked, duration=duration):
+                    self.setUp()
+                    self.loop.config = replace(self.config, poll_seconds=30)
+                    clock, starts, waits = [100], [], []
+                    def tick():
+                        starts.append(clock[0])
+                        if len(starts) == 2:
+                            self.loop.stop_event.set()
+                        else:
+                            # Completion/cleanup finish inside tick, before any wait.
+                            clock[0] += duration
+                            self.assertEqual(waits, [])
+                        return worked
+                    def wait(delay):
+                        waits.append(delay)
+                        clock[0] += delay
+                    with patch("ub_agents.loop.monotonic", side_effect=lambda: clock[0]), \
+                            patch.object(self.loop, "tick", side_effect=tick), \
+                            patch.object(self.loop.stop_event, "wait", side_effect=wait), \
+                            self.assertRaises(KeyboardInterrupt):
+                        self.loop.launch()
+                    self.assertEqual(starts, [100, 100 + max(30, duration)])
+                    self.assertEqual(waits, [30 - duration] if duration < 30 else [])
+
+    def test_stop_wakes_gap_wait_after_work(self):
+        self.loop.interrupt_event = threading.Event()
+        with patch.object(self.loop, "tick", return_value=True) as tick, \
+                patch.object(self.loop.stop_event, "wait", side_effect=lambda _: self.loop.stop_event.set()):
+            self.loop.launch()
+        tick.assert_called_once()
+
+    def test_once_never_waits_after_work(self):
+        with patch.object(self.loop, "tick", return_value=True), \
+                patch.object(self.loop.stop_event, "wait") as wait:
+            self.loop.launch(once=True)
+        wait.assert_not_called()
 
     def test_documented_fixed_limits_match_code(self):
         docs = (Path(__file__).resolve().parents[1] / "docs/configuration.md").read_text()

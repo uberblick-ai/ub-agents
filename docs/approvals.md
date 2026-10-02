@@ -53,7 +53,9 @@ Trust comes from `role_name` in GitHub's [collaborator permission API](https://d
 | `triage`, `read`, `none`, unknown | Outside: edits need approval; feedback needs clearance. Outside PR feedback also suspends work. |
 
 An unreadable permission or an unrecognized custom role counts as outside. Roles are
-read for each observation, with repeated accounts cached only within that observation.
+reread before claims and approval-parking writes. Unchanged discovery inputs,
+including readable permissions, are cached per item between polls; repeated
+accounts also share one read within an observation.
 There is no approver list or launcher-account setting. Give every launcher the same
 GitHub account with `write`. `doctor` warns when that account has `maintain` or `admin`,
 because agents could start and approve their own work. An unreadable launcher role
