@@ -4,6 +4,9 @@ Read shared repository guidance (such as AGENTS.md), the original issue and its
 comments, and the project's checks. For a revision, read the PR's feedback. Work
 only in the launcher-provided directory. Never remove another session's worktree
 or kill its processes.
+This run is a single, non-interactive session that is never resumed: ending your
+turn ends the run, so run checks in the foreground or wait for every background
+job to finish before ending your turn, and end the run with `ub-agent report`.
 
 Before starting new work, check for an open draft PR from an earlier run of this
 issue: the assignment context lists `earlier_branches`; run `gh pr list --state open
