@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- `launch` parks open, triggered items whose only pickup obstacle is missing
+  maintainer approval with the configured stop label and one Action needed notice
+  explaining how to start or reapprove them. Repeated polls leave the same gate
+  alone; the next claim minimizes its notice. Parking writes are advisory and
+  `status` remains read-only (#66).
+
 ## 0.1.6 — 2026-10-02
 
 **Upgrading:** agents now work only on issues and PRs that a maintainer (`maintain` or
@@ -17,11 +25,6 @@ needs no coordinated stop: `kill -TERM` each launcher, upgrade, restart.
 
 ### Changed
 
-- `launch` parks open, triggered items whose only pickup obstacle is missing
-  maintainer approval with the configured stop label and one Action needed notice
-  explaining how to start or reapprove them. Repeated polls leave the same gate
-  alone; the next claim minimizes its notice. Parking writes are advisory and
-  `status` remains read-only (#66).
 - The launcher enforces maintainer starts and outside-input approvals for every
   issue and PR run, including preparation. Failed pickup or post-claim checks park
   work without spending attempts; agent context includes only trusted or cleared
