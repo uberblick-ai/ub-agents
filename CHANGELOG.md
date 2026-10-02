@@ -6,12 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
-### Fixed
+## 0.1.4 — 2026-10-02
 
-- `status` shows each agent's owning run's report (or its latest run's report when
-  that agent has no live lease), following recovery leases to the original run.
-  A run that has not reported no longer shows an earlier run's outcome, and a row
-  no longer shows another agent's report (#35).
+**Upgrading:** no configuration edits are required. The launcher now stops on a dirty
+control checkout or one that is off the default branch (#37). To let an existing
+integrator send PRs back, add `changes-requested: {add: [needs-changes]}` to its
+`outcomes` and the matching paragraph from the starter `integrator.md` (#46).
 
 ### Changed
 
@@ -24,7 +24,7 @@ notes are copied from that section.
   unchanged. A changed head, state or trigger before execution counts as a failure and
   retries with backoff (#43).
 - The starter integrator can send a PR back with a `changes-requested` outcome when
-  it conflicts with the base branch or lacks a required changelog entry.
+  it conflicts with the base branch or lacks a required changelog entry (#46).
 
 ### Fixed
 
@@ -33,6 +33,10 @@ notes are copied from that section.
   60 seconds; a usable rate-limit reset within that cap replaces it. The sixth
   consecutive failed poll stops with restart instructions. `launch --once` and
   `status` still stop on the first error (#33).
+- `status` shows each agent's owning run's report (or its latest run's report when
+  that agent has no live lease), following recovery leases to the original run.
+  A run that has not reported no longer shows an earlier run's outcome, and a row
+  no longer shows another agent's report (#35).
 
 ## 0.1.3 — 2026-10-02
 
