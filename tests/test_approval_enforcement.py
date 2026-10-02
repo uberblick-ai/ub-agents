@@ -125,7 +125,8 @@ class EnforcementTests(unittest.TestCase):
         edited = feedback(103, second=2)
         edited['updated_at'] = at(9)
         record = feedback(104, 'maintainer', approval_body(1, 'Requirements', 'Acceptance criteria', [cleared]), 15)
-        self.github.store[1] = [cleared, trusted, unapproved, edited, record]
+        notice = feedback(105, 'operator', '<!-- ub-agent:action-needed old-run -->\nAction needed')
+        self.github.store[1] = [cleared, trusted, unapproved, edited, record, notice]
         def verify(c):
             self.assertEqual([r['id'] for r in c['comments']], [100, 101])
             prompt = self.loop.prompt_for(self.loop.plans()[0], self.loop.coordinator.history(1)[0], c, 'Read GitHub comments')
@@ -366,9 +367,40 @@ class EnforcementTests(unittest.TestCase):
 
     def test_pr_records_reject_wrong_kinds_malformed_heads_and_duplicate_feedback(self):
         raw = approval_body(2, 'Candidate', 'Closes #1', [], head='a' * 40)
+        for invalid in ('[]', 'null', '"text"'):
+            malformed = raw[:raw.index('{')] + invalid + "\n```\n"
+            self.assertIsNone(parse_approval(malformed, 2, 'pr'))
         self.assertIsNone(parse_approval(raw, 2))
         self.assertIsNone(parse_approval(approval_body(2, 'Candidate', 'Closes #1', []), 2, 'pr'))
         self.assertIsNone(parse_approval(raw.replace('a' * 40, 'bad'), 2, 'pr'))
         duplicate = feedback(10)
         self.assertIsNone(parse_approval(approval_body(2, 'Candidate', 'Closes #1', [], head='a' * 40,
                                                      reviews=[duplicate, duplicate]), 2, 'pr'))
+
+    def test_editing_maintainer_review_body_preserves_approval_at_submission(self):
+        self.use_pr()
+        self.start(2, 'needs-changes')
+        review = feedback(100, 'maintainer', 'Approved', 15, state='APPROVED', commit_id='a' * 40)
+        review['updated_at'] = at(25)
+        self.github.review_store[2] = [review]
+        self.assertTrue(check_pr(self.github, 2, {'needs-changes'}).allowed)
+        # Editing review prose is not a new approval of later outside input.
+        self.github.store[2] = [feedback(101, second=20)]
+        self.assertFalse(check_pr(self.github, 2, {'needs-changes'}).allowed)
+
+    def test_unreadable_item_comments_are_parked_without_a_claim(self):
+        self.github.unreadable = True
+        self.assert_parked('unreadable')
+        self.github.unreadable = False
+        self.execute()
+
+    def test_outside_pr_starts_use_union_of_pr_and_either_triggers_only(self):
+        self.use_pr()
+        preparer = replace(self.worker, name='preparer', kind='issue', triggers=('needs-preparation',))
+        reviewer = replace(self.worker, name='reviewer', kind='pr', triggers=('needs-review',))
+        self.loop.config = config(self.root, preparer, reviewer, self.worker)
+        self.start(2, 'needs-preparation')
+        self.approve()
+        self.assertEqual(self.loop.plans()[0].state, 'parked')
+        self.start(2, 'needs-review', second=20)
+        self.execute()

@@ -6,6 +6,7 @@ import json
 import re
 
 from .errors import AgentError
+from .notices import ACTION_MARKER
 from .records import (LEGACY_MARKER, MARKER as COORDINATION_MARKER, lease_by_id,
                       positive_int, records, same_run, seconds)
 
@@ -44,6 +45,8 @@ def parse_approval(body, number, kind="issue"):
         return None
     try:
         record = json.loads(body[len(MARKER) + len("\n\n```json\n"):-len("\n```\n")])
+        if not isinstance(record, dict):
+            return None
         fields = {kind, "content_sha256", "comments"}
         if kind == "pr":
             fields |= {"head_sha", "reviews", "review_comments"}
@@ -146,7 +149,7 @@ def check_pr(github, number, trigger_labels, actor=None):
 
 
 def is_record(comment):
-    return comment["body"].startswith((MARKER, COORDINATION_MARKER, LEGACY_MARKER))
+    return comment["body"].startswith((MARKER, COORDINATION_MARKER, LEGACY_MARKER, ACTION_MARKER))
 
 
 def _check_input(github, number, trigger_labels, kind="issue", actor=None):
@@ -236,11 +239,11 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None):
     if kind == "pr" and roles(content.get("author")) in TRUSTED:
         return verdict(True, "Trusted PR author; outside feedback requires clearance")
     if not starts:
-        return verdict(False, f"No maintainer has applied an {kind} agent's trigger label")
+        article = "an issue" if kind == "issue" else "a PR"
+        return verdict(False, f"No maintainer has applied {article} agent's trigger label")
     if kind == "pr":
         for review in groups["reviews"]:
-            if (roles(review.get("user")) in MAINTAINERS and review["state"] == "APPROVED"
-                    and review["created_at"] == review["updated_at"]):
+            if roles(review.get("user")) in MAINTAINERS and review["state"] == "APPROVED":
                 if not isinstance(review["commit_id"], str) or not re.fullmatch(r"[0-9a-f]{40}", review["commit_id"]):
                     raise ValueError("invalid reviewed head")
                 approving_reviews.append((seconds(review["created_at"]), review["commit_id"]))
@@ -313,13 +316,15 @@ def approve_issue(github, number, actor):
         groups |= {"reviews": github.reviews(number), "review_comments": github.review_comments(number)}
     outside = {name: [c for c in rows if not is_record(c) and roles(c.get("user")) not in TRUSTED]
                for name, rows in groups.items()}
-    print(f"{item.kind.upper()} #{number}: {item.title}\n\n{item.body}")
+    label = "Issue" if item.kind == "issue" else "PR"
+    print(f"{label} #{number}: {item.title}\n\n{item.body}")
     if item.head:
         print(f"\nHead: {item.head}")
     for name, rows in outside.items():
         print(f"\nOutside {name.replace('_', ' ')}:")
         for comment in rows:
-            print(f"\nInput {comment['id']} by @{(comment.get('user') or {}).get('login', 'unknown')}:\n{comment['body']}")
+            label = {"comments": "Comment", "reviews": "Review", "review_comments": "Review comment"}[name]
+            print(f"\n{label} {comment['id']} by @{(comment.get('user') or {}).get('login', 'unknown')}:\n{comment['body']}")
     print("", flush=True)
     # A concurrent edit between displaying input and posting must not be silently approved.
     current = github.item(number)

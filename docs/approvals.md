@@ -16,7 +16,7 @@ recovery finish under their original assignment.
 The post-claim read supplies the agent's title, body and filtered comments; PR
 context also includes the assigned head, reviews and review comments. Trusted and
 maintainer feedback and cleared outside feedback are input. Uncleared or
-later-edited outside feedback, coordination records and approval records are
+later-edited outside feedback, coordination records, launcher notices and approval records are
 excluded. The launcher prompt directs agents to use this context as assignment
 input; other GitHub comments are not input, even when project instructions ask
 agents to read comments. Outside edits during execution do not stop that run or
@@ -104,7 +104,8 @@ latest maintainer approval suspend outside-authored PR work. The latest approval
 is a maintainer trigger label, valid PR approval record or approving review.
 Reapplying a trigger can lift input suspension but cannot approve an unknown head.
 An approving review lifts suspension and approves its commit but does not clear
-outside feedback. Only starts and approval records clear feedback, with separate
+outside feedback. Editing its prose preserves that submission approval and does
+not create a new approval of later outside input. Only starts and approval records clear feedback, with separate
 ID and body-digest lists for comments, reviews and review comments. Editing cleared
 feedback removes its clearance even if its text returns to the approved body.
 

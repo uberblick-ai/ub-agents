@@ -101,6 +101,14 @@ class Loop:
                 plans.extend(Plan(item, a, None, "blocked", str(exc), 1)
                              for a in matched or self.config.agents)
                 continue
+            except AgentError:
+                # Unreadable item input cannot authorize a claim. A transient
+                # coordination failure with readable approval input still fails the poll.
+                approval = self.input_check(item) if matched else None
+                if approval is None or approval.allowed:
+                    raise
+                plans.extend(Plan(item, a, None, "parked", approval.reason, 1) for a in matched)
+                continue
             latest = latest_leases(history)
             for agent in self.config.agents:
                 record = latest.get((item.number, agent.name))

@@ -71,7 +71,8 @@ class FakeGitHub:
         return self.roles.get(login.casefold()) if isinstance(login, str) else None
 
     def timeline(self, number):
-        return deepcopy(self.timelines.get(number, [
+        # General coordination fixtures start authorized; trust tests supply explicit histories.
+        return deepcopy(self.timelines.setdefault(number, [
             {"event": "labeled", "actor": {"login": "maintainer"},
              "label": {"name": label}, "created_at": self.items[number].created_at}
             for label in self.items[number].labels]))

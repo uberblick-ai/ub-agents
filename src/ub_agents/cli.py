@@ -132,6 +132,10 @@ def status_rows(loop):
             history = loop.coordinator.history(plan.item.number)
         except RecordError:
             history = []  # The plan already displays the item's coordination error.
+        except AgentError:
+            if plan.state != "parked" or "unreadable" not in plan.reason:
+                raise
+            history = []  # No authority or attempt count can be recovered from unreadable input.
         active = live_leases(history, timestamp())
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None
