@@ -62,7 +62,8 @@ class Coordinator:
         now = self.clock()
         previous = attempts(history, agent.name, now)
         latest = [r for r in latest_leases(history).values() if r["agent"] == agent.name]
-        finished = [r for r in latest if r["state"] == "released"]
+        finished = [r for r in latest if r["state"] == "released"
+                    or (r.get("result") and r.get("attempt_effect") in {"failure", "unchanged"})]
         attempt = len(previous) + 1
         state, reason = "ready", "Trigger matched"
         runtime = None
@@ -144,11 +145,15 @@ class Coordinator:
         if not latest:
             return None
         lease = latest[-1]
+        if lease.get("result") and lease.get("attempt_effect") in {"failure", "unchanged"}:
+            return None  # A supervised verdict already superseded any early report.
         if lease["state"] not in {"running", "claiming"} or seconds(lease["expires"]) > now:
             return None
         source_id = lease.get("recovered_lease_id", lease["id"])
         source = lease_by_id(history, source_id)
         if source is None or source["state"] not in {"running", "claiming"} or source.get("cleanup") == "unconfirmed":
+            return None
+        if source.get("result") and source.get("attempt_effect") in {"failure", "unchanged"}:
             return None
         matches = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == source_id
                    and same_run(r, source) and seconds(r["created"]) <= seconds(source["expires"])]

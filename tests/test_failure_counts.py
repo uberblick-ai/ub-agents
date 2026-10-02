@@ -237,6 +237,118 @@ class FailureCountTests(unittest.TestCase):
             self.assertFalse(self.loop.tick())
         self.assertFalse(self.loop.coordinator.history(1)[1]['accepted'])
 
+    def test_crash_before_release_preserves_supervised_verdict_over_early_report(self):
+        for ending, count, state in (('interrupt', 0, 'ready'), ('timeout', 1, 'ready'),
+                                     ('unsafe', 1, 'blocked')):
+            for reported in (None, 'success', 'blocked'):
+                with self.subTest(ending=ending, reported=reported):
+                    self.setUp()
+                    def execute(*args, **kwargs):
+                        lease = self.loop.coordinator.history(1)[0]
+                        if reported:
+                            self.loop.coordinator.report(lease, reported, 'Early report',
+                                                         outcome='done' if reported == 'success' else None)
+                        if ending == 'interrupt':
+                            raise KeyboardInterrupt
+                        if ending == 'timeout':
+                            raise RetryableExecutionError('Timeout')
+                        raise AgentError('Unclassified supervision error')
+                    with patch('ub_agents.loop.supervise', side_effect=execute), \
+                            patch.object(self.loop.coordinator, 'release', side_effect=AgentError('Release failed')):
+                        with self.assertRaisesRegex(AgentError, 'Release failed'):
+                            self.loop.tick()
+                    self.now += 61
+                    self.loop = self.restart()
+                    self.assertEqual((self.count(), self.plan().state), (count, state))
+                    history = self.loop.coordinator.history(1)
+                    self.assertIsNone(self.loop.coordinator.pending_completion(history, self.agent.name, self.now))
+                    self.assertFalse(any(r.get('accepted') for r in history))
+                    if state == 'blocked':
+                        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                            self.assertFalse(self.loop.tick())
+
+    def test_unknown_recovery_failure_counts_and_parks_instead_of_recovering_forever(self):
+        source = self.start()
+        self.loop.coordinator.report(source, 'success', 'Reported before crash', outcome='done')
+        self.now += 61
+        with patch.object(self.loop, 'validate_success', side_effect=RuntimeError('Unexpected failure')):
+            self.assertTrue(self.loop.tick())
+        self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
+        self.now += 61
+        self.loop = self.restart()
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+            self.assertFalse(self.loop.tick())
+
+    def test_log_directory_setup_failure_is_a_durable_retry(self):
+        # A file where the run directory belongs makes mkdir fail before execution.
+        (self.root / '.ub-agent').mkdir()
+        (self.root / '.ub-agent' / 'runs').write_text('not a directory')
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+            self.assertTrue(self.loop.tick())
+        self.assertEqual((self.count(), self.plan().state), (1, 'backoff'))
+
+    def test_unexpected_setup_error_is_unsafe_and_parks(self):
+        with patch('ub_agents.loop.Workspace.prepare', side_effect=RuntimeError('Unexpected setup error')):
+            self.assertTrue(self.loop.tick())
+        self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
+
+    def test_invalid_success_increments_on_completion_and_recovery(self):
+        for recovery in (False, True):
+            with self.subTest(recovery=recovery):
+                self.setUp()
+                self.github.items[1] = pr(1)
+                if recovery:
+                    source = self.start()
+                    self.loop.coordinator.report(source, 'success', 'Completed', outcome='done')
+                    self.github.change(1, head='b' * 40)
+                    self.now += 61
+                    self.loop.tick()
+                else:
+                    self.execute('success', change=lambda: self.github.change(1, head='b' * 40))
+                self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
+                self.now += 10000
+                self.loop = self.restart()
+                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                    self.assertFalse(self.loop.tick())
+
+    def test_conflicting_expired_outcomes_count_as_failure_in_status(self):
+        source = self.start()
+        report = self.loop.coordinator.report(source, 'success', 'Reported', outcome='done')
+        self.github.create_comment(1, body(payload(report)))
+        self.now += 61
+        self.assertEqual(self.count(), 1)
+        row = status_rows(self.loop)[0]
+        self.assertEqual((row['state'], row['attempts']), ('blocked', 1))
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+            self.assertFalse(self.loop.tick())
+
+    def test_many_successful_pr_revisions_do_not_exhaust_limit_of_one(self):
+        self.agent = replace(self.agent, max_attempts=1)
+        self.loop = self.restart()
+        self.github.items[1] = pr(1)
+        for revision in range(5):
+            self.github.change(1, labels=frozenset({'needs-changes'}), head=str(revision) * 40)
+            self.loop = self.restart()
+            self.assertEqual((self.plan().state, self.count()), ('ready', 0))
+            self.execute('success')
+            self.assertEqual(self.count(), 0)
+        self.github.change(1, labels=frozenset({'needs-changes'}))
+        self.execute()
+        self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
+
+    def test_accepted_success_resets_before_release_and_recovery_repairs_release(self):
+        self.execute()
+        self.finish_backoff()
+        source = self.start()
+        report = self.loop.coordinator.report(source, 'success', 'Completed', outcome='done')
+        self.loop.finalize(source, self.plan(), report, 'completion')
+        self.assertEqual(self.count(), 0)
+        self.now += 61
+        self.loop = self.restart()
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(self.count(), 0)
+
     def test_legacy_records_keep_start_count_until_cli_reset(self):
         source = self.start()
         legacy = payload(source)

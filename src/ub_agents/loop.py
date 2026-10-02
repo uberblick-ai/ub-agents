@@ -57,7 +57,8 @@ class Loop:
                 try:
                     pending = self.coordinator.pending_completion(history, agent.name, now)
                 except RecordError as exc:
-                    plans.append(Plan(item, agent, None, "blocked", str(exc), 1))
+                    plans.append(Plan(item, agent, None, "blocked", str(exc),
+                                      len(attempts(history, agent.name, now)) + 1))
                     continue
                 if (agent in matched or pending or (record and record["state"] in {"claiming", "running"}
                                                     and seconds(record["expires"]) > now)):
@@ -280,6 +281,12 @@ class Loop:
             summary = str(exc)
             cleanup_workspace()
         delay = backoff(plan.agent, lease["attempt"]) if result == "retry" and effect == "failure" else 0
+        if result != "success":
+            # Persist the supervised verdict before a report/release can crash.
+            # It supersedes early agent reports without relinquishing live ownership.
+            self.coordinator.assert_owned(lease)
+            self.coordinator.update(lease, result=result, summary=summary, attempt_effect=effect,
+                                    retry_after=iso(self.coordinator.clock() + delay) if delay else None)
         # Framework failures are themselves explicit durable outcomes. If GitHub is
         # unreadable, this fails closed and the last lease expires without a lie.
         if outcome is None:
@@ -438,6 +445,13 @@ class Loop:
             except ValidationError as exc:
                 result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
                 effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
+            except (LostOwnership, CleanupError):
+                raise
+            except Exception as exc:
+                # An unclassified recovery failure must not be retried forever.
+                result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
+                self.coordinator.assert_owned(recovery)
+                self.coordinator.update(recovery, result=result, summary=summary, attempt_effect=effect)
         self.coordinator.update(recovery, recovered_run=outcome["run"],
                                 recovered_lease_id=outcome["lease_id"])
         self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")

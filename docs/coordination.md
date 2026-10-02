@@ -187,7 +187,11 @@ never interpreted. Timeouts produce durable retry outcomes after confirmed clean
 Interrupts release with a retry verdict but preserve the failure count and add no
 backoff. Explicit blocked outcomes and exhausted budgets require a
 reasoned operator reset. The lease's released `result` records the launcher's final
-verdict; a reported success with failed validation remains unaccepted. If a timeout
+verdict; a reported success with failed validation remains unaccepted. After
+confirmed cleanup, a nonsuccess verdict and its count effect are persisted before
+reporting or releasing, so a crash in that window cannot promote an early success
+or lose the interrupt classification. The live lease still excludes pickup until
+release or expiry. If a timeout
 or interruption follows an early report, the launcher reconciles that report and
 releases with the supervision failure rather than posting a second outcome or
 accepting the early one. Unconfirmed cleanup is marked on the owned lease when

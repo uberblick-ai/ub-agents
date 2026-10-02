@@ -208,7 +208,8 @@ def attempt_effect(history, lease, now):
                   and r.get("recovered_run") == lease["run"]
                   and (r["assignment"], r["agent"], r["actor"]) ==
                       (lease["assignment"], lease["agent"], lease["actor"])
-                  and (r["state"] == "released" or r.get("cleanup") == "unconfirmed")]
+                  and (r["state"] == "released" or r.get("cleanup") == "unconfirmed"
+                       or (r.get("result") and r.get("attempt_effect") in {"failure", "unchanged"}))]
     verdict = recoveries[-1] if recoveries else lease
     if lease.get("cleanup") == "unconfirmed" or verdict.get("cleanup") == "unconfirmed":
         return "failure"
@@ -217,10 +218,13 @@ def attempt_effect(history, lease, now):
         return effect
     if lease["state"] == "released":
         return "failure"  # A missing final classification is unsafe.
-    if seconds(lease["expires"]) > now:
-        return "pending"
     outcomes = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == lease["id"]
                 and same_run(r, lease) and seconds(r["created"]) <= seconds(lease["expires"])]
+    if (len(outcomes) == 1 and outcomes[0]["status"] == "success"
+            and outcomes[0]["accepted"] and not outcomes[0].get("rejected")):
+        return "reset"
+    if seconds(lease["expires"]) > now:
+        return "pending"
     if len(outcomes) != 1:
         return "failure"  # No report, or conflicting reports.
     outcome = outcomes[0]
