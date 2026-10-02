@@ -1,0 +1,22 @@
+# Experimental only. start replaces ISSUE with an owner-provided issue number.
+repository: uberblick-ai/ub-agents
+queue:
+  milestones: ignore
+agents:
+  docker-spike-implementer:
+    runtime: "codex:gpt-6.1-sol:high"
+    kind: issue
+    trigger: docker-spike-10-ISSUE-ready
+    outcomes:
+      completed: {add: [docker-spike-10-done]}
+    # Bootstrap combines the current base role with this suffix in the clone.
+    instructions: role-suffix.md
+    worktree: true
+    agent-timeout-minutes: 180
+    runtime-args: [--sandbox, danger-full-access]
+limits:
+  max-attempts: 5
+  retry-backoff-seconds: 60
+  max-backoff-seconds: 3600
+poll-seconds: 5
+stop-labels: [docker-spike-10-stop]
