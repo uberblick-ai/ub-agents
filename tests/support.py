@@ -262,6 +262,9 @@ class DoctorGitHub(FakeGitHub):
         self.repository_error = None
         self.label_error = None
         self.label_names = ["ready", "needs-human", "needs-review"]
+        self.quota_headers = {"x-ratelimit-remaining": "5000", "x-ratelimit-limit": "5000",
+                                 "x-ratelimit-reset": "1000"}
+        self.rate_limited = False
         self.metadata = {"full_name": "org/project", "permissions": {"triage": True}}
 
     def actor(self):

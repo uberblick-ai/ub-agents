@@ -83,6 +83,43 @@ agents:
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
 
+    def test_quota_comes_from_real_request_headers_and_warns_below_ten_percent(self):
+        github = GitHub('org/project', self.runner)
+        prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                  'Accept: application/vnd.github+json', '--include')
+        self.runner.responses[prefix + ('repos/org/project',)] = json.dumps(self.github.metadata)
+        self.runner.responses[prefix + ('repos/org/project/labels?per_page=100&page=1',)] = json.dumps(
+            [{'name': name} for name in self.github.label_names])
+        self.runner.responses[prefix + ('repos/org/project/collaborators/operator/permission',)] = (
+            '{"role_name":"write"}')
+        for remaining, status in ((500, 'ok'), (499, 'warn')):
+            with self.subTest(remaining=remaining):
+                self.runner.responses[prefix + ('user',)] = (
+                    f'HTTP/2.0 200 OK\nX-RateLimit-Remaining: {remaining}\n'
+                    'X-RateLimit-Limit: 5000\nX-RateLimit-Reset: 1000\n\n{"login":"operator"}')
+                result = self.diagnose(github=github)
+                check = self.one(result, 'github-rate-limit')
+                self.assertEqual(check['status'], status)
+                self.assertIn(f'{remaining} of 5000 requests remaining', check['message'])
+                self.assertIn('1970-01-01T00:16:40Z (UTC)', check['message'])
+                self.assertTrue(result['ok'])
+        self.assertFalse(any('rate_limit' in command for command, _ in self.runner.calls))
+
+    def test_doctor_warns_when_a_real_request_is_rate_limited(self):
+        github = GitHub('org/project', self.runner)
+        prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                  'Accept: application/vnd.github+json', '--include')
+        response = subprocess.CompletedProcess([], 1,
+            'HTTP/2.0 403 Error\nX-RateLimit-Remaining: 0\nX-RateLimit-Limit: 5000\n'
+            'X-RateLimit-Reset: 1000\n\n{}', 'private stderr')
+        for endpoint in ('user', 'repos/org/project', 'repos/org/project/labels?per_page=100&page=1'):
+            self.runner.responses[prefix + (endpoint,)] = response
+        check = self.one(self.diagnose(github=github), 'github-rate-limit')
+        self.assertEqual(check['status'], 'warn')
+        self.assertIn('0 of 5000 requests remaining', check['message'])
+        self.assertIn('doctor was rate limited', check['message'])
+        self.assertNotIn('private', check['message'])
+
     def test_missing_git_and_gh_continue_and_exit_one(self):
         for name in ("git", "gh"):
             with self.subTest(name=name):

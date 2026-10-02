@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 
-from .errors import AgentError
+from .errors import AgentError, GitHubError, LostOwnership
 from .notices import ACTION_MARKER
 from .records import (LEGACY_MARKER, MARKER as COORDINATION_MARKER, lease_by_id,
                       positive_int, records, same_run, seconds)
@@ -138,7 +138,9 @@ def check_issue(github, number, trigger_labels):
     """
     try:
         return _check_input(github, number, set(trigger_labels))
-    except (AgentError, KeyError, TypeError, ValueError, AttributeError):
+    except (AgentError, KeyError, TypeError, ValueError, AttributeError) as exc:
+        if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and exc.rate_limited):
+            raise
         return ApprovalCheck(False, "Issue approval history is unreadable; retry or ask a maintainer")
 
 
@@ -146,7 +148,9 @@ def check_pr(github, number, trigger_labels, actor=None):
     """PR heads require explicit approval or accepted, eligible agent ancestry."""
     try:
         return _check_input(github, number, set(trigger_labels), "pr", actor or github.actor())
-    except (AgentError, KeyError, TypeError, ValueError, AttributeError):
+    except (AgentError, KeyError, TypeError, ValueError, AttributeError) as exc:
+        if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and exc.rate_limited):
+            raise
         return ApprovalCheck(False, "PR approval history is unreadable; retry or ask a maintainer")
 
 

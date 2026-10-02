@@ -5,10 +5,11 @@ class AgentError(Exception):
 class GitHubError(AgentError):
     """A named request failure, with conservative poll retry metadata."""
 
-    def __init__(self, method, endpoint, detail, *, retryable=False, reset_at=None):
+    def __init__(self, method, endpoint, detail, *, retryable=False, reset_at=None, rate_limited=False):
         super().__init__(f"GitHub {method} {endpoint} failed: {detail}")
         self.retryable = retryable
         self.reset_at = reset_at
+        self.rate_limited = rate_limited
 
 
 class RecordError(AgentError):

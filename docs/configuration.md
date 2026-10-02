@@ -30,20 +30,34 @@ on the **sixth consecutive failed poll**; a completed poll resets the count, inc
 one that finds no work. These values are not configuration keys and are independent
 of agent execution retries under `limits`.
 
-A rate limit counts toward the same failure limit and waits until its explicit
-reset instead of using backoff: `Retry-After` seconds, or `X-RateLimit-Reset` when
-`X-RateLimit-Remaining` is zero. A missing, unreadable or more than 60 seconds away
-reset stops the loop. Authentication, permission, missing repository, malformed
-response and unclassified failures also stop it immediately. The error names the
-request and tells the operator to fix the cause and restart `ub-agent launch`.
+A **403 or 429** is a rate limit when the response has `X-RateLimit-Remaining: 0`,
+`Retry-After`, or GitHub's "API rate limit exceeded" or "secondary rate limit"
+message. Headers on real requests are authoritative; the launcher does not use
+`GET /rate_limit`. Primary limits wait until `X-RateLimit-Reset` plus **5 seconds**
+of margin. Secondary limits wait for `Retry-After` seconds. Missing or unreadable
+wait metadata falls back to **one minute**. Each wait is capped at **one hour**;
+afterward the read is retried, and another rate limit starts another wait.
 
-Each skipped poll prints its error and next delay, makes no GitHub writes and does
-not report an empty queue. Discovery includes fresh reads immediately before a
-claim, including the default-branch read for instruction refresh; the lease comment
-write ends that poll, and failures from that write onward
-retain their existing handling. Ctrl-C and SIGHUP interrupt retry waits with exit
-130; SIGTERM wakes retry waits and exits 0.
-`launch --once` and `status` still fail on their first error.
+Rate limits do not count toward the poll failure limit or an item's attempts.
+Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)`
+and makes no GitHub writes while waiting. Authentication, permission, missing
+repository, malformed response and unclassified failures still stop immediately.
+The error names the request and tells the operator to fix the cause and restart
+`ub-agent launch`.
+
+Each skipped poll for another transient error prints its error and next delay,
+makes no GitHub writes and does not report an empty queue. Discovery includes
+initial authentication and fresh reads immediately before a claim, including the
+default-branch read for instruction refresh. Ctrl-C and SIGHUP interrupt discovery
+waits with exit 130; SIGTERM wakes them and exits 0. `launch --once` and `status`
+still fail on their first discovery error.
+
+From claim election through release, including completion recovery, rate-limited
+reads wait and retry under the active lease. If the wait would reach or outlast
+lease expiry, the launcher takes the lost-ownership path and leaves expiry recovery
+to finish durable completion. SIGTERM continues draining an owned run; Ctrl-C and
+SIGHUP interrupt the wait and follow normal run interruption handling. Rate-limited
+writes retain their existing handling and are not replayed by this retry mechanism.
 
 ## Project cleanup hook
 
@@ -407,7 +421,9 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   are written regardless of the label-creation answer. Each agent includes commented
   permission arguments matching `--runtime`; see [Runtime permissions](#runtime-permissions).
 - `ub-agent check` validates the configuration and instruction files.
-- `ub-agent doctor [--json]` checks everything `check` does, plus Python, the platform,
+- `ub-agent doctor [--json]` reports remaining GitHub requests and the reset time in
+  UTC from real request headers. It warns below 10% remaining and whenever doctor
+  itself is rate limited. It checks everything `check` does, plus Python, the platform,
   `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
   A token that cannot change labels is a required failure, because the launcher
   applies outcome transitions itself. Missing trigger or outcome transition labels

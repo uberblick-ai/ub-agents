@@ -56,8 +56,11 @@ the log is never truncated or rotated. Follow it from another terminal with
 including during a GitHub request.
 
 The continuous loop retries transient GitHub discovery failures with bounded waits.
-See [polling and retry limits](docs/configuration.md#top-level) for the fixed delays,
-failure limit and rate-limit behavior. `launch --once` and `status` fail on the first
+Continuous launch waits out GitHub rate limits without charging poll failures or
+item attempts. Owned runs retry rate-limited reads while the lease permits; writes
+keep their existing handling. `doctor` reports request quota and reset time in UTC,
+warning below 10% remaining. See [polling and retry limits](docs/configuration.md#top-level)
+for the waits and failure limit. `launch --once` and `status` fail on the first
 error.
 
 In an interactive terminal, `init` explains the missing workflow labels and offers

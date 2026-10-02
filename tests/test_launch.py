@@ -151,6 +151,7 @@ class LaunchTests(unittest.TestCase):
                 patch("ub_agents.cli.GitHub", return_value=github), \
                 patch("ub_agents.github.subprocess.run", return_value=
                       subprocess.CompletedProcess([], -signal.SIGINT, "", "")), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
                 redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
