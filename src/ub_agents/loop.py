@@ -7,16 +7,12 @@ from dataclasses import replace
 
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
-from .errors import AgentError, CleanupError, LostOwnership, RecordError, ValidationError
+from .errors import (AgentError, CleanupError, LostOwnership, RecordError,
+                     RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import Workspace, command_for, supervise
 from .github import closing_issues, links_issue
 from .hooks import run_hook
-from .records import attempts, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
-
-
-def backoff(agent, attempt):
-    """Retry delay before the given attempt: the configured base, doubling, capped."""
-    return min(agent.max_backoff_seconds, agent.backoff_seconds * 2 ** min(attempt - 1, 32))
+from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
 
 
 class Loop:
@@ -137,14 +133,16 @@ class Loop:
         if lease is None:
             return False
         run_dir = self.config.root / ".ub-agent" / "runs" / lease["run"]
-        run_dir.mkdir(parents=True, exist_ok=True)
         workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github)
         self.output(f"#{plan.item.number} {plan.agent.name}: claimed {lease['run']} ({lease['runtime']})")
         self.output(f"Logs: {run_dir}")
 
         def diagnostic(event, **details):
-            with (run_dir / "events.jsonl").open("a") as stream:
-                stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
+            try:
+                with (run_dir / "events.jsonl").open("a") as stream:
+                    stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
+            except OSError as exc:
+                self.output(f"Cannot write diagnostic {event}: {exc}")
 
         def record_uncertainty(exc):
             diagnostic("cleanup-unconfirmed", error=str(exc))
@@ -197,18 +195,22 @@ class Loop:
             self.coordinator.assert_owned(lease)
 
         interrupted = False
+        setup = True
+        effect = "failure"
         result, summary = "retry", "Assignment ended without a validated outcome"
         outcome = None
         try:
+            run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, state="running", started=True)
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
             fresh = self.github.item(plan.item.number, plan.item.kind)
-            if (fresh.head != plan.item.head or fresh.state != "open"
-                    or not fresh.labels.intersection(plan.agent.triggers)
+            if (fresh.state != "open" or not fresh.labels.intersection(plan.agent.triggers)
                     or fresh.labels.intersection(self.config.stop_labels)):
-                raise AgentError("Trigger or candidate changed before execution")
+                raise TransitionPaused("Trigger or stop label changed before execution")
+            if fresh.head != plan.item.head:
+                raise ValidationError("Candidate changed before execution")
             self.coordinator.assert_owned(lease)
             context = {"repository": self.config.repository, "assignment": plan.item.number,
                        "kind": plan.item.kind, "title": plan.item.title, "body": plan.item.body,
@@ -225,6 +227,7 @@ class Loop:
                         "UB_AGENT_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))
+            setup = False
             code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
                              plan.agent.timeout_seconds, self.stop_event,
                              self.prompt_for(plan, lease, context) if plan.runtime else None,
@@ -238,6 +241,7 @@ class Loop:
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             elif outcome["status"] != "success":
                 result, summary = outcome["status"], outcome["summary"]
+                effect = "unchanged" if result == "blocked" else "failure"
             elif code != 0:
                 result, summary = "blocked", f"Success report conflicts with execution exit {code}"
             else:
@@ -247,6 +251,7 @@ class Loop:
                     result = "blocked"
                     raise
                 result, summary = "success", outcome["summary"]
+                effect = "reset"
         except CleanupError as exc:
             record_uncertainty(exc)
             raise
@@ -262,12 +267,19 @@ class Loop:
                 # Leave the durable transition pending for expiry recovery.
                 raise
             interrupted = True
+            effect = "unchanged"
             summary = "Launcher interrupted; attributable execution terminated"
             cleanup_workspace()
-        except (AgentError, OSError) as exc:
+        except TransitionPaused as exc:
+            result, summary, effect = "blocked", str(exc), "unchanged"
+            cleanup_workspace()
+        except Exception as exc:
+            result = ("retry" if isinstance(exc, RetryableExecutionError)
+                      or (setup and isinstance(exc, (AgentError, OSError))
+                          and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
             summary = str(exc)
             cleanup_workspace()
-        delay = backoff(plan.agent, lease["attempt"]) if result == "retry" else 0
+        delay = backoff(plan.agent, lease["attempt"]) if result == "retry" and effect == "failure" else 0
         # Framework failures are themselves explicit durable outcomes. If GitHub is
         # unreadable, this fails closed and the last lease expires without a lie.
         if outcome is None:
@@ -276,7 +288,7 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         if outcome is None:
             self.coordinator.report(lease, result, summary)
-        self.coordinator.release(lease, result, summary, delay)
+        self.coordinator.release(lease, result, summary, delay, attempt_effect=effect)
         diagnostic("released", result=result, summary=summary)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if interrupted:
@@ -332,7 +344,8 @@ class Loop:
                 self.validate_success(plan, outcome)
             self.apply_transition(lease, outcome)
         except ValidationError as exc:
-            self.coordinator.update_outcome(lease, outcome, rejected=str(exc))
+            self.coordinator.update_outcome(lease, outcome, rejected=str(exc),
+                                            attempt_effect="unchanged" if isinstance(exc, TransitionPaused) else "failure")
             raise
         except (AgentError, OSError) as exc:
             raise LostOwnership(f"Cannot observe {what}; leave expiry recovery: {exc}") from exc
@@ -364,7 +377,8 @@ class Loop:
 
     def validate_report(self, outcome):
         if outcome.get("rejected"):
-            raise ValidationError(outcome["rejected"])
+            error = TransitionPaused if outcome.get("attempt_effect") == "unchanged" else ValidationError
+            raise error(outcome["rejected"])
         history = self.coordinator.history(outcome["assignment"])
         source = lease_by_id(history, outcome["lease_id"])
         declarations = source.get("outcomes", {}) if source else {}
@@ -385,10 +399,10 @@ class Loop:
         if not transition["started"]:
             stops = set(transition["stop_labels"]).union(self.config.stop_labels)
             if assignment.labels.union(destination.labels).intersection(stops):
-                raise ValidationError("Transition paused: a stop label is on the assignment or handoff PR; "
+                raise TransitionPaused("Transition paused: a stop label is on the assignment or handoff PR; "
                                       "set workflow labels manually or use ub-agent retry after unpausing")
             if not assignment.labels.intersection(transition["triggers"]):
-                raise ValidationError("Transition blocked: assignment trigger disappeared before label changes")
+                raise TransitionPaused("Transition blocked: assignment trigger disappeared before label changes")
             # Persist intent before the first mutation. Recovery must not mistake
             # our own trigger removal or human-gate addition for external pausing.
             self.coordinator.update_outcome(lease, outcome, transition=transition | {"started": True})
@@ -414,19 +428,24 @@ class Loop:
         if recovery is None:
             return False
         result, summary = outcome["status"], outcome["summary"]
+        effect = "unchanged" if result == "blocked" else "failure"
         if result == "success":
             # Validate against the originally assigned candidate, not today's head.
             original = replace(plan, item=replace(plan.item, head=outcome["assignment_sha"]))
             try:
                 self.finalize(recovery, original, outcome, "recovered completion")
+                effect = "reset"
             except ValidationError as exc:
                 result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
+                effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
         self.coordinator.update(recovery, recovered_run=outcome["run"],
                                 recovered_lease_id=outcome["lease_id"])
         self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
         # Expiry permits recovery; it is not positive proof of the old process's death.
-        delay = backoff(plan.agent, max(1, plan.attempt - 1)) if result == "retry" else 0
-        self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay)
+        failures = len(attempts(self.coordinator.history(plan.item.number), plan.agent.name, self.coordinator.clock()))
+        delay = backoff(plan.agent, max(1, failures)) if result == "retry" else 0
+        self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
+                                 attempt_effect=effect)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 

@@ -143,6 +143,8 @@ def validate(record):
         if value is not None and (not isinstance(value, str) or not value):
             raise ValueError(f"invalid {field}")
     seconds(record["created"])
+    if "attempt_effect" in record and record["attempt_effect"] not in {"pending", "failure", "reset", "unchanged"}:
+        raise ValueError("invalid attempt effect")
     if record.get("kind") == "lease":
         if record.get("state") not in LEASE_STATES:
             raise ValueError("invalid lease state")
@@ -199,10 +201,60 @@ def live_leases(history, now):
             and r["state"] in {"claiming", "running"} and seconds(r["expires"]) > now]
 
 
+def attempt_effect(history, lease, now):
+    """Resolve a new run's verdict, including recovery, without rewriting its lease."""
+    recoveries = [r for r in history if r["kind"] == "lease"
+                  and r.get("recovered_lease_id") == lease["id"]
+                  and r.get("recovered_run") == lease["run"]
+                  and (r["assignment"], r["agent"], r["actor"]) ==
+                      (lease["assignment"], lease["agent"], lease["actor"])
+                  and (r["state"] == "released" or r.get("cleanup") == "unconfirmed")]
+    verdict = recoveries[-1] if recoveries else lease
+    if lease.get("cleanup") == "unconfirmed" or verdict.get("cleanup") == "unconfirmed":
+        return "failure"
+    effect = verdict.get("attempt_effect", "pending")
+    if effect != "pending":
+        return effect
+    if lease["state"] == "released":
+        return "failure"  # A missing final classification is unsafe.
+    if seconds(lease["expires"]) > now:
+        return "pending"
+    outcomes = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == lease["id"]
+                and same_run(r, lease) and seconds(r["created"]) <= seconds(lease["expires"])]
+    if len(outcomes) != 1:
+        return "failure"  # No report, or conflicting reports.
+    outcome = outcomes[0]
+    if outcome.get("rejected"):
+        return outcome.get("attempt_effect", "failure")
+    if outcome["status"] == "success":
+        return "reset" if outcome["accepted"] else "pending"
+    return "failure" if outcome["status"] == "retry" else "unchanged"
+
+
 def attempts(history, agent, now):
-    # Count all starts across PR revisions. An expired tentative claim is conservative
-    # crash evidence; confirmed withdrawals and outcome-only recovery cost no start.
-    boundary = max((r["id"] for r in history if r["kind"] == "reset" and r["agent"] == agent), default=0)
-    return [r for r in history if r["id"] > boundary and r["kind"] == "lease" and r["agent"] == agent
-            and r["state"] != "withdrawn" and r.get("mode") != "recovery"
-            and (r["started"] or (r["state"] == "claiming" and seconds(r["expires"]) <= now))]
+    """Consecutive failures per assignment/agent; retain old records' start semantics."""
+    failures = {}
+    for record in history:
+        if record["agent"] != agent:
+            continue
+        current = failures.setdefault(record["assignment"], [])
+        if record["kind"] == "reset":
+            current.clear()
+        elif (record["kind"] == "lease" and record["state"] != "withdrawn"
+              and record.get("mode") != "recovery"):
+            if "attempt_effect" not in record:
+                # Earlier versions charged starts; explicit retry clears those records.
+                if record["started"] or (record["state"] == "claiming" and seconds(record["expires"]) <= now):
+                    current.append(record)
+                continue
+            effect = attempt_effect(history, record, now)
+            if effect == "reset":
+                current.clear()
+            elif effect == "failure":
+                current.append(record)
+    return sorted((r for group in failures.values() for r in group), key=lambda r: r["id"])
+
+
+def backoff(agent, failures):
+    """Delay after a failure: configured base, doubling with consecutive failures."""
+    return min(agent.max_backoff_seconds, agent.backoff_seconds * 2 ** min(max(0, failures - 1), 32))

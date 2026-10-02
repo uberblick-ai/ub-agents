@@ -7,7 +7,7 @@ import uuid
 from .config import Agent, Queue, Runtime
 from .errors import AgentError, LostOwnership, RecordError
 from .github import Item
-from .records import (MARKER, attempts, body, iso, latest_leases, lease_by_id, live_leases,
+from .records import (MARKER, attempts, backoff, body, iso, latest_leases, lease_by_id, live_leases,
                       own_comment, payload, records, same_run, seconds, timestamp)
 
 
@@ -86,6 +86,10 @@ class Coordinator:
             state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agent retry"
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
             state, reason = "backoff", "Durable retry backoff has not elapsed"
+        elif (latest and latest[-1].get("attempt_effect") == "pending" and previous
+              and latest[-1]["id"] == previous[-1]["id"]
+              and seconds(latest[-1]["expires"]) + backoff(agent, len(previous)) > now):
+            state, reason = "backoff", "Expired run has no outcome; durable retry backoff has not elapsed"
         else:
             try:
                 runtime = self.choose_runtime(item, agent, history)
@@ -203,7 +207,8 @@ class Coordinator:
                   "triggers": sorted(current.labels.intersection(plan.agent.triggers)),
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
-                  "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False}
+                  "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False,
+                  "attempt_effect": "pending"}
         if not recovery:
             record["outcomes"] = {
                 name: {"add": list(changes["add"]),
@@ -249,15 +254,20 @@ class Coordinator:
             raise LostOwnership("Assignment ownership was lost or expired")
         return contenders[0]
 
-    def release(self, lease, result, summary, backoff=0):
+    def release(self, lease, result, summary, backoff=0, attempt_effect=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         if reported and (reported["status"], reported["summary"]) == (result, summary):
             summary = None  # The outcome comment already says it.
         now = self.clock()
+        if attempt_effect is None:
+            attempt_effect = ("reset" if result == "success" and reported and reported["accepted"]
+                              else "unchanged" if result == "blocked" and reported
+                              and reported["status"] == "blocked" else "failure")
         # A released lease expires now; retry_after is only needed for a backoff.
+        changes = {"attempt_effect": attempt_effect} if "attempt_effect" in lease else {}
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
-                    retry_after=iso(now + backoff) if backoff else None)
+                    retry_after=iso(now + backoff) if backoff else None, **changes)
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])

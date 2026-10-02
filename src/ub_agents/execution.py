@@ -7,7 +7,7 @@ import signal
 import subprocess
 import time
 
-from .errors import AgentError, CleanupError, LostOwnership
+from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 
 
 def command_for(agent, runtime):
@@ -182,7 +182,7 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
                 stdin=stdin if prompt is not None else subprocess.DEVNULL,
                 stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         except OSError as exc:
-            raise AgentError(f"Cannot start configured execution: {exc}") from exc
+            raise RetryableExecutionError(f"Cannot start configured execution: {exc}") from exc
         deadline = time.monotonic() + timeout
         try:
             (run_dir / "pid").write_text(str(process.pid))
@@ -192,7 +192,7 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
                 if stop_event.is_set():
                     raise KeyboardInterrupt
                 if time.monotonic() >= deadline:
-                    raise AgentError(f"Execution timed out after {timeout:g} seconds")
+                    raise RetryableExecutionError(f"Execution timed out after {timeout:g} seconds")
                 # The lease expires by wall clock; monotonic time pauses while a machine sleeps.
                 if expires is not None and time.time() >= expires:
                     raise LostOwnership("Local lease deadline expired")

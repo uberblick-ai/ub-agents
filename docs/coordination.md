@@ -15,17 +15,42 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   shares an issue run's branch: while either side is live or its cleanup is
   unconfirmed, the other waits. This first implementation is serial, including
   recovery. Different machines cooperate.
-- Attempts are scoped to **item number + configured agent**. Every started run
-  counts, including successful revisions; PR head/label changes do not reset the
-  budget. Issue-to-PR handoff starts the PR's own budget while retaining source
-  provenance. A crashed expired tentative claim counts conservatively. A contender
-  that confirms withdrawal does not. Outcome-only recovery does not cost a start.
+- `max-attempts` limits **consecutive failures** scoped to **item number +
+  configured agent**. An issue and its handoff PR have separate counts, as do
+  different agents on one item. PR head/label changes alone do not reset a count.
+  `ub-agent status` reports this count in its existing `attempts` field.
 - A successful outcome's transition removes the agent's triggers, so an item runs
-  again only when a human reapplies one. PRs returning to a matching label run a
-  new assignment with the accumulated PR budget. Reapplying a trigger does not
-  reset that budget.
-- `ub-agent retry --number N --agent NAME --reason TEXT` posts a durable reset,
-  preserving history. It refuses a live lease and never revokes someone else's run.
+  again only when a human reapplies one. An accepted success resets that agent's
+  count on that item, including a resumed or revised PR and outcome-only recovery.
+- `ub-agent retry --number N --agent NAME --reason TEXT` resets that count to 0 and
+  clears its parked state and backoff, preserving history. It refuses a live lease
+  and never revokes someone else's run. It does not restore workflow labels.
+
+| How a run ends | Count | Afterwards |
+|---|---|---|
+| Accepted success at completion or through outcome-only recovery | Reset to 0 | Normal transition |
+| Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
+| Agent reports `--status blocked`; transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
+| Crash before a report (expired lease without an outcome), timeout, exit 0 without a report, `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
+| Invalid or rejected success report, nonzero exit without a report, unconfirmed cleanup, or unclassified failure | +1 | Parked for a human; never retried automatically |
+
+A human pause takes precedence over the rejected-success rule when it is the
+reason a transition cannot start. Confirmed claim withdrawals cost nothing.
+An expired tentative claim without a report counts as a crash. Outcome-only
+recovery claims cost nothing; the source run counts according to its recorded
+outcome and the recovery verdict, once, even after repeated recovery crashes.
+Pending success validation does not charge a failure before a verdict is known.
+
+Retry backoff doubles with the consecutive failure count, capped at
+`max-backoff-seconds`. The first failure after a success or reset waits
+`retry-backoff-seconds`. For a crash without a report, the delay starts at lease
+expiry; otherwise it starts at release after confirmed cleanup. An interrupt
+preserves prior failures but adds no delay of its own.
+
+New leases record an `attempt_effect` (`pending`, `failure`, `reset` or `unchanged`)
+so restart discovery distinguishes human pauses and interrupts from failures.
+Records written by earlier versions retain their original start-count semantics;
+this change does not reclassify them. Use `ub-agent retry` to clear them.
 
 ## Selection order
 
@@ -66,9 +91,9 @@ the loop; they never become an empty queue.
 | YAML setting | Default | Meaning |
 |---|---:|---|
 | `agent-timeout-minutes` | 180 | Runtime process execution deadline; the lease lasts this plus fifteen minutes and any cleanup hook timeout |
-| `retry-backoff-seconds` | 60 | Initial retry delay after confirmed termination |
+| `retry-backoff-seconds` | 60 | Initial retry delay after failure release or unreported lease expiry |
 | `max-backoff-seconds` | 3600 | Cap on exponential retry delay |
-| `max-attempts` | 5 | Durable starts allowed per item/agent |
+| `max-attempts` | 5 | Consecutive failures allowed per item/agent before pickup stops |
 
 Every setting can be overridden on an agent. Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
 scan may take longer overall. Git operations are bounded to 120 seconds.
@@ -158,8 +183,9 @@ it to the handoff PR, and release.
 
 Exit zero without an outcome is a protocol failure and a bounded retry. Nonzero
 without an explicit retry outcome blocks for operator attention; stderr prose is
-never interpreted. Timeouts and interruptions produce durable retry outcomes after
-confirmed cleanup. Explicit blocked outcomes and exhausted budgets require a
+never interpreted. Timeouts produce durable retry outcomes after confirmed cleanup.
+Interrupts release with a retry verdict but preserve the failure count and add no
+backoff. Explicit blocked outcomes and exhausted budgets require a
 reasoned operator reset. The lease's released `result` records the launcher's final
 verdict; a reported success with failed validation remains unaccepted. If a timeout
 or interruption follows an early report, the launcher reconciles that report and
@@ -187,8 +213,8 @@ authority.
 Discovery follows the latest non-withdrawn lease after the last reset for each
 item and agent. A released retry or blocked result, or an expired run without an
 outcome, stays visible as blocked on closed or unlabelled items; a missing trigger
-never authorizes reexecution. A later released success supersedes older crashed
-runs without resetting attempt history. Failed scans stop visibly.
+never authorizes reexecution. A later accepted success supersedes older crashed
+runs and resets the consecutive failure count. Failed scans stop visibly.
 
 An expired, unfinished lease whose outcome was reported within its validity window
 gets outcome-only recovery: a bounded recovery claim that names the recovered run

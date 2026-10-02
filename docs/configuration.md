@@ -242,8 +242,8 @@ attempt.
 | Key | Default | Meaning |
 |---|---|---|
 | `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim is recoverable only after the lease expires, so projects with long runs may prefer shorter per-agent timeouts. |
-| `max-attempts` | 5 | Runs per item and agent before the item stops. |
-| `retry-backoff-seconds` | 60 | First retry delay; it doubles with each attempt. |
+| `max-attempts` | 5 | Consecutive failures per item and agent before pickup stops. |
+| `retry-backoff-seconds` | 60 | First failure retry delay; doubles with consecutive failures and restarts after success or reset. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
 
 ## Built-in runtimes
@@ -340,10 +340,10 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
-- `ub-agent status [--json]` shows matching work, claims, attempts and outcomes.
+- `ub-agent status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
 - `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
-- `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's attempts on
+- `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
   an item once you have fixed the cause.
 - `--config PATH` selects a different configuration file.
