@@ -54,6 +54,7 @@ agents:
     outcomes:
       merged: {}
       maintainer-merge: {add: [needs-human]}
+      changes-requested: {add: [needs-changes]}
     instructions: .agents/integrator.md
     worktree: true
     agent-timeout-minutes: 180

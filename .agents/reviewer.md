@@ -13,7 +13,8 @@ This project requires independent cross-provider review: the launcher runs you o
 different CLI and model from the implementer of this candidate. Changing
 effort or resetting the author's conversation does not establish independent review.
 
-Apply any review focus the shared guidance names. Never edit the candidate to fix it
+If the project keeps a changelog, a missing or inaccurate entry for a user-facing change
+is a required correction. Apply any review focus the shared guidance names. Never edit the candidate to fix it
 during review. Publish a GitHub COMMENT review (`gh pr review --comment`) naming the
 assigned SHA, with concrete findings and the checks you ran. Report changes-requested
 for required corrections, or approved if the project's acceptance criteria pass.
