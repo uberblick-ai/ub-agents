@@ -15,6 +15,14 @@ errors; `ub-agent check` validates the file.
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
+`ub-agent launch`, including `--once`, appends stdout and stderr to
+`.ub-agent/launch.log` in the control checkout. Every file line starts with a UTC
+ISO 8601 timestamp; terminal text stays unchanged. Each line is flushed immediately
+to both destinations, including the final stop or error message. The log is never
+truncated or rotated. Use `tail -f .ub-agent/launch.log` to follow the loop from
+another terminal. Ctrl-C, including during a GitHub request, prints
+`Stopped; supervised execution terminated` and exits with status 130.
+
 Continuous `ub-agent launch` retries failed discovery polls for request timeouts,
 connection failures and HTTP 5xx responses. The fixed backoff starts at **5 seconds**,
 doubles after each consecutive failure and caps at **60 seconds**. The launcher stops
@@ -297,7 +305,9 @@ recorded transition completes, parking the item for subsequent pickup.
 The outcome records its name, resolved changes and a start marker, so an
 interrupted transition is finished from that record by
 [recovery](coordination.md#recovery) without rerunning the role or spending an
-attempt.
+attempt. An interrupt while reading or finalizing a completed run leaves its lease
+live for expiry recovery, preserving the agent's report even when the interrupted
+request may already have written the transition start marker.
 
 ## Limits
 

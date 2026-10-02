@@ -1,6 +1,7 @@
 """The standalone ub-agent command. No Uberblick imports or workspace services."""
 
 import argparse
+from contextlib import ExitStack
 from importlib.resources import files
 import json
 import os
@@ -17,6 +18,7 @@ from .errors import AgentError, RecordError
 from .execution import repository_checks
 from .github import GitHub
 from .loop import Loop, _GracefulStop
+from .launch_log import launch_output
 from .labels import provision_labels
 from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
 
@@ -257,11 +259,15 @@ def run(args):
 
 
 def main(argv=None):
-    try:
-        return run(parser().parse_args(argv)) or 0
-    except KeyboardInterrupt:
-        print("Stopped; supervised execution terminated", file=sys.stderr)
-        return 130
-    except (AgentError, OSError) as exc:
-        print(f"ub-agent: {exc}", file=sys.stderr)
-        return 1
+    with ExitStack() as stack:
+        try:
+            args = parser().parse_args(argv)
+            if args.command == "launch":
+                stack.enter_context(launch_output(Path(args.config).resolve().parent))
+            return run(args) or 0
+        except KeyboardInterrupt:
+            print("Stopped; supervised execution terminated", file=sys.stderr)
+            return 130
+        except (AgentError, OSError) as exc:
+            print(f"ub-agent: {exc}", file=sys.stderr)
+            return 1

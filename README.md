@@ -48,6 +48,13 @@ Upgrade with `brew upgrade ub-agents`. Before upgrading, check the
 [changelog](CHANGELOG.md) and [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases)
 for any required configuration edits.
 
+Launch output is flushed immediately to the terminal and appended to
+`.ub-agent/launch.log` in the control checkout, with a UTC timestamp on each file
+line, including stop and error messages. This also applies to `launch --once`;
+the log is never truncated or rotated. Follow it from another terminal with
+`tail -f .ub-agent/launch.log`. Ctrl-C exits with status 130 and reports a stop,
+including during a GitHub request.
+
 The continuous loop retries transient GitHub discovery failures with bounded waits.
 See [polling and retry limits](docs/configuration.md#top-level) for the fixed delays,
 failure limit and rate-limit behavior. `launch --once` and `status` fail on the first
@@ -231,7 +238,8 @@ validated and its label transition finished without rerunning the role.
 `max-attempts` limits consecutive failures per item and configured agent. Accepted
 success resets the count, including outcome-only recovery and PR revisions. An
 operator interrupt preserves the count and allows pickup on the next launch without
-backoff. Agent-reported `blocked` outcomes and human-paused transitions preserve the
+backoff. An interrupt during completion leaves the reported outcome for expiry
+recovery. Agent-reported `blocked` outcomes and human-paused transitions preserve the
 count and park the item. Crashes without a report, timeouts, exits without a report
 (zero or nonzero), setup failures and agent-reported `retry` increment it and retry
 with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures

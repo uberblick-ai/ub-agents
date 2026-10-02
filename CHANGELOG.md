@@ -6,12 +6,18 @@ notes are copied from that section.
 
 ## Unreleased
 
-**Upgrading:** stop every launcher for a project and upgrade them together before
-restarting. Older launchers ignore the new v2 coordination records, so a mixed
-fleet can claim and run an item that an upgraded launcher already owns (#44).
+## 0.1.5 — 2026-10-02
+
+**Upgrading:** no configuration edits are required. Stop every launcher for a project
+and upgrade them together before restarting: older launchers ignore the new v2
+coordination records, so a mixed fleet can claim and run an item that an upgraded
+launcher already owns (#44). A 0.1.4 launcher has no graceful stop, so stop it
+between runs. From 0.1.5, `kill -TERM` lets the current run finish and exits 0 (#52).
 
 ### Added
 
+- `launch` appends stdout and stderr to `.ub-agent/launch.log` with UTC timestamps,
+  flushing each line to both the terminal and file, including for `--once` (#55).
 - Repository-role issue approval checks, maintainer starts and content-bound approval
   records that reject ambiguous body revisions; `ub-agent approve --number N` reviews
   current input and clears outside comments. `doctor` warns when the launcher account
@@ -45,6 +51,9 @@ fleet can claim and run an item that an upgraded launcher already owns (#44).
 
 ### Fixed
 
+- Ctrl-C during a GitHub request reports a stop with exit status 130 instead of a
+  GitHub or retry failure, preserving reported outcomes for expiry recovery when
+  completion is interrupted and still running cleanup hooks (#55).
 - Nonzero exits without a report retry with backoff up to `max-attempts`. A report
   made before a nonzero exit is validated and applied normally, preserving label
   transitions and accepted handoff provenance; the exit code is logged (#42).
