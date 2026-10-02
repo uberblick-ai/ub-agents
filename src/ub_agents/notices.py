@@ -3,6 +3,7 @@
 import json
 import socket
 
+from .errors import LostOwnership
 from .records import own_comment, records
 
 ACTION_MARKER = "<!-- ub-agent:action-needed "
@@ -16,6 +17,8 @@ class Notices:
     def advisory(self, operation, action):
         try:
             return action()
+        except LostOwnership:
+            raise
         except Exception as exc:
             self.output(f"Advisory {operation} failed: {' '.join(str(exc).split())}")
             return None

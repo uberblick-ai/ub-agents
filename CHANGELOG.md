@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Fixed
+
+- Continuous launch waits out GitHub rate limits without charging poll failures or
+  item attempts. Rate-limited reads from claim through release and recovery retry
+  while the lease permits, with interruptible waits capped at one hour. `doctor`
+  reports request quota and reset time from real response headers and warns below
+  10% remaining or when rate limited itself (#80).
+
 ## 0.1.7 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,

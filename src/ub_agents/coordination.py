@@ -29,11 +29,12 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print):
+    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
+        self.on_claim = on_claim
         self.notices = Notices(github, actor, output)
 
     def history(self, number):
@@ -297,6 +298,8 @@ class Coordinator:
         if before_write is not None:
             before_write()
         created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
+        if self.on_claim is not None:
+            self.on_claim(created)
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.

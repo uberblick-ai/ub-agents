@@ -33,25 +33,33 @@ def response_parts(output):
     return int(match[1]), headers, payload
 
 
+RATE_LIMIT_MARGIN_SECONDS = 5
+RATE_LIMIT_FALLBACK_SECONDS = 60
+RATE_LIMIT_MAX_SECONDS = 3600
+
+
+def is_rate_limit(status, headers, detail):
+    message = detail.lower()
+    return status in {403, 429} and (
+        headers.get("x-ratelimit-remaining") == "0" or "retry-after" in headers
+        or "api rate limit exceeded" in message or "secondary rate limit" in message)
+
+
 def failure_retry(status, headers, detail):
-    """Only known transport/server errors and explicit rate-limit resets retry."""
-    rate_limited = (status == 429 or (status == 403 and
-                    (headers.get("x-ratelimit-remaining") == "0"
-                     or "rate limit" in detail.lower())))
-    if rate_limited:
+    """Known rate limits, transport failures and server errors may retry."""
+    if is_rate_limit(status, headers, detail):
         try:
-            if "retry-after" in headers:
-                delay = float(headers["retry-after"])
-                if not math.isfinite(delay) or delay < 0:
-                    return False, None
-                reset = timestamp() + delay
-            elif headers.get("x-ratelimit-remaining") == "0":
+            if headers.get("x-ratelimit-remaining") == "0" or "api rate limit exceeded" in detail.lower():
                 reset = float(headers["x-ratelimit-reset"])
-            else:
-                return False, None
-            return (True, reset) if math.isfinite(reset) and reset > 0 else (False, None)
+                if not math.isfinite(reset) or reset <= 0:
+                    raise ValueError("invalid reset")
+                return True, reset + RATE_LIMIT_MARGIN_SECONDS
+            delay = float(headers["retry-after"])
+            if not math.isfinite(delay) or delay < 0:
+                raise ValueError("invalid retry-after")
+            return True, timestamp() + delay
         except (KeyError, ValueError, OverflowError):
-            return False, None
+            return True, timestamp() + RATE_LIMIT_FALLBACK_SECONDS
     if status is not None and status >= 400:
         return 500 <= status <= 599, None
     transport = re.search(r"dial tcp|connection (?:refused|reset)|network is unreachable|"
@@ -146,6 +154,8 @@ class GitHub:
         self.runner = runner
         self.repository = repository
         self.prefix = f"repos/{repository}"
+        self.quota_headers = {}
+        self.rate_limited = False
         self._comment_cache = {}
         self._comment_since = None
 
@@ -186,10 +196,16 @@ class GitHub:
             status, headers, payload = response_parts(result.stdout)
         except ValueError as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        # GraphQL has its own quota; doctor reports the REST account quota.
+        if endpoint != "graphql" and "x-ratelimit-remaining" in headers:
+            self.quota_headers = headers
+        self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
-            retryable, reset_at = failure_retry(status, headers, detail)
-            error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at)
+            limited = is_rate_limit(status, headers, detail + " " + payload)
+            retryable, reset_at = failure_retry(status, headers, detail + " " + payload if limited else detail)
+            error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at,
+                                rate_limited=limited)
             error.probe_reason = f"exit {result.returncode}"
             raise error
         if method == "DELETE" and not payload.strip():
@@ -214,7 +230,9 @@ class GitHub:
             return None
         try:
             raw = self.request(f"{self.prefix}/collaborators/{quote(login, safe='')}/permission")
-        except AgentError:
+        except AgentError as exc:
+            if isinstance(exc, GitHubError) and exc.rate_limited:
+                raise
             return None
         role = raw.get("role_name")
         return role if isinstance(role, str) and role in {"admin", "maintain", "write", "triage", "read", "none"} else None

@@ -243,9 +243,18 @@ strict consistency, instantaneous loss detection, or write fencing. Other launch
 and runtimes must obey the contract. Clocks must be reasonably synchronized.
 
 Expired leases are never resurrected. Ownership is reread before every durable
-write; a failed ownership read stops the run, and the launcher does not report,
+write; an ownership read that fails after applicable rate-limit waits stops the
+run, and the launcher does not report,
 accept, or release after losing ownership. Between observations, an agent with
 GitHub credentials can still write: comments cannot prevent this.
+
+GitHub rate limits during claim election, ownership checks and completion reads
+(including recovery) wait and retry without treating the limit as changed ownership.
+Waits use real response headers and the [rate-limit rules](configuration.md#top-level).
+A wait that would reach or outlast the active lease expiry instead takes the usual
+lost-ownership path: no further coordination writes, followed by expiry recovery.
+SIGTERM keeps draining the run; Ctrl-C and SIGHUP interrupt waits through the
+existing run interruption path. Rate-limited writes keep their existing handling.
 
 ## Draft checkpoints
 

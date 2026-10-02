@@ -13,7 +13,8 @@ from .dependencies import Dependencies
 from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import Workspace, command_for, repository_checks, supervise
-from .github import closing_issues, links_issue
+from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
+from .rate_limits import RateLimitReads
 from .hooks import run_hook
 from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
 from .refresh import refresh_checkout, refresh_instructions
@@ -35,8 +36,9 @@ class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print,
                  config_path=None, interrupt_event=None):
         self.config = config
-        self.github = github
-        self.coordinator = Coordinator(github, actor, queue=config.queue, output=output)
+        self.github = RateLimitReads(github, self.wait_rate_limit)
+        self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
+                                       on_claim=self.github.claimed)
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
@@ -45,6 +47,24 @@ class Loop:
         self._released_blockers = {}
         self._poll_complete = False
         self._refreshing_checkout = False
+
+    def wait_rate_limit(self, error, lease=None):
+        now = self.coordinator.clock()
+        reset = error.reset_at if error.reset_at is not None else now + RATE_LIMIT_FALLBACK_SECONDS
+        delay = min(RATE_LIMIT_MAX_SECONDS, max(0, reset - now))
+        if lease is not None and now + delay >= seconds(lease["expires"]):
+            raise LostOwnership(f"Cannot establish ownership before lease expiry: {error}") from error
+        self.output(f"GitHub rate limit reached; waiting until {iso(now + delay)} ({delay / 60:g} min)")
+        # SIGTERM wakes discovery, but an owned run keeps draining. Only Ctrl-C
+        # and SIGHUP wake the in-run wait.
+        event = self.interrupt_event if lease is not None else self.stop_event
+        event.wait(delay)
+        if self.interrupt_event.is_set():
+            raise KeyboardInterrupt
+        if lease is not None and self.coordinator.clock() >= seconds(lease["expires"]):
+            raise LostOwnership("Lease expired while waiting for GitHub rate limit reset")
+        if lease is None and self.stop_event.is_set():
+            raise _GracefulStop
 
     def stop_gracefully(self):
         if self.interrupt_event.is_set():
@@ -101,7 +121,9 @@ class Loop:
                 plans.extend(Plan(item, a, None, "blocked", str(exc), 1)
                              for a in matched or self.config.agents)
                 continue
-            except AgentError:
+            except AgentError as exc:
+                if isinstance(exc, GitHubError) and exc.rate_limited:
+                    raise
                 # Unreadable item input cannot authorize a claim. A transient
                 # coordination failure with readable approval input still fails the poll.
                 approval = self.input_check(item) if matched else None
@@ -244,6 +266,12 @@ class Loop:
         self.coordinator.notices.approval(current.number, approval, self.config.stop_labels, triggers)
 
     def execute(self, plan):
+        try:
+            return self._execute(plan)
+        finally:
+            self.github.lease = None
+
+    def _execute(self, plan):
         # Between supervised runs and cleanup hooks, before any assignment writes.
         # Refresh errors belong to the operator, not to an assignment attempt.
         self._refreshing_checkout = True
@@ -286,6 +314,8 @@ class Loop:
         try:
             fresh = self.github.item(plan.item.number, plan.item.kind)
             approval = self.input_check(fresh)
+        except LostOwnership:
+            raise
         except AgentError:
             approval = ApprovalCheck(False, "Assignment approval history is unreadable; retry or ask a maintainer")
         if not approval.allowed:
@@ -620,6 +650,12 @@ class Loop:
             self.coordinator.update_outcome(lease, outcome, transition_complete=True)
 
     def recover(self, plan):
+        try:
+            return self._recover(plan)
+        finally:
+            self.github.lease = None
+
+    def _recover(self, plan):
         history = self.coordinator.history(plan.item.number)
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
@@ -664,8 +700,13 @@ class Loop:
         self._poll_complete = True
 
     def launch(self, once=False):
+        self.github.discovery = not once
+        if self.coordinator.actor is None:
+            self.coordinator.actor = self.github.actor()
+            self.coordinator.notices.actor = self.coordinator.actor
         failures = 0
         while not self.stop_event.is_set():
+            self.github.lease = None
             self._poll_complete = False
             try:
                 worked = self.tick()
@@ -681,9 +722,6 @@ class Loop:
                 failures += 1
                 delay = min(POLL_RETRY_MAX_SECONDS, POLL_RETRY_BASE_SECONDS * 2 ** (failures - 1))
                 retryable = isinstance(exc, GitHubError) and exc.retryable
-                if retryable and exc.reset_at is not None:
-                    delay = max(0, exc.reset_at - timestamp())
-                    retryable = delay <= POLL_RETRY_MAX_SECONDS
                 detail = str(exc)
                 # Keep each diagnostic on one line, even when gh prints several.
                 detail = " ".join(detail.split())
