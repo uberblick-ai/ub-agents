@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.config import Queue, Runtime
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RecordError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop, POLL_FAILURE_LIMIT, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
@@ -194,51 +194,152 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(executions, [2, 3])
         self.assertEqual(count(), 0)
 
-    def test_rate_limit_waits_for_reset_and_shares_failure_count(self):
+    def test_rate_limits_wait_without_counting_poll_failures(self):
         with patch("ub_agents.github.timestamp", return_value=1000):
             limited = self.http_error(429, "Retry-After: 12\n", "secondary rate limit")
-        primary = self.http_error(403, "X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 1060\n",
+        primary = self.http_error(403, "X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 4595\n",
                                   "API rate limit exceeded")
         self.github.items.clear()
-        self.github.read_results["observe"] = [limited, primary, self.http_error(), None]
+        failure = self.http_error()
+        self.github.read_results["observe"] = [failure, limited, primary, failure, None]
         delays = []
 
         def wait(delay):
             self.assertEqual(self.github.writes, [])
             delays.append(delay)
-            if len(delays) == 4:
+            if len(delays) == 5:
                 self.loop.stop_event.set()
 
-        with patch("ub_agents.loop.timestamp", return_value=1000), \
-                patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
+        self.loop.coordinator.clock = lambda: 1000
+        with patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(delays, [12, 60, 20, self.config.poll_seconds])
+        self.assertEqual(delays, [5, 12, 3600, 10, self.config.poll_seconds])
+        self.assertIn("GitHub rate limit reached; waiting until 1970-01-01T01:16:40Z (60 min)", self.lines)
+        self.assertEqual(sum(line.startswith("GitHub rate limit reached") for line in self.lines), 2)
 
-    def test_repeated_rate_limits_exhaust_same_limit(self):
+    def test_repeated_rate_limits_never_exhaust_poll_limit(self):
+        self.github.items.clear()
         self.github.read_results["observe"] = [GitHubError(
-            "GET", "repos/org/project/issues", "HTTP 429 rate limit", retryable=True, reset_at=1010
-        )] * POLL_FAILURE_LIMIT
-        with patch("ub_agents.loop.timestamp", return_value=1000), \
-                patch.object(self.loop.stop_event, "wait") as waits, \
-                self.assertRaisesRegex(AgentError, "retries exhausted"):
+            "GET", "repos/org/project/issues", "HTTP 429 secondary rate limit",
+            retryable=True, reset_at=1010, rate_limited=True
+        )] * (POLL_FAILURE_LIMIT + 1)
+        delays = []
+
+        def wait(delay):
+            delays.append(delay)
+            if len(delays) == POLL_FAILURE_LIMIT + 2:
+                self.loop.stop_event.set()
+
+        self.loop.coordinator.clock = lambda: 1000
+        with patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual([call.args[0] for call in waits.call_args_list], [10] * (POLL_FAILURE_LIMIT - 1))
+        self.assertEqual(delays, [10] * (POLL_FAILURE_LIMIT + 1) + [self.config.poll_seconds])
         self.assertEqual(self.github.writes, [])
 
-    def test_unusable_or_distant_rate_limit_reset_stops_without_wait(self):
-        headers = ["", "Retry-After: invalid\n", "Retry-After: nan\n", "Retry-After: inf\n",
-                   "Retry-After: -1\n", "Retry-After: 61\n",
-                   "X-RateLimit-Remaining: 0\n", "X-RateLimit-Remaining: 0\nX-RateLimit-Reset: invalid\n",
-                   "X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 0\n",
-                   "X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 1061\n"]
-        for header in headers:
-            with self.subTest(header=header), patch("ub_agents.github.timestamp", return_value=1000):
-                self.github.read_results["observe"] = [self.http_error(429, header, "rate limit")]
-                with patch("ub_agents.loop.timestamp", return_value=1000), \
-                        patch.object(self.loop.stop_event, "wait") as waits, \
-                        self.assertRaisesRegex(AgentError, "Fix the cause and restart ub-agent launch"):
+    def test_lazy_cached_reads_wait_then_claim_without_parking(self):
+        cases = [("comments", "issue"), ("timeline", "issue"), ("role", "issue"),
+                 ("issue_content", "issue"), ("blocked_by", "issue"),
+                 ("dependency_graph", "issue"), ("item", "pr"),
+                 ("pr_content", "pr"), ("reviews", "pr"), ("review_comments", "pr")]
+        for name, kind in cases:
+            with self.subTest(read=name, kind=kind):
+                self.setUp()
+                item = issue(1) if kind == "issue" else pr(1, body="")
+                self.github.items = {1: item, 2: replace(item, number=2)}
+                queue = Queue(priority=Priority(("urgent", "low"))) if name == "dependency_graph" else Queue()
+                self.loop.config = replace(self.config, agents=(agent(self.root, kind=kind),), queue=queue)
+                self.loop.coordinator.queue = queue
+                limited = GitHubError("GET", name, "secondary rate limit", rate_limited=True,
+                                      reset_at=1012)
+                self.github.read_results[name] = [limited]
+                self.loop.coordinator.clock = lambda: 1000
+
+                def wait(delay):
+                    self.assertEqual(delay, 12)
+                    self.assertEqual(self.github.writes, [])
+
+                with patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
+                        patch("ub_agents.loop.supervise", side_effect=self.finish), \
+                        self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
-                waits.assert_not_called()
+                waits.assert_called_once_with(12)
+                self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "success")
+                self.assertEqual(sum(line.startswith("GitHub rate limit reached") for line in self.lines), 1)
+                self.assertFalse(any(line.startswith("Skipped") for line in self.lines))
+                self.assertNotIn("needs-human", self.github.items[1].labels)
+                self.assertFalse(any(read in {"item", "comments", "timeline", "issue_content", "pr_content"}
+                                     and args[0] == 2 for read, args in self.github.reads))
+
+    def test_rate_limit_wait_counts_toward_minimum_poll_gap(self):
+        for duration in (12, 40):
+            with self.subTest(duration=duration):
+                self.setUp()
+                self.github.items.clear()
+                self.github.read_results["observe"] = [GitHubError(
+                    "GET", "issues", "rate limited", rate_limited=True, reset_at=1000 + duration)]
+                now, delays, starts = [0], [], []
+                self.loop.coordinator.clock = lambda: 1000 + now[0]
+                tick = self.loop.tick
+
+                def discover():
+                    starts.append(now[0])
+                    if len(starts) == 2:
+                        self.loop.stop_event.set()
+                    return tick()
+
+                def wait(delay):
+                    self.assertEqual(self.github.writes, [])
+                    delays.append(delay)
+                    now[0] += delay
+
+                with patch("ub_agents.loop.monotonic", side_effect=lambda: now[0]), \
+                        patch.object(self.loop, "tick", side_effect=discover), \
+                        patch.object(self.loop.stop_event, "wait", side_effect=wait), \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.loop.launch()
+                self.assertEqual(starts, [0, max(duration, self.config.poll_seconds)])
+                expected = [duration]
+                if duration < self.config.poll_seconds:
+                    expected.append(self.config.poll_seconds - duration)
+                self.assertEqual(delays, expected)
+
+    def test_primary_reset_an_hour_away_retries_at_cap_then_waits_for_margin(self):
+        primary = self.http_error(403, "X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 4600\n",
+                                  "API rate limit exceeded")
+        self.github.items.clear()
+        self.github.read_results["observe"] = [primary, primary, None]
+        now, delays = [1000], []
+        self.loop.coordinator.clock = lambda: now[0]
+
+        def wait(delay):
+            self.assertEqual(self.github.writes, [])
+            delays.append(delay)
+            now[0] += delay
+            if len(delays) == 3:
+                self.loop.stop_event.set()
+
+        with patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        self.assertEqual(delays, [3600, 5, self.config.poll_seconds])
+        self.assertEqual(self.github.reads[:3], [("observe", ())] * 3)
+        self.assertEqual(sum(line.startswith("GitHub rate limit reached") for line in self.lines), 2)
+
+    def test_missing_unreadable_and_distant_resets_fallback_or_cap(self):
+        cases = [("", 60), ("Retry-After: invalid\n", 60), ("Retry-After: nan\n", 60),
+                 ("Retry-After: inf\n", 60), ("Retry-After: -1\n", 60), ("Retry-After: 61\n", 61),
+                 ("X-RateLimit-Remaining: 0\n", 60),
+                 ("X-RateLimit-Remaining: 0\nX-RateLimit-Reset: invalid\n", 60),
+                 ("X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 0\n", 60),
+                 ("X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 4600\n", 3600)]
+        for header, delay in cases:
+            with self.subTest(header=header), patch("ub_agents.github.timestamp", return_value=1000):
+                self.setUp()
+                self.loop.coordinator.clock = lambda: 1000
+                self.github.read_results["observe"] = [self.http_error(429, header, "secondary rate limit")]
+                with patch.object(self.loop.stop_event, "wait", side_effect=lambda _: self.loop.stop_event.set()) as wait, \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.loop.launch()
+                wait.assert_called_once_with(delay)
                 self.assertEqual(self.github.writes, [])
 
     def test_permanent_and_unclassified_failures_stop_on_first_occurrence(self):
@@ -277,7 +378,7 @@ class PollingTests(unittest.TestCase):
     def test_once_and_status_exit_one_without_retry(self):
         for argv in (["launch", "--once"], ["status"]):
             with self.subTest(argv=argv):
-                self.github.read_results["observe"] = [self.http_error()]
+                self.github.read_results["observe"] = [self.http_error(403, "X-RateLimit-Remaining: 0\n")]
                 with patch("ub_agents.cli.load_config", return_value=self.config), \
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
@@ -298,7 +399,7 @@ class PollingTests(unittest.TestCase):
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             with self.subTest(signal=sig):
                 self.setUp()
-                self.github.read_results["observe"] = [self.http_error()]
+                self.github.read_results["observe"] = [self.http_error(403, "X-RateLimit-Remaining: 0\n")]
                 handler = signal.getsignal(sig)
                 interrupt = threading.Event()
                 self.loop.interrupt_event = interrupt
@@ -313,6 +414,23 @@ class PollingTests(unittest.TestCase):
                 self.assertEqual(signal.getsignal(sig), handler)
                 self.assertEqual(self.github.reads, [("observe", ())])
                 self.assertEqual(self.github.writes, [])
+
+    def test_initial_authentication_rate_limit_waits_with_signal_handlers_installed(self):
+        self.loop.coordinator.actor = None
+        limited = self.http_error(403, "X-RateLimit-Remaining: 0\n")
+        interrupt = threading.Event()
+        self.loop.interrupt_event = interrupt
+        with patch.object(self.github, "actor", side_effect=limited), \
+                patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.Loop", return_value=self.loop), \
+                patch("ub_agents.cli.threading.Event", side_effect=[self.loop.stop_event, interrupt]), \
+                patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(signal.SIGTERM)), \
+                redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["launch"]), 0)
+        self.assertEqual(self.github.writes, [])
+        self.assertTrue(self.lines[0].startswith("GitHub rate limit reached"))
 
     def test_provenance_read_failure_skips_poll_instead_of_blocking_a_plan(self):
         builder = agent(self.root, name="builder", kind="issue", command=(),

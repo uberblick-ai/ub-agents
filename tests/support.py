@@ -266,6 +266,11 @@ class PollGitHub(FakeGitHub):
 
     def dependency_graph(self):
         self.reads.append(("dependency_graph", ()))
+        results = self.read_results.get("dependency_graph", [])
+        if results:
+            result = results.pop(0)
+            if isinstance(result, Exception):
+                raise result
         return {i.number: super(PollGitHub, self).blocked_by(i.number) for i in self.items.values()
                 if i.kind == "issue" and i.state == "open"}
 
@@ -307,6 +312,9 @@ class DoctorGitHub(FakeGitHub):
         self.repository_error = None
         self.label_error = None
         self.label_names = ["ready", "needs-human", "needs-review"]
+        self.quota_headers = {"x-ratelimit-remaining": "5000", "x-ratelimit-limit": "5000",
+                                 "x-ratelimit-reset": "1000"}
+        self.rate_limited = False
         self.metadata = {"full_name": "org/project", "permissions": {"triage": True}}
 
     def actor(self):

@@ -179,7 +179,7 @@ def run(args):
         print(f"Valid configuration: {config.repository}, {len(config.agents)} agents")
         return
     github = GitHub(config.repository)
-    actor = github.actor()
+    actor = None if args.command == "launch" else github.actor()
     if args.command == "approve":
         from .approvals import approve_issue
         created = approve_issue(github, args.number, actor)

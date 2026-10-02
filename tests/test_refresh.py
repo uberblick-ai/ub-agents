@@ -331,13 +331,15 @@ class RefreshTests(unittest.TestCase):
     def test_default_branch_read_retries_then_refreshes_before_claiming(self):
         errors = [GitHubError("GET", "repos/org/project", "HTTP 504", retryable=True),
                   GitHubError("GET", "repos/org/project", "request timed out", retryable=True),
-                  GitHubError("GET", "repos/org/project", "HTTP 429", retryable=True, reset_at=1012)]
+                  GitHubError("GET", "repos/org/project", "HTTP 429 secondary rate limit", retryable=True, reset_at=1012,
+                              rate_limited=True)]
         for failure in errors:
             with self.subTest(error=str(failure)):
                 self.setUp()
                 self.github = PollGitHub(issue())
                 lines = []
                 self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lines.append)
+                self.loop.coordinator.clock = lambda: 1000
                 self.push_policy()
                 before = self.snapshot()
                 self.github.read_results["default_branch"] = [failure]
@@ -366,7 +368,8 @@ class RefreshTests(unittest.TestCase):
                 waits.assert_called_once()
                 execution.assert_called_once()
                 self.assertEqual(sum(name == "default_branch" for name, _ in self.github.reads), 2)
-                self.assertEqual(sum(line.startswith("Skipped") for line in lines), 1)
+                prefix = "GitHub rate limit reached" if failure.rate_limited else "Skipped"
+                self.assertEqual(sum(line.startswith(prefix) for line in lines), 1)
                 self.assertNotIn("Waiting for eligible GitHub work", lines)
                 self.assert_success(1)
 

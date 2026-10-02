@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from ub_agents.config import Priority, Queue
 from ub_agents.discovery import Discovery
+from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
 from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
 
@@ -180,3 +181,40 @@ class DiscoveryTests(unittest.TestCase):
         loop.github.reads.clear()
         self.assertEqual(next(loop.iter_plans()).state, "ready")
         self.assertIn(("issue_content", (1,)), loop.github.reads)
+
+    def test_rate_limits_propagate_from_fresh_and_cached_planning(self):
+        cases = [("comments", "issue"), ("timeline", "issue"), ("role", "issue"),
+                 ("issue_content", "issue"), ("blocked_by", "issue"),
+                 ("item", "pr"), ("pr_content", "pr"), ("reviews", "pr"),
+                 ("review_comments", "pr")]
+        for name, kind in cases:
+            for cached in (False, True):
+                with self.subTest(read=name, kind=kind, cached=cached):
+                    loop = self.loop([issue(1) if kind == "issue" else pr(1, body="")])
+                    error = GitHubError("GET", name, "rate limited", rate_limited=True)
+                    loop.github.read_results[name] = [error]
+                    # A failed history read must propagate even if approval
+                    # would otherwise park the item for a missing start.
+                    if name == "comments":
+                        loop.github.timelines[1] = []
+                    with self.assertRaises(GitHubError) as raised:
+                        list(loop.iter_plans(cached=cached))
+                    self.assertIs(raised.exception, error)
+                    self.assertEqual(loop.github.writes, [])
+                    # The failed read must not stick in an unchanged cache.
+                    loop.github.reads.clear()
+                    list(loop.iter_plans(cached=cached))
+                    self.assertTrue(any(read == name for read, _ in loop.github.reads))
+
+    def test_rejected_claim_invalidates_item_without_list_change(self):
+        loop = self.loop([pr(1, body=""), pr(2, body="")])
+        plans = list(loop.iter_plans())
+        # An updated head is visible only in the detailed read. The list
+        # snapshot deliberately retains the same timestamp and body.
+        loop.github.change(1, head="b" * 40)
+        self.assertFalse(loop.execute(plans[0]))
+        loop.github.reads.clear()
+        fresh = list(loop.iter_plans())
+        self.assertEqual(fresh[0].item.head, "b" * 40)
+        self.assertEqual(self.item_reads(loop.github), {1})
+        self.assertEqual(loop.github.writes, [])

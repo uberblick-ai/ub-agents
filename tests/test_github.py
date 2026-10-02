@@ -17,6 +17,31 @@ from tests.support import RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_rate_limit_classification_uses_real_response_headers_and_messages(self):
+        command = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                   'Accept: application/vnd.github+json', '--include', 'user')
+        cases = [
+            (403, 'X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 4600\n', '{}', '', True, 4605),
+            (403, 'Retry-After: 12\n', '{}', '', True, 1012),
+            (429, 'Retry-After: 12\n', '{}', '', True, 1012),
+            (403, '', '{"message":"API rate limit exceeded"}', 'HTTP 403', True, 1060),
+            (429, '', '{"message":"secondary rate limit"}', '', True, 1060),
+            (403, 'X-RateLimit-Reset: 1100\n', '{}', 'Resource not accessible', False, None),
+            (429, '', '{}', 'Unknown failure', False, None),
+            (401, 'Retry-After: 12\n', '{}', 'Bad credentials', False, None),
+        ]
+        for status, headers, payload, stderr, limited, reset in cases:
+            with self.subTest(status=status, headers=headers, payload=payload):
+                runner = RecordingRunner(Path('/synthetic'))
+                runner.responses[command] = subprocess.CompletedProcess(
+                    [], 1, f'HTTP/2.0 {status} Error\n{headers}\n{payload}', stderr)
+                github = GitHub('org/project', runner)
+                with patch('ub_agents.github.timestamp', return_value=1000), self.assertRaises(GitHubError) as raised:
+                    github.actor()
+                self.assertEqual(raised.exception.rate_limited, limited)
+                self.assertEqual(raised.exception.reset_at, reset)
+                self.assertEqual(github.rate_limited, limited)
+
     def test_minimization_state_reads_rest_node_ids_in_bounded_batches(self):
         comments = [{"id": i, "node_id": f"IC_{i}"} for i in range(205)]
         github = GitHub('org/project')

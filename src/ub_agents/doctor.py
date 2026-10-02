@@ -14,6 +14,7 @@ from .errors import AgentError
 from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub
 from .labels import configured_labels
+from .records import iso
 
 
 PERMISSIONS_URL = "https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions"
@@ -139,7 +140,10 @@ class Doctor:
             self.repository_access(config, github)
             self.labels(config, github)
             if login:
-                role = github.role(login)
+                try:
+                    role = github.role(login)
+                except AgentError:
+                    role = None
                 elevated = role in {"maintain", "admin"}
                 self.add("github-launcher-role", "warn" if elevated else "ok" if role else "warn",
                          (f"Launcher account {login} has {role}; agents can start and approve their own work"
@@ -152,6 +156,10 @@ class Doctor:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
             self.add("github-permissions", "skip", "repository response unavailable")
             self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
+        if gh_ready:
+            self.rate_limit(github.quota_headers, github.rate_limited)
+        else:
+            self.add("github-rate-limit", "skip", "gh unavailable", required=False)
         if config:
             self.agents(config)
             self.local(config, git_ready)
@@ -168,6 +176,24 @@ class Doctor:
                      "Supervision needs ps; install/allow ps (sandboxes may block process inspection)")
         return {"version": 1, "ok": not any(c.required and c.status == "fail" for c in self.checks),
                 "checks": [asdict(c) for c in self.checks]}
+
+    def rate_limit(self, headers, limited):
+        try:
+            remaining = int(headers["x-ratelimit-remaining"])
+            limit = int(headers["x-ratelimit-limit"])
+            reset = iso(int(headers["x-ratelimit-reset"]))
+            if limit <= 0 or not 0 <= remaining <= limit:
+                raise ValueError("invalid quota")
+            low = remaining < limit / 10
+            message = f"{remaining} of {limit} requests remaining; reset {reset} (UTC)"
+            status = "warn" if low or limited else "ok"
+        except (KeyError, ValueError, OverflowError, OSError):
+            message, status = "Request quota headers unavailable", "warn"
+        if limited:
+            message += "; doctor was rate limited by GitHub"
+        self.add("github-rate-limit", status, message,
+                 "Wait for the GitHub quota reset before launching more work" if status == "warn" else None,
+                 required=False)
 
     @staticmethod
     def github_failure(subject, error):
