@@ -23,12 +23,14 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   again only when a human reapplies one. An accepted success resets that agent's
   count on that item, including a resumed or revised PR and outcome-only recovery.
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets that count to 0 and
-  clears its parked state and backoff, preserving history. It refuses a live lease
+  clears its failure block and backoff, preserving history. Approval parking still
+  requires maintainer approval. It refuses a live lease
   and never revokes someone else's run. It does not restore workflow labels.
 
 | How a run ends | Count | Afterwards |
 |---|---|---|
 | Accepted success at completion or through outcome-only recovery | Reset to 0 | Normal transition |
+| Approval fails at pickup or after claiming | Unchanged | Parked until approved, without `retry` |
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
 | Agent reports `--status blocked`; transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
@@ -54,7 +56,11 @@ this change does not reclassify them. Use `ub-agent retry` to clear them.
 
 ## Selection order
 
-1. Eligibility first: live claims, stop labels, retry backoff and attempt limits.
+1. Eligibility first: live claims, stop labels, retry backoff, attempt limits and
+   [maintainer starts and outside-input approval](approvals.md). Every issue run
+   needs a start; outside PRs also need an eligible head. Trusted PRs need no start.
+   Outside feedback suspends outside PRs, while issues and trusted PRs only exclude
+   uncleared feedback.
 2. PR work before new issue starts: PR assignments, recovery and completion of
    already-started runs. Neither queue gate holds back this work.
 3. New issues pass the milestone gate and the dependency gate when configured, as
@@ -72,6 +78,29 @@ contention, and there is no global order across machines. Dependency reads skip
 issues whose list summary reliably reports zero blockers; a failed read stops
 selection rather than becoming an empty list. Like milestone rechecks, this is
 cooperative observation, not an atomic snapshot.
+
+## Assignment input
+
+Approval checks at pickup park disallowed items with their reason, without claims,
+writes or attempts. After winning a claim, the launcher rereads and validates input.
+A failed check withdraws that claim before execution, preserves attempts and returns
+the item to parked; approval makes it eligible without `ub-agent retry`. Preparation
+uses the same gate: a maintainer's `needs-preparation` starts it, and the preparer's
+rewrite is trusted. There is no switch to bypass enforcement.
+
+Context holds the post-claim title, body and trusted or cleared outside comments.
+PR context adds the assigned head, reviews and review comments. Uncleared and
+later-edited outside feedback, coordination records and approval records are
+excluded. The prompt makes this snapshot the assignment input; other GitHub
+comments are not input. Outside changes during execution do not stop that run,
+replace its context or gate its durable completion and recovery.
+
+An outside PR head requires a valid pinned approval record, a maintainer approving
+review on that head, or an accepted agent outcome from an eligible assignment head.
+A trigger label alone cannot identify a pushed head. Fork PR review is supported;
+agent revision of a fork PR remains blocked. `ub-agent approve --number N` accepts
+issues and PRs and clears the outside feedback it records; PR records also pin the
+head. See the [complete PR rules](approvals.md#pull-requests).
 
 ## Trusted comments
 

@@ -197,7 +197,7 @@ Each agent has exactly one of `runtime` or `command`.
 
 | Key | Meaning |
 |---|---|
-| `trigger` | Label, or list of labels, that starts the agent. |
+| `trigger` | Label, or list of labels, that selects the agent, subject to maintainer starts and approvals. |
 | `outcomes` | Named successful outcomes and their project-defined label transitions. Required. |
 | `kind` | `issue`, `pr` or `either` (default). |
 | `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
@@ -207,6 +207,22 @@ Each agent has exactly one of `runtime` or `command`.
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
+
+Approval enforcement is mandatory for `issue`, `pr` and `either` agents, including
+preparation and direct `command` runs. The launcher uses the union of issue/either
+triggers for issue starts and pr/either triggers for outside PR starts. No setting
+can bypass the [approval rules](approvals.md). Failed checks at pickup or after
+claiming park the item, spend no attempt and resume after approval without `retry`.
+Context supplies the post-claim title, body and trusted or cleared comments; PRs
+also supply their head, reviews and review comments. Other GitHub comments are not
+agent input; later outside edits do not stop a running assignment.
+
+Trusted-authored PRs need no start and outside feedback does not suspend them.
+Outside PRs need a maintainer trigger and an eligible head: a pinned approval
+record, a maintainer approving review on that head, or accepted agent ancestry
+from an eligible assigned head. Outside edits or feedback after approval suspend
+outside PRs again. Fork PRs can be reviewed, but agents cannot revise them and
+revision runs remain blocked.
 
 Before each new agent run, the launcher fetches `origin` and fast-forwards the
 control checkout's default branch, then reloads `ub-agent.yaml` and rereads the
@@ -387,12 +403,14 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   JSON has `version`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
-- `ub-agent approve --number N` prints the current issue title, body and outside
-  comments, then posts one [approval record](approvals.md#approving-current-input).
-  It requires the authenticated `gh` account to have the `maintain` or `admin`
-  repository role and refuses PRs or input changed during display. Running the
-  command expresses approval without an interactive confirmation; it changes no
-  labels. Pickup enforcement follows in #39.
+- `ub-agent approve --number N` prints the current issue or PR title, body and
+  outside comments; for PRs it also prints the head, outside reviews and review
+  comments. It posts one [approval record](approvals.md#approving-current-input),
+  pinning a PR head and recording the feedback it clears. It requires the
+  authenticated `gh` account to have the `maintain` or `admin` repository role and
+  refuses input changed during display. Running the command expresses approval
+  without an interactive confirmation; it changes no labels and does not replace
+  the required maintainer start.
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.

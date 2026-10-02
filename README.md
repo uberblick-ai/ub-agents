@@ -89,16 +89,27 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agent launch --once` | Run at most one assignment, then exit |
 | `ub-agent cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
 | `ub-agent retry` | Let stopped work run again, with a recorded reason |
-| `ub-agent approve --number N` | Print current issue input and post a maintainer [approval record](docs/approvals.md) |
+| `ub-agent approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agent check` | Validate the configuration files only |
 | `ub-agent report` | Used by agents to record their outcome |
 
-## Issue approvals
+## Issue and PR approvals
 
-Maintainers can record approval of an issue's current title, body and outside comments
-with `ub-agent approve --number N`. The [issue approval contract](docs/approvals.md)
-describes repository roles, maintainer starts and suspension after outside edits.
-The check and records are available; launcher pickup enforcement follows in #39.
+Every issue run, including preparation, needs a maintainer start. The launcher
+checks approvals at pickup and after claiming; disallowed input is parked without
+spending an attempt and resumes after approval without `retry`. Agents receive the
+post-claim title, body and trusted or cleared comments; PR context also includes
+the assigned head, reviews and review comments. Other GitHub comments are not input.
+Outside edits during a run do not stop it.
+
+Trusted-authored PRs need no start, and outside feedback cannot stall them.
+Outside-authored PRs need both a maintainer trigger label and an approved head;
+later outside edits or feedback suspend pickup. Maintainers approve current input
+with `ub-agent approve --number N`, including a PR's head and outside feedback.
+A maintainer approving review can approve its head; accepted agent revisions from
+eligible heads need no new approval. Fork PRs can be reviewed, but agent revision
+runs remain blocked. The [approval contract](docs/approvals.md) describes the rules.
+
 Use a dedicated launcher account with `write`; `doctor` warns about `maintain` or
 `admin` accounts that would let agents start and approve their own work.
 

@@ -61,20 +61,34 @@ class FakeGitHub:
         self.writes = []
         self.minimized_ids = set()
         self.login = "operator"
-        self.roles = {"operator": "write"}
+        self.roles = {"operator": "write", "maintainer": "maintain"}
         self.timelines = {}
         self.content_histories = {}
+        self.review_store = {}
+        self.review_comment_store = {}
 
     def role(self, login):
         return self.roles.get(login.casefold()) if isinstance(login, str) else None
 
     def timeline(self, number):
-        return deepcopy(self.timelines.get(number, []))
+        return deepcopy(self.timelines.get(number, [
+            {"event": "labeled", "actor": {"login": "maintainer"},
+             "label": {"name": label}, "created_at": self.items[number].created_at}
+            for label in self.items[number].labels]))
 
     def issue_content(self, number):
         item = self.items[number]
         return {"title": item.title, "body": item.body, "createdAt": item.created_at,
                 "lastEditedAt": None, "edits": []} | deepcopy(self.content_histories.get(number, {}))
+
+    def pr_content(self, number):
+        return self.issue_content(number) | {"head": self.items[number].head, "author": {"login": "operator"}}
+
+    def reviews(self, number):
+        return deepcopy(self.review_store.get(number, []))
+
+    def review_comments(self, number):
+        return deepcopy(self.review_comment_store.get(number, []))
 
     def actor(self):
         return self.login

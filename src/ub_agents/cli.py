@@ -48,7 +48,7 @@ def parser():
     retry.add_argument("--number", type=int, required=True)
     retry.add_argument("--agent", required=True)
     retry.add_argument("--reason", required=True)
-    approve = commands.add_parser("approve", help="Approve current issue content and outside comments as a maintainer")
+    approve = commands.add_parser("approve", help="Approve current issue or PR input as a maintainer")
     approve.add_argument("--number", type=int, required=True)
     return result
 

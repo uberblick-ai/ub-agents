@@ -1,12 +1,13 @@
-"""Maintainer starts and content-bound approvals, independent of claim enforcement."""
+"""Read-only maintainer starts, approvals and filtered assignment snapshots."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import re
 
 from .errors import AgentError
-from .records import positive_int, seconds
+from .records import (LEGACY_MARKER, MARKER as COORDINATION_MARKER, lease_by_id,
+                      positive_int, records, same_run, seconds)
 
 MARKER = "<!-- ub-agent:approval:v1 -->"
 MAINTAINERS = {"maintain", "admin"}
@@ -23,32 +24,47 @@ def content_sha(title, body):
     return body_sha(encoded)
 
 
-def approval_body(number, title, body, comments):
-    record = {"issue": number, "content_sha256": content_sha(title, body),
-              "comments": [{"id": c["id"], "body_sha256": body_sha(c["body"])}
-                           for c in sorted(comments, key=lambda c: c["id"])]}
+def approval_body(number, title, body, comments, *, head=None, reviews=(), review_comments=()):
+    record = {"pr" if head is not None else "issue": number, "content_sha256": content_sha(title, body),
+              "comments": comment_digests(comments)}
+    if head is not None:
+        record |= {"head_sha": head, "reviews": comment_digests(reviews),
+                   "review_comments": comment_digests(review_comments)}
     return f"{MARKER}\n\n```json\n{json.dumps(record, indent=2)}\n```\n"
 
 
-def parse_approval(body, number):
+def comment_digests(comments):
+    return [{"id": c["id"], "body_sha256": body_sha(c["body"])}
+            for c in sorted(comments, key=lambda c: c["id"])]
+
+
+def parse_approval(body, number, kind="issue"):
     """Malformed or unsupported records grant nothing, even from maintainers."""
     if not body.startswith(f"{MARKER}\n\n```json\n") or not body.endswith("\n```\n"):
         return None
     try:
         record = json.loads(body[len(MARKER) + len("\n\n```json\n"):-len("\n```\n")])
-        if (set(record) != {"issue", "content_sha256", "comments"}
-                or not positive_int(record["issue"]) or record["issue"] != number
+        fields = {kind, "content_sha256", "comments"}
+        if kind == "pr":
+            fields |= {"head_sha", "reviews", "review_comments"}
+            if not isinstance(record.get("head_sha"), str) or not re.fullmatch(r"[0-9a-f]{40}", record["head_sha"]):
+                return None
+        if (set(record) != fields
+                or not positive_int(record[kind]) or record[kind] != number
                 or not isinstance(record["content_sha256"], str)
                 or not SHA256.fullmatch(record["content_sha256"])
                 or not isinstance(record["comments"], list)):
             return None
-        ids = set()
-        for comment in record["comments"]:
-            if (set(comment) != {"id", "body_sha256"} or not positive_int(comment["id"])
-                    or comment["id"] in ids or not isinstance(comment["body_sha256"], str)
-                    or not SHA256.fullmatch(comment["body_sha256"])):
+        for name in ("comments", "reviews", "review_comments") if kind == "pr" else ("comments",):
+            if not isinstance(record[name], list):
                 return None
-            ids.add(comment["id"])
+            ids = set()
+            for comment in record[name]:
+                if (set(comment) != {"id", "body_sha256"} or not positive_int(comment["id"])
+                        or comment["id"] in ids or not isinstance(comment["body_sha256"], str)
+                        or not SHA256.fullmatch(comment["body_sha256"])):
+                    return None
+                ids.add(comment["id"])
         return record
     except (ValueError, TypeError, KeyError):
         return None
@@ -74,6 +90,9 @@ class ApprovalCheck:
     allowed: bool
     reason: str
     cleared_comment_ids: frozenset[int] = frozenset()
+    cleared_review_ids: frozenset[int] = frozenset()
+    cleared_review_comment_ids: frozenset[int] = frozenset()
+    snapshot: dict = field(default_factory=dict)
 
 
 def historical_content(content, renames, at):
@@ -113,13 +132,25 @@ def check_issue(github, number, trigger_labels):
     This function performs reads only; pickup enforcement belongs to the caller.
     """
     try:
-        return _check_issue(github, number, set(trigger_labels))
+        return _check_input(github, number, set(trigger_labels))
     except (AgentError, KeyError, TypeError, ValueError, AttributeError):
         return ApprovalCheck(False, "Issue approval history is unreadable; retry or ask a maintainer")
 
 
-def _check_issue(github, number, trigger_labels):
-    content = github.issue_content(number)
+def check_pr(github, number, trigger_labels, actor=None):
+    """PR heads require explicit approval or accepted, eligible agent ancestry."""
+    try:
+        return _check_input(github, number, set(trigger_labels), "pr", actor or github.actor())
+    except (AgentError, KeyError, TypeError, ValueError, AttributeError):
+        return ApprovalCheck(False, "PR approval history is unreadable; retry or ask a maintainer")
+
+
+def is_record(comment):
+    return comment["body"].startswith((MARKER, COORDINATION_MARKER, LEGACY_MARKER))
+
+
+def _check_input(github, number, trigger_labels, kind="issue", actor=None):
+    content = github.issue_content(number) if kind == "issue" else github.pr_content(number)
     if not isinstance(content["title"], str) or not isinstance(content["body"], str):
         raise ValueError("invalid content")
     created = seconds(content["createdAt"])
@@ -149,45 +180,124 @@ def _check_issue(github, number, trigger_labels):
             starts.append(at)
     renames.sort(key=lambda e: seconds(e["created_at"]))
     comments = github.comments(number)
-    outside, approvals = [], []
+    approvals = []
+    groups = {"comments": comments}
+    if kind == "pr":
+        groups |= {"reviews": github.reviews(number), "review_comments": github.review_comments(number)}
+    outside_groups = {}
+    for name, rows in groups.items():
+        outside_groups[name] = []
+        for row in rows:
+            if not positive_int(row["id"]) or not isinstance(row["body"], str):
+                raise ValueError("invalid input")
+            seconds(row["created_at"])
+            seconds(row["updated_at"])
+            if roles(row.get("user")) not in TRUSTED:
+                outside_groups[name].append(row)
     for comment in comments:
         if not positive_int(comment["id"]) or not isinstance(comment["body"], str):
             raise ValueError("invalid comment")
         at, updated = seconds(comment["created_at"]), seconds(comment["updated_at"])
         role = roles(comment.get("user"))
-        if role not in TRUSTED:
-            outside.append(comment)
         if role not in MAINTAINERS or updated != at:
             continue
-        record = parse_approval(comment["body"], number)
+        record = parse_approval(comment["body"], number, kind)
         if record is None:
             continue
         old = historical_content(content, renames, at)
         if old is not None and record["content_sha256"] == content_sha(*old):
             approvals.append((at, record))
-    cleared = set()
-    for comment in outside:
-        updated = seconds(comment["updated_at"])
-        if any(updated < start for start in starts):
-            cleared.add(comment["id"])
-        for at, record in approvals:
-            if updated >= at or seconds(comment["created_at"]) >= at:
-                continue
-            if any(c["id"] == comment["id"] and c["body_sha256"] == body_sha(comment["body"])
-                   for c in record["comments"]):
+    cleared_groups = {}
+    for name, rows in outside_groups.items():
+        cleared = set()
+        for comment in rows:
+            updated = seconds(comment["updated_at"])
+            if any(max(updated, seconds(comment["created_at"])) < start for start in starts):
                 cleared.add(comment["id"])
-    cleared = frozenset(cleared)
+            for at, record in approvals:
+                if updated >= at or seconds(comment["created_at"]) >= at:
+                    continue
+                if any(c["id"] == comment["id"] and c["body_sha256"] == body_sha(comment["body"])
+                       for c in record[name]):
+                    cleared.add(comment["id"])
+        cleared_groups[name] = frozenset(cleared)
+    snapshot = {"title": content["title"], "body": content["body"]}
+    for name, rows in groups.items():
+        snapshot[name] = [c for c in rows if not is_record(c) and
+                          (roles(c.get("user")) in TRUSTED or c["id"] in cleared_groups[name])]
+    if kind == "pr":
+        snapshot["head"] = content["head"]
+    def verdict(allowed, reason):
+        return ApprovalCheck(allowed, reason, cleared_groups["comments"],
+                             cleared_groups.get("reviews", frozenset()),
+                             cleared_groups.get("review_comments", frozenset()), snapshot)
+
+    approving_reviews = []
+    if kind == "pr" and roles(content.get("author")) in TRUSTED:
+        return verdict(True, "Trusted PR author; outside feedback requires clearance")
     if not starts:
-        return ApprovalCheck(False, "No maintainer has applied an issue agent's trigger label", cleared)
-    latest = max(starts + [at for at, _ in approvals])
+        return verdict(False, f"No maintainer has applied an {kind} agent's trigger label")
+    if kind == "pr":
+        for review in groups["reviews"]:
+            if (roles(review.get("user")) in MAINTAINERS and review["state"] == "APPROVED"
+                    and review["created_at"] == review["updated_at"]):
+                if not isinstance(review["commit_id"], str) or not re.fullmatch(r"[0-9a-f]{40}", review["commit_id"]):
+                    raise ValueError("invalid reviewed head")
+                approving_reviews.append((seconds(review["created_at"]), review["commit_id"]))
+        if not eligible_head(content["head"], number, approving_reviews, approvals, starts,
+                             comments, roles, actor):
+            return verdict(False, "PR head is not approved; a maintainer must approve the current head")
+    latest = max(starts + [at for at, _ in approvals] + [at for at, _ in approving_reviews])
     for event in renames:
         if seconds(event["created_at"]) >= latest and roles(event.get("actor")) not in TRUSTED:
-            return ApprovalCheck(False, "Outside title edit after approval; a maintainer must approve", cleared)
+            return verdict(False, "Outside title edit after approval; a maintainer must approve")
     for edit in edits:
         at = seconds(edit["editedAt"])
         if at > created and at >= latest and roles(edit.get("editor")) not in TRUSTED:
-            return ApprovalCheck(False, "Outside body edit after approval; a maintainer must approve", cleared)
-    return ApprovalCheck(True, "Maintainer start approved; no later outside title or body edits", cleared)
+            return verdict(False, "Outside body edit after approval; a maintainer must approve")
+    if kind == "pr" and any(max(seconds(c["updated_at"]), seconds(c["created_at"])) >= latest
+                            for rows in outside_groups.values() for c in rows):
+        return verdict(False, "Outside PR feedback after approval; a maintainer must approve")
+    return verdict(True, "Maintainer start approved; no later outside input edits")
+
+
+def eligible_head(head, number, approving_reviews, approvals, starts, comments, roles, actor):
+    """Follow accepted revisions only from heads eligible before their source claim."""
+    eligible = {}
+    for at, sha in approving_reviews + [(at, r["head_sha"]) for at, r in approvals]:
+        eligible[sha] = min(at, eligible.get(sha, at))
+    if head in eligible:
+        return True
+    # Only the authenticated launcher's coordination comments supply ancestry.
+    if roles({"login": actor}) not in TRUSTED:
+        return False
+    history = records(comments, actor)
+    changed = True
+    while changed:
+        changed = False
+        for outcome in history:
+            if (outcome["kind"] != "outcome" or outcome["assignment"] != number
+                    or outcome.get("handoff") not in {None, number}
+                    or outcome["status"] != "success" or not outcome.get("accepted")
+                    or outcome.get("rejected") or not outcome.get("candidate_sha")):
+                continue
+            lease = lease_by_id(history, outcome["lease_id"])
+            source = outcome.get("assignment_sha")
+            if (not lease or not same_run(outcome, lease) or source not in eligible
+                    or seconds(lease["created"]) < max(min(starts), eligible[source])
+                    or lease.get("cleanup") == "unconfirmed"):
+                continue
+            # Acceptance alone is insufficient while the run can still push or fail.
+            released = (lease["state"] == "released" and lease.get("result") == "success") or any(
+                r["kind"] == "lease" and r.get("recovered_lease_id") == lease["id"]
+                and r.get("recovered_run") == lease["run"] and r["state"] == "released"
+                and r.get("result") == "success" and r["agent"] == lease["agent"]
+                and r["assignment"] == number and r.get("cleanup") != "unconfirmed" for r in history)
+            sha, at = outcome["candidate_sha"], seconds(outcome["created"])
+            if released and at < eligible.get(sha, float("inf")):
+                eligible[sha] = at
+                changed = True
+    return head in eligible
 
 
 def approve_issue(github, number, actor):
@@ -197,17 +307,27 @@ def approve_issue(github, number, actor):
     if github.role(actor) not in MAINTAINERS:
         raise AgentError("approve requires a maintainer (maintain or admin repository role)")
     item = github.item(number)
-    if item.kind != "issue":
-        raise AgentError("approve accepts issues only")
     roles = Roles(github)
-    comments = github.comments(number)
-    outside = [c for c in comments if roles(c.get("user")) not in TRUSTED]
-    print(f"Issue #{number}: {item.title}\n\n{item.body}\n\nOutside comments:")
-    for comment in outside:
-        print(f"\nComment {comment['id']} by @{(comment.get('user') or {}).get('login', 'unknown')}:\n{comment['body']}")
+    groups = {"comments": github.comments(number)}
+    if item.kind == "pr":
+        groups |= {"reviews": github.reviews(number), "review_comments": github.review_comments(number)}
+    outside = {name: [c for c in rows if not is_record(c) and roles(c.get("user")) not in TRUSTED]
+               for name, rows in groups.items()}
+    print(f"{item.kind.upper()} #{number}: {item.title}\n\n{item.body}")
+    if item.head:
+        print(f"\nHead: {item.head}")
+    for name, rows in outside.items():
+        print(f"\nOutside {name.replace('_', ' ')}:")
+        for comment in rows:
+            print(f"\nInput {comment['id']} by @{(comment.get('user') or {}).get('login', 'unknown')}:\n{comment['body']}")
     print("", flush=True)
     # A concurrent edit between displaying input and posting must not be silently approved.
     current = github.item(number)
-    if (current.title, current.body) != (item.title, item.body) or github.comments(number) != comments:
-        raise AgentError("Issue changed while displaying approval input; rerun approve")
-    return github.create_comment(number, approval_body(number, item.title, item.body, outside))
+    refreshed = {"comments": github.comments(number)}
+    if item.kind == "pr":
+        refreshed |= {"reviews": github.reviews(number), "review_comments": github.review_comments(number)}
+    if (current.title, current.body, current.head) != (item.title, item.body, item.head) or refreshed != groups:
+        raise AgentError("Issue or PR changed while displaying approval input; rerun approve")
+    return github.create_comment(number, approval_body(number, item.title, item.body, outside["comments"],
+                                 head=item.head, reviews=outside.get("reviews", ()),
+                                 review_comments=outside.get("review_comments", ())))
