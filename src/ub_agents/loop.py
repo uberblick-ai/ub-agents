@@ -249,7 +249,10 @@ class Loop:
             try:
                 self.coordinator.assert_owned(lease)
                 self.coordinator.update(lease, cleanup="unconfirmed", summary=str(exc))
-            except AgentError as failure:
+            except (AgentError, KeyboardInterrupt) as failure:
+                if isinstance(failure, KeyboardInterrupt):
+                    self.interrupt_event.set()
+                    self.stop_event.set()
                 diagnostic("cleanup-verdict-unrecorded", error=str(failure))
 
         hook_attempted = False
@@ -262,7 +265,10 @@ class Loop:
                 hook_attempted = True
                 try:
                     reported = self.coordinator.outcome(lease)
-                except AgentError:
+                except (AgentError, KeyboardInterrupt) as exc:
+                    if isinstance(exc, KeyboardInterrupt):
+                        self.interrupt_event.set()
+                        self.stop_event.set()
                     reported = outcome
                 failure = run_hook(self.config, lease, workspace.private, reported,
                                    expires=seconds(lease["expires"]) if record else None)
@@ -271,7 +277,10 @@ class Loop:
                         try:
                             self.coordinator.assert_owned(lease)
                             self.coordinator.update(lease, cleanup_hook_error=failure)
-                        except AgentError as exc:
+                        except (AgentError, KeyboardInterrupt) as exc:
+                            if isinstance(exc, KeyboardInterrupt):
+                                self.interrupt_event.set()
+                                self.stop_event.set()
                             diagnostic("cleanup-hook-verdict-unrecorded", error=str(exc))
                     return False
                 return True
@@ -290,6 +299,7 @@ class Loop:
             self.coordinator.assert_owned(lease)
 
         interrupted = False
+        completing = False
         setup = True
         effect = "failure"
         result, summary = "retry", "Assignment ended without a validated outcome"
@@ -332,6 +342,7 @@ class Loop:
             diagnostic("execution-exited", code=code)
             # No acceptance or release until all attributable execution has ended.
             cleanup_workspace()
+            completing = True
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
             if outcome is None:
@@ -357,10 +368,12 @@ class Loop:
             # Do not report, release, or accept after losing ownership.
             raise
         except KeyboardInterrupt:
-            if outcome and outcome.get("transition", {}).get("started"):
-                diagnostic("transition-interrupted", outcome=outcome["id"])
+            if completing:
+                diagnostic("transition-interrupted", outcome=outcome["id"] if outcome else None)
                 cleanup_workspace()
-                # Leave the durable transition pending for expiry recovery.
+                # A request can be interrupted after GitHub applied its write,
+                # before our in-memory outcome reflects it. Even a read before
+                # transition start must preserve the report for expiry recovery.
                 raise
             interrupted = True
             effect = "unchanged"
@@ -397,7 +410,7 @@ class Loop:
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
             self._released_blockers[(plan.item.number, plan.agent.name)] = summary
-        if interrupted:
+        if interrupted or self.interrupt_event.is_set():
             raise KeyboardInterrupt
         return True
 
@@ -580,6 +593,8 @@ class Loop:
             except (_InvalidReload, CleanupError, LostOwnership, RecordError):
                 raise
             except AgentError as exc:
+                if self.interrupt_event.is_set():
+                    raise KeyboardInterrupt from None
                 if once or self._poll_complete:
                     raise
                 failures += 1

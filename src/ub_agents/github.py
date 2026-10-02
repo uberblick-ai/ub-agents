@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 import math
 import re
+import signal
 import subprocess
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
@@ -177,6 +178,10 @@ class GitHub:
             raise error from exc
         except UnicodeError as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        # Launch defers signal handling until owned execution can be cleaned up.
+        # gh shares the terminal's foreground group and can exit first on Ctrl-C.
+        if result.returncode in (-signal.SIGINT, 128 + signal.SIGINT):
+            raise KeyboardInterrupt
         try:
             status, headers, payload = response_parts(result.stdout)
         except ValueError as exc:
