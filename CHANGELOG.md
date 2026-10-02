@@ -17,6 +17,8 @@ notes are copied from that section.
   any in-progress checkout refresh finishes. Later SIGTERM signals allow process
   termination and cleanup to complete. SIGINT and SIGHUP still terminate active
   execution, including during a graceful stop (#52).
+- The README recommends Homebrew for installation and upgrades, links to release
+  configuration guidance, and keeps checkout installs as a development alternative (#48).
 
 ### Fixed
 

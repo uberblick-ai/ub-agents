@@ -4,8 +4,8 @@ ub-agents runs coding agents in an engineering loop driven by GitHub. Each proje
 defines its workflow; the launcher watches GitHub, claims matching work, runs the
 configured agent, and records its outcome.
 
-> Early stage. The starter workflow runs end to end on this repository. Packaged
-> releases (Homebrew, PyPI) are planned in [#4](https://github.com/uberblick-ai/ub-agents/issues/4).
+> Early stage. The starter workflow runs end to end on this repository. PyPI
+> releases are planned in [#4](https://github.com/uberblick-ai/ub-agents/issues/4).
 
 ## How it works
 
@@ -30,18 +30,23 @@ Observe GitHub → match a label → claim the item → run the agent → record
 
 ## Use it in your project
 
-You need macOS or Linux, Python 3.11+, `git`, an authenticated `gh`, and the agent CLIs
-you want to use, such as `codex` or `claude`. Every launcher for a project must
+You need macOS or Linux, `git`, an authenticated `gh`, and the agent CLIs you want to
+use, such as `codex` or `claude`. Homebrew installs Python and `gh`; checkout installs
+require Python 3.11+. Every launcher for a project must
 authenticate `gh` as the same GitHub account: only that account's coordination
 comments count, so launchers on different accounts would not see each other's claims.
 
 ```sh
-pipx install .        # from a checkout of this repository
+brew install uberblick-ai/tap/ub-agents
 cd your-project
 ub-agent init         # starter ub-agent.yaml, AGENTS.md and .agents/ instructions
 ub-agent doctor       # check the machine, GitHub labels/access and runtimes
 ub-agent launch       # run the loop in the foreground; Ctrl-C stops it
 ```
+
+Upgrade with `brew upgrade ub-agents`. Before upgrading, check the
+[changelog](CHANGELOG.md) and [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases)
+for any required configuration edits.
 
 The continuous loop retries transient GitHub discovery failures with bounded waits.
 See [polling and retry limits](docs/configuration.md#top-level) for the fixed delays,
@@ -230,6 +235,8 @@ for resources associated with each private worktree. Document operator-only reco
 steps in a project operations document linked from `AGENTS.md`.
 
 ## Development
+
+For development, install from a checkout with Python 3.11+:
 
 ```sh
 python3 -m venv .venv
