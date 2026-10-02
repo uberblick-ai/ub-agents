@@ -49,7 +49,8 @@ The launcher retains `X-RateLimit-Remaining`, `X-RateLimit-Limit` and
 probe. If any resource has **less than 20%** remaining, the empty-pass gap doubles.
 The extra wait stops at that resource's reset (the earliest reset if several are
 low), never shortens the ordinary gap, and remains capped at **one hour**.
-Incomplete or unreadable quota headers do not add a wait.
+Resources whose reset has passed, and incomplete or unreadable quota headers,
+do not add a wait.
 
 When the launcher becomes idle, and again when the set of low-quota resources
 changes, it prints `No eligible work; next poll in <n> min (<k> requests last poll)`.

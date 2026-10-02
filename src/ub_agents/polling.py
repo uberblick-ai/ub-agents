@@ -13,7 +13,7 @@ def idle_interval(requests, minimum, quotas, now, elapsed):
     """Return a pass-start gap and low resources, using only observed headers.
 
     Reset bounds apply to the extra wait, never shortening the ordinary gap.
-    With several low resources, the earliest reset bounds the doubling.
+    With several low resources, the earliest unexpired reset bounds the doubling.
     """
     interval = min(IDLE_MAX_SECONDS, max(minimum, requests * IDLE_SECONDS_PER_REQUEST))
     low = {}
@@ -25,7 +25,7 @@ def idle_interval(requests, minimum, quotas, now, elapsed):
         except (KeyError, ValueError, TypeError, OverflowError):
             continue
         if (all(math.isfinite(value) for value in (remaining, limit, reset))
-                and limit > 0 and remaining >= 0 and reset >= 0
+                and limit > 0 and remaining >= 0 and reset > now
                 and remaining < limit * LOW_QUOTA_FRACTION):
             low[resource] = reset
     if low:

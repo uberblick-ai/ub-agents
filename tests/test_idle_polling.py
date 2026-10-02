@@ -138,7 +138,8 @@ class IdlePollingTests(unittest.TestCase):
                 with self.subTest(resource=resource, remaining=remaining, reset=reset):
                     interval, low = idle_interval(requests, 30, {resource: quota(remaining, reset)}, 1003, 3)
                     self.assertEqual(interval, expected)
-                    self.assertEqual(low, frozenset({resource}) if remaining < 1000 else frozenset())
+                    self.assertEqual(low, frozenset({resource})
+                                     if remaining < 1000 and reset > 1003 else frozenset())
         interval, low = idle_interval(5, 30, {"core": quota(reset=1100), "graphql": quota(reset=1080)}, 1000, 0)
         self.assertEqual(interval, 80)
         self.assertEqual(low, frozenset({"core", "graphql"}))
@@ -146,6 +147,32 @@ class IdlePollingTests(unittest.TestCase):
                         quota(remaining="bad"), quota(limit="inf")):
             with self.subTest(headers=headers):
                 self.assertEqual(idle_interval(5, 30, {"core": headers}, 1000, 0), (72, frozenset()))
+
+    def test_expired_low_resource_does_not_bound_live_low_resource(self):
+        for live, expired in (("core", "graphql"), ("graphql", "core")):
+            for expired_reset in (400, 1000):
+                for live_reset, expected in ((3400, 144), (1100, 100)):
+                    with self.subTest(live=live, expired_reset=expired_reset,
+                                      live_reset=live_reset):
+                        quotas = {live: quota(reset=live_reset),
+                                  expired: quota(reset=expired_reset)}
+                        self.assertEqual(idle_interval(5, 30, quotas, 1000, 0),
+                                         (expected, frozenset({live})))
+
+    def test_idle_logging_changes_when_retained_low_quota_expires(self):
+        self.github.resource_quotas = {"graphql": quota(reset=1100)}
+        self.response("user")
+
+        def tick():
+            for _ in range(5):
+                self.github.request("user")
+            return False
+
+        starts, waits = self.run_passes(tick, count=4)
+        self.assertEqual(waits, [100, 72, 72])
+        self.assertEqual(self.lines, [
+            "No eligible work; next poll in 1.66667 min (5 requests last poll)",
+            "No eligible work; next poll in 1.2 min (5 requests last poll)"])
 
     def test_low_quota_wait_is_bounded_by_reset_from_pass_start(self):
         self.response("user", headers={"X-RateLimit-Resource": "core"} | quota(reset=1100))

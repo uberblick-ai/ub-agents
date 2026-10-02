@@ -10,8 +10,9 @@ notes are copied from that section.
 
 - Empty discovery passes back off by their REST request cost under a fixed
   250 requests/hour budget per launcher, assuming ten idle launchers share half
-  an account's quota. Low quota doubles the gap up to reset, with a one-hour cap;
-  work resumes normal pacing, and idle messages print only on state changes (#83).
+  an account's quota. Low quota doubles the gap up to reset, ignoring expired
+  quota observations, with a one-hour cap; work resumes normal pacing, and idle
+  messages print only on state changes (#83).
 
 ## 0.1.8 — 2026-10-03
 
