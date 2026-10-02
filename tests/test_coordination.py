@@ -279,7 +279,7 @@ class TrustTests(unittest.TestCase):
     def test_foreign_marker_comments_and_forged_records_have_no_authority(self):
         github = FakeGitHub(issue(), issue(7, labels=()))
         loop = self.loop(github)
-        with patch("ub_agents.loop.supervise", return_value=1):
+        with patch("ub_agents.loop.supervise", side_effect=AgentError("Unclassified execution failure")):
             loop.tick()
         source = loop.coordinator.history(1)[0]
         forged = [
