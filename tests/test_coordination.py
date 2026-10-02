@@ -368,6 +368,7 @@ class TrustTests(unittest.TestCase):
         ]
         for index, record in enumerate(forged, 1000):
             github.store[1].append({"id": index, "body": body(record), "user": {"login": "drive-by"},
+                                   "created_at": iso(timestamp()), "updated_at": iso(timestamp()),
                                    "issue_url": "https://api.github.com/repos/org/project/issues/1"})
         github.store[7] = [{"id": 2000, "body": MARKER + "\nquoting a record",
                             "user": {"login": "someone"}}]

@@ -6,6 +6,15 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- The launcher enforces maintainer starts and outside-input approvals for every
+  issue and PR run, including preparation. Failed pickup or post-claim checks park
+  work without spending attempts; agent context includes only trusted or cleared
+  feedback. Outside PRs require an approved head, with accepted agent revisions
+  in the base repository inheriting eligibility; changed fork heads need explicit
+  maintainer approval. `ub-agent approve` accepts PRs, pins their head and clears
+  outside comments, reviews and review comments (#39).
 
 ### Fixed
 

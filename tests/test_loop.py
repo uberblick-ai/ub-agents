@@ -162,8 +162,11 @@ class LoopTests(unittest.TestCase):
 
     def test_unreadable_github_is_not_an_empty_queue(self):
         self.github.unreadable = True
-        with self.assertRaises(AgentError):
-            self.loop.tick()
+        self.assertFalse(self.loop.tick())
+        plan = self.loop.plans()[0]
+        self.assertEqual(plan.state, "parked")
+        self.assertIn("unreadable", plan.reason)
+        self.assertEqual(self.github.writes, [])
 
 class QueueTests(unittest.TestCase):
     def setUp(self):

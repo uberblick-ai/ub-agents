@@ -223,6 +223,12 @@ class GitHub:
         return self.request(f"{self.prefix}/issues/{number}/timeline", paginate=True)
 
     def issue_content(self, number):
+        return self._content(number, "issue")
+
+    def pr_content(self, number):
+        return self._content(number, "pullRequest")
+
+    def _content(self, number, kind):
         """Read current content and every body revision, including its editor.
 
         GitHub's userContentEdits.diff contains the body at that revision, despite
@@ -238,6 +244,10 @@ class GitHub:
             }
           } }
         }"""
+        if kind == "pullRequest":
+            query = query.replace("issue(number:", "pullRequest(number:").replace(
+                "title body createdAt lastEditedAt",
+                "title body createdAt lastEditedAt author { login } headRefOid headRepository { nameWithOwner }")
         edits, cursor, content, seen = [], None, None, set()
         while True:
             raw = self.request("graphql", "POST", {"query": query, "variables": {
@@ -245,8 +255,18 @@ class GitHub:
             try:
                 if raw.get("errors"):
                     raise ValueError("GraphQL errors")
-                issue = raw["data"]["repository"]["issue"]
+                issue = raw["data"]["repository"][kind]
                 current = {key: issue[key] for key in ("title", "body", "createdAt", "lastEditedAt")}
+                if kind == "pullRequest":
+                    head_repository = issue["headRepository"]
+                    head_repository = head_repository["nameWithOwner"] if head_repository is not None else None
+                    if head_repository is not None and (not isinstance(head_repository, str)
+                                                       or not re.fullmatch(REPOSITORY, head_repository)):
+                        raise ValueError("invalid PR head repository")
+                    current |= {"author": issue["author"], "head": issue["headRefOid"],
+                                "head_repository": head_repository}
+                    if not isinstance(current["head"], str) or not re.fullmatch(r"[0-9a-f]{40}", current["head"]):
+                        raise ValueError("invalid PR head")
                 if content is not None and current != content:
                     raise ValueError("issue changed while reading history")
                 content = current
@@ -264,7 +284,7 @@ class GitHub:
                 cursor = page["endCursor"]
                 seen.add(cursor)
             except (KeyError, TypeError, ValueError) as exc:
-                raise GitHubError("POST", "graphql", "Unreadable issue content history") from exc
+                raise GitHubError("POST", "graphql", f"Unreadable {'issue' if kind == 'issue' else 'PR'} content history") from exc
 
     def labels(self):
         rows = self.request(f"{self.prefix}/labels", paginate=True)
@@ -338,6 +358,51 @@ class GitHub:
 
     def comments(self, number):
         return self.request(f"{self.prefix}/issues/{number}/comments?per_page=100", paginate=True)
+
+    def review_comments(self, number):
+        return self.request(f"{self.prefix}/pulls/{number}/comments?per_page=100", paginate=True)
+
+    def reviews(self, number):
+        """Include review edit times, which REST's submitted_at alone cannot prove."""
+        owner, name = self.repository.split("/", 1)
+        query = """query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+          repository(owner:$owner, name:$name) { pullRequest(number:$number) {
+            reviews(first:100, after:$cursor) {
+              nodes { databaseId body author { login } submittedAt lastEditedAt state commit { oid } }
+              pageInfo { hasNextPage endCursor }
+            }
+          } }
+        }"""
+        rows, cursor, seen = [], None, set()
+        while True:
+            data = self.graphql(query, {"owner": owner, "name": name, "number": number, "cursor": cursor})
+            try:
+                connection = data["repository"]["pullRequest"]["reviews"]
+                if not isinstance(connection["nodes"], list):
+                    raise ValueError("invalid reviews")
+                for node in connection["nodes"]:
+                    # Pending reviews are private, unsubmitted input.
+                    if node["state"] == "PENDING":
+                        continue
+                    seconds(node["submittedAt"])
+                    updated = max((node["lastEditedAt"] or node["submittedAt"], node["submittedAt"]),
+                                  key=seconds)
+                    if not positive_int(node["databaseId"]) or not isinstance(node["body"], str):
+                        raise ValueError("invalid review")
+                    rows.append({"id": node["databaseId"], "body": node["body"], "user": node["author"],
+                                 "created_at": node["submittedAt"], "updated_at": updated,
+                                 "state": node["state"], "commit_id": node["commit"]["oid"]})
+                page = connection["pageInfo"]
+                if type(page["hasNextPage"]) is not bool:
+                    raise ValueError("invalid pagination")
+                if not page["hasNextPage"]:
+                    return rows
+                if not isinstance(page["endCursor"], str) or page["endCursor"] in seen:
+                    raise ValueError("invalid review cursor")
+                cursor = page["endCursor"]
+                seen.add(cursor)
+            except (KeyError, TypeError, ValueError, AgentError) as exc:
+                raise GitHubError("POST", "graphql", "Unreadable PR reviews") from exc
 
     def repository_comments(self):
         # Recovery must not depend on a trigger still being present or an item

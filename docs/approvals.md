@@ -1,12 +1,26 @@
-# Issue starts and outside input
+# Issue and PR starts and outside input
 
 Issue work needs a maintainer's start. Once started, the pipeline can move its own
 labels and accept trusted edits without further human involvement. Outside content
 needs a maintainer's review before it becomes input.
 
-This release provides the approval check, record and command. Claim-time enforcement
-and passing the cleared-comment list to agents are tracked in #39; starter instruction
-changes are tracked in #40. The launcher does not yet enforce this check at pickup.
+Every issue agent, including preparation, and every PR agent passes the approval
+check at pickup and again after claiming. There is no setting to disable it.
+`launch` and `status` show disallowed input as parked with the reason: missing
+maintainer start, outside changes or unreadable approval history. Pickup makes no
+claim or other write and spends no attempt. A failed post-claim check withdraws the
+claim before execution, spends no attempt and needs no `ub-agent retry`; the item
+becomes eligible when its input is approved. Existing live runs and durable-outcome
+recovery finish under their original assignment.
+
+The post-claim read supplies the agent's title, body and filtered comments; PR
+context also includes the assigned head, reviews and review comments. Trusted and
+maintainer feedback and cleared outside feedback are input. Uncleared or
+later-edited outside feedback, coordination records, launcher notices and approval records are
+excluded. The launcher prompt directs agents to use this context as assignment
+input; other GitHub comments are not input, even when project instructions ask
+agents to read comments. Outside edits during execution do not stop that run or
+change its input. Starter instruction changes are tracked in #40.
 
 ## Repository roles
 
@@ -14,9 +28,9 @@ Trust comes from `role_name` in GitHub's [collaborator permission API](https://d
 
 | Role | Input and authority |
 |---|---|
-| `maintain`, `admin` | Maintainer: can start and approve issues; edits and comments are trusted. |
+| `maintain`, `admin` | Maintainer: can start and approve issues and PRs; edits and comments are trusted. |
 | `write` | Trusted: edits and comments are input without approval, including agent preparation rewrites. Cannot start or approve. |
-| `triage`, `read`, `none`, unknown | Outside: edits suspend work; comments need clearance. |
+| `triage`, `read`, `none`, unknown | Outside: edits need approval; feedback needs clearance. Outside PR feedback also suspends work. |
 
 An unreadable permission or an unrecognized custom role counts as outside. Roles are
 read for each observation, with repeated accounts cached only within that observation.
@@ -64,6 +78,47 @@ Deleted comments cannot be detected. Deleting a comment only removes input. Dele
 an approval comment removes its authority; a hidden body revision cannot prove the
 content digest of a record posted during that revision.
 
+## Pull requests
+
+A PR authored by a trusted or maintainer account needs no maintainer start.
+Outside comments, reviews and review comments require clearance before becoming
+input, but do not suspend this PR. Commenting cannot stall trusted-authored PRs.
+
+A PR authored by an outside account needs a maintainer's start: a trigger label
+of a configured `pr` or `either` agent, normally `needs-review`. Issue-only triggers
+do not start PRs. The start remains valid after agent label transitions. An
+approval record or an approving review does not replace this required start.
+
+An outside PR also needs an eligible current head. GitHub does not record push
+times, so applying a trigger label cannot prove which head it covered. A head is
+eligible when a valid PR approval record pins it, a maintainer's approving review
+names it as `commit_id`, or an accepted successful agent outcome produced it as
+`candidate_sha` from a run whose `assignment_sha` was eligible when assigned.
+The outcome must belong to this PR and match its successfully released source
+lease (including completed recovery), and the PR's head repository must be the
+base repository. Only trusted accounts can push there. A report records the head
+observed at reporting time and cannot distinguish an agent push from an outside
+fork author's push during a run. Fork heads therefore always need an explicit
+approval record or maintainer approving review. A missing head repository cannot
+grant inherited eligibility. Chained agent revisions in the base repository inherit
+eligibility; unaccepted, rejected or unrelated outcomes do not. Every other head
+needs explicit maintainer approval, even when its push preceded the start.
+
+Outside title or body edits, comments, reviews and review comments at or after the
+latest maintainer approval suspend outside-authored PR work. The latest approval
+is a maintainer trigger label, valid PR approval record or approving review.
+Reapplying a trigger can lift input suspension but cannot approve an unknown head.
+An approving review lifts suspension and approves its commit but does not clear
+outside feedback. Editing its prose preserves that submission approval and does
+not create a new approval of later outside input. Only starts and approval records clear feedback, with separate
+ID and body-digest lists for comments, reviews and review comments. Editing cleared
+feedback removes its clearance even if its text returns to the approved body.
+
+Fork PRs may be reviewed on their approved head. Agents cannot revise fork PRs;
+revision runs must report `blocked` instead of attempting a handoff through the
+base repository's branch. Every changed fork head needs explicit maintainer approval,
+including a head observed by an accepted successful run.
+
 ## Approving current input
 
 Run from a project configured with `ub-agent.yaml`:
@@ -73,8 +128,9 @@ ub-agent approve --number 123
 ```
 
 The command refuses without posting if the authenticated `gh` account is not a
-maintainer or the number is a PR. It prints the current title, body and every outside
-comment, then posts one approval comment and prints its URL. Running the command
+maintainer. For issues it prints the current title, body and outside comments.
+For PRs it also prints the head SHA, outside reviews and outside review comments.
+It posts one approval comment and prints its URL. Running the command
 expresses approval; there is no interactive confirmation. It refuses when the input
 changes between display and the final read. Changes during posting are handled by
 record validation. The command does not change labels.
@@ -107,14 +163,25 @@ writes the record. The marker versions this encoding; unsupported or malformed
 records grant no authority.
 
 A record is valid only when GitHub identifies its author as a maintainer, it has
-not been edited since posting, its issue number matches, and its digest matches the
+not been edited since posting, its issue or PR number matches, and its digest matches the
 title and body **at posting time**. Validation reconstructs that content from body
 revisions and title renames; it does not compare with the latest content. A later
 trusted rewrite therefore preserves the approval. A stale digest does not become
 valid when someone later restores the old text. Forged records by `write` or outside
 accounts grant no approval.
 
-For callers, `ub_agents.approvals.check_issue(github, number, trigger_labels)` returns
-`allowed`, a `reason`, and `cleared_comment_ids` (outside comments only). Supply the
-union of triggers for issue/either agents, not just the issue's current labels.
-The check performs reads only and does not claim work or change workflow labels.
+PR records use the same version 1 envelope with `pr` instead of `issue`, plus
+`head_sha` (40 lowercase hexadecimal characters), `reviews` and `review_comments`.
+Each feedback list uses the same `{id, body_sha256}` encoding; IDs are scoped to
+that feedback type. An issue record cannot approve a PR or vice versa. A record
+for an older head never makes a new head eligible. The record explicitly pins the
+reviewed head; it does not rely on a push timestamp.
+
+For callers, `ub_agents.approvals.check_issue(github, number, trigger_labels)` and
+`check_pr(github, number, trigger_labels, actor)` return `allowed`, a `reason`,
+`cleared_comment_ids` (outside comments only) and the filtered `snapshot`.
+PR checks also return `cleared_review_ids` and `cleared_review_comment_ids`.
+Supply the union of triggers for issue/either or pr/either agents, respectively,
+not just the item's current labels. The PR `actor` is the authenticated launcher
+account whose coordination records can supply agent ancestry. Checks perform
+reads only and do not claim work or change workflow labels.
