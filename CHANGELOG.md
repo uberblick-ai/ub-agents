@@ -12,6 +12,10 @@ notes are copied from that section.
   the default branch and rereads the role's instructions, so instruction changes take
   effect without a restart. The control checkout must be clean, on the default branch
   and free of local-only commits; otherwise the launcher stops with a message (#37).
+- `max-attempts` limits consecutive failures per item and agent. An accepted success
+  resets the count, while interrupts, blocked reports and paused transitions leave it
+  unchanged. A changed head, state or trigger before execution counts as a failure and
+  retries with backoff (#43).
 - The starter integrator can send a PR back with a `changes-requested` outcome when
   it conflicts with the base branch or lacks a required changelog entry.
 
