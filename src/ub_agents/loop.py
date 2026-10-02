@@ -7,13 +7,17 @@ from dataclasses import replace
 
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
-from .errors import (AgentError, CleanupError, LostOwnership, RecordError,
+from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import Workspace, command_for, supervise
 from .github import closing_issues, links_issue
 from .hooks import run_hook
 from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
 from .refresh import refresh_instructions
+
+POLL_RETRY_BASE_SECONDS = 5
+POLL_RETRY_MAX_SECONDS = 60
+POLL_FAILURE_LIMIT = 6
 
 
 class Loop:
@@ -133,7 +137,7 @@ class Loop:
         instructions = refresh_instructions(self.config, plan.agent, self.github)
         if self.stop_event.is_set():
             raise KeyboardInterrupt
-        lease = self.coordinator.claim(plan, self.config.stop_labels)
+        lease = self.coordinator.claim(plan, self.config.stop_labels, before_write=self._end_poll)
         if lease is None:
             return False
         run_dir = self.config.root / ".ub-agent" / "runs" / lease["run"]
@@ -435,7 +439,8 @@ class Loop:
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
             return False
-        recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True)
+        recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
+                                          before_write=self._end_poll)
         if recovery is None:
             return False
         result, summary = outcome["status"], outcome["summary"]
@@ -467,9 +472,39 @@ class Loop:
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 
+    def _end_poll(self):
+        # Even an unsuccessful lease write ends discovery. Never retry a tick that
+        # may already have written a claim or withdrawn from a claim election.
+        self._poll_complete = True
+
     def launch(self, once=False):
+        failures = 0
         while not self.stop_event.is_set():
-            worked = self.tick()
+            self._poll_complete = False
+            try:
+                worked = self.tick()
+            except (CleanupError, LostOwnership, RecordError):
+                raise
+            except AgentError as exc:
+                if once or self._poll_complete:
+                    raise
+                failures += 1
+                delay = min(POLL_RETRY_MAX_SECONDS, POLL_RETRY_BASE_SECONDS * 2 ** (failures - 1))
+                retryable = isinstance(exc, GitHubError) and exc.retryable
+                if retryable and exc.reset_at is not None:
+                    delay = max(0, exc.reset_at - timestamp())
+                    retryable = delay <= POLL_RETRY_MAX_SECONDS
+                detail = str(exc)
+                # Keep each diagnostic on one line, even when gh prints several.
+                detail = " ".join(detail.split())
+                if not retryable or failures >= POLL_FAILURE_LIMIT:
+                    reason = (f"retries exhausted after {failures} consecutive failed polls"
+                              if retryable else "failure is not retryable; retries not exhausted")
+                    raise AgentError(f"{detail}; {reason}. Fix the cause and restart ub-agent launch.") from exc
+                self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
+                self.stop_event.wait(delay)
+                continue
+            failures = 0
             if once:
                 return
             if not worked:

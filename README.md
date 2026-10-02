@@ -43,6 +43,11 @@ ub-agent doctor       # check the machine, GitHub labels/access and runtimes
 ub-agent launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
+The continuous loop retries transient GitHub discovery failures with bounded waits.
+See [polling and retry limits](docs/configuration.md#top-level) for the fixed delays,
+failure limit and rate-limit behavior. `launch --once` and `status` fail on the first
+error.
+
 In an interactive terminal, `init` explains the missing workflow labels and offers
 to create them; the default is no. Otherwise it prints runnable `gh label create`
 commands. Noninteractive runs make no GitHub calls beyond repository inference.
@@ -180,7 +185,7 @@ stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
 Before every new agent run, the launcher fetches `origin`, fast-forwards the
 operator's control checkout on the repository's default branch, and rereads that
 role's instruction file. Keep that checkout clean and free of local-only commits.
-Unsafe checkout state, refresh failures or invalid instructions stop the launcher
+Unsafe checkout state, Git refresh failures or invalid instructions stop the launcher
 with a nonzero exit and an actionable message; fix the checkout and restart.
 No attempt is charged, and the assignment is not marked blocked or retrying.
 Refresh happens between executions and cleanup hooks, never during a run or

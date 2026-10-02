@@ -2,14 +2,63 @@
 
 from dataclasses import dataclass
 import json
+import math
 import re
 import subprocess
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
-from .errors import AgentError
+from .errors import AgentError, GitHubError
 from .records import iso, positive_int, seconds, timestamp
 
 REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+
+
+def response_parts(output):
+    """Separate gh --include headers from JSON, retaining HTTP failure metadata."""
+    output = output.replace("\r\n", "\n")
+    if not output.startswith("HTTP/"):
+        return None, {}, output
+    header, separator, payload = output.partition("\n\n")
+    match = re.fullmatch(r"HTTP/\d+(?:\.\d+)? (\d{3})(?: .*?)?", header.split("\n")[0])
+    if not match or not separator:
+        raise ValueError("invalid HTTP response headers")
+    headers = {}
+    for line in header.split("\n")[1:]:
+        name, colon, value = line.partition(":")
+        if not colon:
+            raise ValueError("invalid HTTP response header")
+        key = name.lower()
+        headers[key] = f"{headers[key]}, {value.strip()}" if key in headers else value.strip()
+    return int(match[1]), headers, payload
+
+
+def failure_retry(status, headers, detail):
+    """Only known transport/server errors and explicit rate-limit resets retry."""
+    rate_limited = (status == 429 or (status == 403 and
+                    (headers.get("x-ratelimit-remaining") == "0"
+                     or "rate limit" in detail.lower())))
+    if rate_limited:
+        try:
+            if "retry-after" in headers:
+                delay = float(headers["retry-after"])
+                if not math.isfinite(delay) or delay < 0:
+                    return False, None
+                reset = timestamp() + delay
+            elif headers.get("x-ratelimit-remaining") == "0":
+                reset = float(headers["x-ratelimit-reset"])
+            else:
+                return False, None
+            return (True, reset) if math.isfinite(reset) and reset > 0 else (False, None)
+        except (KeyError, ValueError, OverflowError):
+            return False, None
+    if status is not None and status >= 400:
+        return 500 <= status <= 599, None
+    transport = re.search(r"dial tcp|connection (?:refused|reset)|network is unreachable|"
+                          r"no such host|i/o timeout|TLS handshake timeout|"
+                          r"context deadline exceeded|Client.Timeout exceeded|"
+                          r"timeout awaiting response headers|operation timed out|"
+                          r"no route to host|broken pipe|(?:unexpected )?EOF\s*$", detail, re.IGNORECASE)
+    return bool(transport), None
 
 
 @dataclass(frozen=True)
@@ -66,7 +115,7 @@ def dependency_total(data):
     return summary["total_blocked_by"]
 
 
-def parse_item(data, kind):
+def parse_item(data, kind, endpoint=None):
     try:
         seconds(data["created_at"])
         milestone = data["milestone"]["number"] if data.get("milestone") is not None else None
@@ -85,7 +134,9 @@ def parse_item(data, kind):
                     data["head"]["ref"] if kind == "pr" else None, milestone,
                     data["draft"] if kind == "pr" else False,
                     dependency_total(data) if kind == "issue" else None)
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
+        if endpoint is not None:
+            raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc
         raise AgentError("Unreadable GitHub work item") from exc
 
 
@@ -111,7 +162,7 @@ class GitHub:
                     return items
                 page += 1
         command = ["gh", "api", "--hostname", "github.com", "--method", method,
-                   "-H", "Accept: application/vnd.github+json", endpoint]
+                   "-H", "Accept: application/vnd.github+json", "--include", endpoint]
         if data is not None:
             command += ["--input", "-"]
         try:
@@ -119,35 +170,44 @@ class GitHub:
                 command, input=json.dumps(data) if data is not None else None,
                 capture_output=True, text=True, timeout=20, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            error = AgentError(f"GitHub {method} {endpoint} failed: {exc}")
+            error = GitHubError(method, endpoint, str(exc), retryable=isinstance(
+                exc, (subprocess.TimeoutExpired, TimeoutError, ConnectionError)))
             error.probe_reason = ("timed out (20s)" if isinstance(exc, subprocess.TimeoutExpired)
                                   else "could not run")
             raise error from exc
-        if result.returncode:
-            error = AgentError(f"GitHub {method} {endpoint} failed: {result.stderr.strip()}")
+        except UnicodeError as exc:
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        try:
+            status, headers, payload = response_parts(result.stdout)
+        except ValueError as exc:
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        if result.returncode or (status is not None and status >= 400):
+            detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
+            retryable, reset_at = failure_retry(status, headers, detail)
+            error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at)
             error.probe_reason = f"exit {result.returncode}"
             raise error
-        if method == "DELETE" and not result.stdout.strip():
+        if method == "DELETE" and not payload.strip():
             return None
         try:
-            value = json.loads(result.stdout)
+            value = json.loads(payload)
             if not isinstance(value, list if array else dict):
                 raise ValueError("expected an array" if array else "expected an object")
             return value
         except (ValueError, TypeError) as exc:
-            raise AgentError(f"Unreadable GitHub response for {endpoint}: {exc}") from exc
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
 
     def actor(self):
         data = self.request("user")
         if not isinstance(data.get("login"), str) or not data["login"]:
-            raise AgentError("GitHub authentication returned no actor")
+            raise GitHubError("GET", "user", "GitHub authentication returned no actor")
         return data["login"]
 
     def labels(self):
         rows = self.request(f"{self.prefix}/labels", paginate=True)
         if any(not isinstance(row, dict) or not isinstance(row.get("name"), str)
                or not row["name"].strip() for row in rows):
-            raise AgentError("Unreadable GitHub labels")
+            raise GitHubError("GET", f"{self.prefix}/labels", "Unreadable GitHub labels")
         return [row["name"] for row in rows]
 
     def create_label(self, name, description, color):
@@ -156,13 +216,13 @@ class GitHub:
 
     def observe(self):
         # Repository issues include PRs. Do not use indexed search or a fixed --limit.
-        data = self.request(f"{self.prefix}/issues?state=open&sort=created&direction=asc&per_page=100",
-                            paginate=True)
+        endpoint = f"{self.prefix}/issues?state=open&sort=created&direction=asc&per_page=100"
+        data = self.request(endpoint, paginate=True)
         items = []
         for raw in data:
             if not isinstance(raw, dict):
-                raise AgentError("Unreadable GitHub issue list")
-            item = parse_item(raw, "issue")
+                raise GitHubError("GET", endpoint, "Unreadable GitHub issue list")
+            item = parse_item(raw, "issue", endpoint)
             if "pull_request" in raw:
                 items.append(self.item(item.number, "pr"))
             else:
@@ -171,12 +231,15 @@ class GitHub:
 
     def item(self, number, kind=None):
         if kind == "pr":
-            return parse_item(self.request(f"{self.prefix}/pulls/{number}"), "pr")
-        raw = self.request(f"{self.prefix}/issues/{number}")
-        return self.item(number, "pr") if "pull_request" in raw else parse_item(raw, "issue")
+            endpoint = f"{self.prefix}/pulls/{number}"
+            return parse_item(self.request(endpoint), "pr", endpoint)
+        endpoint = f"{self.prefix}/issues/{number}"
+        raw = self.request(endpoint)
+        return self.item(number, "pr") if "pull_request" in raw else parse_item(raw, "issue", endpoint)
 
     def active_milestone(self):
-        data = self.request(f"{self.prefix}/milestones?state=open&per_page=100", paginate=True)
+        endpoint = f"{self.prefix}/milestones?state=open&per_page=100"
+        data = self.request(endpoint, paginate=True)
         active = []
         for raw in data:
             try:
@@ -187,14 +250,15 @@ class GitHub:
                 # GitHub's milestone count includes open issues and pull requests.
                 if raw["state"] == "open" and raw["open_issues"]:
                     active.append((created, raw["number"]))
-            except (KeyError, TypeError, ValueError) as exc:
-                raise AgentError("Unreadable GitHub milestone") from exc
+            except (KeyError, TypeError, ValueError, AgentError) as exc:
+                raise GitHubError("GET", endpoint, "Unreadable GitHub milestone") from exc
         return min(active)[1] if active else None
 
     def blocked_by(self, number):
-        data = self.request(f"{self.prefix}/issues/{number}/dependencies/blocked_by", paginate=True)
+        endpoint = f"{self.prefix}/issues/{number}/dependencies/blocked_by"
+        data = self.request(endpoint, paginate=True)
         if not isinstance(data, list):
-            raise AgentError(f"Unreadable GitHub dependencies for #{number}")
+            raise GitHubError("GET", endpoint, f"Unreadable GitHub dependencies for #{number}")
         blockers = []
         for raw in data:
             try:
@@ -206,7 +270,7 @@ class GitHub:
                     raise ValueError("invalid dependency fields")
                 blockers.append(Dependency(match[1], raw["number"], raw["state"]))
             except (KeyError, TypeError, ValueError) as exc:
-                raise AgentError(f"Unreadable GitHub dependency for #{number}") from exc
+                raise GitHubError("GET", endpoint, f"Unreadable GitHub dependency for #{number}") from exc
         return blockers
 
     def comments(self, number):
@@ -224,21 +288,26 @@ class GitHub:
                 query["since"] = since
             # Page offsets over update order skip rows when earlier comments move
             # or disappear. Always read the first page beyond this timestamp.
-            batch = self.request(f"{self.prefix}/issues/comments?{urlencode(query)}", array=True)
+            endpoint = f"{self.prefix}/issues/comments?{urlencode(query)}"
+            batch = self.request(endpoint, array=True)
             updated = []
             for comment in batch:
                 if not isinstance(comment, dict) or type(comment.get("id")) is not int:
-                    raise AgentError("Unreadable repository comment")
-                updated.append(seconds(comment.get("updated_at")))
+                    raise GitHubError("GET", endpoint, "Unreadable repository comment")
+                try:
+                    updated.append(seconds(comment.get("updated_at")))
+                except AgentError as exc:
+                    raise GitHubError("GET", endpoint, str(exc)) from exc
                 comments[comment["id"]] = comment
             if len(batch) > 100 or updated != sorted(updated):
-                raise AgentError("Repository comment page has invalid size or update ordering")
+                raise GitHubError("GET", endpoint, "Repository comment page has invalid size or update ordering")
             if len(batch) < 100:
                 break
             boundary = int(updated[-1]) - 1
             if since is not None and boundary <= seconds(since):
-                raise AgentError("Cannot safely paginate a full comment page within one update second; "
-                                 "discovery cursor retained")
+                raise GitHubError("GET", endpoint,
+                                  "Cannot safely paginate a full comment page within one update second; "
+                                  "discovery cursor retained")
             since = iso(boundary)
         # Commit the index and cursor only after the entire scan completes.
         self._comment_cache.update(comments)
@@ -256,14 +325,14 @@ class GitHub:
     def default_branch(self):
         raw = self.request(self.prefix)
         if not isinstance(raw.get("default_branch"), str):
-            raise AgentError("GitHub returned no default branch")
+            raise GitHubError("GET", self.prefix, "GitHub returned no default branch")
         return raw["default_branch"]
 
     def prs_for_branch(self, branch, state="open"):
         owner = self.repository.split("/", 1)[0]
         query = urlencode({"state": state, "head": f"{owner}:{branch}", "per_page": 100})
-        return [parse_item(raw, "pr") for raw in
-                self.request(f"{self.prefix}/pulls?{query}", paginate=True)]
+        endpoint = f"{self.prefix}/pulls?{query}"
+        return [parse_item(raw, "pr", endpoint) for raw in self.request(endpoint, paginate=True)]
 
     def add_labels(self, number, labels):
         self.request(f"{self.prefix}/issues/{number}/labels", "POST", {"labels": list(labels)}, array=True)

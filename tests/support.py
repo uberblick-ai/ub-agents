@@ -137,6 +137,48 @@ class FakeGitHub:
         raise AssertionError(f"Unknown comment {comment_id}")
 
 
+class PollGitHub(FakeGitHub):
+    """Script failures at specific discovery reads; retain the recording write store."""
+
+    def __init__(self, *items):
+        super().__init__(*items)
+        self.reads = []
+        self.read_results = {}
+
+    def _read(self, name, *args):
+        self.reads.append((name, args))
+        results = self.read_results.get(name, [])
+        if results:
+            result = results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+        return getattr(super(), name)(*args)
+
+    def observe(self):
+        return self._read("observe")
+
+    def default_branch(self):
+        return self._read("default_branch")
+
+    def repository_comments(self):
+        return self._read("repository_comments")
+
+    def item(self, number, kind=None):
+        return self._read("item", number, kind)
+
+    def comments(self, number):
+        return self._read("comments", number)
+
+    def active_milestone(self):
+        return self._read("active_milestone")
+
+    def blocked_by(self, number):
+        return self._read("blocked_by", number)
+
+    def prs_for_branch(self, branch, state="open"):
+        return self._read("prs_for_branch", branch, state)
+
+
 class RecordingRunner:
     """Read-only doctor probes: explicit responses, no real tool execution."""
     def __init__(self, root):

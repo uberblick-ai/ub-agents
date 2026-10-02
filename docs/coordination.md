@@ -301,6 +301,10 @@ state, fetch or fast-forward failures also stop it with a nonzero exit and a
 message telling the operator what to fix before restarting. These failures do
 not claim an assignment, charge an attempt, or mark work blocked or retrying.
 
+The GitHub read of the default branch is part of pre-claim discovery. Continuous
+launch retries its transient failures under the [poll limits](configuration.md#top-level);
+Git fetch and local checkout or instruction failures still stop immediately.
+
 `ub-agent.yaml` remains the configuration loaded at launcher startup; restart to
 apply configuration changes. New issue worktrees still start from the remote
 default branch. PR worktrees retain their exact candidate SHA. Agents continuing

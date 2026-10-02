@@ -8,11 +8,11 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.config import Runtime, load_config
-from ub_agents.errors import AgentError
+from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
 
 
 class RefreshTests(unittest.TestCase):
@@ -63,15 +63,17 @@ class RefreshTests(unittest.TestCase):
                 git(self.root, "rev-parse", "HEAD"),
                 (self.root / ".git" / "index").read_bytes(), files)
 
-    def stopped(self, condition):
+    def stopped(self, condition, once=True):
         before, writes = self.snapshot(), list(self.github.writes)
         with patch("ub_agents.loop.supervise") as execution, \
                 patch("ub_agents.loop.Workspace.prepare") as prepare, \
+                patch.object(self.loop.stop_event, "wait") as wait, \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 self.assertRaisesRegex(AgentError, condition) as error:
-            self.loop.launch(once=True)
+            self.loop.launch(once=once)
         execution.assert_not_called()
         prepare.assert_not_called()
+        wait.assert_not_called()
         self.assertIn("Fix the operator checkout", str(error.exception))
         self.assertIn("no assignment attempt was charged", str(error.exception))
         self.assertEqual(self.snapshot(), before)
@@ -155,6 +157,77 @@ class RefreshTests(unittest.TestCase):
     def test_modified_checkout_stops(self):
         (self.root / "role.md").write_text("Local edits")
         self.stopped("dirty")
+
+    def test_continuous_launch_does_not_retry_local_refresh_failure(self):
+        (self.root / "role.md").write_text("Local edits")
+        self.stopped("dirty", once=False)
+
+    def test_default_branch_read_retries_then_refreshes_before_claiming(self):
+        errors = [GitHubError("GET", "repos/org/project", "HTTP 504", retryable=True),
+                  GitHubError("GET", "repos/org/project", "request timed out", retryable=True),
+                  GitHubError("GET", "repos/org/project", "HTTP 429", retryable=True, reset_at=1012)]
+        for failure in errors:
+            with self.subTest(error=str(failure)):
+                self.setUp()
+                self.github = PollGitHub(issue())
+                lines = []
+                self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lines.append)
+                self.push_policy()
+                before = self.snapshot()
+                self.github.read_results["default_branch"] = [failure]
+
+                def wait(delay):
+                    self.assertEqual(delay, 12 if failure.reset_at else 5)
+                    self.assertEqual(self.github.writes, [])
+                    self.assertEqual(self.snapshot(), before)
+                    self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
+
+                def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
+                    self.assertIn("Second operator policy", prompt)
+                    self.assertEqual(git(self.root, "rev-parse", "HEAD"),
+                                     git(self.upstream, "rev-parse", "HEAD"))
+                    lease = self.loop.coordinator.history(1)[0]
+                    self.loop.coordinator.report(lease, "success", "Finished", outcome="done")
+                    stop.set()
+                    return 0
+
+                with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                        patch("ub_agents.loop.timestamp", return_value=1000), \
+                        patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
+                        patch("ub_agents.loop.supervise", side_effect=run) as execution, \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.loop.launch()
+                waits.assert_called_once()
+                execution.assert_called_once()
+                self.assertEqual(sum(name == "default_branch" for name, _ in self.github.reads), 2)
+                self.assertEqual(sum(line.startswith("Skipped") for line in lines), 1)
+                self.assertNotIn("Waiting for eligible GitHub work", lines)
+                self.assert_success(1)
+
+    def test_default_branch_read_stops_without_writes_for_permanent_error_or_once(self):
+        cases = [(False, GitHubError("GET", "repos/org/project", "HTTP 401 Bad credentials")),
+                 (False, GitHubError("GET", "repos/org/project", "Unreadable response")),
+                 (True, GitHubError("GET", "repos/org/project", "HTTP 504", retryable=True))]
+        for once, failure in cases:
+            with self.subTest(once=once, error=str(failure)):
+                self.github = PollGitHub(issue())
+                self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lambda *_: None)
+                self.github.read_results["default_branch"] = [failure]
+                before = self.snapshot()
+                with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                        patch.object(self.loop.stop_event, "wait") as wait, \
+                        patch("ub_agents.loop.supervise") as execution, self.assertRaises(AgentError) as raised:
+                    self.loop.launch(once=once)
+                wait.assert_not_called()
+                execution.assert_not_called()
+                self.assertIn(str(failure), str(raised.exception))
+                if once:
+                    self.assertIs(raised.exception, failure)
+                else:
+                    self.assertIn("failure is not retryable; retries not exhausted", str(raised.exception))
+                    self.assertIn("Fix the cause and restart ub-agent launch", str(raised.exception))
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(self.github.writes, [])
 
     def test_staged_checkout_stops(self):
         (self.root / "role.md").write_text("Staged edits")

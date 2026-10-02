@@ -15,6 +15,27 @@ errors; `ub-agent check` validates the file.
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
+Continuous `ub-agent launch` retries failed discovery polls for request timeouts,
+connection failures and HTTP 5xx responses. The fixed backoff starts at **5 seconds**,
+doubles after each consecutive failure and caps at **60 seconds**. The launcher stops
+on the **sixth consecutive failed poll**; a completed poll resets the count, including
+one that finds no work. These values are not configuration keys and are independent
+of agent execution retries under `limits`.
+
+A rate limit counts toward the same failure limit and waits until its explicit
+reset instead of using backoff: `Retry-After` seconds, or `X-RateLimit-Reset` when
+`X-RateLimit-Remaining` is zero. A missing, unreadable or more than 60 seconds away
+reset stops the loop. Authentication, permission, missing repository, malformed
+response and unclassified failures also stop it immediately. The error names the
+request and tells the operator to fix the cause and restart `ub-agent launch`.
+
+Each skipped poll prints its error and next delay, makes no GitHub writes and does
+not report an empty queue. Discovery includes fresh reads immediately before a
+claim, including the default-branch read for instruction refresh; the lease comment
+write ends that poll, and failures from that write onward
+retain their existing handling. Ctrl-C, SIGTERM and SIGHUP interrupt retry waits.
+`launch --once` and `status` still fail on their first error.
+
 ## Project cleanup hook
 
 ```yaml
@@ -189,7 +210,7 @@ Each agent has exactly one of `runtime` or `command`.
 Before each new agent run, the launcher fetches `origin` and fast-forwards the
 control checkout's default branch, then rereads the configured instruction file.
 Run `launch` from a clean checkout on that branch with no local-only commits.
-An unsafe checkout, failed refresh, or missing, outside-project or unreadable
+An unsafe checkout, failed Git refresh, or missing, outside-project or unreadable
 instruction file stops the launcher for the operator to fix and restart; it
 charges no attempt and does not mark the assignment blocked or retrying. Refresh
 runs only between supervised executions and cleanup hooks, and is skipped for

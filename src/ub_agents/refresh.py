@@ -4,7 +4,7 @@ from collections import deque
 from pathlib import Path
 
 from .config import instruction_text
-from .errors import AgentError
+from .errors import AgentError, GitHubError
 from .execution import git
 
 
@@ -117,6 +117,9 @@ def refresh_instructions(config, agent, github):
                                  f"before restarting: {exc}") from exc
         # This text belongs to this run, even if a candidate edits its own copy.
         return instruction_text(root, agent.instructions, where)
+    except GitHubError:
+        # This pre-claim read is discovery: preserve its request and retry metadata.
+        raise
     except (AgentError, OSError, UnicodeError) as exc:
         raise AgentError(f"Control checkout refresh stopped at {root}: {exc}. "
                          "Fix the operator checkout or instruction file and restart ub-agent launch; "

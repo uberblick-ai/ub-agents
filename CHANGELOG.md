@@ -19,6 +19,14 @@ notes are copied from that section.
 - The starter integrator can send a PR back with a `changes-requested` outcome when
   it conflicts with the base branch or lacks a required changelog entry.
 
+### Fixed
+
+- Continuous `ub-agent launch` retries transient GitHub discovery failures before
+  claiming work, with no GitHub writes from failed polls. Backoff grows from 5 to
+  60 seconds; a usable rate-limit reset within that cap replaces it. The sixth
+  consecutive failed poll stops with restart instructions. `launch --once` and
+  `status` still stop on the first error (#33).
+
 ## 0.1.3 — 2026-10-02
 
 **Breaking:** 0.1.2 configurations need edits before `check` accepts them. See the
