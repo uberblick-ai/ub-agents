@@ -364,11 +364,21 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   applies outcome transitions itself. Missing trigger or outcome transition labels
   are required failures naming their agents; missing stop labels are warnings. Both give a `gh label create` remedy.
   Label matching is case-insensitive and an unreadable label list is a required
-  failure. Runtime agents without `runtime-args` produce a warning linking the
-  permission guidance. Doctor makes no writes. It exits 1 when a required
-  check fails; warnings and skips exit 0. The JSON has `version`, `ok` and `checks`,
+  failure. The non-required `github-launcher-role` check warns when the launcher
+  account has `maintain` or `admin`, because agents could start and approve their
+  own work, or when its role cannot be read. Use a dedicated account with `write`;
+  see [Issue approvals](approvals.md#repository-roles). Runtime agents without
+  `runtime-args` produce a warning linking the permission guidance. Doctor makes no
+  writes. It exits 1 when a required check fails; warnings and skips exit 0. The
+  JSON has `version`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
+- `ub-agent approve --number N` prints the current issue title, body and outside
+  comments, then posts one [approval record](approvals.md#approving-current-input).
+  It requires the authenticated `gh` account to have the `maintain` or `admin`
+  repository role and refuses PRs or input changed during display. Running the
+  command expresses approval without an interactive confirmation; it changes no
+  labels. Pickup enforcement follows in #39.
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
