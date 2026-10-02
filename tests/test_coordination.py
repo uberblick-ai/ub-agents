@@ -102,13 +102,13 @@ class CoordinationTests(unittest.TestCase):
             with self.assertRaises(AgentError):
                 self.co.choose_runtime(replace(candidate, head="b" * 40), reviewer, self.co.history(2))
 
-    def test_pr_revision_runs_a_new_assignment_with_the_accumulated_budget(self):
+    def test_pr_revision_and_reapplied_issue_trigger_have_reset_failure_budgets(self):
         lease = self.start()
         outcome = self.co.report(lease, "success", "PR opened", handoff=2, outcome="done")
         self.co.accept(lease, outcome)
         self.co.release(lease, "success", "PR opened")
-        # Only a human-reapplied trigger would run the issue again; the budget continues.
-        self.assertEqual((self.plan().state, self.plan().attempt), ("ready", 2))
+        # A successful issue handoff resets its own count; the PR has its own budget.
+        self.assertEqual((self.plan().state, self.plan().attempt), ("ready", 1))
         revision = self.start(self.github.item(2))
         self.github.change(2, labels=frozenset({"needs-review"}), head="b" * 40)
         outcome = self.co.report(revision, "success", "Revision complete", outcome="done")
@@ -116,7 +116,7 @@ class CoordinationTests(unittest.TestCase):
         self.co.release(revision, "success", "Revision complete")
         self.github.change(2, labels=frozenset({"needs-changes"}))
         new = self.plan(self.github.item(2))
-        self.assertEqual((new.state, new.attempt), ("ready", 2))
+        self.assertEqual((new.state, new.attempt), ("ready", 1))
 
     def test_restart_after_outcome_before_release_validates_without_execution(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
