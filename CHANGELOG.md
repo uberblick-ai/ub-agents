@@ -6,6 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Fixed
+
+- Agent prompts and check-running roles require a single session that is never
+  resumed: finish checks in the foreground or wait for every background job,
+  then end the run with `ub-agent report` (#70).
+
 ## 0.1.5 — 2026-10-02
 
 **Upgrading:** no configuration edits are required. Stop every launcher for a project

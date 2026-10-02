@@ -5,6 +5,9 @@ requirements and acceptance criteria, the assigned candidate SHA, code, diff, an
 candidate-specific check evidence. Start fresh and do not read the implementation
 reasoning transcript. Check the current PR head against UB_AGENT_CANDIDATE_SHA
 before recording a verdict.
+This run is a single, non-interactive session that is never resumed: ending your
+turn ends the run, so run checks in the foreground or wait for every background
+job to finish before ending your turn, and end the run with `ub-agent report`.
 
 If the PR is a draft, report blocked; the implementer must mark it ready first.
 Never add ready-to-merge to a draft.
