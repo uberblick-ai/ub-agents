@@ -82,6 +82,103 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'needs-review'})
         self.assertEqual(self.github.item(2).labels, {'unrelated'})
 
+    def independent_reviewer(self):
+        source = Runtime('claude', 'shared-model', 'high')
+        self.agent = replace(self.agent, command=(), runtimes=(source,))
+        reviewer = agent(self.root, name='reviewer', kind='pr', triggers=('needs-review',),
+                         command=(), runtimes=(source, Runtime('codex', 'reviewer-model', 'high')),
+                         different_from=self.agent.name)
+        self.loop = self.new_loop(self.agent, reviewer)
+        return reviewer
+
+    def reviewer_plan(self, reviewer):
+        return next(p for p in self.new_loop(self.agent, reviewer).plans() if p.item.number == 2)
+
+    def test_pending_handoff_blocks_reviewer_between_transition_and_acceptance(self):
+        reviewer = self.independent_reviewer()
+        accept = self.loop.coordinator.accept
+        add_labels = self.github.add_labels
+        def check_before_trigger(number, labels):
+            copied, = self.loop.coordinator.history(2)
+            self.assertTrue(copied['transition']['started'])
+            self.assertFalse(copied['accepted'])
+            add_labels(number, labels)
+        def check_before_accept(lease, outcome):
+            plan = self.reviewer_plan(reviewer)
+            self.assertEqual((plan.state, plan.runtime), ('blocked', None))
+            self.assertIn('handoff from worker is still pending', plan.reason)
+            self.assertIsNone(self.loop.coordinator.claim(plan))
+            accept(lease, outcome)
+        with patch('ub_agents.coordination.shutil.which', return_value='installed'), \
+                patch.object(self.github, 'add_labels', side_effect=check_before_trigger), \
+                patch.object(self.loop.coordinator, 'accept', side_effect=check_before_accept):
+            self.execute(handoff=2)
+            plan = self.reviewer_plan(reviewer)
+        self.assertEqual((plan.state, plan.runtime), ('ready', reviewer.runtimes[1]))
+        copied, = self.loop.coordinator.history(2)
+        self.assertTrue(copied['accepted'])
+
+    def test_failed_pending_copy_never_publishes_review_trigger(self):
+        self.independent_reviewer()
+        create = self.github.create_comment
+        def fail_on_pr(number, text):
+            if number == 2:
+                raise AgentError('Cannot publish pending provenance')
+            return create(number, text)
+        with patch('ub_agents.coordination.shutil.which', return_value='installed'), \
+                patch.object(self.github, 'create_comment', side_effect=fail_on_pr), \
+                self.assertRaises(LostOwnership):
+            self.execute(handoff=2)
+        self.assertEqual(self.labels_changed(), [])
+        self.assertEqual(self.loop.coordinator.history(2), [])
+        self.now += 61
+        with patch('ub_agents.coordination.shutil.which', return_value='installed'), \
+                patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.new_loop().tick()
+        copied, = self.loop.coordinator.history(2)
+        self.assertTrue(copied['accepted'])
+        self.assertIn('needs-review', self.github.item(2).labels)
+
+    def test_failed_pr_acceptance_keeps_reviewer_blocked_until_expiry_recovery(self):
+        reviewer = self.independent_reviewer()
+        update = self.github.update_comment
+        def fail_on_pr(comment_id, text):
+            if any(c['id'] == comment_id for c in self.github.store.get(2, [])):
+                raise AgentError('Cannot accept PR provenance')
+            return update(comment_id, text)
+        with patch('ub_agents.coordination.shutil.which', return_value='installed'):
+            with patch.object(self.github, 'update_comment', side_effect=fail_on_pr), \
+                    self.assertRaises(LostOwnership):
+                self.execute(handoff=2)
+            self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
+            copied, = self.loop.coordinator.history(2)
+            self.assertFalse(copied['accepted'])
+            self.assertEqual(self.reviewer_plan(reviewer).state, 'blocked')
+            self.now += 61
+            self.assertEqual(self.reviewer_plan(reviewer).state, 'blocked')
+            with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                self.new_loop(self.agent, reviewer).tick()
+            plan = self.reviewer_plan(reviewer)
+        self.assertEqual((plan.state, plan.runtime), ('ready', reviewer.runtimes[1]))
+        repaired, = self.loop.coordinator.history(2)
+        self.assertEqual(repaired['id'], copied['id'])
+        self.assertTrue(repaired['accepted'])
+
+    def test_operator_reset_abandons_pending_handoff_for_runtime_fallback(self):
+        reviewer = self.independent_reviewer()
+        with patch('ub_agents.coordination.shutil.which', return_value='installed'):
+            with patch.object(self.loop.coordinator, 'accept', side_effect=AgentError('Cannot accept')), \
+                    self.assertRaises(LostOwnership):
+                self.execute(handoff=2)
+            self.now += 61
+            self.assertEqual(self.reviewer_plan(reviewer).state, 'blocked')
+            reset = {'kind': 'reset', 'run': 'human-reset', 'agent': self.agent.name,
+                     'actor': 'operator', 'runtime': 'operator', 'assignment': 1,
+                     'created': iso(self.now), 'summary': 'Abandon handoff and restore workflow manually'}
+            self.github.create_comment(1, body(reset))
+            plan = self.reviewer_plan(reviewer)
+        self.assertEqual((plan.state, plan.runtime), ('ready', reviewer.runtimes[0]))
+
     def test_handoff_before_nonzero_exit_keeps_transition_and_reviewer_provenance(self):
         builder_runtime = Runtime('codex', 'builder-model', 'high')
         reviewer_runtime = Runtime('claude', 'reviewer-model', 'high')

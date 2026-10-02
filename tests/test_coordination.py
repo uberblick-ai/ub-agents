@@ -126,6 +126,31 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual(plan.state, "blocked")
         self.assertEqual(plan.reason, "Independent candidate execution requires a PR")
 
+    def test_stale_pending_copy_does_not_block_rejected_or_failed_source(self):
+        for verdict in ("rejected", "failed"):
+            with self.subTest(verdict=verdict):
+                self.setUp()
+                first = Runtime("codex", "model-a", "high")
+                source = agent(self.root, name="builder", command=(), runtimes=(first,))
+                reviewer = agent(self.root, name="checker", command=(),
+                                 runtimes=(first, Runtime("claude", "model-b", "high")),
+                                 different_from="builder", triggers=("needs-review",), kind="pr")
+                with patch("ub_agents.coordination.shutil.which", return_value="installed"):
+                    lease = self.start(agent=source)
+                    outcome = self.co.report(lease, "success", "Candidate implemented", handoff=2, outcome="done")
+                    self.co.update_outcome(lease, outcome, transition=outcome["transition"] | {"started": True})
+                    self.co.copy_handoff(lease, outcome)
+                    candidate = pr(labels=("needs-review",))
+                    self.assertEqual(self.plan(candidate, reviewer).state, "blocked")
+                    newer = self.plan(replace(candidate, head="b" * 40), reviewer)
+                    self.assertEqual((newer.state, newer.runtime), ("ready", first))
+                    if verdict == "rejected":
+                        self.co.update_outcome(lease, outcome, rejected="Handoff rejected")
+                    else:
+                        self.co.update(lease, result="blocked", attempt_effect="failure")
+                    plan = self.plan(candidate, reviewer)
+                self.assertEqual((plan.state, plan.runtime), ("ready", first))
+
     def test_runtime_exclusion_uses_exact_accepted_candidate_and_not_effort_or_account(self):
         codex = Runtime("codex", "model-a", "high")
         claude = Runtime("claude", "model-b", "high")

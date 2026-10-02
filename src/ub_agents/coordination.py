@@ -8,7 +8,7 @@ from .config import Agent, Queue, Runtime
 from .errors import AgentError, GitHubError, LostOwnership, RecordError
 from .github import Item
 from .notices import Notices
-from .records import (MARKER, LEGACY_MARKER, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
+from .records import (MARKER, LEGACY_MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       own_comment, payload, records, same_run, seconds, timestamp)
 
 
@@ -125,10 +125,14 @@ class Coordinator:
         if agent.different_from:
             if item.kind != "pr":
                 raise AgentError("Independent candidate execution requires a PR")
-            source = [r for r in history if r["kind"] == "outcome" and r["status"] == "success"
-                      and r.get("accepted") is True and r["agent"] == agent.different_from
-                      and r.get("candidate_sha") == item.head]
+            reports = [r for r in history if r["kind"] == "outcome" and r["status"] == "success"
+                       and r["agent"] == agent.different_from and r.get("candidate_sha") == item.head]
+            source = [r for r in reports if r.get("accepted") is True]
             if not source:
+                for report in reports:
+                    if (not report.get("rejected") and report.get("transition", {}).get("started")
+                            and self.handoff_pending(report)):
+                        raise AgentError(f"Candidate handoff from {agent.different_from} is still pending")
                 eligible = eligible[:1]
             else:
                 source = source[-1]
@@ -149,6 +153,22 @@ class Coordinator:
             if shutil.which(runtime.cli):
                 return runtime
         raise AgentError("No eligible runtime executable is installed")
+
+    def handoff_pending(self, report):
+        # A copied marker may lag acceptance or rejection on the source item.
+        # Expiry alone does not abandon it: recovery must finish the handoff.
+        origin = self.history(report["assignment"])
+        lease = lease_by_id(origin, report["lease_id"])
+        if lease is None or not same_run(report, lease):
+            return False
+        if any(r["kind"] == "reset" and r["agent"] == report["agent"] and r["id"] > lease["id"]
+               for r in origin):
+            return False
+        outcome = next((r for r in origin if r["kind"] == "outcome" and r["lease_id"] == lease["id"]
+                        and same_run(r, lease)), None)
+        return bool(outcome and outcome["status"] == "success" and not outcome.get("rejected")
+                    and outcome.get("transition", {}).get("started")
+                    and attempt_effect(origin, lease, self.clock()) in {"pending", "reset"})
 
     @staticmethod
     def released_success(history, outcome):
@@ -339,5 +359,15 @@ class Coordinator:
         updated = records([self.github.update_comment(outcome["id"], body(accepted))], self.actor)[0]
         outcome.clear()
         outcome.update(updated)
+        self.copy_handoff(lease, outcome)
+
+    def copy_handoff(self, lease, outcome):
+        """Publish or refresh the same provenance record before routing and accepting."""
         if outcome.get("handoff") and outcome["handoff"] != lease["assignment"]:
-            self.github.create_comment(outcome["handoff"], body(accepted))
+            copies = [r for r in self.history(outcome["handoff"]) if r["kind"] == "outcome"
+                      and r["lease_id"] == outcome["lease_id"] and same_run(r, outcome)]
+            self.assert_owned(lease)
+            if copies:
+                self.github.update_comment(copies[-1]["id"], body(payload(outcome)))
+            else:
+                self.github.create_comment(outcome["handoff"], body(payload(outcome)))

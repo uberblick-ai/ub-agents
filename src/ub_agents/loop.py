@@ -526,6 +526,9 @@ class Loop:
             # our own trigger removal or human-gate addition for external pausing.
             self.coordinator.update_outcome(lease, outcome, transition=transition | {"started": True})
             transition = outcome["transition"]
+        # Publish pending provenance before the next role's trigger can appear.
+        # Recovery refreshes this same comment before replaying the transition.
+        self.coordinator.copy_handoff(lease, outcome)
         # Consume assignment labels before publishing the next role's trigger.
         for label in sorted(set(transition["remove"])):
             self.coordinator.assert_owned(lease)
