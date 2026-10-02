@@ -325,11 +325,19 @@ The prompt, made of the assignment context and the agent's instructions, arrives
 stdin:
 
 - `codex:MODEL:EFFORT` runs `codex exec --model MODEL --config model_reasoning_effort="EFFORT"`.
-- `claude:MODEL:EFFORT` runs `claude --print --model MODEL --effort EFFORT`.
+- `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
 
 `runtime-args` are appended. They must not change the model or effort, or resume a
 session: `check` rejects those flags, because `different-runtime-from` trusts the
 recorded `cli:model:effort` and every run starts fresh.
+For agents with a Claude runtime, `runtime-args` must not set `--output-format`
+(including `--output-format=…`); `check` rejects it because the launcher owns the
+stream format. A redundant `--verbose` is accepted.
+
+`process.log` records each CLI's stdout and stderr directly. Codex runs log their
+full transcript. Claude runs log the JSON stream of tool calls, tool results and
+the final result, including Claude Code's `permission_denials`. The launcher does
+not interpret this output; the outcome comes only from `ub-agent report`.
 
 ### Runtime permissions
 

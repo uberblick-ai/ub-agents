@@ -25,6 +25,9 @@ notes are copied from that section.
   the PR's current head has no accepted report from the named agent, blocking if that
   runtime's CLI isn't installed. Pending handoffs wait for acceptance and successful
   source release or recovery; identified sources retain the independence checks (#61).
+- Claude runs record tool calls, tool results and the final result, including
+  permission denials, in `process.log` using verbose streaming JSON. `check` rejects
+  Claude `runtime-args` that override `--output-format` (#68).
 
 ## 0.1.5 — 2026-10-02
 
