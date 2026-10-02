@@ -8,6 +8,10 @@ notes are copied from that section.
 
 ### Changed
 
+- Generated and self-hosted agent guidance treats issue input as requirements to
+  evaluate, with human escalation for unexpected instructions or unexplained scope
+  changes. Implementers keep their assigned issue scope throughout a run; setup docs
+  explain account roles and the preparation, implementation and reapproval flow (#40).
 - The launcher enforces maintainer starts and outside-input approvals for every
   issue and PR run, including preparation. Failed pickup or post-claim checks park
   work without spending attempts; agent context includes only trusted or cleared
