@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
-from ub_agents.errors import AgentError, LostOwnership
+from ub_agents.errors import AgentError, LostOwnership, RetryableExecutionError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, timestamp
@@ -159,7 +159,7 @@ class TransitionTests(unittest.TestCase):
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]['accepted'])
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
-        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
 
     def test_partial_transition_recovers_even_if_stop_added_after_start(self):
         remove = self.github.remove_label
@@ -180,7 +180,7 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'needs-human'})
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
         self.assertTrue(restarted.coordinator.history(1)[1]['accepted'])
-        self.assertEqual(len(attempts(restarted.coordinator.history(1), self.agent.name, self.now)), 1)
+        self.assertEqual(len(attempts(restarted.coordinator.history(1), self.agent.name, self.now)), 0)
 
     def test_queue_gate_and_priority_preserve_transition_recovery(self):
         self.claim_and_report(handoff=2)
@@ -204,7 +204,7 @@ class TransitionTests(unittest.TestCase):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]['accepted'])
-        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'low'})
         self.assertEqual(self.github.item(2).labels, {'needs-review', 'low'})
 
@@ -322,7 +322,7 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(outcome['transition_complete'])
         self.assertTrue(outcome['accepted'])
         self.assertEqual(history[-2]['result'], 'success')
-        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
         self.assertEqual(self.github.item(1).labels, {'unrelated'})
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
         self.assertEqual(restarted.coordinator.history(2)[0]['candidate_sha'], 'a' * 40)
@@ -377,7 +377,7 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(history[1]['candidate_sha'], 'a' * 40)
         self.assertEqual(history[1]['assignment_sha'], 'a' * 40)
         self.assertEqual(history[-2]['result'], 'success')
-        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 1)
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
         self.assertEqual(self.github.item(1).labels, {'ready-to-merge', 'unrelated'})
 
     def test_invalid_success_records_block_without_labels(self):
@@ -415,7 +415,7 @@ class TransitionTests(unittest.TestCase):
                 else:
                     def fail(_):
                         if verdict == 'timeout':
-                            raise AgentError('Execution timed out')
+                            raise RetryableExecutionError('Execution timed out')
                         raise KeyboardInterrupt
                     if verdict == 'interrupt':
                         with self.assertRaises(KeyboardInterrupt):

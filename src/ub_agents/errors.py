@@ -10,6 +10,14 @@ class ValidationError(AgentError):
     """Observed GitHub state fails the assignment's acceptance contract."""
 
 
+class TransitionPaused(ValidationError):
+    """A human gate prevents transition; preserve the consecutive failure count."""
+
+
+class RetryableExecutionError(AgentError):
+    """A classified execution timeout or launch failure permits bounded retry."""
+
+
 class LostOwnership(AgentError):
     """The launcher must terminate its execution before doing anything else."""
 
