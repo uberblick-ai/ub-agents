@@ -13,6 +13,7 @@ from .execution import Workspace, command_for, supervise
 from .github import closing_issues, links_issue
 from .hooks import run_hook
 from .records import attempts, iso, latest_leases, lease_summary, seconds, timestamp
+from .refresh import refresh_instructions
 
 
 class Loop:
@@ -23,9 +24,6 @@ class Loop:
                                        queue=config.queue)
         self.stop_event = stop_event or threading.Event()
         self.output = output
-        # The candidate cannot rewrite the operator's configured task policy.
-        self.instructions = {a.name: a.instructions.read_text() if a.instructions else ""
-                             for a in config.agents}
 
     def plans(self):
         plans = []
@@ -132,6 +130,11 @@ class Loop:
         return False
 
     def execute(self, plan):
+        # Between supervised runs and cleanup hooks, before any assignment writes.
+        # Refresh errors belong to the operator, not to an assignment attempt.
+        instructions = refresh_instructions(self.config, plan.agent, self.github)
+        if self.stop_event.is_set():
+            raise KeyboardInterrupt
         lease = self.coordinator.claim(plan, self.config.stop_labels)
         if lease is None:
             return False
@@ -244,7 +247,6 @@ class Loop:
                         "UB_AGENT_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENT_BRANCH": lease.get("branch") or ""})
             env["UB_AGENT_PR"] = str(lease.get("resume_pr") or (plan.item.number if plan.item.kind == "pr" else ""))
-            instructions = self.instructions[plan.agent.name]
             if plan.agent.outcomes is not None:
                 workflow_labels = set(self.config.stop_labels)
                 for configured in self.config.agents:

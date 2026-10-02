@@ -181,7 +181,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `outcomes` | Named successful outcomes and their project-defined label transitions. Optional for legacy agents. |
 | `kind` | `issue`, `pr` or `either` (default). |
 | `runtime` | `cli:model:effort`, or a list of alternatives tried in order. |
-| `instructions` | The agent's task file. Required with `runtime`. |
+| `instructions` | The agent's task file. Required with `runtime`. Validated and reread from the refreshed control checkout before each new run. |
 | `command` | An argv list to run instead of an LLM session. |
 | `different-runtime-from` | Another agent's name. This agent must run on a different CLI, provider and model from the one that produced the PR's current commit; a different effort doesn't count. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, a fresh issue branch, or its safely reusable draft checkpoint (see [coordination](coordination.md#draft-checkpoints)). |
@@ -265,7 +265,18 @@ issue trigger to remain. No runner label transition is applied.
 ## Built-in runtimes
 
 The prompt, made of the assignment context and the agent's instructions, arrives on
-stdin:
+stdin.
+
+Before each new agent run, the launcher fetches `origin` and fast-forwards the
+control checkout's default branch, then rereads the configured instruction file.
+Run `launch` from a clean checkout on that branch with no local-only commits.
+An unsafe checkout, failed refresh, or missing, outside-project or unreadable
+instruction file stops the launcher for the operator to fix and restart; it
+charges no attempt and does not mark the assignment blocked or retrying. Refresh
+runs only between supervised executions and cleanup hooks, and is skipped for
+durable-outcome recovery. Each prompt's text stays fixed during its run.
+`ub-agent.yaml` is not reloaded: restart the launcher for configuration changes.
+See [execution boundaries](coordination.md#execution-boundaries) for the full rules.
 
 - `codex:MODEL:EFFORT` runs `codex exec --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --model MODEL --effort EFFORT`.

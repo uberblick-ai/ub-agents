@@ -69,6 +69,16 @@ def project_path(root, value, where, directory=False):
     return path
 
 
+def instruction_text(root, path, where):
+    if path is None:
+        return ""
+    validated = project_path(root.resolve(), str(path), where)
+    try:
+        return validated.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise AgentError(f"{where} is unreadable: {path}: {exc}") from exc
+
+
 @dataclass(frozen=True)
 class Runtime:
     cli: str
@@ -229,8 +239,11 @@ def load_config(path):
             runtimes.append(Runtime(cli, model, effort, provider or adapter["provider"],
                                     argv(adapter["command"], cli) if adapter else (),
                                     argv(adapter["check"], cli) if "check" in adapter else ()))
-        instruction = (project_path(root, item["instructions"], f"{name} instructions")
+        # Retain the configured path, including symlinks, for validation on each run.
+        instruction = (root / string(item["instructions"], f"{name} instructions")
                        if "instructions" in item else None)
+        if instruction is not None:
+            project_path(root, str(instruction), f"{name} instructions")
         if runtimes and instruction is None:
             raise AgentError(f"{name}: runtime execution requires instructions")
         runtime_args = argv(item.get("runtime-args", []), f"{name} runtime-args", empty=True)

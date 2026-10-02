@@ -13,11 +13,12 @@ from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.execution import git
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, iso, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
 
 
 class LoopTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -224,6 +225,7 @@ class LoopTests(unittest.TestCase):
 
 class QueueTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

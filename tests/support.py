@@ -5,9 +5,18 @@ from pathlib import Path
 import sys
 import threading
 
-from ub_agents.config import Agent, Config, Queue
+from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
 from ub_agents.records import MARKER, records
+
+
+def stub_refresh(test):
+    """Coordination unit tests use synthetic roots; Git refresh has its own suite."""
+    from unittest.mock import patch
+    mock = patch("ub_agents.loop.refresh_instructions", side_effect=lambda cfg, role, github:
+                 instruction_text(cfg.root, role.instructions, f"{role.name} instructions"))
+    test.addCleanup(mock.stop)
+    return mock.start()
 
 
 def agent(root, **overrides):

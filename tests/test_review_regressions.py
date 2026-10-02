@@ -12,11 +12,12 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.records import MARKER, attempts, body, iso, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
 
 
 class ReviewRegressionTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

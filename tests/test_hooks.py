@@ -11,11 +11,12 @@ from ub_agents.errors import AgentError, CleanupError, LostOwnership
 from ub_agents.execution import Workspace, group_members
 from ub_agents.loop import Loop
 from ub_agents.records import iso, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
 
 
 class HookTests(unittest.TestCase):
     def setUp(self):
+        self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
