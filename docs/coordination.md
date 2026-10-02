@@ -235,9 +235,9 @@ and for an issue handoff that the PR is ready, links the issue, and that no othe
 open PR sits on an earlier run branch. It then applies the transition as the
 [configuration reference](configuration.md#outcomes-and-transitions) describes:
 reread both items, block on a missing trigger or pause on a stop label with a
-durable rejection, persist `started: true`, remove assignment labels, add
-destination labels, persist `transition_complete: true`, accept the outcome, copy
-it to the handoff PR, and release.
+durable rejection, persist `started: true`, copy the pending outcome to the handoff
+PR, remove assignment labels, add destination labels, persist
+`transition_complete: true`, accept the outcome, update its handoff copy, and release.
 
 An exit without an outcome, zero or nonzero, increments the consecutive failure
 count and retries with backoff until `max-attempts`, then parks. A report made
@@ -289,7 +289,7 @@ the blockage, and releases. Repeated recovery claims cost no attempts, and a cra
 during recovery recovers again without execution. A started transition has already
 passed validation, so recovery finishes its recorded changes even if the PR head or
 issue link changed since; provenance keeps the originally validated SHA, so an
-independent role blocks on a newer head until a new implementation outcome exists.
+independent role uses the missing-source fallback on a newer head.
 An unstarted transition is validated in full, and a durably rejected outcome is
 never applied later. Replay treats removing an absent label or adding a present one
 as a no-op; a label in both lists ends up added.
@@ -305,14 +305,32 @@ host has died.
 
 ## Runtime independence and candidate provenance
 
-`different-runtime-from: NAME` requires accepted source provenance for the **current
-PR head**, backed by a successful source release or successful outcome recovery.
-Source issue outcomes are copied to the PR at handoff. A revision records provenance
-for its new head. Missing/unaccepted/stale provenance blocks; the rule never falls
-back to a guessed author or runtime.
+`different-runtime-from: NAME` requires a PR. When an accepted report from `NAME`
+identifies the source runtime for the **current PR head**, it must be backed by a
+successful source release or successful outcome recovery; invalid source provenance
+still blocks. Source issue outcomes are copied to the PR before the handoff's
+trigger labels are added, then the same copy is updated on acceptance. A revision
+records provenance for its new head.
 
-The eligible runtime must have a different CLI **and** model from the source;
-`codex` and `claude` imply OpenAI and Anthropic. Effort is ignored. Restarting the
+A started, unfinished handoff for the current head blocks the independent role
+until acceptance and successful source release or recovery. A failure while
+publishing the pending copy prevents trigger publication. A failure while accepting
+the copy leaves the pending record in place; lease expiry alone does not enable the
+fallback. Recovery repairs the same comment without executing the source again.
+Planning rereads the source outcome and lease, so a rejected report, a failed
+supervised verdict or an operator reset that abandons the handoff no longer makes
+its stale copy block the fallback.
+
+If no accepted report from `NAME` exists for the current head, the agent uses only
+its first configured runtime, without filtering, unless a started handoff is still
+pending. This covers missing, rejected, other unaccepted and earlier-head reports.
+If that runtime's CLI isn't installed, planning blocks
+with `No eligible runtime executable is installed`; later alternatives are not
+tried. The launcher does not detect authorship or infer the unknown source runtime.
+
+When the source is identified, the eligible runtime must have a different CLI
+**and** model from the source; `codex` and `claude` imply OpenAI and Anthropic.
+Effort is ignored. Restarting the
 same author/runtime with a fresh run ID cannot satisfy this. Configured identity is
 the contract: use concrete model identifiers, since the launcher cannot attest to a
 provider's alias resolution.
