@@ -255,8 +255,14 @@ agents:
         self.assertIn("new-owner/new-project", self.one(result, "github-repository")["message"])
         self.github.metadata["full_name"] = "ORG/Project"
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "ok")
+        self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "ok")
+        self.github.metadata["permissions"] = {"pull": True}
+        result = self.diagnose()
+        self.assertEqual((self.one(result, "github-permissions")["status"], result["ok"]), ("fail", False))
+        self.assertIn("triage", self.one(result, "github-permissions")["remedy"])
         self.github.repository_error = AgentError("sk-repository-secret")
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "fail")
+        self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "skip")
 
     def test_local_state_symlink_and_ignore(self):
         local = self.root / ".ub-agent"

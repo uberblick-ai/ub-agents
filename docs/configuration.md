@@ -328,8 +328,9 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 - `ub-agent check` validates the configuration and instruction files.
 - `ub-agent doctor [--json]` checks everything `check` does, plus Python, the platform,
   `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
-  Missing trigger or outcome transition labels are required failures naming their
-  agents; missing stop labels are warnings. Both give a `gh label create` remedy.
+  A token that cannot change labels is a required failure, because the launcher
+  applies outcome transitions itself. Missing trigger or outcome transition labels
+  are required failures naming their agents; missing stop labels are warnings. Both give a `gh label create` remedy.
   Label matching is case-insensitive and an unreadable label list is a required
   failure. Runtime agents without `runtime-args` produce a warning linking the
   permission guidance. Doctor makes no writes. It exits 1 when a required

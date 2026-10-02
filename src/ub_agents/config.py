@@ -224,7 +224,7 @@ def load_config(path):
                      "model", "model_provider", "model_reasoning_effort"}
         if any(r.cli == "claude" for r in runtimes):
             forbidden.add("-c")  # Claude's --continue; Codex's -c is --config.
-        if any(arg.split("=", 1)[0] in forbidden for arg in runtime_args):
+        if any(arg.removeprefix("--config=").split("=", 1)[0] in forbidden for arg in runtime_args):
             raise AgentError(f"{name}: runtime-args must not change the model, effort or session")
         different = item.get("different-runtime-from")
         if different is not None:

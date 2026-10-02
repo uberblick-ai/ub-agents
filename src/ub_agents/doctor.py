@@ -138,6 +138,7 @@ class Doctor:
             self.labels(config, github)
         else:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
+            self.add("github-permissions", "skip", "repository response unavailable")
             self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
         if config:
             self.agents(config)
@@ -175,9 +176,19 @@ class Doctor:
                          "Update the configured repository and origin to the intended repository")
             else:
                 self.add("github-repository", "ok", f"access to {name}")
+            # The launcher applies label transitions after the agent finishes; a token that
+            # cannot change labels wastes the whole session before failing.
+            permissions = raw.get("permissions") or {}
+            if isinstance(permissions, dict) and any(permissions.get(key) is True
+                                                     for key in ("triage", "push", "maintain", "admin")):
+                self.add("github-permissions", "ok", "token can change labels for outcome transitions")
+            else:
+                self.add("github-permissions", "fail", "token cannot change labels, so outcome transitions would fail",
+                         f"Ask a maintainer for triage or higher access to {config.repository}")
         except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
             self.add("github-repository", "fail", self.github_failure("repository access", exc),
                      f"Authenticate with gh auth login and obtain access to {config.repository}")
+            self.add("github-permissions", "skip", "repository response unavailable")
 
     def labels(self, config, github):
         try:

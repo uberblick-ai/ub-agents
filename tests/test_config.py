@@ -67,6 +67,7 @@ cleanup:
                         base + "    agent-timeout-minutes: false\n", base + "    max-attempts: 2.5\n",
                         base.replace("[true]", "[echo]") + "    runtime-args: [--model, other]\n",
                         base.replace("[true]", "[echo]") + "    runtime-args: [-c, model=other]\n",
+                        base.replace("[true]", "[echo]") + "    runtime-args: [--config=model_reasoning_effort=low]\n",
                         base + "    runtime: codex:model:high\n", base]:
             with self.subTest(content=content), self.assertRaises(AgentError):
                 self.load(content)
