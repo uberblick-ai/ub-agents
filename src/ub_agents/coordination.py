@@ -177,7 +177,7 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False):
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -216,6 +216,8 @@ class Coordinator:
                 return None
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
+        if before_write is not None:
+            before_write()
         created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no

@@ -8,7 +8,7 @@ import unittest
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
-from ub_agents.errors import AgentError
+from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, seconds, timestamp
@@ -16,10 +16,59 @@ from tests.support import RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_include_parses_success_and_empty_delete_headers(self):
+        runner = RecordingRunner(Path('/synthetic'))
+        prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                  'Accept: application/vnd.github+json', '--include')
+        runner.responses[prefix + ('user',)] = (
+            'HTTP/2.0 200 OK\nContent-Type: application/json\r\n'
+            'Link: first\r\nLink: second\r\n\r\n{"login":"operator"}')
+        github = GitHub('org/project', runner)
+        self.assertEqual(github.actor(), 'operator')
+        delete = prefix[:5] + ('DELETE',) + prefix[6:] + ('repos/org/project/issues/1/labels/ready',)
+        runner.responses[delete] = 'HTTP/1.1 204 No Content\r\nX-RateLimit-Remaining: 10\r\n\r\n'
+        github.remove_label(1, 'ready')
+
+    def test_known_transport_failures_retry_but_http_and_local_errors_take_precedence(self):
+        command = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                   'Accept: application/vnd.github+json', '--include', 'user')
+        cases = [(subprocess.TimeoutExpired('gh', 20), True),
+                 (ConnectionResetError('Connection reset by peer'), True),
+                 (FileNotFoundError('gh is missing'), False),
+                 (PermissionError('gh cannot execute'), False)]
+        for message in ('dial tcp: lookup api.github.com: no such host', 'connect: connection refused',
+                        'read: connection reset by peer', 'i/o timeout', 'TLS handshake timeout',
+                        'context deadline exceeded', 'unexpected EOF',
+                        'net/http: request canceled (Client.Timeout exceeded while awaiting headers)',
+                        'net/http: timeout awaiting response headers', 'connect: operation timed out'):
+            cases.append((subprocess.CompletedProcess([], 1, '', message), True))
+        cases.extend([(subprocess.CompletedProcess([], 1, 'HTTP/2.0 200 OK\n\n[]', 'unexpected EOF'), True),
+                      (subprocess.CompletedProcess([], 1, 'HTTP/2.0 401 Error\n\n{}', 'i/o timeout'), False),
+                      (subprocess.CompletedProcess([], 1, '', 'certificate signed by unknown authority'), False),
+                      (subprocess.CompletedProcess([], 1, '', 'unknown failure'), False)])
+        for response, retryable in cases:
+            with self.subTest(response=response):
+                runner = RecordingRunner(Path('/synthetic'))
+                runner.responses[command] = response
+                with self.assertRaises(GitHubError) as raised:
+                    GitHub('org/project', runner).actor()
+                self.assertEqual(raised.exception.retryable, retryable)
+                self.assertIn('GitHub GET user failed', str(raised.exception))
+
+    def test_malformed_http_headers_stop_without_retry(self):
+        for response in ('HTTP/2.0 504 Error', 'HTTP/2.0 invalid\n\n{}',
+                         'HTTP/2.0 200 OK\ninvalid header\n\n{}'):
+            runner = RecordingRunner(Path('/synthetic'))
+            runner.responses[('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                              'Accept: application/vnd.github+json', '--include', 'user')] = response
+            with self.subTest(response=response), self.assertRaises(GitHubError) as raised:
+                GitHub('org/project', runner).actor()
+            self.assertFalse(raised.exception.retryable)
+
     def test_labels_reads_all_pages_and_create_only_posts_the_new_label(self):
         runner = RecordingRunner(Path('/synthetic'))
         prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
-                  'Accept: application/vnd.github+json')
+                  'Accept: application/vnd.github+json', '--include')
         runner.responses[prefix + ('repos/org/project/labels?per_page=100&page=1',)] = json.dumps(
             [{'name': f'label-{number}'} for number in range(100)])
         runner.responses[prefix + ('repos/org/project/labels?per_page=100&page=2',)] = json.dumps(
@@ -43,7 +92,7 @@ class GitHubTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 runner = RecordingRunner(Path('/synthetic'))
                 runner.responses[('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
-                                  'Accept: application/vnd.github+json',
+                                  'Accept: application/vnd.github+json', '--include',
                                   'repos/org/project/labels?per_page=100&page=1')] = payload
                 with self.assertRaises(AgentError):
                     GitHub('org/project', runner=runner).labels()

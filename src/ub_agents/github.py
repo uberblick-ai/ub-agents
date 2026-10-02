@@ -2,14 +2,63 @@
 
 from dataclasses import dataclass
 import json
+import math
 import re
 import subprocess
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
-from .errors import AgentError
+from .errors import AgentError, GitHubError
 from .records import iso, positive_int, seconds, timestamp
 
 REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+
+
+def response_parts(output):
+    """Separate gh --include headers from JSON, retaining HTTP failure metadata."""
+    output = output.replace("\r\n", "\n")
+    if not output.startswith("HTTP/"):
+        return None, {}, output
+    header, separator, payload = output.partition("\n\n")
+    match = re.fullmatch(r"HTTP/\d+(?:\.\d+)? (\d{3})(?: .*?)?", header.split("\n")[0])
+    if not match or not separator:
+        raise ValueError("invalid HTTP response headers")
+    headers = {}
+    for line in header.split("\n")[1:]:
+        name, colon, value = line.partition(":")
+        if not colon:
+            raise ValueError("invalid HTTP response header")
+        key = name.lower()
+        headers[key] = f"{headers[key]}, {value.strip()}" if key in headers else value.strip()
+    return int(match[1]), headers, payload
+
+
+def failure_retry(status, headers, detail):
+    """Only known transport/server errors and explicit rate-limit resets retry."""
+    rate_limited = (status == 429 or (status == 403 and
+                    (headers.get("x-ratelimit-remaining") == "0"
+                     or "rate limit" in detail.lower())))
+    if rate_limited:
+        try:
+            if "retry-after" in headers:
+                delay = float(headers["retry-after"])
+                if not math.isfinite(delay) or delay < 0:
+                    return False, None
+                reset = timestamp() + delay
+            elif headers.get("x-ratelimit-remaining") == "0":
+                reset = float(headers["x-ratelimit-reset"])
+            else:
+                return False, None
+            return (True, reset) if math.isfinite(reset) and reset > 0 else (False, None)
+        except (KeyError, ValueError, OverflowError):
+            return False, None
+    if status is not None and status >= 400:
+        return 500 <= status <= 599, None
+    transport = re.search(r"dial tcp|connection (?:refused|reset)|network is unreachable|"
+                          r"no such host|i/o timeout|TLS handshake timeout|"
+                          r"context deadline exceeded|Client.Timeout exceeded|"
+                          r"timeout awaiting response headers|operation timed out|"
+                          r"no route to host|broken pipe|(?:unexpected )?EOF\s*$", detail, re.IGNORECASE)
+    return bool(transport), None
 
 
 @dataclass(frozen=True)
@@ -96,6 +145,7 @@ class GitHub:
         self.prefix = f"repos/{repository}"
         self._comment_cache = {}
         self._comment_since = None
+        self.last_request = None
 
     def request(self, endpoint, method="GET", data=None, paginate=False, array=False):
         if paginate:
@@ -110,8 +160,9 @@ class GitHub:
                 if len(batch) < 100:
                     return items
                 page += 1
+        self.last_request = f"GitHub {method} {endpoint}"
         command = ["gh", "api", "--hostname", "github.com", "--method", method,
-                   "-H", "Accept: application/vnd.github+json", endpoint]
+                   "-H", "Accept: application/vnd.github+json", "--include", endpoint]
         if data is not None:
             command += ["--input", "-"]
         try:
@@ -119,23 +170,30 @@ class GitHub:
                 command, input=json.dumps(data) if data is not None else None,
                 capture_output=True, text=True, timeout=20, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            error = AgentError(f"GitHub {method} {endpoint} failed: {exc}")
+            error = GitHubError(method, endpoint, str(exc), retryable=isinstance(
+                exc, (subprocess.TimeoutExpired, TimeoutError, ConnectionError)))
             error.probe_reason = ("timed out (20s)" if isinstance(exc, subprocess.TimeoutExpired)
                                   else "could not run")
             raise error from exc
-        if result.returncode:
-            error = AgentError(f"GitHub {method} {endpoint} failed: {result.stderr.strip()}")
+        try:
+            status, headers, payload = response_parts(result.stdout)
+        except ValueError as exc:
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        if result.returncode or (status is not None and status >= 400):
+            detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
+            retryable, reset_at = failure_retry(status, headers, detail)
+            error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at)
             error.probe_reason = f"exit {result.returncode}"
             raise error
-        if method == "DELETE" and not result.stdout.strip():
+        if method == "DELETE" and not payload.strip():
             return None
         try:
-            value = json.loads(result.stdout)
+            value = json.loads(payload)
             if not isinstance(value, list if array else dict):
                 raise ValueError("expected an array" if array else "expected an object")
             return value
         except (ValueError, TypeError) as exc:
-            raise AgentError(f"Unreadable GitHub response for {endpoint}: {exc}") from exc
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
 
     def actor(self):
         data = self.request("user")

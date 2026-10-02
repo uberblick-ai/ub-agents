@@ -202,7 +202,7 @@ agents:
                          subprocess.TimeoutExpired("gh", 20), '{"login": null}'):
             with self.subTest(response=response):
                 command = ("gh", "api", "--hostname", "github.com", "--method", "GET", "-H",
-                           "Accept: application/vnd.github+json", "user")
+                           "Accept: application/vnd.github+json", "--include", "user")
                 repo_command = command[:-1] + ("repos/org/project",)
                 self.runner.responses[command] = response
                 self.runner.responses[repo_command] = json.dumps(self.github.metadata)
