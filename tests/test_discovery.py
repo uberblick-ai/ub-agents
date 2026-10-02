@@ -227,6 +227,19 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(status_rows(loop)), 2)
         self.assertEqual([args for name, args in loop.github.reads if name == "comments"], [(1,)])
 
+    def test_unreadable_comments_are_read_once_and_retried_next_pass(self):
+        for status in (False, True):
+            with self.subTest(status=status):
+                loop = self.loop([issue()])
+                loop.github.read_results["comments"] = [GitHubError("GET", "comments", "unreadable")]
+                rows = status_rows(loop) if status else list(loop.iter_plans())
+                self.assertEqual(rows[0]["state"] if status else rows[0].state, "parked")
+                self.assertEqual([args for name, args in loop.github.reads if name == "comments"], [(1,)])
+                loop.github.reads.clear()
+                rows = status_rows(loop) if status else list(loop.iter_plans())
+                self.assertEqual(rows[0]["state"] if status else rows[0].state, "ready")
+                self.assertEqual([args for name, args in loop.github.reads if name == "comments"], [(1,)])
+
     def test_cached_approval_never_authorizes_a_claim(self):
         loop = self.loop([issue(1)])
         plan = next(loop.iter_plans())

@@ -149,8 +149,8 @@ class Loop:
             return
         # Without configured priority, dependencies cannot affect ranking. Read
         # only a reached item's links. Priority inheritance requires the graph.
-        if cached and self.config.queue.dependencies == "wait" and priority.labels:
-            self.discovery.prepare_dependencies(items.values())
+        if self.config.queue.dependencies == "wait" and priority.labels:
+            github.prepare_dependencies(items.values())
         dependencies = (Dependencies(github, items.values(), priority)
                         if self.config.queue.dependencies == "wait" and priority.labels else None)
         issue_priorities = {i.number: priority.effective(i.labels) for i in items.values()
@@ -210,7 +210,9 @@ class Loop:
                         for a in matched or self.config.agents)
             return
         except AgentError as exc:
-            if isinstance(exc, GitHubError) and exc.rate_limited:
+            # A shared failed comment read must still skip a transiently failed
+            # poll, rather than turn its unreadable approval into a parked row.
+            if isinstance(exc, GitHubError) and (exc.rate_limited or exc.retryable):
                 raise
             # Unreadable item input cannot authorize a claim. A transient
             # coordination failure with readable approval input still fails the poll.

@@ -53,8 +53,8 @@ and an optional milestone list. List pages hold up to 100 rows; a full REST page
 also needs a request to check for a following page. A cold pass or changed item adds
 roughly 3–7 reads for each candidate actually reached, plus one permission read per
 distinct account across those candidates, with extra pages for long histories.
-Configured priorities add a
-paginated dependency-graph list on cold discovery; very large dependency lists may
+Configured priorities add a paginated dependency-graph list on cold discovery and
+each `status` invocation; very large dependency lists may
 need extra pages. Fresh claim/recovery reads, approval-parking writes, execution
 heartbeats and completion add their own requests. `status` pays for every row.
 

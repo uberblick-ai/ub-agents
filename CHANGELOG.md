@@ -10,7 +10,8 @@ notes are copied from that section.
 
 - Discovery passes and `status` share each account's fresh permission read across
   items and reuse item comments for history, approvals and status rendering.
-  Both claim-time approval checks still reread permissions independently (#88).
+  `status` also batches dependency reads for priority ranking. Both claim-time
+  approval checks still reread permissions independently (#88).
 
 ## 0.1.8 — 2026-10-03
 
