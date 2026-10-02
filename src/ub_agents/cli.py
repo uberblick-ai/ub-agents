@@ -18,7 +18,7 @@ from .execution import repository_checks
 from .github import GitHub
 from .loop import Loop
 from .labels import provision_labels
-from .records import body, iso, latest_leases, live_leases, records, timestamp
+from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
 
 
 def parser():
@@ -132,7 +132,12 @@ def status_rows(loop):
             history = []  # The plan already displays the item's coordination error.
         active = live_leases(history, timestamp())
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
-        outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == plan.agent.name]
+        lease = active[0] if active else None
+        source = next((r for r in active if r["agent"] == plan.agent.name), None) or latest
+        if source and source.get("mode") == "recovery":
+            source = lease_by_id(history, source.get("recovered_lease_id"))
+        outcomes = [r for r in history if source and r["kind"] == "outcome" and r["agent"] == plan.agent.name
+                    and r["lease_id"] == source["id"] and same_run(r, source)]
         rows.append({"number": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
                      "priority": plan.priority, "priority_inherited_from": plan.priority_source,
                      "priority_from_issue": plan.priority_from_issue,
@@ -141,7 +146,7 @@ def status_rows(loop):
                      "runtime": plan.runtime.name if plan.runtime else None,
                      "candidate_sha": plan.item.head,
                      "result": latest.get("result") if latest else None,
-                     "lease": active[0] if active else None,
+                     "lease": lease,
                      "outcome": outcomes[-1] if outcomes else None})
     return rows
 
