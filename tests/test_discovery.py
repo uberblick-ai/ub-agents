@@ -124,6 +124,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertFalse(loop.execute(plan))
         self.assertTrue(any(name == "role" and args == ("maintainer",) for name, args in loop.github.reads))
         self.assertEqual(loop.github.writes, [])
+        # Fresh denial also refreshes discovery so the next reached poll can
+        # park the approval gate even without a timestamp/comment hint.
+        self.assertFalse(loop.tick())
+        self.assertIn("needs-human", loop.github.items[1].labels)
+        self.assertEqual(loop.coordinator.history(1), [])
 
     def test_cached_approval_never_authorizes_parking(self):
         loop = self.loop([issue(1)])

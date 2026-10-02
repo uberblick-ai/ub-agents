@@ -36,7 +36,9 @@ pass that reaches them. `status` evaluates every row and remains read-only.
 Each launcher retains per-item discovery inputs in memory: history, approval
 inputs and permissions, PR details, and dependency links. Changes in the issue
 list (including `updated_at`) or the incremental repository comment scan invalidate
-that item's reads. Claims and approval parking always revalidate with fresh reads;
+that item's reads. A fresh claim-approval denial also drops the item's cached
+inputs so the next reached pass can plan its gate. Claims and approval parking
+always revalidate with fresh reads;
 cached input never authorizes a claim or a write. Restarting a launcher drops its
 cache. With configured priorities, cold discovery lists the dependency graph in
 pages to preserve inheritance without one REST request per queued issue.

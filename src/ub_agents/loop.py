@@ -337,6 +337,9 @@ class Loop:
             # them before the first write as well as after the claim election.
             approval = self.input_check(current)
             if not approval.allowed:
+                # Fresh authority can reveal a permission change that does not
+                # advance item timestamps. Let the next poll plan its gate.
+                self.discovery.invalidate(current.number)
                 self.output(f"#{current.number} {plan.agent.name}: parked — {approval.reason}")
             return approval.allowed
 

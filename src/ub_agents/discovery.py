@@ -46,6 +46,11 @@ class Discovery:
         self.comments_index = deepcopy(groups)
         return dict(items), comments
 
+    def invalidate(self, number):
+        self.cache = {key: value for key, value in self.cache.items()
+                      if not (key[0] in self.ITEM_READS and key[1][0] == number)
+                      and not (key[0] == "role" and key[2] == number)}
+
     def prepare_dependencies(self, items):
         missing = [i.number for i in items if i.kind == "issue" and i.state == "open"
                    and i.total_blocked_by != 0 and ("blocked_by", (i.number,), None) not in self.cache]
