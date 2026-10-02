@@ -6,6 +6,15 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.6 — 2026-10-02
+
+**Upgrading:** agents now work only on issues and PRs that a maintainer (`maintain` or
+`admin`) started by applying a trigger label. After an outside edit or push, a
+maintainer re-applies the label or runs `ub-agent approve --number N`. Give the launcher
+account `write` only; `doctor` warns if it can start or approve its own work. `check`
+now rejects Claude `runtime-args` that set `--output-format`. Upgrading from 0.1.5
+needs no coordinated stop: `kill -TERM` each launcher, upgrade, restart.
+
 ### Changed
 
 - The launcher enforces maintainer starts and outside-input approvals for every
