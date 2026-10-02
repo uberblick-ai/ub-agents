@@ -77,6 +77,7 @@ Review the [coordination contract](docs/coordination.md) and
 |---|---|
 | `ub-agent status` | Show matching work, who owns it, and what it reported |
 | `ub-agent launch --once` | Run at most one assignment, then exit |
+| `ub-agent cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
 | `ub-agent retry` | Let stopped work run again, with a recorded reason |
 | `ub-agent check` | Validate the configuration files only |
 | `ub-agent report` | Used by agents to record their outcome |
@@ -187,6 +188,13 @@ A stop label such as `needs-human` on the assignment or its handoff PR pauses a
 transition before it starts. After removing it, set the workflow labels you want or
 run `ub-agent retry`. The exact rules for claims, attempts, transitions and recovery
 are in the [coordination contract](docs/coordination.md).
+
+Private worktrees left by crashed runs and retained local branches can be inspected
+with `ub-agent cleanup` and removed with `ub-agent cleanup --apply`. Removal needs
+an actor-owned, eligible GitHub lease; dirty, locked or uncertain artifacts stay.
+Projects can configure a supervised [cleanup hook](docs/configuration.md#project-cleanup-hook)
+for resources associated with each private worktree. Document operator-only recovery
+steps in a project operations document linked from `AGENTS.md`.
 
 ## Development
 

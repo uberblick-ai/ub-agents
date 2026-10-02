@@ -128,6 +128,12 @@ class Queue:
 
 
 @dataclass(frozen=True)
+class CleanupHook:
+    command: tuple[str, ...]
+    timeout_seconds: float = 60
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     repository: str
@@ -135,12 +141,13 @@ class Config:
     poll_seconds: float
     stop_labels: tuple[str, ...]
     queue: Queue = Queue()
+    cleanup: CleanupHook | None = None
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
 DEFAULTS = {"agent-timeout-minutes": 180, "max-attempts": 5,
             "retry-backoff-seconds": 60, "max-backoff-seconds": 3600}
-# A claim is never renewed: its lease covers the run's timeout plus setup and completion.
+# A claim is never renewed: its lease covers the run's timeout, the cleanup hook, setup and completion.
 LEASE_GRACE_SECONDS = 15 * 60
 
 
@@ -151,8 +158,15 @@ def load_config(path):
         data = yaml.load(path.read_text(), Loader=UniqueLoader)
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
-    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue"},
+    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup"},
                    "configuration")
+    cleanup = None
+    if "cleanup" in data:
+        hook = mapping(data["cleanup"], {"command", "timeout-seconds"}, "cleanup")
+        cleanup = CleanupHook(argv(hook.get("command"), "cleanup command"),
+                              number(hook.get("timeout-seconds", 60), "cleanup timeout-seconds"))
+        if cleanup.timeout_seconds > 3600:
+            raise AgentError("cleanup timeout-seconds must be at most 3600")
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
     if milestones not in ("gate", "ignore"):
@@ -246,14 +260,14 @@ def load_config(path):
             outcomes[outcome] = labels
         agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind, worktree,
-            clocks["agent-timeout-minutes"] * 60 + LEASE_GRACE_SECONDS,
+            clocks["agent-timeout-minutes"] * 60 + LEASE_GRACE_SECONDS + (cleanup.timeout_seconds if cleanup else 0),
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
             clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes))
     for agent in agents:
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
-    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies))
+    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup)
 
 
 def argv(value, where, empty=False):

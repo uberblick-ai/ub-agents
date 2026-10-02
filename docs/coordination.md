@@ -65,7 +65,7 @@ the loop; they never become an empty queue.
 
 | YAML setting | Default | Meaning |
 |---|---:|---|
-| `agent-timeout-minutes` | 180 | Runtime process execution deadline; the lease lasts this plus fifteen minutes |
+| `agent-timeout-minutes` | 180 | Runtime process execution deadline; the lease lasts this plus fifteen minutes and any cleanup hook timeout |
 | `retry-backoff-seconds` | 60 | Initial retry delay after confirmed termination |
 | `max-backoff-seconds` | 3600 | Cap on exponential retry delay |
 | `max-attempts` | 5 | Durable starts allowed per item/agent |
@@ -83,8 +83,8 @@ Create a separate tentative lease comment for each contender, then reread. The
 lowest GitHub comment ID among unexpired live leases wins. A loser edits only its
 own tentative comment to withdraw and never starts a runtime. The winner marks its
 record running before execution. The lease is never renewed: it lasts the run's
-timeout plus a fixed grace for setup and completion, so a dead launcher's claim
-expires on its own. The supervisor also stops a run whose lease has expired by
+timeout plus a fixed grace for setup, the cleanup hook and completion, so a dead
+launcher's claim expires on its own. The supervisor also stops a run whose lease has expired by
 wall clock, since monotonic timers pause while a machine sleeps.
 
 Every lease names the actor, agent, run, configured CLI/model/effort,

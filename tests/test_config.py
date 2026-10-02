@@ -47,9 +47,13 @@ agents:
     agent-timeout-minutes: 240
 limits:
   max-attempts: 7
+cleanup:
+  command: [./scripts/cleanup]
+  timeout-seconds: 120
 ''')
         agent = result.agents[0]
-        self.assertEqual((agent.lease_seconds, agent.timeout_seconds), (14400 + 900, 14400))
+        # The lease covers the run, a fifteen-minute grace and the cleanup hook.
+        self.assertEqual((agent.lease_seconds, agent.timeout_seconds), (14400 + 900 + 120, 14400))
         self.assertEqual(agent.max_attempts, 7)
         # Relative executables resolve against the configuration's directory.
         self.assertEqual(agent.command, (str(self.root.resolve() / "scripts/task.py"), "--fast"))
