@@ -100,6 +100,7 @@ stop-labels: []
         self.assertTrue(all(a.outcomes for a in agents))
         self.assertEqual(agents[0].outcomes['needs-human']['add'], ('needs-human',))
         self.assertEqual(agents[-1].outcomes['maintainer-merge']['add'], ('needs-human',))
+        self.assertEqual(agents[-1].outcomes['changes-requested']['add'], ('needs-changes',))
         for configured in agents:
             instructions = configured.instructions.read_text()
             self.assertIn('--outcome', instructions)

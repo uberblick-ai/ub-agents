@@ -1,0 +1,77 @@
+# Changelog
+
+User-facing changes to ub-agents. Each change adds its entry under **Unreleased** in the
+same PR. A release turns Unreleased into its version section, and the GitHub release
+notes are copied from that section.
+
+## Unreleased
+
+### Changed
+
+- Before each run, the launcher fetches `origin`, fast-forwards its control checkout on
+  the default branch and rereads the role's instructions, so instruction changes take
+  effect without a restart. The control checkout must be clean, on the default branch
+  and free of local-only commits; otherwise the launcher stops with a message (#37).
+- The starter integrator can send a PR back with a `changes-requested` outcome when
+  it conflicts with the base branch or lacks a required changelog entry.
+
+## 0.1.3 — 2026-10-02
+
+**Breaking:** 0.1.2 configurations need edits before `check` accepts them. See the
+[v0.1.3 release notes](https://github.com/uberblick-ai/ub-agents/releases/tag/v0.1.3).
+
+### Added
+
+- `ub-agent cleanup` previews and removes stale agent worktrees and branches, and runs
+  optional project cleanup hooks (#30).
+
+### Changed
+
+- Claims are no longer renewed. A claim lasts the agent's timeout plus 15 minutes, plus
+  the cleanup hook's timeout when one is configured (#32).
+- Every agent declares `outcomes` and reports `ub-agent report --outcome NAME` (#32).
+- Every launcher for a project must use the same GitHub account (#32).
+- `runtime-args` may not change the model, the effort or the session (#32).
+- An implementer continues an interrupted run's draft PR from the `earlier_branches`
+  in its context; a handoff is rejected while another open PR from an earlier run of
+  the issue exists. An issue run and a run on the PR from its branch never run at the
+  same time (#32).
+- `doctor` checks only the prerequisites `launch` cannot check itself, including the
+  token's permission to change labels (#32).
+
+### Removed
+
+- `lease-minutes`, `renewal-minutes`, `operators`, per-agent `cwd`, `runtimes:`
+  adapters for other CLIs, and `report --status success` (#32).
+
+## 0.1.2 — 2026-10-01
+
+### Added
+
+- `init` writes a generic `AGENTS.md` unless one exists, offers to create the
+  configured workflow labels after you confirm (otherwise it prints `gh label create`
+  commands), and writes commented, runtime-specific `runtime-args` (#29).
+- `doctor` checks that the configured labels exist and warns about agents without
+  `runtime-args` (#29).
+
+## 0.1.1 — 2026-10-01
+
+### Added
+
+- Implementers publish early work as a draft PR (#16).
+- Queue order: PR work first, then priority labels (`queue.priority`), then oldest
+  first, with an optional milestone gate (`queue.milestones: gate`) (#19, #25).
+- Issues wait for open GitHub blockers, and blockers and PRs inherit the priority of
+  the work they unblock or close (`queue.dependencies`) (#26).
+- Agents declare outcomes in `ub-agent.yaml`, and the launcher applies their label
+  transitions after validating the result (#22).
+
+## 0.1.0 — 2026-10-01
+
+First release.
+
+- `ub-agent init`, `check`, `doctor`, `launch`, `status`, `report` and `retry` (#7, #14).
+- Codex and Claude runtimes, custom CLI adapters and direct commands (#7).
+- Cooperative claims, durable outcomes, retries and recovery recorded on GitHub (#7, #11).
+- A starter workflow with issue preparation, implementation, cross-runtime review and
+  integration under a project merge policy (#7, #17).
