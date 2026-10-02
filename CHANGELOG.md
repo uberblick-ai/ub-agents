@@ -6,6 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.7 — 2026-10-03
+
+**Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,
+restart. Items held only by the approval gate now get the project's stop label and an
+Action needed comment (#66).
+
 ### Changed
 
 - `launch` parks open, triggered items whose only pickup obstacle is missing
