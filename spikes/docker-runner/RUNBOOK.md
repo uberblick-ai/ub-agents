@@ -62,6 +62,18 @@ or publish an image to obtain one. The base image and apt packages can change
 between builds, so results are tied to the **image ID**, not just the Dockerfile.
 Start commands resolve a tag to its ID once for both workers.
 
+The implementer and owner can run this credential-free prerequisite check:
+
+```sh
+python3 spikes/docker-runner/smoke.py --image "$IMAGE"
+```
+
+It runs with networking disabled and starts no agent. It checks UID, dropped
+capabilities, no-new-privileges, configuration, installed tools, `ps`, volume write
+and stopped-container artifact recovery. It removes only its own uniquely named
+smoke container/volume and saves `.ub-agent/docker-spike/smoke.json`. This supplies
+setup evidence; it does not replace the owner's live isolation/recovery tests.
+
 ### Credentials (owner only)
 
 Provision GitHub credentials for the **same account as the normal launcher** and
@@ -389,5 +401,5 @@ the normal queue. The spike setup itself remains unmerged.
 Reference sources: [Codex authentication and cache storage](https://developers.openai.com/codex/auth/),
 [CLI login options](https://developers.openai.com/codex/cli/reference/),
 [Docker container privileges and capabilities](https://docs.docker.com/engine/containers/run/),
-[Docker Desktop VM boundary](https://docs.docker.com/desktop/setup/vm-vmm/),
+[Docker Desktop VM boundary](https://docs.docker.com/desktop/features/vmm/),
 and [this repository's coordination contract](../../docs/coordination.md).

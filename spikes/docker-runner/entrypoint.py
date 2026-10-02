@@ -35,10 +35,13 @@ def main():
     args = parser.parse_args()
     if os.getuid() != 1000:
         raise SystemExit("Spike must run as UID 1000")
-    caps = next(line.split()[1] for line in Path("/proc/self/status").read_text().splitlines()
-                if line.startswith("CapEff:"))
-    if int(caps, 16):
+    status = dict(line.split(":", 1) for line in Path("/proc/self/status").read_text().splitlines())
+    if any(int(status[key].strip(), 16) for key in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")):
         raise SystemExit("Spike requires all capabilities dropped")
+    if status["NoNewPrivs"].strip() != "1":
+        raise SystemExit("Spike requires no-new-privileges")
+    if any(Path(socket).exists() for socket in ("/var/run/docker.sock", "/run/docker.sock")):
+        raise SystemExit("Spike must not have a Docker socket")
     os.umask(0o077)
     home = Path(os.environ["HOME"])
     home.mkdir(parents=True, exist_ok=True)

@@ -4,8 +4,11 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from ub_agents.config import load_config
 from ub_agents.execution import command_for, repository_checks
@@ -17,6 +20,10 @@ SPIKE = Path(__file__).resolve().parents[1] / "spikes/docker-runner"
 spec = importlib.util.spec_from_file_location("docker_spike_common", SPIKE / "common.py")
 common = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(common)
+spec = importlib.util.spec_from_file_location("docker_spike_commands", SPIKE / "spike.py")
+spike = importlib.util.module_from_spec(spec)
+with patch.dict(sys.modules, {"common": common}):
+    spec.loader.exec_module(spike)
 
 
 class DockerSpikeTests(unittest.TestCase):
@@ -68,6 +75,43 @@ class DockerSpikeTests(unittest.TestCase):
         for number in (10, 0, -1, True, "101"):
             with self.subTest(number=number), self.assertRaises(ValueError):
                 common.render_config(template, number)
+
+    def test_existing_recovery_volume_is_never_reassigned(self):
+        args = SimpleNamespace(image="sha256:example", git_name="Synthetic", git_email="test@example.invalid")
+        with patch.object(spike.subprocess, "run", return_value=SimpleNamespace(returncode=0)), \
+                patch.object(spike, "run") as docker_mutation:
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                spike.create(args, "ub-spike10-a", 101)
+            docker_mutation.assert_not_called()
+
+    def test_start_barrier_preflights_both_before_releasing_either(self):
+        events = []
+        ready = iter((0, 1, 0))
+
+        def probe(command):
+            events.append(("probe", command[2]))
+            return SimpleNamespace(returncode=next(ready))
+
+        with patch.object(spike, "output", return_value="true"), \
+                patch.object(spike, "run", side_effect=lambda *args, **kwargs: events.append(args)), \
+                patch.object(spike.subprocess, "run", side_effect=probe), \
+                patch.object(spike.time, "sleep"):
+            spike.prepare(["ub-spike10-a", "ub-spike10-b"], b"synthetic")
+        releases = [index for index, event in enumerate(events) if event[-1] == "/run/spike-auth/go"]
+        probes = [index for index, event in enumerate(events) if event[0] == "probe"]
+        self.assertEqual(len(probes), 3)
+        self.assertEqual(len(releases), 2)
+        self.assertLess(max(probes), min(releases))
+
+    def test_credentials_file_requires_private_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.json"
+            path.write_text('{"GH_TOKEN":"synthetic","OPENAI_API_KEY":"synthetic"}')
+            path.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "0600"):
+                spike.secret_input(path)
+            path.chmod(0o600)
+            self.assertEqual(spike.secret_input(path), path.read_bytes())
 
     def test_overlay_survives_real_control_refresh_and_new_worktree(self):
         # A real fast-forward catches the common trap: checking out the spike
