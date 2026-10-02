@@ -14,6 +14,11 @@ notes are copied from that section.
   quota observations, with a one-hour cap; work resumes normal pacing, and idle
   messages print only on state changes (#83).
 
+- Launcher and `status` startup scans read repository comments from the longest
+  configured lease plus seven days, then continue incrementally. PR shared-branch
+  ownership reads the issue named in the branch directly; `cleanup` keeps its full
+  scan. Re-apply a trigger or stop label to surface older unfinished outcomes (#87).
+
 ## 0.1.8 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,

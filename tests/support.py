@@ -162,7 +162,7 @@ class FakeGitHub:
             self.claim_read_barrier.wait(timeout=5)
         return snapshot
 
-    def repository_comments(self):
+    def repository_comments(self, lookback_seconds=None):
         with self.lock:
             return deepcopy([comment for comments in self.store.values() for comment in comments])
 
@@ -251,8 +251,8 @@ class PollGitHub(FakeGitHub):
     def default_branch(self):
         return self._read("default_branch")
 
-    def repository_comments(self):
-        return self._read("repository_comments")
+    def repository_comments(self, lookback_seconds=None):
+        return self._read("repository_comments", lookback_seconds)
 
     def item(self, number, kind=None):
         return self._read("item", number, kind)
