@@ -248,6 +248,14 @@ run, and the launcher does not report,
 accept, or release after losing ownership. Between observations, an agent with
 GitHub credentials can still write: comments cannot prevent this.
 
+REST GETs revalidate the last in-memory response with `If-None-Match` when GitHub
+provided an ETag for that exact URL, including its query and page. A `304 Not
+Modified` confirms freshness and returns the stored payload without consuming
+REST quota; it still satisfies the reread before every durable write. A 304 with
+no stored response is refetched once without a validator. Changed responses
+replace the cached ETag and payload. Writes and GraphQL are unconditional. This
+cache lasts only for the client process, with no configuration or on-disk state.
+
 GitHub rate limits during claim election, ownership checks and completion reads
 (including recovery) wait and retry without treating the limit as changed ownership.
 Waits use real response headers and the [rate-limit rules](configuration.md#top-level).

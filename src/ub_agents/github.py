@@ -161,7 +161,10 @@ class GitHub:
         self.repository = repository
         self.prefix = f"repos/{repository}"
         self.quota_headers = {}
+        # REST responses that consume quota; GraphQL has a separate budget.
+        self.quota_requests = 0
         self.rate_limited = False
+        self._etag_cache = {}
         self._comment_cache = {}
         self._comment_since = None
 
@@ -182,6 +185,41 @@ class GitHub:
                    "-H", "Accept: application/vnd.github+json", "--include", endpoint]
         if data is not None:
             command += ["--input", "-"]
+        rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
+        conditional = rest and method == "GET"
+        cached = self._etag_cache.get(endpoint) if conditional else None
+        status, headers, payload = self._response(command, endpoint, method, data, cached)
+        if status == 304:
+            if not conditional:
+                raise GitHubError(method, endpoint, "Unexpected HTTP 304 for an unconditional operation")
+            if cached is None:
+                # A bodyless response cannot establish authority. Retry only once,
+                # with no validator, even if gh incorrectly returns another 304.
+                status, headers, payload = self._response(command, endpoint, method, data, None)
+                if status == 304:
+                    raise GitHubError(method, endpoint, "HTTP 304 without a stored response after refetch")
+            else:
+                etag, payload = cached
+                self._etag_cache[endpoint] = (headers.get("etag") or etag, payload)
+        if method == "DELETE" and not payload.strip():
+            return None
+        try:
+            value = json.loads(payload)
+            if not isinstance(value, list if array else dict):
+                raise ValueError("expected an array" if array else "expected an object")
+        except (ValueError, TypeError) as exc:
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        if conditional and status != 304:
+            # Keep the wire payload so callers cannot mutate later cache hits.
+            if headers.get("etag"):
+                self._etag_cache[endpoint] = (headers["etag"], payload)
+            else:
+                self._etag_cache.pop(endpoint, None)
+        return value
+
+    def _response(self, command, endpoint, method, data, cached):
+        if cached is not None:
+            command = command + ["-H", f"If-None-Match: {cached[0]}"]
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -203,8 +241,15 @@ class GitHub:
         except ValueError as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
         # GraphQL has its own quota; doctor reports the REST account quota.
-        if endpoint != "graphql" and "x-ratelimit-remaining" in headers:
-            self.quota_headers = headers
+        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+            if status != 304 and (status is not None or result.returncode == 0):
+                self.quota_requests += 1
+            if "x-ratelimit-remaining" in headers:
+                self.quota_headers = headers
+        # gh exits 1 for a 304 and writes "gh: HTTP 304" to stderr. The
+        # server's freshness confirmation takes precedence over that exit code.
+        if status == 304:
+            return status, headers, payload
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
@@ -214,15 +259,7 @@ class GitHub:
                                 rate_limited=limited)
             error.probe_reason = f"exit {result.returncode}"
             raise error
-        if method == "DELETE" and not payload.strip():
-            return None
-        try:
-            value = json.loads(payload)
-            if not isinstance(value, list if array else dict):
-                raise ValueError("expected an array" if array else "expected an object")
-            return value
-        except (ValueError, TypeError) as exc:
-            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        return status, headers, payload
 
     def actor(self):
         data = self.request("user")

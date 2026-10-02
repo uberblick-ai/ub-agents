@@ -6,6 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- GitHub REST reads revalidate in-memory responses with ETags. Unchanged reads
+  confirmed by `304 Not Modified` preserve fresh ownership checks without using
+  REST quota; writes and GraphQL remain unconditional (#86).
+
 ## 0.1.8 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,
