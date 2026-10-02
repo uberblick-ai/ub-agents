@@ -114,9 +114,15 @@ wall clock, since monotonic timers pause while a machine sleeps.
 
 Every lease names the actor, agent, run, configured CLI/model/effort,
 expiry, attempt, input candidate SHA, and branch when known. The claim is tied to
-the observed candidate; a changed head or vanished trigger before execution fails
-the assignment. Branches created for private issue worktrees are recorded on the
-lease and retained for possible human recovery.
+the observed candidate. A changed head, closed item or vanished trigger found
+after setup but before execution counts as a launcher setup failure: +1 with
+bounded backoff. The next run uses the current head once the item is open and a
+trigger matches again. A stop label found before execution instead parks the item
+without changing its count; removing it still requires `ub-agent retry` to clear
+that parked state. A vanished trigger during success transition validation also
+parks the item without changing its count, as the outcome table above describes.
+Branches created for private issue worktrees are recorded on the lease and
+retained for possible human recovery.
 
 This election is tested with concurrent contenders, but GitHub comment reads and
 writes are not compare-and-swap. It does **not** establish exactly-once execution,

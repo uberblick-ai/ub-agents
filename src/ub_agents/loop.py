@@ -207,11 +207,12 @@ class Loop:
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
             fresh = self.github.item(plan.item.number, plan.item.kind)
-            if (fresh.state != "open" or not fresh.labels.intersection(plan.agent.triggers)
-                    or fresh.labels.intersection(self.config.stop_labels)):
-                raise TransitionPaused("Trigger or stop label changed before execution")
+            if fresh.labels.intersection(self.config.stop_labels):
+                raise TransitionPaused("Stop label added before execution")
+            if fresh.state != "open" or not fresh.labels.intersection(plan.agent.triggers):
+                raise AgentError("State or trigger changed before execution")
             if fresh.head != plan.item.head:
-                raise ValidationError("Candidate changed before execution")
+                raise AgentError("Candidate changed before execution")
             self.coordinator.assert_owned(lease)
             context = {"repository": self.config.repository, "assignment": plan.item.number,
                        "kind": plan.item.kind, "title": plan.item.title, "body": plan.item.body,

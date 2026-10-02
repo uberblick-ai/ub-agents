@@ -225,6 +225,69 @@ class FailureCountTests(unittest.TestCase):
             self.loop.tick()
         self.assertEqual((self.count(), self.plan().state), (1, 'backoff'))
 
+    def test_pre_execution_head_trigger_and_state_changes_retry_with_backoff(self):
+        for changed in ('head', 'trigger', 'state'):
+            with self.subTest(changed=changed):
+                self.setUp()
+                self.github.items[1] = pr(1)
+                self.execute()
+                self.finish_backoff()
+                changes = {'head': {'head': 'b' * 40},
+                           'trigger': {'labels': frozenset()},
+                           'state': {'state': 'closed'}}[changed]
+
+                def prepare():
+                    self.github.change(1, **changes)
+                    return self.root
+
+                with patch('ub_agents.loop.Workspace.prepare', side_effect=prepare), \
+                        patch('ub_agents.loop.Workspace.cleanup') as cleanup, \
+                        patch('ub_agents.loop.supervise') as supervise:
+                    self.assertTrue(self.loop.execute(self.plan()))
+                supervise.assert_not_called()
+                cleanup.assert_called_once()
+                lease = self.loop.coordinator.history(1)[-2]
+                self.assertEqual((lease['state'], lease['result'], lease['attempt_effect']),
+                                 ('released', 'retry', 'failure'))
+                self.assertEqual(self.count(), 2)
+                self.assertEqual(seconds(lease['retry_after']) - self.now, 20)
+                self.github.change(1, state='open', labels=frozenset({'needs-changes'}))
+                self.loop = self.restart()
+                self.assertEqual(self.plan().state, 'backoff')
+                self.finish_backoff()
+                self.assertEqual((self.plan().state, self.plan().item.head),
+                                 ('ready', self.github.item(1).head))
+                self.execute('success')
+                self.assertEqual(self.count(), 0)
+
+    def test_pre_execution_stop_label_preserves_count_and_parks_until_reset(self):
+        self.execute()
+        self.finish_backoff()
+
+        def prepare():
+            # A stop takes precedence even if the trigger also disappears.
+            self.github.change(1, labels=frozenset({'needs-human'}))
+            return self.root
+
+        with patch('ub_agents.loop.Workspace.prepare', side_effect=prepare), \
+                patch('ub_agents.loop.Workspace.cleanup') as cleanup, \
+                patch('ub_agents.loop.supervise') as supervise:
+            self.assertTrue(self.loop.execute(self.plan()))
+        supervise.assert_not_called()
+        cleanup.assert_called_once()
+        lease = self.loop.coordinator.history(1)[-2]
+        self.assertEqual((lease['state'], lease['result'], lease['attempt_effect']),
+                         ('released', 'blocked', 'unchanged'))
+        self.assertNotIn('retry_after', lease)
+        self.assertEqual(self.count(), 1)
+        self.github.change(1, labels=frozenset({'ready'}))
+        self.now += 10000
+        self.loop = self.restart()
+        self.assertEqual(self.plan().state, 'blocked')
+        with patch('ub_agents.loop.supervise') as supervise:
+            self.assertFalse(self.loop.tick())
+        supervise.assert_not_called()
+
     def test_unconfirmed_cleanup_counts_even_with_success_report_and_never_recovers(self):
         with patch('ub_agents.loop.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
             with self.assertRaises(CleanupError):
