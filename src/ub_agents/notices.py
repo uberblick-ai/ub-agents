@@ -49,7 +49,7 @@ class Notices:
             self.minimize([comment for comment in comments if comment["id"] in outdated])
         self.advisory(f"superseded records on #{number}", minimize_records)
 
-    def released(self, lease, outcome, summary, parking_outcome=None):
+    def released(self, lease, outcome, summary, parking_outcome=None, max_attempts=None):
         reported = parking_outcome or outcome
         target = lease["assignment"]
         transition = reported.get("transition", {}) if reported else {}
@@ -61,7 +61,12 @@ class Notices:
         self.superseded(lease["assignment"], lease["agent"], lease["run"])
         if reported and reported.get("handoff") and reported["handoff"] != lease["assignment"]:
             self.superseded(reported["handoff"], lease["agent"], reported["run"])
-        if lease["result"] == "blocked" or parked:
+        exhausted = (lease["result"] == "retry" and lease.get("unreported")
+                     and lease.get("attempt_effect") == "failure" and max_attempts is not None
+                     and lease["attempt"] >= max_attempts)
+        if exhausted:
+            summary = f"Attempt limit exhausted (max-attempts: {max_attempts}). {summary}"
+        if lease["result"] == "blocked" or parked or exhausted:
             self.advisory(f"Action needed post on #{target}",
                           lambda: self.post_action(target, lease, reported, summary, stops if parked else ()))
 

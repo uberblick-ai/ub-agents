@@ -1,6 +1,7 @@
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -80,6 +81,31 @@ class TransitionTests(unittest.TestCase):
         self.execute()
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'needs-review'})
         self.assertEqual(self.github.item(2).labels, {'unrelated'})
+
+    def test_handoff_before_nonzero_exit_keeps_transition_and_reviewer_provenance(self):
+        builder_runtime = Runtime('codex', 'builder-model', 'high')
+        reviewer_runtime = Runtime('claude', 'reviewer-model', 'high')
+        self.agent = replace(self.agent, command=(), runtimes=(builder_runtime,))
+        reviewer = replace(self.agent, name='reviewer', kind='pr', triggers=('needs-review',),
+                           runtimes=(reviewer_runtime,), different_from=self.agent.name)
+        self.loop = self.new_loop(self.agent, reviewer)
+        with patch('ub_agents.coordination.shutil.which', return_value='installed'):
+            self.assertTrue(self.execute(handoff=2, exit_code=1))
+            restarted = self.new_loop(self.agent, reviewer)
+            plan = next(p for p in restarted.plans() if p.item.number == 2)
+        self.assertEqual((plan.agent.name, plan.state, plan.runtime), ('reviewer', 'ready', reviewer_runtime))
+        lease, outcome = restarted.coordinator.history(1)
+        self.assertEqual((lease['result'], lease['attempt_effect']), ('success', 'reset'))
+        self.assertTrue(outcome['accepted'])
+        self.assertTrue(outcome['transition_complete'])
+        self.assertEqual(self.github.item(1).labels, {'unrelated'})
+        self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
+        copied = restarted.coordinator.history(2)[0]
+        self.assertTrue(copied['accepted'])
+        self.assertEqual(copied['candidate_sha'], self.github.item(2).head)
+        events = [json.loads(line) for line in
+                  (self.root / '.ub-agent' / 'runs' / lease['run'] / 'events.jsonl').read_text().splitlines()]
+        self.assertTrue(any(event['event'] == 'execution-exited' and event['code'] == 1 for event in events))
 
     def test_reviewer_pr_outcome_routes_to_next_role(self):
         self.agent = replace(self.agent, triggers=('needs-review',),
@@ -404,14 +430,27 @@ class TransitionTests(unittest.TestCase):
                 self.assertEqual(self.loop.coordinator.history(1)[0]['result'], 'blocked')
                 self.assertEqual(self.labels_changed(), [])
 
-    def test_retry_blocked_nonzero_timeout_and_interrupt_change_no_labels(self):
-        for verdict in ('retry', 'blocked', 'nonzero', 'timeout', 'interrupt'):
+    def test_rejected_success_before_nonzero_exit_still_parks(self):
+        self.execute(lambda _: self.github.change(2, head='b' * 40), handoff=2, exit_code=1)
+        lease, outcome = self.loop.coordinator.history(1)
+        self.assertEqual((lease['result'], lease['attempt_effect']), ('blocked', 'failure'))
+        self.assertFalse(outcome['accepted'])
+        self.assertIn('rejected', outcome)
+        self.assertEqual(self.labels_changed(), [])
+        self.assertEqual(self.loop.coordinator.history(2), [])
+        self.now += 10000
+        restarted = self.new_loop()
+        self.assertEqual(restarted.plans()[0].state, 'blocked')
+        self.assertEqual(len(attempts(restarted.coordinator.history(1), self.agent.name, self.now)), 1)
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not retry')):
+            self.assertFalse(restarted.tick())
+
+    def test_retry_blocked_timeout_and_interrupt_change_no_labels(self):
+        for verdict in ('retry', 'blocked', 'timeout', 'interrupt'):
             with self.subTest(verdict=verdict):
                 self.setUp()
                 if verdict in {'retry', 'blocked'}:
                     self.execute(status=verdict)
-                elif verdict == 'nonzero':
-                    self.execute(exit_code=1)
                 else:
                     def fail(_):
                         if verdict == 'timeout':

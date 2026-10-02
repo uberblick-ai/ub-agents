@@ -2,6 +2,7 @@ from contextlib import redirect_stderr
 from dataclasses import replace
 import io
 import signal
+import threading
 from pathlib import Path
 import subprocess
 import tempfile
@@ -294,14 +295,16 @@ class PollingTests(unittest.TestCase):
                 self.setUp()
                 self.github.read_results["observe"] = [self.http_error()]
                 handler = signal.getsignal(sig)
+                interrupt = threading.Event()
+                self.loop.interrupt_event = interrupt
                 with patch("ub_agents.cli.load_config", return_value=self.config), \
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch("ub_agents.cli.Loop", return_value=self.loop), \
-                        patch("ub_agents.cli.threading.Event", return_value=self.loop.stop_event), \
+                        patch("ub_agents.cli.threading.Event", side_effect=[self.loop.stop_event, interrupt]), \
                         patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(sig)), \
                         redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["launch"]), 130)
+                    self.assertEqual(main(["launch"]), 0 if sig == signal.SIGTERM else 130)
                 self.assertEqual(signal.getsignal(sig), handler)
                 self.assertEqual(self.github.reads, [("observe", ())])
                 self.assertEqual(self.github.writes, [])

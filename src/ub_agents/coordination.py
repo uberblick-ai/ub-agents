@@ -282,7 +282,8 @@ class Coordinator:
             raise LostOwnership("Assignment ownership was lost or expired")
         return contenders[0]
 
-    def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None):
+    def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
+                max_attempts=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         now = self.clock()
@@ -295,7 +296,7 @@ class Coordinator:
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, **changes)
         self.notices.advisory("released run comments", lambda:
-                              self.notices.released(lease, reported, summary, parking_outcome))
+                              self.notices.released(lease, reported, summary, parking_outcome, max_attempts))
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])

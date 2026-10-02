@@ -4,8 +4,8 @@ ub-agents runs coding agents in an engineering loop driven by GitHub. Each proje
 defines its workflow; the launcher watches GitHub, claims matching work, runs the
 configured agent, and records its outcome.
 
-> Early stage. The starter workflow runs end to end on this repository. Packaged
-> releases (Homebrew, PyPI) are planned in [#4](https://github.com/uberblick-ai/ub-agents/issues/4).
+> Early stage. The starter workflow runs end to end on this repository. PyPI
+> releases are planned in [#4](https://github.com/uberblick-ai/ub-agents/issues/4).
 
 ## How it works
 
@@ -30,18 +30,23 @@ Observe GitHub → match a label → claim the item → run the agent → record
 
 ## Use it in your project
 
-You need macOS or Linux, Python 3.11+, `git`, an authenticated `gh`, and the agent CLIs
-you want to use, such as `codex` or `claude`. Every launcher for a project must
+You need macOS or Linux, `git`, an authenticated `gh`, and the agent CLIs you want to
+use, such as `codex` or `claude`. Homebrew installs Python and `gh`; checkout installs
+require Python 3.11+. Every launcher for a project must
 authenticate `gh` as the same GitHub account: only that account's coordination
 comments count, so launchers on different accounts would not see each other's claims.
 
 ```sh
-pipx install .        # from a checkout of this repository
+brew install uberblick-ai/tap/ub-agents
 cd your-project
 ub-agent init         # starter ub-agent.yaml, AGENTS.md and .agents/ instructions
 ub-agent doctor       # check the machine, GitHub labels/access and runtimes
 ub-agent launch       # run the loop in the foreground; Ctrl-C stops it
 ```
+
+Upgrade with `brew upgrade ub-agents`. Before upgrading, check the
+[changelog](CHANGELOG.md) and [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases)
+for any required configuration edits.
 
 The continuous loop retries transient GitHub discovery failures with bounded waits.
 See [polling and retry limits](docs/configuration.md#top-level) for the fixed delays,
@@ -184,14 +189,20 @@ stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
 
 Before every new agent run, the launcher fetches `origin`, fast-forwards the
 operator's control checkout on the repository's default branch, and rereads that
-role's instruction file. Keep that checkout clean and free of local-only commits.
-Unsafe checkout state, Git refresh failures or invalid instructions stop the launcher
+role's instruction file and `ub-agent.yaml`. It replans the claim with the refreshed
+configuration. Keep that checkout clean and free of local-only commits.
+Unsafe checkout state, Git refresh failures, invalid configuration or invalid
+instructions stop the launcher
 with a nonzero exit and an actionable message; fix the checkout and restart.
 No attempt is charged, and the assignment is not marked blocked or retrying.
 Refresh happens between executions and cleanup hooks, never during a run or
 durable-outcome recovery.
-Instruction text stays fixed for each prompt. Configuration changes in
-`ub-agent.yaml` still require a launcher restart; PR candidates are not rebased.
+Instruction text and configuration stay fixed for each run; PR candidates are not
+rebased. SIGTERM stops further claims, lets the current run or recovery finish, and
+exits 0. When idle it exits promptly; an in-progress checkout refresh finishes
+before it exits without claiming work. Ctrl-C and SIGHUP terminate the active agent,
+including during a graceful stop. Code changes require a launcher restart: send
+SIGTERM and let tmux, systemd or similar restart it.
 
 Each claim has a lease that outlasts the run's timeout. If a launcher dies, its
 claims expire and another launcher recovers the work: a recorded outcome is
@@ -200,14 +211,16 @@ validated and its label transition finished without rerunning the role.
 success resets the count, including outcome-only recovery and PR revisions. An
 operator interrupt preserves the count and allows pickup on the next launch without
 backoff. Agent-reported `blocked` outcomes and human-paused transitions preserve the
-count and park the item. Crashes without a report, timeouts, missing reports after
-exit zero, setup failures and agent-reported `retry` increment it and retry with
-backoff. Invalid success reports, nonzero exits without a report, unconfirmed cleanup
-and unclassified failures increment it and park the item. `ub-agent retry` resets
+count and park the item. Crashes without a report, timeouts, exits without a report
+(zero or nonzero), setup failures and agent-reported `retry` increment it and retry
+with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures
+increment it and park the item. `ub-agent retry` resets
 the count to 0 and clears the parked state. The issue and handoff PR keep separate
 counts; `ub-agent status` shows the consecutive failure count in `attempts`.
 A success counts only after the launcher has checked the result on GitHub; an exit
 code alone never does.
+A report followed by a nonzero exit is validated and applied normally after
+confirmed cleanup; the launcher logs the exit code.
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
 transition before it starts. After removing it, set the workflow labels you want or
@@ -222,6 +235,8 @@ for resources associated with each private worktree. Document operator-only reco
 steps in a project operations document linked from `AGENTS.md`.
 
 ## Development
+
+For development, install from a checkout with Python 3.11+:
 
 ```sh
 python3 -m venv .venv

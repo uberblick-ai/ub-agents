@@ -2,7 +2,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
 from pathlib import Path
+import signal
+import subprocess
+import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -105,8 +109,6 @@ class RefreshTests(unittest.TestCase):
     def test_pushed_policy_appears_in_second_prompt_without_restart(self):
         prompts = []
         self.execute(lambda cwd, prompt: prompts.append(prompt))
-        # An upstream config edit remains ineffective until launcher restart.
-        (self.upstream / "ub-agent.yaml").write_text("configuration changes require restart\n")
         self.push_policy()
         self.execute(lambda cwd, prompt: prompts.append(prompt))
         self.assertIn("First operator policy", prompts[0])
@@ -127,6 +129,170 @@ class RefreshTests(unittest.TestCase):
             self.execute(lambda cwd, prompt: self.assertIn("First operator policy", prompt))
         self.assertFalse(any("merge" in call for call in calls))
         self.assertEqual(self.snapshot()[:3], before[:3])
+
+    def enable_reload(self):
+        path = self.root / "ub-agent.yaml"
+        self.loop.config = load_config(path)
+        self.loop.config_path = path
+
+    def test_sigterm_during_fast_forward_finishes_refresh_without_claiming(self):
+        for reload in (False, True):
+            with self.subTest(reload=reload):
+                self.setUp()
+                if reload:
+                    self.enable_reload()
+                self.push_policy()
+                merges = []
+
+                def refresh_git(root, *args, **kwargs):
+                    if "merge" not in args:
+                        return git(root, *args, **kwargs)
+                    # Exercise subprocess.run's actual exception/child cleanup
+                    # while a delayed merge receives SIGTERM from its child.
+                    command = ["git", "-C", str(root), *args]
+                    script = ("import os,signal,sys,time; "
+                              "os.kill(os.getppid(), signal.SIGTERM); time.sleep(.2); "
+                              "os.execvp('git', sys.argv[1:])")
+                    result = subprocess.run([sys.executable, "-c", script, *command],
+                                            capture_output=True, text=True, timeout=10, check=True)
+                    merges.append(result.returncode)
+                    return result.stdout.strip()
+
+                def loop(config, github, actor, stop, **kwargs):
+                    self.loop.stop_event = stop
+                    self.loop.interrupt_event = kwargs["interrupt_event"]
+                    return self.loop
+
+                with patch("ub_agents.refresh.git", side_effect=refresh_git), \
+                        patch("ub_agents.cli.load_config", return_value=self.loop.config), \
+                        patch("ub_agents.cli.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli.Loop", side_effect=loop), \
+                        patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                        patch("ub_agents.loop.supervise") as execution, \
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["launch"]), 0)
+                execution.assert_not_called()
+                self.assertEqual(merges, [0])
+                self.assertEqual(git(self.root, "rev-parse", "HEAD"),
+                                 git(self.upstream, "rev-parse", "HEAD"))
+                self.assertEqual((self.root / "role.md").read_text(), "Second operator policy\n")
+                self.assertEqual(git(self.root, "status", "--porcelain"), "")
+                self.assertFalse((self.root / ".git" / "index.lock").exists())
+                self.assertEqual(self.github.writes, [])
+
+    def test_sigterm_during_failed_refresh_preserves_launcher_error(self):
+        def fail(*args):
+            signal.raise_signal(signal.SIGTERM)
+            raise AgentError("Fast-forward failed")
+
+        self.loop.interrupt_event = threading.Event()
+        previous = signal.signal(signal.SIGTERM, lambda *_: self.loop.stop_gracefully())
+        try:
+            with patch("ub_agents.loop.refresh_instructions", side_effect=fail), \
+                    patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                    self.assertRaisesRegex(AgentError, "Fast-forward failed"):
+                self.loop.launch(once=True)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+        self.assertEqual(self.github.writes, [])
+
+    def test_reload_between_runs_changes_runtime_instructions_triggers_and_report_outcomes(self):
+        self.enable_reload()
+        calls = []
+
+        def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
+            number = int(env["UB_AGENT_ASSIGNMENT"])
+            calls.append(number)
+            if number == 1:
+                self.assertIn("First operator policy", prompt)
+                self.assertIn("model", command)
+                path = self.upstream / "ub-agent.yaml"
+                path.write_text(path.read_text().replace("codex:model:high", "claude:next:low")
+                                .replace("trigger: ready", "trigger: needs-changes")
+                                .replace("instructions: role.md", "instructions: next.md")
+                                .replace("{done: {}}", "{revised: {add: [needs-review]}}"))
+                (self.upstream / "role.md").unlink()
+                (self.upstream / "next.md").write_text("New policy and outcome")
+                self.commit(self.upstream)
+                git(self.upstream, "push", "origin", "main")
+                # The active run still has its original declaration.
+                name = "done"
+            else:
+                self.assertIn("next", command)
+                self.assertIn("New policy and outcome", prompt)
+                self.assertIn('"revised"', prompt)
+                self.assertEqual(self.loop.config.agents[0].triggers, ("needs-changes",))
+                name = "revised"
+            with patch.dict("os.environ", env), patch("ub_agents.cli.GitHub", return_value=self.github), \
+                    redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["report", "--outcome", name, "--summary", "Finished"]), 0)
+            return 0
+
+        self.github.change(3, labels=frozenset({"ready", "needs-changes"}))
+        with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                patch("ub_agents.loop.supervise", side_effect=run):
+            self.assertTrue(self.loop.tick())
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(calls, [1, 3])
+        self.assert_success(1)
+        self.assert_success(3)
+        self.assertEqual(self.github.item(3).labels, frozenset({"ready", "needs-review"}))
+
+    def test_reloaded_config_can_withdraw_the_planned_assignment(self):
+        for edit in (lambda text: text.replace("trigger: ready", "trigger: other"),
+                     lambda text: text.replace("worker:", "replacement:"),
+                     lambda text: text.replace("runtime: codex:model:high", "kind: pr\n    runtime: codex:model:high"),
+                     lambda text: text + "queue: {milestones: gate}\n",
+                     lambda text: text + "stop-labels: [paused]\n"):
+            with self.subTest(edit=edit):
+                self.setUp()
+                self.enable_reload()
+                self.github.change(1, labels=frozenset({"ready", "paused"}))
+                self.github.change(3, labels=frozenset({"ready", "paused"}))
+                self.github.milestones = [{"number": 1, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+                self.github.items[4] = issue(4, labels=(), milestone=1)
+                path = self.upstream / "ub-agent.yaml"
+                path.write_text(edit(path.read_text()))
+                self.commit(self.upstream)
+                git(self.upstream, "push", "origin", "main")
+                with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                        patch("ub_agents.loop.supervise") as execution:
+                    self.assertFalse(self.loop.tick())
+                execution.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+
+    def test_reloaded_repository_is_checked_against_origin_before_claim(self):
+        self.enable_reload()
+        path = self.upstream / "ub-agent.yaml"
+        path.write_text(path.read_text().replace("org/project", "org/other"))
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                patch("ub_agents.loop.supervise") as execution, \
+                self.assertRaisesRegex(AgentError, "origin must point to the configured GitHub repository"):
+            self.loop.launch(once=True)
+        execution.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+
+    def test_invalid_reloaded_config_exits_with_check_error_without_charging_attempt(self):
+        (self.upstream / "ub-agent.yaml").write_text("invalid: configuration\n")
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        launch_error, check_error = io.StringIO(), io.StringIO()
+        args = ["--config", str(self.root / "ub-agent.yaml")]
+        with patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                patch("ub_agents.loop.supervise") as execution, \
+                redirect_stderr(launch_error):
+            self.assertEqual(main(args + ["launch"]), 1)
+        with redirect_stderr(check_error):
+            self.assertEqual(main(args + ["check"]), 1)
+        self.assertEqual(launch_error.getvalue(), check_error.getvalue())
+        execution.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
 
     def test_ignored_local_instructions_remain_valid_after_refresh(self):
         local = self.root / ".ub-agent" / "local-role.md"

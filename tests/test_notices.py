@@ -13,7 +13,7 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from ub_agents.records import LEGACY_MARKER, MARKER, attempts, body, iso, records
+from ub_agents.records import LEGACY_MARKER, MARKER, attempts, body, iso, records, seconds
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
@@ -293,21 +293,66 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(self.notices(), [])
         self.assertEqual(self.co.plan(self.github.item(1), self.worker, ()).state, "ready")
 
-    def test_blocked_exit_without_report_names_host_and_log_directory(self):
-        loop = Loop(config(self.root, agent(self.root, kind="issue")), self.github, "operator", output=self.output.append)
-        with patch("ub_agents.loop.supervise", return_value=7), patch("ub_agents.loop.socket.gethostname", return_value="launcher-host"):
+    def test_exhausted_exit_without_report_names_host_and_log_directory(self):
+        for code in (0, 7):
+            with self.subTest(code=code):
+                github = FakeGitHub(issue())
+                worker = agent(self.root, kind="issue", backoff_seconds=10, max_backoff_seconds=100)
+                cfg = config(self.root, worker)
+                for attempt in range(1, worker.max_attempts + 1):
+                    # Restarting between attempts must retain the count and backoff.
+                    loop = Loop(cfg, github, "operator", output=self.output.append)
+                    loop.coordinator.clock = lambda: self.now
+                    with patch("ub_agents.loop.supervise", return_value=code), \
+                            patch("ub_agents.loop.socket.gethostname", return_value="launcher-host"):
+                        self.assertTrue(loop.tick())
+                    history = loop.coordinator.history(1)
+                    lease, outcome = history[-2:]
+                    notices = [c for c in github.comments(1) if c["body"].startswith(ACTION_MARKER)]
+                    self.assertEqual((lease["result"], outcome["status"]), ("retry", "retry"))
+                    self.assertEqual(len(attempts(history, "worker", self.now)), attempt)
+                    self.assertEqual(github.item(1).labels, frozenset({"ready"}))
+                    if attempt < worker.max_attempts:
+                        self.assertEqual(notices, [])
+                        self.assertEqual(loop.plans()[0].state, "backoff")
+                        self.assertFalse(loop.tick())
+                    else:
+                        self.assertEqual(len(notices), 1)
+                        self.assertEqual(loop.plans()[0].state, "blocked")
+                    self.now = seconds(lease["retry_after"])
+                notice = notices[0]["body"]
+                for expected in (f"Execution exited {code}", "Attempt limit exhausted", "max-attempts: 3",
+                                 "launcher-host", str(self.root / ".ub-agent" / "runs" / lease["run"]),
+                                 lease["url"], outcome["url"], "ub-agent retry --number 1 --agent worker"):
+                    self.assertIn(expected, notice)
+                before = deepcopy(github.writes)
+                self.output.clear()
+                for _ in range(3):
+                    self.assertFalse(loop.tick())
+                self.assertEqual(github.writes, before)
+                self.assertEqual(sum(": blocked —" in line for line in self.output), 1)
+
+    def test_exhausted_notice_failure_leaves_retry_verdict_and_count_unchanged(self):
+        worker = agent(self.root, kind="issue", max_attempts=1)
+        loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
+        original = self.github.create_comment
+
+        def create(number, text):
+            if text.startswith(ACTION_MARKER):
+                raise GitHubError("POST", "comments", "Notice unavailable")
+            return original(number, text)
+
+        with patch.object(self.github, "create_comment", side_effect=create), \
+                patch("ub_agents.loop.supervise", return_value=7):
             self.assertTrue(loop.tick())
         lease, outcome = loop.coordinator.history(1)
-        notice = self.notices()[0]["body"]
-        for expected in ("Execution exited 7", "launcher-host", str(self.root / ".ub-agent" / "runs" / lease["run"]),
-                         lease["url"], outcome["url"], "ub-agent retry --number 1 --agent worker"):
-            self.assertIn(expected, notice)
-        self.assertEqual((lease["result"], outcome["status"]), ("blocked", "blocked"))
+        self.assertEqual((lease["result"], lease["attempt_effect"], outcome["status"]),
+                         ("retry", "failure", "retry"))
         self.assertEqual(len(attempts(loop.coordinator.history(1), "worker", loop.coordinator.clock())), 1)
-        for _ in range(3):
-            self.assertFalse(loop.tick())
-        self.assertEqual(len(self.notices()), 1)
-        self.assertEqual(sum(": blocked —" in line for line in self.output), 1)
+        self.assertEqual(loop.plans()[0].state, "blocked")
+        self.assertEqual(self.github.item(1).labels, frozenset({"ready"}))
+        self.assertEqual(self.notices(), [])
+        self.assertTrue(any("Action needed post" in line and "failed" in line for line in self.output))
 
     def test_advisory_failures_do_not_change_release_transition_or_counts(self):
         for operation in ("unminimized_comments", "minimize_comment", "create_comment", "candidate_evidence", "item"):
