@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from ub_agents.config import CleanupHook, load_config
 from ub_agents.errors import AgentError, CleanupError, LostOwnership
 from ub_agents.execution import Workspace, group_members
+from ub_agents.hooks import run_hook
 from ub_agents.loop import Loop
 from ub_agents.records import iso, timestamp
 from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
@@ -60,6 +62,81 @@ class HookTests(unittest.TestCase):
         value = json.loads(output.read_text())
         self.assertEqual((value["status"], value["handoff"], value["kind"]), ("success", 2, "issue"))
         self.assertEqual(value["worktree"], str(self.workspace.private))
+
+    def test_interrupted_outcome_read_still_runs_hook_once_and_removes_tree(self):
+        output = self.root / "hook-ran"
+        loop = self.loop(f"from pathlib import Path; Path({str(output)!r}).touch()")
+        with ExitStack() as stack:
+            def report_then_interrupt(lease):
+                loop.coordinator.report(lease, "success", "done", handoff=2, outcome="done")
+                original = loop.coordinator.outcome
+                first = True
+                def read(lease):
+                    nonlocal first
+                    if first:
+                        first = False
+                        raise KeyboardInterrupt
+                    return original(lease)
+                stack.enter_context(patch.object(loop.coordinator, "outcome", side_effect=read))
+                return 0
+            with patch("ub_agents.loop.run_hook", wraps=run_hook) as hook:
+                with self.assertRaises(KeyboardInterrupt):
+                    self.execute(loop, report_then_interrupt)
+                self.assertEqual(hook.call_count, 1)
+        self.assertTrue(output.exists())
+        self.assertEqual(len(self.removed), 1)
+        self.assertFalse(self.workspace.created)
+        self.assertTrue(loop.stop_event.is_set())
+
+    def test_interrupt_recording_hook_failure_keeps_verdict_best_effort(self):
+        for method in ("assert_owned", "update"):
+            with self.subTest(method=method):
+                self.github = FakeGitHub(issue(), pr(labels=("needs-review",)))
+                loop = self.loop("import sys; sys.exit(4)")
+                with ExitStack() as stack:
+                    def report_then_interrupt(lease):
+                        loop.coordinator.report(lease, "success", "done", handoff=2, outcome="done")
+                        original = getattr(loop.coordinator, method)
+                        first = True
+                        def write(*args, **kwargs):
+                            nonlocal first
+                            if first:
+                                first = False
+                                raise KeyboardInterrupt
+                            return original(*args, **kwargs)
+                        stack.enter_context(patch.object(loop.coordinator, method, side_effect=write))
+                        return 0
+                    with self.assertRaises(KeyboardInterrupt):
+                        self.execute(loop, report_then_interrupt)
+                self.assertTrue(loop.stop_event.is_set())
+                lease, outcome = loop.coordinator.history(1)
+                self.assertTrue(outcome["accepted"])
+                self.assertEqual(lease["result"], "success")
+                self.assertFalse(self.removed)
+                self.assertTrue(self.workspace.created)
+                events = self.root / ".ub-agent" / "runs" / lease["run"] / "events.jsonl"
+                self.assertIn("cleanup-hook-verdict-unrecorded", events.read_text())
+
+    def test_interrupt_recording_uncertainty_preserves_cleanup_error(self):
+        for method in ("assert_owned", "update"):
+            with self.subTest(method=method):
+                self.github = FakeGitHub(issue())
+                loop = self.loop()
+                failure = CleanupError("agent stop uncertain")
+                with ExitStack() as stack:
+                    def uncertain(lease):
+                        stack.enter_context(patch.object(loop.coordinator, method, side_effect=KeyboardInterrupt))
+                        raise failure
+                    with self.assertRaises(CleanupError) as caught:
+                        self.execute(loop, uncertain)
+                self.assertIs(caught.exception, failure)
+                self.assertTrue(loop.stop_event.is_set())
+                self.assertFalse(self.removed)
+                self.assertTrue(self.workspace.created)
+                lease = loop.coordinator.history(1)[0]
+                self.assertEqual(lease["state"], "running")
+                events = self.root / ".ub-agent" / "runs" / lease["run"] / "events.jsonl"
+                self.assertIn("cleanup-verdict-unrecorded", events.read_text())
 
     def test_failure_and_timeout_keep_tree_without_affecting_success_or_queue(self):
         for script, timeout, message in (("import sys; sys.exit(4)", 3, "exited 4"),

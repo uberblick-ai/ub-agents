@@ -41,7 +41,8 @@ fleet can claim and run an item that an upgraded launcher already owns (#44).
 ### Fixed
 
 - Ctrl-C during a GitHub request reports a stop with exit status 130 instead of a
-  GitHub or retry failure (#55).
+  GitHub or retry failure, preserving reported outcomes for expiry recovery when
+  completion is interrupted and still running cleanup hooks (#55).
 - Nonzero exits without a report retry with backoff up to `max-attempts`. A report
   made before a nonzero exit is validated and applied normally, preserving label
   transitions and accepted handoff provenance; the exit code is logged (#42).

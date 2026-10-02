@@ -289,7 +289,9 @@ recorded transition completes, parking the item for subsequent pickup.
 The outcome records its name, resolved changes and a start marker, so an
 interrupted transition is finished from that record by
 [recovery](coordination.md#recovery) without rerunning the role or spending an
-attempt.
+attempt. An interrupt while reading or finalizing a completed run leaves its lease
+live for expiry recovery, preserving the agent's report even when the interrupted
+request may already have written the transition start marker.
 
 ## Limits
 

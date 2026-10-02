@@ -1,4 +1,4 @@
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
 import json
@@ -247,6 +247,61 @@ class TransitionTests(unittest.TestCase):
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
             self.new_loop().tick()
         self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
+
+    def test_interrupt_in_completion_preserves_report_for_expiry_recovery(self):
+        for stage in ('ownership', 'outcome', 'item', 'start-before', 'start-after', 'accept-after'):
+            with self.subTest(stage=stage):
+                self.setUp()
+                with ExitStack() as stack:
+                    def interrupt_completion(outcome):
+                        if stage in ('ownership', 'outcome', 'item'):
+                            owner = self.github if stage == 'item' else self.loop.coordinator
+                            method = {'ownership': 'assert_owned', 'outcome': 'outcome', 'item': 'item'}[stage]
+                            original = getattr(owner, method)
+                            first = True
+                            def interrupt_read(*args, **kwargs):
+                                nonlocal first
+                                if first:
+                                    first = False
+                                    raise KeyboardInterrupt
+                                return original(*args, **kwargs)
+                            stack.enter_context(patch.object(owner, method, side_effect=interrupt_read))
+                        else:
+                            update = self.github.update_comment
+                            def interrupt_write(comment_id, text):
+                                record = json.loads(text.rsplit('\n```json\n', 1)[1].removesuffix('\n```\n'))
+                                matches = (record.get('accepted') if stage == 'accept-after' else
+                                           record.get('transition', {}).get('started'))
+                                if matches:
+                                    if stage != 'start-before':
+                                        update(comment_id, text)
+                                    raise KeyboardInterrupt
+                                return update(comment_id, text)
+                            stack.enter_context(patch.object(self.github, 'update_comment', side_effect=interrupt_write))
+                    stderr = io.StringIO()
+                    with patch('ub_agents.cli.run', side_effect=lambda _: self.execute(interrupt_completion, handoff=2)), \
+                            redirect_stderr(stderr):
+                        self.assertEqual(main(['--config', str(self.root / 'ub-agent.yaml'), 'launch']), 130)
+                    self.assertEqual(stderr.getvalue(), 'Stopped; supervised execution terminated\n')
+                lease, outcome = self.loop.coordinator.history(1)
+                self.assertEqual(lease['state'], 'running')
+                self.assertNotIn('result', lease)
+                if stage != 'accept-after':
+                    self.assertEqual(self.labels_changed(), [])
+                if stage == 'start-after':
+                    self.assertTrue(outcome['transition']['started'])
+                    self.assertFalse(outcome['accepted'])
+                self.now += 61
+                restarted = self.new_loop()
+                self.assertEqual(restarted.plans()[0].state, 'recover')
+                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must recover without rerunning')):
+                    self.assertTrue(restarted.tick())
+                history = restarted.coordinator.history(1)
+                self.assertTrue(history[1]['accepted'])
+                self.assertEqual(history[-2]['result'], 'success')
+                self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
+                self.assertEqual(self.github.item(1).labels, {'unrelated'})
+                self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
 
     def test_retry_after_interrupted_transition_leaves_items_available_to_triggers(self):
         for stage in ('remove', 'before-add', 'after-add'):

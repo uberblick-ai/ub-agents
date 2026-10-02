@@ -227,7 +227,8 @@ validated and its label transition finished without rerunning the role.
 `max-attempts` limits consecutive failures per item and configured agent. Accepted
 success resets the count, including outcome-only recovery and PR revisions. An
 operator interrupt preserves the count and allows pickup on the next launch without
-backoff. Agent-reported `blocked` outcomes and human-paused transitions preserve the
+backoff. An interrupt during completion leaves the reported outcome for expiry
+recovery. Agent-reported `blocked` outcomes and human-paused transitions preserve the
 count and park the item. Crashes without a report, timeouts, exits without a report
 (zero or nonzero), setup failures and agent-reported `retry` increment it and retry
 with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures
