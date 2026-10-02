@@ -120,6 +120,28 @@ agents:
         self.assertIn('doctor was rate limited', check['message'])
         self.assertNotIn('private', check['message'])
 
+    def test_later_rate_limit_headers_replace_earlier_successful_quota(self):
+        github = GitHub('org/project', self.runner)
+        prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                  'Accept: application/vnd.github+json', '--include')
+        self.runner.responses[prefix + ('user',)] = (
+            'HTTP/2.0 200 OK\nX-RateLimit-Remaining: 5000\nX-RateLimit-Limit: 5000\n'
+            'X-RateLimit-Reset: 1000\n\n{"login":"operator"}')
+        self.runner.responses[prefix + ('repos/org/project',)] = json.dumps(self.github.metadata)
+        self.runner.responses[prefix + ('repos/org/project/labels?per_page=100&page=1',)] = json.dumps(
+            [{'name': name} for name in self.github.label_names])
+        self.runner.responses[prefix + ('repos/org/project/collaborators/operator/permission',)] = (
+            subprocess.CompletedProcess([], 1,
+                'HTTP/2.0 403 Error\nX-RateLimit-Remaining: 0\nX-RateLimit-Limit: 5000\n'
+                'X-RateLimit-Reset: 4600\n\n{}', 'API rate limit exceeded'))
+        result = self.diagnose(github=github)
+        check = self.one(result, 'github-rate-limit')
+        self.assertEqual(check['status'], 'warn')
+        self.assertIn('0 of 5000 requests remaining', check['message'])
+        self.assertIn('1970-01-01T01:16:40Z (UTC)', check['message'])
+        self.assertIn('doctor was rate limited', check['message'])
+        self.assertTrue(result['ok'])
+
     def test_missing_git_and_gh_continue_and_exit_one(self):
         for name in ("git", "gh"):
             with self.subTest(name=name):

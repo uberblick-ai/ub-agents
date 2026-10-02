@@ -61,6 +61,8 @@ class Loop:
         event.wait(delay)
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
+        if lease is not None and self.coordinator.clock() >= seconds(lease["expires"]):
+            raise LostOwnership("Lease expired while waiting for GitHub rate limit reset")
         if lease is None and self.stop_event.is_set():
             raise _GracefulStop
 
@@ -119,7 +121,9 @@ class Loop:
                 plans.extend(Plan(item, a, None, "blocked", str(exc), 1)
                              for a in matched or self.config.agents)
                 continue
-            except AgentError:
+            except AgentError as exc:
+                if isinstance(exc, GitHubError) and exc.rate_limited:
+                    raise
                 # Unreadable item input cannot authorize a claim. A transient
                 # coordination failure with readable approval input still fails the poll.
                 approval = self.input_check(item) if matched else None

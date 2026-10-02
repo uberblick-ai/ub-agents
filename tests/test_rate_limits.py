@@ -33,12 +33,14 @@ class RunRateLimitTests(unittest.TestCase):
         def execute(*args, **kwargs):
             lease = self.loop.coordinator.history(1)[0]
             self.github.read_results["comments"] = [self.limit()]
+            self.writes = self.github.writes.copy()
             self.loop.coordinator.assert_owned(lease)
             self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
             return 0
 
         def wait(delay):
             self.assertEqual(delay, 12)
+            self.assertEqual(self.github.writes, self.writes)
             self.now += delay
 
         with patch("ub_agents.loop.supervise", side_effect=execute), \
@@ -69,6 +71,23 @@ class RunRateLimitTests(unittest.TestCase):
         self.assertFalse(outcome["accepted"])
         self.now += 61
         self.assertEqual(self.loop.plans()[0].state, "recover")
+
+    def test_wall_clock_expiry_during_wait_stops_without_retrying_read(self):
+        def execute(*args, **kwargs):
+            lease = self.loop.coordinator.history(1)[0]
+            self.github.read_results["comments"] = [self.limit()]
+            self.writes = self.github.writes.copy()
+            self.loop.coordinator.assert_owned(lease)
+
+        def wait(delay):
+            # A suspend or slow wakeup can run past the deadline despite a short wait.
+            self.now += 61
+
+        with patch("ub_agents.loop.supervise", side_effect=execute), \
+                patch.object(self.interrupt, "wait", side_effect=wait), \
+                self.assertRaisesRegex(LostOwnership, "expired while waiting"):
+            self.loop.tick()
+        self.assertEqual(self.github.writes, self.writes)
 
     def test_ctrl_c_during_ownership_wait_follows_run_interrupt_handling(self):
         def execute(*args, **kwargs):
