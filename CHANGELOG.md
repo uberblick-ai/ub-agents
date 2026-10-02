@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- Repository-role issue approval checks, maintainer starts and content-bound approval
+  records that reject ambiguous body revisions; `ub-agent approve --number N` reviews
+  current input and clears outside comments. `doctor` warns when the launcher account
+  can start or approve its own work.
+  Pickup enforcement follows in #39. (#38)
+
 ### Changed
 
 - Before each new claim, the launcher reloads `ub-agent.yaml` from its refreshed
