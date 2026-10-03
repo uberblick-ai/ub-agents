@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.config import Priority, Queue
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
@@ -414,6 +414,30 @@ class TargetedLaunchTests(unittest.TestCase):
         run.assert_not_called()
         self.assert_scoped()
 
+    def test_other_gates_suppress_approval_parking_as_in_a_normal_pass(self):
+        self.github.timelines[11] = []
+        self.github.dependencies[11] = [1]
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: parked — Waiting for blockers #1\n")
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        self.assert_scoped()
+
+    def test_runtime_pause_uses_the_status_waiting_reason(self):
+        worker = agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),))
+        self.config = config(self.root, worker)
+        pause = {"reason": "usage limit reached", "ends_at": "2026-10-04T00:00:00Z"}
+        with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
+            code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: waiting — Waiting for codex: usage limit reached; "
+                                 "pause ends 2026-10-04T00:00:00Z\n")
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        self.assert_scoped()
+
     def test_backoff_and_attempt_limit_match_status_reasons(self):
         worker = replace(self.config.agents[0], backoff_seconds=120, max_backoff_seconds=120)
         self.config = config(self.root, worker)
@@ -451,6 +475,23 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assertEqual(recovery["recovered_lease_id"], lease["id"])
         self.assertEqual(recovery["state"], "released")
         self.assertEqual(history[1]["id"], outcome["id"])
+        self.assert_scoped()
+
+    def test_pending_success_is_accepted_without_reexecution(self):
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
+        co.update(lease, state="running", started=True)
+        co.report(lease, "success", "Completed before launcher stopped", outcome="done")
+        self.now += 61
+        self.github.reads.clear()
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        self.assertIn("#11 worker: recovered durable outcome; no execution started", stdout)
+        run.assert_not_called()
+        history = co.history(11)
+        self.assertTrue(history[1]["accepted"])
+        recovery = next(r for r in history if r.get("mode") == "recovery")
+        self.assertEqual((recovery["state"], recovery["result"]), ("released", "success"))
         self.assert_scoped()
 
     def test_refresh_rechecks_only_target_and_refuses_new_stop_label(self):

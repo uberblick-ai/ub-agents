@@ -309,7 +309,7 @@ def run(args):
     try:
         if args.number is not None:
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
-        return loop.launch(once=args.once)
+        loop.launch(once=args.once)
     except _GracefulStop:
         return
     finally:
