@@ -17,8 +17,9 @@ from ub_agents.config import CleanupHook
 from ub_agents.errors import CleanupError
 from ub_agents.execution import group_members, supervise
 from ub_agents.loop import Loop
+from ub_agents.observations import Observations, Publisher as ActualPublisher
 from ub_agents.records import timestamp
-from tests.support import FakeGitHub, agent, config, issue, stub_refresh
+from tests.support import FakeGitHub, agent, config, issue, observation_writer_command, stub_refresh
 
 
 class SignalTests(unittest.TestCase):
@@ -97,6 +98,33 @@ class SignalTests(unittest.TestCase):
                 self.assertEqual(lease["attempt_effect"], "unchanged")
                 self.assertFalse(outcome["accepted"])
                 self.assertEqual(self.loop.coordinator.history(3), [])
+
+    def test_stalled_publisher_does_not_delay_sigterm_drain_or_sigint_sighup_exit(self):
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            with self.subTest(signal=sig):
+                self.setUp()
+                publisher = ActualPublisher(self.root, output=lambda *_: None,
+                                            command=observation_writer_command("    time.sleep(100000)"))
+                Observations(self.config, "operator", None, publisher)
+                try:
+                    deadline = time.monotonic() + 5
+                    while not (self.root / "writer-entered").exists():
+                        self.assertLess(time.monotonic(), deadline)
+                        time.sleep(0.01)
+                    started = time.monotonic()
+                    with patch("ub_agents.observations.Publisher", return_value=publisher):
+                        result, marker = self.run_signals([sig])
+                    self.assertLess(time.monotonic() - started, 1)
+                    self.assertEqual(result, 0 if sig == signal.SIGTERM else 130)
+                    self.assertEqual(marker.exists(), sig == signal.SIGTERM)
+                    lease, outcome = self.loop.coordinator.history(1)
+                    self.assertEqual(lease["state"], "released")
+                    self.assertEqual(outcome["accepted"], sig == signal.SIGTERM)
+                finally:
+                    publisher.close()
+                    publisher.process.wait(timeout=5)
+                    publisher.diagnostics.join(timeout=5)
+                    self.assertFalse(publisher.diagnostics.is_alive())
 
     def test_sigterm_wakes_idle_wait_promptly(self):
         self.github.change(1, labels=frozenset())

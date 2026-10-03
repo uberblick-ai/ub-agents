@@ -21,11 +21,12 @@ from ub_agents.runtime_updates import (COOLDOWN_SECONDS, MaintenanceFailure, Run
                                       lock, state_directory)
 from ub_agents.runtime_usage import RuntimeUsage
 from ub_agents.usage_output import UsageOutput
-from tests.support import FakeGitHub, agent, config, issue, stub_refresh
+from tests.support import FakeGitHub, agent, config, isolate_observations, issue, stub_refresh
 
 
 class RuntimeUpdateTests(unittest.TestCase):
     def setUp(self):
+        isolate_observations(self)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
