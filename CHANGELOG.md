@@ -8,6 +8,11 @@ notes are copied from that section.
 
 ### Added
 
+- `ub-agents launch N [--agent NAME]` runs or recovers one specific item under
+  normal eligibility gates, using the first eligible configured agent or the named
+  agent. It reads only the item's required inputs, skips queue ranking, and explains
+  ineligible work with status reasons and a nonzero exit (#127).
+
 - Each run gets a private scratch directory with mode `0700`, exposed as
   `UB_AGENTS_SCRATCH` and `TMPDIR`. Setup fails visibly if it cannot be created;
   confirmed process termination removes scratch while preserving run logs.

@@ -836,6 +836,20 @@ new names; update any hooks and commands that read the supervised environment.
   without an interactive confirmation; it changes no labels and does not replace
   the required maintainer start.
 - `ub-agents launch [--once]` runs the loop in the foreground.
+- `ub-agents launch N [--agent NAME]` evaluates only issue or PR N and exits after
+  running one assignment or recovering its pending completion. The number implies
+  `--once`; an explicit `--once` is also accepted. All normal eligibility gates
+  apply, including launcher trust, approvals, dependencies, milestone gates,
+  ownership, attempts, backoff and runtime availability. Without `--agent`, the
+  first eligible agent in configuration order acts; with it, only that configured
+  agent is evaluated.
+  An unknown agent or `--agent` without N is a usage error. If no agent can act,
+  it prints each evaluated row's status reason (including live lease and process
+  details), or explains missing/closed work and unmatched triggers, and exits
+  nonzero without a claim. Normal approval parking still applies. Reads are scoped
+  to N's inputs and gates; other work is not discovered or ranked. Priority and
+  milestone ordering do not affect this command. It uses the same launch log,
+  signal handling and execution exit codes as `launch --once`.
 - `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
 - `ub-agents recover --number N --agent NAME --reason TEXT` finishes the latest lease's
