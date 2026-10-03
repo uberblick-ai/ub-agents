@@ -7,6 +7,7 @@ discards unfinished bytes, timing and tool pairing, while retaining old entries.
 """
 
 from collections import deque
+import codecs
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
@@ -68,7 +69,7 @@ class LogReader:
         except FileNotFoundError:
             pass
         except OSError as exc:
-            self.error = inert(str(exc))
+            self.error = shorten(inert(str(exc)))
 
     def _generation(self, info, historical):
         self.file_id = (info.st_dev, info.st_ino)
@@ -90,6 +91,7 @@ class LogReader:
 
     def _emit(self, oversized=False):
         raw = bytes(self.pending)
+        trailing = b""
         kind = self.raw_kind
         if oversized:
             if not kind:
@@ -97,11 +99,19 @@ class LogReader:
             elif "oversized" not in kind:
                 kind += "; oversized raw fragment"
             self.raw_kind = kind
+            # An oversized raw fragment may end in the middle of valid UTF-8.
+            # Carry at most three unfinished bytes into the next raw fragment.
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            decoder.decode(raw, final=False)
+            trailing, _ = decoder.getstate()
+            if trailing:
+                raw = raw[:-len(trailing)]
         value = (raw_entry(raw, self.capture, kind) if kind else
                  self.formatter.decode(raw, self.capture) if self.runtime == "claude" else
                  raw_entry(raw, self.capture))
         self._append(value)
         self.pending.clear()
+        self.pending.extend(trailing)
         self.processed += 1
 
     def _consume(self, chunk, capture):

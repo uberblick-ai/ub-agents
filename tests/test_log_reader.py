@@ -310,6 +310,24 @@ class ReadingTests(unittest.TestCase):
         snapshot = reader.update()
         self.assertEqual(snapshot.entries[-1].kind, "assistant")
 
+    def test_utf8_split_at_oversized_fragment_boundary_keeps_characters(self):
+        reader = self.reader()
+        self.append(b"x" * (MAX_RECORD - 1) + "€café".encode() + b"\n")
+        snapshot = self.drain(reader)
+        self.assertEqual(len(snapshot.entries), 2)
+        self.assertTrue(all("oversized raw" in e.kind for e in snapshot.entries))
+        self.assertTrue(all("\ufffd" not in e.text for e in snapshot.entries))
+        self.assertEqual(snapshot.entries[-1].text, "€café")
+
+    def test_no_newline_flood_bounds_pending_and_labels_shortened_preview(self):
+        reader = self.reader()
+        self.append(b"x" * (MAX_RECORD * 10 + MAX_TEXT * 2))
+        snapshot = self.drain(reader)
+        self.assertLessEqual(snapshot.pending_bytes, MAX_RECORD)
+        self.assertIn("oversized raw", snapshot.unfinished.kind)
+        self.assertIn(SHORTENED, snapshot.unfinished.display())
+        self.assertGreater(snapshot.shortened_entries, 0)
+
     def test_truncation_discards_old_unfinished_bytes_and_capture_time(self):
         reader = self.reader()
         self.append(b"old live unfinished bytes")
