@@ -44,16 +44,12 @@ ub-agent doctor       # check the machine, GitHub labels/access and runtimes
 ub-agent launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
-Upgrade with `brew upgrade ub-agents`. Before upgrading, check the
-[changelog](CHANGELOG.md) and [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases)
-for any required configuration edits.
-
 Launch output is flushed immediately to the terminal and appended to
 `.ub-agent/launch.log` in the control checkout, with a UTC timestamp on each file
 line, including stop and error messages. This also applies to `launch --once`;
 the log is never truncated or rotated. Follow it from another terminal with
-`tail -f .ub-agent/launch.log`. Ctrl-C exits with status 130 and reports a stop,
-including during a GitHub request.
+`tail -f .ub-agent/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
+for signal handling, including during a GitHub request.
 
 Empty polls back off according to their REST quota cost, excluding unchanged
 reads confirmed by HTTP 304 and reserving half the common account quota for busy
@@ -107,6 +103,35 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agent approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agent check` | Validate the configuration files only |
 | `ub-agent report` | Used by agents to record their outcome |
+
+## Stopping and restarting
+
+| Signal | Effect | Exit |
+|---|---|---|
+| `SIGTERM` (`kill -TERM <pid>`) | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup; an in-progress checkout refresh finishes without a claim. When idle it exits promptly. | 0 |
+| `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`, including when idle or during a GitHub request. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
+| `SIGHUP` | Same as Ctrl-C. | 130 |
+| Further `SIGTERM` | During a SIGTERM drain: no change, the drain continues. After Ctrl-C or SIGHUP: does not interrupt process-group termination, cleanup or release. | unchanged |
+
+Discovery and idle waits (including rate-limit waits outside a run) wake on SIGTERM
+and exit 0, and on Ctrl-C/SIGHUP exit 130. A rate-limit wait inside an owned run
+keeps draining on SIGTERM; Ctrl-C/SIGHUP interrupt it like the run. A launcher
+error keeps its nonzero exit even during a drain. See the
+[configuration reference](docs/configuration.md#top-level) for detailed wait rules
+and the [coordination contract](docs/coordination.md#execution-boundaries) for
+execution and cleanup boundaries.
+
+The launcher does not reload code; restart it after an upgrade or after checkout
+refresh pulls code changes.
+
+Before upgrading, check the [changelog](CHANGELOG.md) and
+[GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases) for any
+required configuration edits. Send SIGTERM and wait for the launcher to exit,
+upgrade with `brew upgrade ub-agents` (or `git pull` for a development checkout),
+then start `ub-agent launch` again. Under tmux, systemd or similar that restarts the
+launcher automatically, upgrade first and then send SIGTERM. When a release says
+launchers must be upgraded together, stop every launcher for the project before
+upgrading any.
 
 ## Issue and PR approvals
 
@@ -243,11 +268,8 @@ No attempt is charged, and the assignment is not marked blocked or retrying.
 Refresh happens between executions and cleanup hooks, never during a run or
 durable-outcome recovery.
 Instruction text and configuration stay fixed for each run; PR candidates are not
-rebased. SIGTERM stops further claims, lets the current run or recovery finish, and
-exits 0. When idle it exits promptly; an in-progress checkout refresh finishes
-before it exits without claiming work. Ctrl-C and SIGHUP terminate the active agent,
-including during a graceful stop. Code changes require a launcher restart: send
-SIGTERM and let tmux, systemd or similar restart it.
+rebased. See [Stopping and restarting](#stopping-and-restarting) for signal handling
+during checkout refresh and how to restart after code updates.
 
 Each claim has a lease that outlasts the run's timeout. If a launcher dies, its
 claims expire and another launcher recovers the work: a recorded outcome is
