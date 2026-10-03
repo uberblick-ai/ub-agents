@@ -113,13 +113,9 @@ class Loop:
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
     def iter_plans(self, cached=True):
-        github = self.discovery if cached else self.github
+        github = self.discovery if cached else Discovery(self.github)
         lookback = max(agent.lease_seconds for agent in self.config.agents) + COMMENT_RECOVERY_SECONDS
-        if cached:
-            items, comments = self.discovery.observe(lookback)
-        else:
-            items = {item.number: item for item in self.github.observe(details=False)}
-            comments = self.github.repository_comments(lookback_seconds=lookback)
+        items, comments = github.observe(lookback)
         history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output)
@@ -157,8 +153,8 @@ class Loop:
             return
         # Without configured priority, dependencies cannot affect ranking. Read
         # only a reached item's links. Priority inheritance requires the graph.
-        if cached and self.config.queue.dependencies == "wait" and priority.labels:
-            self.discovery.prepare_dependencies(items.values())
+        if self.config.queue.dependencies == "wait" and priority.labels:
+            github.prepare_dependencies(items.values())
         dependencies = (Dependencies(github, items.values(), priority)
                         if self.config.queue.dependencies == "wait" and priority.labels else None)
         issue_priorities = {i.number: priority.effective(i.labels) for i in items.values()
@@ -180,8 +176,7 @@ class Loop:
                                   priority_from_issue=from_issue))
         for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
             item = candidate.item
-            if cached:
-                self.discovery.scope = item.number
+            github.scope = item.number
             if item.kind == "pr":
                 item = github.item(item.number, "pr")
             plans = self._item_plans(item, now, github, coordinator)
@@ -210,7 +205,8 @@ class Loop:
         matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
                    and a.kind in {"either", item.kind} and item.state == "open"]
         approval = None
-        # Discovery is cached, but authority always comes from a fresh item read.
+        # The same comments supply coordination history and approval input.
+        # Claims and parking bypass this discovery reader for fresh authority.
         try:
             history = coordinator.history(item.number)
         except RecordError as exc:
@@ -218,7 +214,9 @@ class Loop:
                         for a in matched or self.config.agents)
             return
         except AgentError as exc:
-            if isinstance(exc, GitHubError) and exc.rate_limited:
+            # A shared failed comment read must still skip a transiently failed
+            # poll, rather than turn its unreadable approval into a parked row.
+            if isinstance(exc, GitHubError) and (exc.rate_limited or exc.retryable):
                 raise
             # Unreadable item input cannot authorize a claim. A transient
             # coordination failure with readable approval input still fails the poll.
@@ -240,7 +238,7 @@ class Loop:
                 pending = coordinator.pending_completion(history, agent.name, now)
             except RecordError as exc:
                 yield Plan(item, agent, None, "blocked", str(exc),
-                           len(attempts(history, agent.name, now)) + 1)
+                           len(attempts(history, agent.name, now)) + 1, history=tuple(history))
                 continue
             if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
                                                 and seconds(record["expires"]) > now)):
@@ -252,7 +250,7 @@ class Loop:
                         gate = approval if plan.state == "ready" and approval.gate else None
                         plan = replace(plan, state="parked", runtime=None, reason=approval.reason,
                                        approval_gate=gate)
-                yield plan
+                yield replace(plan, history=tuple(history))
             elif record and (record["state"] in {"claiming", "running"}
                              or record.get("result") in {"retry", "blocked"}):
                 if record.get("cleanup") == "unconfirmed":
@@ -263,7 +261,7 @@ class Loop:
                     reason = "Expired run has no outcome or matching trigger"
                 yield Plan(item, agent, None, "blocked",
                     f"{reason}; inspect GitHub and restore a trigger before retrying",
-                    len(attempts(history, agent.name, now)) + 1)
+                    len(attempts(history, agent.name, now)) + 1, history=tuple(history))
 
     def tick(self):
         config = self.config

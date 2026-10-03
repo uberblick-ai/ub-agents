@@ -62,6 +62,10 @@ wait with exit 130; SIGTERM wakes it with exit 0.
 Claiming discovery evaluates candidates in rank order and stops once it claims
 work. Lower-ranked rows are evaluated, announced and approval-parked by a later
 pass that reaches them. `status` evaluates every row and remains read-only.
+Within either pass, an item's comments supply history and approval input, and
+`status` renders the same history. Fresh repository permissions are read once per
+account across all reached items. These shared reads end with the pass; each
+claim-time approval check reads permissions anew.
 Each launcher retains per-item discovery inputs in memory: history, approval
 inputs and permissions, PR details, and dependency links. Changes in the issue
 list (including `updated_at`) or the incremental repository comment scan invalidate
@@ -76,11 +80,12 @@ For a rough request budget, an unchanged warm pass sends one request per page of
 open issues/PRs, plus the incremental repository comment scan (usually one page),
 and an optional milestone list. List pages hold up to 100 rows; a full REST page
 also needs a request to check for a following page. A cold pass or changed item adds
-roughly 5–10 reads for each candidate actually reached, with extra pages for long
-histories and additional authors' permission checks. Unchanged REST reads with an
-ETag consume no quota when GitHub confirms freshness with HTTP 304; the incremental
-comment scan's moving `since` cursor skips ETag caching. Configured priorities add a
-paginated dependency-graph list on cold discovery; very large dependency lists may
+roughly 3–7 reads for each candidate actually reached, plus one permission read per
+distinct account across those candidates, with extra pages for long histories.
+Unchanged REST reads with an ETag consume no quota when GitHub confirms freshness
+with HTTP 304; the incremental comment scan's moving `since` cursor skips ETag
+caching. Configured priorities add a paginated dependency-graph list on cold
+discovery and each `status` invocation; very large dependency lists may
 need extra pages. Fresh claim/recovery reads, approval-parking writes, execution
 heartbeats and completion add their own requests. `status` pays for every row.
 

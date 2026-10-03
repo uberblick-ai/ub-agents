@@ -14,6 +14,15 @@ notes are copied from that section.
   **Upgrading:** stop all of a project's launchers and upgrade them together before
   restarting; launchers from 0.1.5 through 0.1.8 reject compact records as malformed
   (#63).
+
+- Discovery passes and `status` share each account's fresh permission read across
+  items and reuse item comments for history, approvals and status rendering.
+  `status` also batches dependency reads for priority ranking. Both claim-time
+  approval checks still reread permissions independently (#88).
+
+- `status` exits with an error on retryable comment-read failures instead of
+  displaying a partially unreadable row (#88).
+
 - Empty discovery passes back off by their REST request cost under a fixed
   250 requests/hour budget per launcher, assuming ten idle launchers share half
   an account's quota. Low quota doubles the gap up to reset, ignoring expired

@@ -45,13 +45,16 @@ class DependencyTests(unittest.TestCase):
                  replace(issue(2, ("priority:urgent",)), total_blocked_by=1),
                  issue(3, ()), replace(issue(4), total_blocked_by=0))
         self.github.dependencies[2] = [1]
-        with patch.object(self.github, "blocked_by", wraps=self.github.blocked_by) as read:
+        graph = self.github.dependency_graph()
+        with patch.object(self.github, "dependency_graph", return_value=graph) as graph_read, \
+                patch.object(self.github, "blocked_by", wraps=self.github.blocked_by) as read:
             for _ in range(2):
                 plans = self.plans()
                 self.assertEqual((plans[1].priority, plans[1].priority_source, plans[1].state),
                                  ("priority:urgent", 2, "ready"))
                 self.assertEqual(plans[4].state, "ready")
-            self.assertEqual([call.args[0] for call in read.call_args_list], [2, 3, 2, 3])
+            self.assertEqual(graph_read.call_count, 2)
+            read.assert_not_called()
         # A fresh observation must not reuse the earlier zero summary.
         self.github.change(1, total_blocked_by=1)
         self.github.dependencies[1] = [4]

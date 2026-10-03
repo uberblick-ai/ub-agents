@@ -14,7 +14,7 @@ import uuid
 from . import __version__
 from .config import load_config
 from .coordination import Coordinator
-from .errors import AgentError, RecordError
+from .errors import AgentError
 from .execution import repository_checks
 from .github import GitHub
 from .loop import Loop, _GracefulStop
@@ -130,14 +130,7 @@ def report_run(args):
 def status_rows(loop):
     rows = []
     for plan in loop.plans():
-        try:
-            history = loop.coordinator.history(plan.item.number)
-        except RecordError:
-            history = []  # The plan already displays the item's coordination error.
-        except AgentError:
-            if plan.state != "parked" or "unreadable" not in plan.reason:
-                raise
-            history = []  # No authority or attempt count can be recovered from unreadable input.
+        history = plan.history
         active = live_leases(history, timestamp())
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None
