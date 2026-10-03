@@ -306,11 +306,47 @@ outcome is reported with `--outcome NAME` and has status `success`;
 `--status retry|blocked` changes no labels. Undeclared names are rejected, and the
 runner blocks records that bypass reporting validation.
 
-The running lease snapshots the agent's declared outcomes with their resolved
-`add` and `remove` lists (`remove` includes every trigger), `triggers` and
-`stop_labels`. The outcome names its declaration, copies that transition and carries
-a `started` flag; it must match the run's declaration, so configuration edits or a
-restarted launcher cannot replace the recorded changes.
+The running lease snapshots the agent's declared outcomes compactly. Each name
+maps to the labels to add, or to an object with `add` and `remove` when extra
+removals are configured. Removing every declared trigger is implied. The lease
+stores that full set once in `declared_triggers`, and stores `stop_labels` once.
+Its existing `triggers` field still lists only the trigger labels present at claim
+time. For example, these lease fields preserve both declared triggers even when
+only `ready` was present:
+
+```json
+{
+  "triggers": ["ready"],
+  "declared_triggers": ["ready", "needs-changes"],
+  "stop_labels": ["needs-human"],
+  "outcomes": {
+    "handed-off": ["needs-review"],
+    "cleaned": {"add": ["needs-review"], "remove": ["old"]},
+    "maintainer": ["needs-human"]
+  }
+}
+```
+
+The outcome names its declaration and copies only the added labels and any
+explicit extra removals into `transition`, together with `started`. Completion
+is recorded by the outcome's top-level `transition_complete` flag. For example,
+a completed `handed-off` outcome contains these fields:
+
+```json
+{
+  "outcome": "handed-off",
+  "transition": {"add": ["needs-review"], "started": true},
+  "transition_complete": true
+}
+```
+
+The launcher resolves the implied trigger removals and stop labels from the
+original lease. The transition must match that lease's declaration, so
+configuration edits or a restarted launcher cannot replace the recorded changes.
+Upgraded launchers also read and recover 0.1.5 records, which repeat `triggers`,
+`stop_labels` and the full removal list in every declaration and transition.
+Stop all of a project's launchers and upgrade them together before restarting:
+launchers from 0.1.5 through 0.1.8 reject compact records as malformed.
 
 A report starts `accepted: false`. Once the process group has terminated, the
 launcher rereads GitHub and validates ownership, the exact reported candidate SHA,

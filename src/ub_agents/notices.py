@@ -4,7 +4,7 @@ import json
 import socket
 
 from .errors import LostOwnership
-from .records import own_comment, records
+from .records import declared_transition, lease_by_id, own_comment, records, resolve_transition
 
 ACTION_MARKER = "<!-- ub-agent:action-needed "
 
@@ -92,6 +92,10 @@ class Notices:
         reported = parking_outcome or outcome
         target = lease["assignment"]
         transition = reported.get("transition", {}) if reported else {}
+        if transition and "triggers" not in transition:
+            source = lease if reported["lease_id"] == lease["id"] else lease_by_id(
+                records(self.github.comments(reported["assignment"]), self.actor), reported["lease_id"])
+            transition = resolve_transition(transition, declared_transition(source, reported["outcome"]))
         stops = sorted(set(transition.get("add", ())).intersection(transition.get("stop_labels", ())))
         parked = (lease["result"] == "success" and reported
                   and reported.get("accepted") and reported.get("transition_complete") and stops)
@@ -107,9 +111,10 @@ class Notices:
             summary = f"Attempt limit exhausted (max-attempts: {max_attempts}). {summary}"
         if lease["result"] == "blocked" or parked or exhausted:
             self.advisory(f"Action needed post on #{target}",
-                          lambda: self.post_action(target, lease, reported, summary, stops if parked else ()))
+                          lambda: self.post_action(target, lease, reported, summary, stops if parked else (),
+                                                   transition.get("triggers", ())))
 
-    def post_action(self, number, lease, outcome, summary, stops):
+    def post_action(self, number, lease, outcome, summary, stops, resume_triggers=()):
         marker = f"{ACTION_MARKER}{lease['run']} -->"
         comments = self.github.comments(number)
         if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(marker) for c in comments):
@@ -134,7 +139,7 @@ class Notices:
             links += " · No outcome was reported."
         if stops:
             labels = ", ".join(f"`{label}`" for label in stops)
-            triggers = ", ".join(f"`{label}`" for label in outcome["transition"]["triggers"])
+            triggers = ", ".join(f"`{label}`" for label in resume_triggers)
             resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
         else:
             command = (f"ub-agent retry --number {number} --agent {lease['agent']} "

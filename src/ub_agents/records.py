@@ -133,19 +133,44 @@ def lease_summary(history, lease):
                  and r["lease_id"] == lease["id"]), "")
 
 
-def validate_transition(transition, started=False):
-    keys = {"add", "remove", "triggers", "stop_labels"}
+def validate_labels(labels):
+    if (not isinstance(labels, list)
+            or any(not isinstance(label, str) or not label.strip() or "\x00" in label
+                   for label in labels)):
+        raise ValueError("invalid transition labels")
+
+
+def validate_transition(transition, started=False, compact=False):
+    required = {"add"} if compact else {"add", "remove", "triggers", "stop_labels"}
     if started:
-        keys.add("started")
-    if not isinstance(transition, dict) or set(transition) != keys:
+        required.add("started")
+    allowed = required | {"remove"} if compact else required
+    if (not isinstance(transition, dict) or not required <= set(transition)
+            or not set(transition) <= allowed):
         raise ValueError("invalid transition")
     if started and type(transition["started"]) is not bool:
         raise ValueError("invalid transition start flag")
     for key in ("add", "remove", "triggers", "stop_labels"):
-        if (not isinstance(transition[key], list)
-                or any(not isinstance(label, str) or not label.strip() or "\x00" in label
-                       for label in transition[key])):
-            raise ValueError("invalid transition labels")
+        if key in transition:
+            validate_labels(transition[key])
+
+
+def declared_transition(lease, name):
+    """Resolve either snapshot format without consulting current configuration."""
+    declaration = lease["outcomes"][name]
+    if "declared_triggers" not in lease:
+        return declaration
+    changes = {"add": declaration} if isinstance(declaration, list) else declaration
+    return changes | {"triggers": lease["declared_triggers"], "stop_labels": lease["stop_labels"],
+                      "remove": sorted(set(lease["declared_triggers"]).union(changes.get("remove", ())))}
+
+
+def resolve_transition(transition, declaration):
+    """An old transition is self-contained; a compact one inherits lease context."""
+    if "triggers" in transition:
+        return transition
+    return transition | {"triggers": declaration["triggers"], "stop_labels": declaration["stop_labels"],
+                         "remove": sorted(set(declaration["triggers"]).union(transition.get("remove", ())))}
 
 
 def validate(record):
@@ -179,8 +204,15 @@ def validate(record):
             if (not isinstance(declarations, dict) or not declarations
                     or any(not isinstance(name, str) or not name.strip() for name in declarations)):
                 raise ValueError("invalid outcome declarations")
+            compact = "declared_triggers" in record
+            if compact:
+                validate_labels(record["declared_triggers"])
+                validate_labels(record.get("stop_labels"))
             for transition in declarations.values():
-                validate_transition(transition)
+                if compact and isinstance(transition, list):
+                    validate_labels(transition)
+                else:
+                    validate_transition(transition, compact=compact)
         seconds(record.get("expires"))
         if "retry_after" in record:
             seconds(record["retry_after"])
@@ -198,7 +230,9 @@ def validate(record):
         if "rejected" in record and not isinstance(record["rejected"], str):
             raise ValueError("invalid rejected outcome")
         if "transition" in record:
-            validate_transition(record["transition"], started=True)
+            transition = record["transition"]
+            compact = isinstance(transition, dict) and not set(transition).intersection({"triggers", "stop_labels"})
+            validate_transition(transition, started=True, compact=compact)
         if record.get("handoff") is not None and not positive_int(record["handoff"]):
             raise ValueError("invalid handoff")
     elif record.get("kind") == "reset":

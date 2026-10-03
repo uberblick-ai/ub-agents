@@ -10,21 +10,24 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator
-from ub_agents.errors import GitHubError
+from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import LEGACY_MARKER, MARKER, attempts, body, iso, records, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh, write_legacy_records
 
 
 class NoticeTests(unittest.TestCase):
+    def github_for(self, *items):
+        return FakeGitHub(*items)
+
     def setUp(self):
         stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.worker = agent(self.root)
-        self.github = FakeGitHub(issue(), pr())
+        self.github = self.github_for(issue(), pr())
         self.output = []
         self.now = 1000
         self.co = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
@@ -207,7 +210,7 @@ class NoticeTests(unittest.TestCase):
     def parked_loop(self, handoff=None):
         worker = agent(self.root, kind="issue" if handoff else "pr",
                        outcomes={"human": {"add": ("needs-human",), "remove": ()}})
-        github = FakeGitHub(issue(), pr(labels=("ready",)))
+        github = self.github_for(issue(), pr(labels=("ready",)))
         loop = Loop(config(self.root, worker), github, "operator", output=self.output.append)
 
         def run(*args, **kwargs):
@@ -250,6 +253,19 @@ class NoticeTests(unittest.TestCase):
         for record in source:
             self.assertIn(record["url"], notices[0]["body"])
 
+    def test_stop_notice_reads_propagate_lost_ownership(self):
+        loop, github = self.parked_loop(handoff=2)
+        source = loop.coordinator.history(1)
+        lease = next(r for r in source if r["kind"] == "lease")
+        outcome = next(r for r in source if r["kind"] == "outcome")
+        writes = list(github.writes)
+        with patch.object(github, "comments", side_effect=LostOwnership("Lease expired while waiting")):
+            with self.assertRaisesRegex(LostOwnership, "Lease expired"):
+                loop.coordinator.notices.advisory("released run comments", lambda:
+                    loop.coordinator.notices.released(lease, outcome, outcome["summary"]))
+        self.assertEqual(github.writes, writes)
+        self.assertFalse(any("Advisory" in line for line in self.output))
+
     def test_expiry_recovery_posts_one_notice_for_the_original_stop_outcome(self):
         worker = agent(self.root, kind="pr", outcomes={"human": {"add": ("needs-human",), "remove": ()}})
         loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
@@ -258,14 +274,52 @@ class NoticeTests(unittest.TestCase):
         lease = loop.coordinator.claim(plan, loop.config.stop_labels)
         loop.coordinator.report(lease, "success", "Human must merge", outcome="human")
         self.now += 61
+        changed = agent(self.root, kind="pr", triggers=("different",),
+                        outcomes={"other": {"add": ("wrong",), "remove": ()}})
+        loop = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
+        loop.coordinator.clock = lambda: self.now
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         notice = self.notices(2)[0]["body"]
         self.assertIn("Human must merge", notice)
         self.assertIn("Remove the stop label(s) `needs-human`", notice)
+        self.assertIn("`ready`, `needs-changes`", notice)
+        self.assertNotIn("`different`", notice)
         self.assertIn("a" * 40, notice)
         loop.tick()
         self.assertEqual(len(self.notices(2)), 1)
+
+    def test_recovered_handoff_copy_resolves_resume_context_from_the_issue(self):
+        worker = agent(self.root, kind="issue", outcomes={"human": {"add": ("needs-human",), "remove": ()}})
+        loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
+        loop.coordinator.clock = lambda: self.now
+        lease = loop.coordinator.claim(loop.plans()[0], loop.config.stop_labels)
+        loop.coordinator.report(lease, "success", "Human must merge", handoff=2, outcome="human")
+        self.now += 61
+        changed = agent(self.root, kind="issue", triggers=("different",),
+                        outcomes={"other": {"add": ("wrong",), "remove": ()}})
+        restarted = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
+        restarted.coordinator.clock = lambda: self.now
+        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+            self.assertTrue(restarted.tick())
+        copied, = restarted.coordinator.history(2)
+        self.assertTrue(copied["accepted"])
+        self.assertTrue(copied["transition_complete"])
+        self.assertEqual(copied["assignment"], 1)
+        self.assertEqual(restarted.validate_report(copied)["triggers"], ["ready", "needs-changes"])
+        recovery = next(r for r in restarted.coordinator.history(1)
+                        if r["kind"] == "lease" and r.get("mode") == "recovery")
+        self.assertNotIn("outcomes", recovery)
+        # A later notice retry can receive the copy on the PR and a recovery
+        # lease with no declarations; the original issue still owns the context.
+        restarted.coordinator.notices.released(recovery, None, copied["summary"], parking_outcome=copied)
+        notices = self.notices(2)
+        self.assertEqual(len(notices), 1)
+        self.assertIn("Remove the stop label(s) `needs-human`", notices[0]["body"])
+        self.assertIn("`ready`, `needs-changes`", notices[0]["body"])
+        self.assertNotIn("`different`", notices[0]["body"])
+        self.assertFalse(self.notices(1))
+        self.assertFalse(any("Advisory" in line for line in self.output))
 
     def test_resume_minimize_failure_cannot_change_a_claim_or_retry_reset(self):
         lease = self.start()
@@ -296,7 +350,7 @@ class NoticeTests(unittest.TestCase):
     def test_exhausted_exit_without_report_names_host_and_log_directory(self):
         for code in (0, 7):
             with self.subTest(code=code):
-                github = FakeGitHub(issue())
+                github = self.github_for(issue())
                 worker = agent(self.root, kind="issue", backoff_seconds=10, max_backoff_seconds=100)
                 cfg = config(self.root, worker)
                 for attempt in range(1, worker.max_attempts + 1):
@@ -416,6 +470,13 @@ class NoticeTests(unittest.TestCase):
         loop.tick()
         self.assertEqual(len(self.output), 3)
         self.assertIn("parked", self.output[-1])
+
+
+class LegacyNoticeTests(NoticeTests):
+    def github_for(self, *items):
+        github = super().github_for(*items)
+        write_legacy_records(github)
+        return github
 
 
 if __name__ == "__main__":
