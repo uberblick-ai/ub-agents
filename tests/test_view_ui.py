@@ -182,6 +182,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.path.write_text('{broken')
             await self.ready(app, pilot, lambda: app.session.error is not None)
             self.assertEqual(app.reading.page, page)
+            self.assertEqual(app.rows[app.selected].state, 'earlier observation')
             self.assertIn('malformed', str(app.query_one('#status').render()))
             self.assertGreater(app.query_one('#output').size.height, 15)
             self.assertGreater(app.query_one('#output').size.width, 60)

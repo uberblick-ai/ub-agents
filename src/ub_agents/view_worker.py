@@ -1,7 +1,7 @@
 """One expendable daemon reads local files; slow storage never blocks the UI."""
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from queue import Empty, Full, Queue
 import threading
@@ -63,6 +63,9 @@ class LocalWorker:
             selected = work[0]
         if selected is None and self.selected_row and self.selected_row.key == request.key:
             selected = self.selected_row
+            if selected.state != 'earlier observation':
+                selected = replace(selected, state='earlier observation',
+                                   reason=f'Last observed state: {selected.state}. {selected.reason}')
             work.append(selected)
         self.selected_row = selected
         # Preserve the selected own run while a sparse snapshot or new pass arrives.
