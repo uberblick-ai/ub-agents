@@ -407,7 +407,7 @@ request may already have written the transition start marker.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim is recoverable only after the lease expires, so projects with long runs may prefer shorter per-agent timeouts. |
+| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim normally waits for expiry; `ub-agent recover` can finish a reported outcome early on its host. Projects with long runs may prefer shorter per-agent timeouts. |
 | `max-attempts` | 5 | Consecutive failures per item and agent before pickup stops. |
 | `retry-backoff-seconds` | 60 | First failure retry delay; doubles with consecutive failures and restarts after success or reset. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
@@ -528,6 +528,14 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
+- `ub-agent recover --number N --agent NAME --reason TEXT` finishes the latest lease's
+  reported outcome on the launcher's host, including before expiry. The lease must
+  belong to the authenticated GitHub actor, record this hostname and a process group
+  with no live members, and have an outcome within its validity window that no
+  supervisor verdict superseded. The reason attests that the launcher has stopped
+  and is recorded on the recovery claim with its author. It prints acceptance and
+  label changes or rejection and its reason. Failed eligibility checks refuse without
+  writing, name the check and lease expiry, and exit nonzero. See [Recovery](coordination.md#recovery).
 - `ub-agent status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
   Each agent's `reported:` (JSON `outcome`) describes that agent's live lease's run,
   or its latest lease's run when it has no live lease. Recovery leases show the

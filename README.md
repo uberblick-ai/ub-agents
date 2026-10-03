@@ -99,6 +99,7 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agent status` | Show matching work, who owns it, and what it reported |
 | `ub-agent launch --once` | Run at most one assignment, then exit |
 | `ub-agent cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
+| `ub-agent recover --number N --agent NAME --reason TEXT` | Recover a stopped local launcher's reported outcome before its lease expires |
 | `ub-agent retry` | Let stopped work run again, with a recorded reason |
 | `ub-agent approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agent check` | Validate the configuration files only |

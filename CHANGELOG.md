@@ -6,6 +6,15 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- `ub-agent recover --number N --agent NAME --reason TEXT` completes a stopped local
+  launcher's reported outcome before lease expiry after checking actor, hostname,
+  process-group termination and report eligibility. Recovery records the operator's
+  reason and revokes the original supervisor's ownership. **Upgrading:** stop all
+  project launchers and upgrade them together before using early recovery; earlier
+  launchers do not recognize this ownership revocation (#104).
+
 ### Changed
 
 - Claims store outcome label additions compactly, with declared triggers and stop

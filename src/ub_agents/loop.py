@@ -718,21 +718,26 @@ class Loop:
         if not outcome.get("transition_complete"):
             self.coordinator.update_outcome(lease, outcome, transition_complete=True)
 
-    def recover(self, plan):
+    def recover(self, plan, recovery_check=None, recovery_reason=None):
         try:
-            return self._recover(plan)
+            return self._recover(plan, recovery_check, recovery_reason)
         finally:
             self.github.lease = None
 
-    def _recover(self, plan):
+    def _recover(self, plan, recovery_check=None, recovery_reason=None):
         history = self.coordinator.history(plan.item.number)
-        outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
+        outcome = (recovery_check(history) if recovery_check is not None else
+                   self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock()))
         if outcome is None:
             return False
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
-                                          before_write=self._end_poll)
+                                          before_write=self._end_poll, recovery_check=recovery_check,
+                                          recovery_reason=recovery_reason)
         if recovery is None:
             return False
+        # The claim reread may have observed a supervisor's newer outcome flags.
+        outcome = self.coordinator.outcome(lease_by_id(self.coordinator.history(plan.item.number),
+                                                    recovery["recovered_lease_id"]))
         result, summary = outcome["status"], outcome["summary"]
         effect = "unchanged" if result == "blocked" else "failure"
         if result == "success":
@@ -751,6 +756,7 @@ class Loop:
                 result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
                 self.coordinator.assert_owned(recovery)
                 self.coordinator.update(recovery, result=result, summary=summary, attempt_effect=effect)
+        self.coordinator.assert_owned(recovery)
         self.coordinator.update(recovery, recovered_run=outcome["run"],
                                 recovered_lease_id=outcome["lease_id"])
         self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
@@ -759,7 +765,17 @@ class Loop:
         delay = backoff(plan.agent, max(1, failures)) if result == "retry" else 0
         self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
                                  attempt_effect=effect, parking_outcome=outcome)
-        self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
+        if recovery_reason is None:
+            self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
+        elif result == "success":
+            transition = self.validate_report(outcome)
+            target = outcome.get("handoff") or outcome["assignment"]
+            removed = ", ".join(sorted(set(transition["remove"]))) or "none"
+            added = ", ".join(sorted(set(transition["add"]))) or "none"
+            self.output(f"#{plan.item.number} {plan.agent.name}: outcome accepted — {outcome['summary']}; "
+                        f"removed from #{outcome['assignment']}: {removed}; added to #{target}: {added}")
+        else:
+            self.output(f"#{plan.item.number} {plan.agent.name}: outcome rejected — {summary}")
         return True
 
     def _end_poll(self):
