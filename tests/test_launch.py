@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
@@ -224,6 +224,7 @@ class TargetedLaunchTests(unittest.TestCase):
         def create(*args, **kwargs):
             self.loop = Loop(*args, **kwargs)
             self.loop.coordinator.clock = lambda: self.now
+            self.loop.stop_event.wait = Mock()
             return self.loop
 
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -234,10 +235,9 @@ class TargetedLaunchTests(unittest.TestCase):
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.loop.refresh_checkout", side_effect=refresh), \
                 patch("ub_agents.loop.supervise", side_effect=execute or self.report_success) as run, \
-                patch("threading.Event.wait") as wait, \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             code = main(self.argv + list(args))
-        wait.assert_not_called()
+        self.loop.stop_event.wait.assert_not_called()
         log = self.root / ".ub-agents" / "launch.log"
         self.assertTrue(log.exists())
         logged = "\n".join(line.split(" ", 1)[1] for line in log.read_text().splitlines())

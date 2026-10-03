@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
+
+### Removed
+
+- Remove `ub-agents recover`; launchers on any host recover expired claims automatically within 30 minutes of the last renewal (#131).
+
 ## 0.1.10 — 2026-10-03
 
 **Upgrading:** stop all of a project's launchers, wait until every one has exited,
