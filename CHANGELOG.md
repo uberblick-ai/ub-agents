@@ -8,6 +8,13 @@ notes are copied from that section.
 
 ### Added
 
+- Opt-in daily Claude Code and Codex maintenance at unclaimed launcher boundaries,
+  with installation detection, targeted updates, shared local cooldowns and locks,
+  active-run protection, concurrent start reservations and health recovery
+  without retrying updates. Opt-out and automatic-policy skips leave other
+  projects' shared cooldowns untouched. This repository enables
+  `runtime-updates` for both CLIs (#118).
+
 - Launchers pause Claude and Codex runs at 90% usage or a reported usage limit,
   until the window reset plus one minute, with a 15-minute fallback for untrusted
   resets. Limit failures retry without attempts or backoff; alternatives remain

@@ -171,7 +171,7 @@ def _stop_group(process, grace):
 
 
 def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expires=None,
-              process_started=None, observe_output=None):
+              process_started=None, pass_fds=(), observe_output=None):
     if os.name != "posix":
         raise AgentError("Process supervision requires Linux or macOS")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -181,7 +181,7 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
         try:
             process = subprocess.Popen(command, cwd=cwd, env=env,
                 stdin=stdin if prompt is not None else subprocess.DEVNULL,
-                stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                stdout=log, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=pass_fds)
         except OSError as exc:
             raise RetryableExecutionError(f"Cannot start configured execution: {exc}") from exc
         deadline = time.monotonic() + timeout

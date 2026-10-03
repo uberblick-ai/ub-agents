@@ -22,6 +22,7 @@ from .hooks import run_hook
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
                       lease_summary, resolve_transition, seconds, timestamp)
 from .refresh import refresh_checkout, refresh_instructions
+from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
 
@@ -60,6 +61,9 @@ class Loop:
         self._released_blockers = {}
         self._poll_complete = False
         self._refreshing_checkout = False
+        self._maintaining = False
+        self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
+        self.coordinator.runtime_available = self.maintenance.available
 
     def wait_rate_limit(self, error, lease=None):
         now = self.coordinator.clock()
@@ -85,8 +89,10 @@ class Loop:
             # cleanup and durable release to finish without another exception.
             self.stop_event.set()
             return
+        if self._maintaining:
+            self._maintenance_graceful_stop = True
         self.stop_event.set()
-        if not self._poll_complete and not self._refreshing_checkout:
+        if not self._poll_complete and not self._refreshing_checkout and not self._maintaining:
             # Unwind even a slow discovery subprocess. Once a claim write starts,
             # it must finish election, execution/recovery and durable completion.
             raise _GracefulStop
@@ -128,6 +134,7 @@ class Loop:
         history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
+                                  runtime_available=self.maintenance.available,
                                   runtime_paused=self.usage.paused)
         now = coordinator.clock()
         latest = latest_leases(history_index)
@@ -284,6 +291,7 @@ class Loop:
                     len(attempts(history, agent.name, now)) + 1, history=tuple(history))
 
     def tick(self):
+        self.maintain_runtimes()
         config = self.config
         present = set()
         for plan in self.iter_plans():
@@ -345,6 +353,22 @@ class Loop:
         finally:
             self.github.lease = None
 
+    def maintain_runtimes(self):
+        self._before_claim()
+        self._maintenance_graceful_stop = False
+        self._maintaining = True
+        try:
+            # Test/embedding callers can replace the loop's stop event.
+            self.maintenance.stop_event = self.stop_event
+            self.maintenance.boundary(self.config)
+        finally:
+            self._maintaining = False
+        if self._maintenance_graceful_stop and self.interrupt_event is self.stop_event:
+            # Embedding callers can use one shared event. Remember the explicit
+            # graceful request after letting the updater finish its cancellation.
+            raise _GracefulStop
+        self._before_claim()
+
     def _execute(self, plan):
         # Between supervised runs and cleanup hooks, before any assignment writes.
         # Refresh errors belong to the operator, not to an assignment attempt.
@@ -383,7 +407,27 @@ class Loop:
             if plan is None:
                 return False
             instructions = texts[plan.agent.name]
-        self._before_claim()
+        self.maintain_runtimes()
+        if plan.runtime is None:
+            return self._claim_execute(plan, instructions)
+        # The snapshot runtime may have become guarded/broken since discovery,
+        # or a reload may have enabled maintenance. Reapply runtime eligibility.
+        try:
+            runtime = self.coordinator.choose_runtime(plan.item, plan.agent, list(plan.history))
+        except GitHubError:
+            raise
+        except AgentError as exc:
+            self.output(f"#{plan.item.number} {plan.agent.name}: waiting — {exc}")
+            return False
+        with self.maintenance.reserve(runtime.cli) as reservation:
+            if reservation is None:
+                self.output(f"#{plan.item.number} {plan.agent.name}: waiting — "
+                            f"{runtime.cli} runtime became unavailable before the claim; retry next poll")
+                return False
+            self._before_claim()
+            return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation)
+
+    def _claim_execute(self, plan, instructions, reservation=None):
         def authorize(current):
             # Discovery may have reused an approval verdict's inputs. Recheck
             # them before the first write as well as after the claim election.
@@ -481,6 +525,8 @@ class Loop:
                 raise
 
         def process_started(pid):
+            if reservation is not None:
+                reservation.started()
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, process_group=pid)
             self.coordinator.assert_owned(lease)
@@ -528,13 +574,17 @@ class Loop:
                         "UB_AGENTS_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))
             setup = False
+            command = command_for(plan.agent, plan.runtime)
+            if reservation is not None:
+                command[0] = reservation.executable
             if plan.runtime:
                 usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env)
-            code = supervise(command_for(plan.agent, plan.runtime), cwd, env, run_dir,
+            code = supervise(command, cwd, env, run_dir,
                              plan.agent.timeout_seconds, self.interrupt_event,
                              self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
                              expires=seconds(lease["expires"]), process_started=process_started,
-                             observe_output=usage_output.poll if usage_output else None)
+                             observe_output=usage_output.poll if usage_output else None,
+                             **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
             if usage_output:
                 usage_output.poll(final=True)
             diagnostic("execution-exited", code=code)

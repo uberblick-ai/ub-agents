@@ -22,8 +22,11 @@ Observe GitHub → match a label → claim the item → run the agent → record
   mode, their earliest milestone. PRs inherit priority from the open issues they
   close. Defaults use FIFO and ignore milestones.
 - **GitHub is the state.** Claims, attempts and outcomes are comments on the issue or
-  PR. A restarted launcher rebuilds everything from GitHub; there is no separate
+  PR. A restarted launcher rebuilds coordination from GitHub; there is no separate
   database or service.
+- **Runtime maintenance is optional.** Projects can enable
+  [daily Claude Code and Codex updates](docs/configuration.md#daily-runtime-maintenance).
+  Cooldowns and locks live in shared per-user local state; active runs continue.
 - **The project owns workflow policy.** You choose what labels mean and what should
   happen after each role finishes. The launcher matches triggers, supervises runs,
   retries and validates handoffs, then applies the label transition declared for
