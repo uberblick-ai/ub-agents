@@ -505,6 +505,10 @@ never installed. Automatic detection supports these installations:
 | Codex Homebrew cask | `brew upgrade --cask codex` |
 | Codex Homebrew formula | `brew upgrade --formula codex` |
 
+Homebrew commands run with dependent upgrades, automatic cleanup, application
+quitting and sudo disabled, and without interactive confirmation. These settings
+apply only to that updater process; see the [Homebrew command reference](https://docs.brew.sh/Manpage#upgrade-options-installed_formulainstalled_cask-).
+
 Native detection recognizes Claude's version directory under
 `~/.local/share/claude/versions`. npm detection requires a global package's
 metadata to identify the executable, and Homebrew detection requires it to live
@@ -535,7 +539,8 @@ and after versions, result and any skip or failure reason.
 
 The cooldown and runtime health survive restarts in per-user local state at
 `$XDG_STATE_HOME/ub-agent/runtime-updates`, or
-`~/.local/state/ub-agent/runtime-updates` when `XDG_STATE_HOME` is unset. Files
+`~/.local/state/ub-agent/runtime-updates` when `XDG_STATE_HOME` is unset, empty or
+relative. Files
 are keyed by the PATH-resolved executable's installation: native version and
 Homebrew version directories share a stable installation identity across
 upgrades; custom launch paths remain stable across symlink changes. All local
@@ -549,7 +554,8 @@ an updater holds the guard, other launchers cannot start that runtime. npm,
 Homebrew and operator-command updates replace files in place, so they wait until
 all tracked local runs of the installation finish. Claude native updates can
 proceed alongside existing runs because Claude retains versions in use. Run
-locks are inherited by the runtime process and released when their final holder
+locks are inherited by the runtime process; updater processes inherit their
+maintenance locks too. Locks are released when their final holder
 exits; a crashed launcher cannot leave a stale marker blocking maintenance
 forever, and its still-running child continues to protect the installation.
 All cooperating launchers must use a version with this locking protocol; it

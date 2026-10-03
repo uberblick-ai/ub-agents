@@ -12,10 +12,10 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Runtime, RuntimeUpdates
-from ub_agents.execution import supervise
-from ub_agents.loop import Loop, _GracefulStop
+from ub_agents.loop import Loop
 from ub_agents.runtime_installations import installation
-from ub_agents.runtime_updates import COOLDOWN_SECONDS, MaintenanceFailure, RuntimeMaintenance, lock
+from ub_agents.runtime_updates import (COOLDOWN_SECONDS, MaintenanceFailure, RuntimeMaintenance,
+                                      lock, state_directory)
 from tests.support import FakeGitHub, agent, config, issue, stub_refresh
 
 
@@ -23,7 +23,7 @@ class RuntimeUpdateTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.home = self.root / "home"
@@ -37,9 +37,9 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.addCleanup(environment.stop)
         self.now = 1000000
         self.calls = []
+        self.brew_envs = []
         self.lines = []
         self.action = lambda: None
-        self.used = "codex"
         self.stop = threading.Event()
         self.manager = self.manager_for()
 
@@ -90,6 +90,10 @@ class RuntimeUpdateTests(unittest.TestCase):
 
     def run_command(self, command, env, timeout, cancellable=True):
         self.calls.append(tuple(command))
+        if "upgrade" in command and Path(command[0]).name == "brew":
+            self.brew_envs.append({key: env.get(key) for key in (
+                "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK", "HOMEBREW_NO_INSTALL_CLEANUP",
+                "HOMEBREW_NO_SUDO", "HOMEBREW_NO_UPGRADE_QUIT_CASKS", "HOMEBREW_NO_ASK")})
         if command[-1] == "--version":
             try:
                 return Path(str(Path(command[0]).resolve()) + ".version").read_text()
@@ -273,6 +277,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.now += COOLDOWN_SECONDS
         self.manager.boundary(self.settings())
         self.assertIn("configure runtime-updates.codex.command argv", self.lines[-1])
+        self.now += COOLDOWN_SECONDS
         shim = self.executable(self.root / "mise/shims/codex")
         self.link("codex", shim)
         self.manager.boundary(self.settings())
@@ -304,6 +309,8 @@ class RuntimeUpdateTests(unittest.TestCase):
                             [str(self.root / "npm/bin/npm"), "install", "-g", "@openai/codex@latest"] if method == "npm" else
                             [str(self.root / "brew/bin/brew"), "upgrade", "--cask" if kind == "Caskroom" else "--formula", token])
                 self.assertEqual(self.updates(), [tuple(expected)])
+                if method == "brew":
+                    self.assertTrue(all(value == "1" for value in self.brew_envs[-1].values()))
 
     def test_wrong_npm_prefix_prerelease_and_nonwritable_install_skipped(self):
         target = self.npm()
@@ -344,7 +351,8 @@ class RuntimeUpdateTests(unittest.TestCase):
                     (user if source == "user" else managed).write_text(json.dumps({"env": {"DISABLE_UPDATES": "1"}}))
                 read_text = Path.read_text
                 def read(path, *args, **kwargs):
-                    if str(path) == "/etc/claude-code/managed-settings.json":
+                    if str(path) in ("/etc/claude-code/managed-settings.json",
+                                     "/Library/Application Support/ClaudeCode/managed-settings.json"):
                         path = managed
                     return read_text(path, *args, **kwargs)
                 with patch("pathlib.Path.read_text", read), patch.dict(os.environ, {"DISABLE_UPDATES": "1"} if source == "environment" else {}, clear=False):
@@ -475,3 +483,54 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.executable(self.bin / "codex")
         self.assertTrue(self.manager.available("codex"))
         self.assertFalse(self.manager.root.exists())
+
+    def test_state_location_is_per_user_and_respects_absolute_xdg_path(self):
+        for configured in ("", "relative", str(self.root / "xdg-state")):
+            with self.subTest(configured=configured), patch.dict(os.environ, {"XDG_STATE_HOME": configured}):
+                base = Path(configured) if configured and Path(configured).is_absolute() else self.home / ".local/state"
+                self.assertEqual(state_directory(), base / "ub-agent/runtime-updates")
+
+    def test_orphan_updater_retains_guard_until_it_finishes(self):
+        self.executable(self.bin / "codex")
+        entered, finish = self.root / "updater-started", self.root / "finish-updater"
+        updater = self.root / "orphan-updater"
+        updater.write_text(f"#!{sys.executable}\nfrom pathlib import Path\nimport time\n"
+                           f"Path({str(entered)!r}).touch()\n"
+                           f"while not Path({str(finish)!r}).exists(): time.sleep(0.01)\n")
+        updater.chmod(0o755)
+        script = f'''import os, threading, time
+from pathlib import Path
+from types import SimpleNamespace
+from ub_agents.config import Runtime, RuntimeUpdates
+from ub_agents.runtime_updates import RuntimeMaintenance
+manager = RuntimeMaintenance(output=lambda *_: None, root=Path({str(self.manager.root)!r}))
+settings = SimpleNamespace(runtime_updates=RuntimeUpdates({{"codex": ({str(updater)!r},)}}),
+                           agents=[SimpleNamespace(runtimes=[Runtime("codex", "model", "high")])])
+def crash_when_updater_starts():
+    while not Path({str(entered)!r}).exists(): time.sleep(0.01)
+    os._exit(1)
+threading.Thread(target=crash_when_updater_starts, daemon=True).start()
+manager.boundary(settings)
+'''
+        parent = subprocess.Popen([sys.executable, "-c", script])
+        guard = self.manager.paths(installation("codex", self.which))[0]
+        try:
+            self.assertEqual(parent.wait(timeout=10), 1)
+            self.assertTrue(entered.exists())
+            self.assertFalse(self.manager.available("codex"))
+            self.manager.boundary(self.settings())
+            self.assertEqual(self.calls, [])
+        finally:
+            finish.touch()
+            if parent.poll() is None:
+                parent.kill()
+                parent.wait(timeout=5)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and guard.exists():
+                with lock(guard) as released:
+                    if released is not None:
+                        break
+                time.sleep(0.01)
+        self.assertTrue(self.manager.available("codex"))
+        self.manager.boundary(self.settings(policy=(str(updater),)))
+        self.assertEqual(self.calls.count((str(updater),)), 1)

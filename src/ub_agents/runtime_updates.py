@@ -35,7 +35,9 @@ class Reservation:
 
 
 def state_directory():
-    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "ub-agent/runtime-updates"
+    configured = os.environ.get("XDG_STATE_HOME", "")
+    base = Path(configured) if configured and Path(configured).is_absolute() else Path.home() / ".local/state"
+    return base / "ub-agent/runtime-updates"
 
 
 @contextmanager
@@ -69,6 +71,7 @@ class RuntimeMaintenance:
         self.runner = runner or self._run
         self._unused = set()
         self._reserved = set()
+        self._maintenance_fds = ()
 
     def paths(self, install):
         key = hashlib.sha256(install.identity.encode()).hexdigest()
@@ -105,7 +108,8 @@ class RuntimeMaintenance:
         with tempfile.TemporaryFile() as output:
             try:
                 process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
-                                           stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                                           stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
+                                           pass_fds=self._maintenance_fds)
             except OSError as exc:
                 raise MaintenanceFailure(f"cannot start command: {exc}") from exc
             deadline = time.monotonic() + timeout
@@ -214,41 +218,50 @@ class RuntimeMaintenance:
             with lock(runs, shared=not in_place) as active:
                 if active is None:
                     return  # Active run: deferral is not a completed check.
-                before = self.version(cli, os.environ.copy())
-                result, reason = "failed", None
-                deadline = time.monotonic() + timeout
-                env = os.environ.copy()
-
-                def probe(command, probe_env):
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise MaintenanceFailure("maintenance timed out")
-                    return self.runner(command, probe_env, remaining)
-
+                # An orphan updater must keep excluding checks and starts after
+                # a launcher crash, just as a still-running agent retains its lock.
+                self._maintenance_fds = (held.fileno(), active.fileno())
                 try:
-                    command, env, reason = updater(cli, install, policy, probe, env, self.which)
-                    if command is None:
-                        result = "skipped"
-                    else:
-                        probe(command, env)
-                        result = "up-to-date"  # Classified by the next executable's version below.
-                except (MaintenanceFailure, OSError, ValueError, TypeError) as exc:
-                    reason = str(exc)
-                # Always re-resolve PATH, including after a failed/skipped check or shutdown.
-                after = self.version(cli, os.environ.copy(), cancellable=False)
-                if after is None:
-                    result = "failed"
-                    reason = ((reason + "; ") if reason else "") + "runtime is unusable; no new runs will start"
-                elif result == "up-to-date" and before != after:
-                    result = "updated"
-                completed = {"checked": self.clock(), "usable": after is not None,
-                             "version": after, "result": result, "identity": install.identity}
-                self.write(state_path, completed)
-                next_install = installation(cli, self.which)
-                if next_install is not None and next_install.identity != install.identity:
-                    # Also retain cooldown/health when an operator updater changes
-                    # which executable PATH resolves for the next run.
-                    self.write(self.paths(next_install)[2], completed | {"identity": next_install.identity})
-                versions = f" {before or '?'} -> {after or '?'}"
-                detail = f" — {'warning: ' if result == 'failed' else ''}{reason}" if reason else ""
-                self.output(" ".join(f"Runtime maintenance {cli} ({install.method}){versions}: {result}{detail}".split()))
+                    self._check_locked(cli, install, policy, timeout, state_path)
+                finally:
+                    self._maintenance_fds = ()
+
+    def _check_locked(self, cli, install, policy, timeout, state_path):
+        before = self.version(cli, os.environ.copy())
+        result, reason = "failed", None
+        deadline = time.monotonic() + timeout
+        env = os.environ.copy()
+
+        def probe(command, probe_env):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise MaintenanceFailure("maintenance timed out")
+            return self.runner(command, probe_env, remaining)
+
+        try:
+            command, env, reason = updater(cli, install, policy, probe, env, self.which)
+            if command is None:
+                result = "skipped"
+            else:
+                probe(command, env)
+                result = "up-to-date"  # Classified by the next executable's version below.
+        except (MaintenanceFailure, OSError, ValueError, TypeError) as exc:
+            reason = str(exc)
+        # Always re-resolve PATH, including after a failed/skipped check or shutdown.
+        after = self.version(cli, os.environ.copy(), cancellable=False)
+        if after is None:
+            result = "failed"
+            reason = ((reason + "; ") if reason else "") + "runtime is unusable; no new runs will start"
+        elif result == "up-to-date" and before != after:
+            result = "updated"
+        completed = {"checked": self.clock(), "usable": after is not None,
+                     "version": after, "result": result, "identity": install.identity}
+        self.write(state_path, completed)
+        next_install = installation(cli, self.which)
+        if next_install is not None and next_install.identity != install.identity:
+            # Also retain cooldown/health when an operator updater changes
+            # which executable PATH resolves for the next run.
+            self.write(self.paths(next_install)[2], completed | {"identity": next_install.identity})
+        versions = f" {before or '?'} -> {after or '?'}"
+        detail = f" — {'warning: ' if result == 'failed' else ''}{reason}" if reason else ""
+        self.output(" ".join(f"Runtime maintenance {cli} ({install.method}){versions}: {result}{detail}".split()))

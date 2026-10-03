@@ -397,6 +397,8 @@ class Loop:
         # or a reload may have enabled maintenance. Reapply runtime eligibility.
         try:
             runtime = self.coordinator.choose_runtime(plan.item, plan.agent, list(plan.history))
+        except GitHubError:
+            raise
         except AgentError as exc:
             self.output(f"#{plan.item.number} {plan.agent.name}: waiting — {exc}")
             return False

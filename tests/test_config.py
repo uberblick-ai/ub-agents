@@ -65,7 +65,7 @@ cleanup:
         self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "off"})
         self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
         settings = self.load(base + "runtime-updates: {codex: {command: [./update, codex]}}\n")
-        self.assertEqual(settings.runtime_updates.policies["codex"], (str(self.root / "update"), "codex"))
+        self.assertEqual(settings.runtime_updates.policies["codex"], (str(self.root.resolve() / "update"), "codex"))
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "check"]), 0)
         for value in ["[]", "null", "{unknown: auto}", "{codex: true}", "{codex: false}",

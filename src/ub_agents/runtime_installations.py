@@ -25,13 +25,14 @@ def installation(cli, which=None, home=None):
         return None
     executable = str(Path(executable).absolute())
     target = Path(executable).resolve()
+    identity = str(Path(executable).parent.resolve() / Path(executable).name)
+    # A shim is not the installation it eventually dispatches to.
+    if "shims" in Path(executable).parts or "shims" in target.parts:
+        return Installation(executable, identity, "shim")
     home = home or Path.home()
     versions = home / ".local/share/claude/versions"
     if cli == "claude" and target.parent == versions.resolve():
         return Installation(executable, str(versions.resolve()), "native", native=True)
-    # A shim is not the installation it eventually dispatches to.
-    if "shims" in Path(executable).parts or "shims" in target.parts:
-        return Installation(executable, str(target), "shim")
     for parent in target.parents:
         if parent.parent.name in {"Caskroom", "Cellar"}:
             kind = "homebrew-cask" if parent.parent.name == "Caskroom" else "homebrew-formula"
@@ -57,7 +58,6 @@ def installation(cli, which=None, home=None):
     method = "system" if target.parent in {Path("/usr/bin"), Path("/bin"), Path("/usr/sbin")} else "unknown"
     # Custom launchers can atomically change their symlink target. Keep their
     # launch path stable across updates, as with the native/package identities.
-    identity = str(Path(executable).parent.resolve() / Path(executable).name)
     return Installation(executable, identity, method)
 
 
@@ -110,7 +110,11 @@ def updater(cli, install, policy, run, env, which=None):
         if not brew or Path(run([brew, "--prefix"], env).strip()).resolve() != install.prefix.resolve():
             return None, env, "owning Homebrew not found; configure runtime-updates command"
         kind = "--cask" if install.method == "homebrew-cask" else "--formula"
-        return [brew, "upgrade", kind, install.token], env | {"HOMEBREW_NO_INSTALL_CLEANUP": "1"}, None
+        brew_env = env | {"HOMEBREW_NO_INSTALL_CLEANUP": "1",
+                          "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK": "1",
+                          "HOMEBREW_NO_SUDO": "1", "HOMEBREW_NO_UPGRADE_QUIT_CASKS": "1",
+                          "HOMEBREW_NO_ASK": "1"}
+        return [brew, "upgrade", kind, install.token], brew_env, None
     if install.method == "npm-global":
         if not all(writable(p) for p in (install.package, install.package.parent, install.prefix / "bin")):
             return None, env, "npm global installation needs elevated privileges; update it manually"
