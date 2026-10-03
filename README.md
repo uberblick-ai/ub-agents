@@ -137,7 +137,8 @@ upgrading any.
 
 For the rename to `ub-agents`, rename `ub-agent.yaml` to `ub-agents.yaml` and update
 role instructions, command allowlists, hooks and direct commands to use `ub-agents`
-and `UB_AGENTS_*`. Restart all of a project's launchers together; old launchers
+and `UB_AGENTS_*`. Update `.gitignore` to ignore `.ub-agents/`.
+Restart all of a project's launchers together; old launchers
 cannot read new GitHub markers or branch names. `.ub-agent/` is no longer used;
 remove its worktrees after the old launchers stop. See the [changelog](CHANGELOG.md).
 

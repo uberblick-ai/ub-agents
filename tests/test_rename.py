@@ -41,7 +41,7 @@ class RenameCLITests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.enterContext(patch('ub_agents.config._warned_legacy_config', False))
 
     def write_config(self, name=DEFAULT_CONFIG):
@@ -159,7 +159,7 @@ class DurableRenameTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.worker = agent(self.root)
         self.github = FakeGitHub(issue(), pr())
         self.now = 1000

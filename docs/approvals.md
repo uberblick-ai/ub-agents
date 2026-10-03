@@ -159,12 +159,12 @@ expresses approval; there is no interactive confirmation. It refuses when the in
 changes between display and the final read. Changes during posting are handled by
 record validation. The command does not change labels.
 
-The exact version 1 comment format is the marker, a blank line, one JSON fence and
-a trailing newline:
-
 Existing `<!-- ub-agent:approval:v1 -->` records remain valid under the same
 approval checks. Old coordination and Action needed markers also remain excluded
 from assignment feedback; new comments use the plural name.
+
+The exact version 1 comment format is the marker, a blank line, one JSON fence and
+a trailing newline:
 
 ````text
 <!-- ub-agents:approval:v1 -->
