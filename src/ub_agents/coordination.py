@@ -34,12 +34,14 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None):
+    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
+                 runtime_available=None):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
+        self.runtime_available = runtime_available
         self.notices = Notices(github, actor, output)
 
     def history(self, number):
@@ -187,9 +189,11 @@ class Coordinator:
                 if not eligible:
                     raise AgentError("No runtime has a different CLI and model from the candidate author")
         for runtime in eligible:
-            if shutil.which(runtime.cli):
+            if (self.runtime_available or shutil.which)(runtime.cli):
                 return runtime
-        raise AgentError("No eligible runtime executable is installed")
+        reason = ("No eligible runtime executable is installed, usable and available"
+                  if self.runtime_available else "No eligible runtime executable is installed")
+        raise AgentError(reason)
 
     def handoff_pending(self, report):
         # A copied marker may lag acceptance or rejection on the source item.

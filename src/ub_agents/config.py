@@ -22,6 +22,14 @@ def _mapping(loader, node, deep=False):
         if not isinstance(key, str) or key in result:
             raise AgentError(f"YAML keys must be unique strings: {key!r}")
         result[key] = loader.construct_object(value_node, deep=deep)
+        # YAML 1.1 parses unquoted `off` as False. Preserve just this policy
+        # spelling without changing existing YAML booleans elsewhere.
+        if key == "runtime-updates" and isinstance(result[key], dict):
+            for policy_key, policy_value in value_node.value:
+                if (policy_key.value in ("claude", "codex")
+                        and isinstance(policy_value, yaml.ScalarNode)
+                        and policy_value.value == "off"):
+                    result[key][policy_key.value] = "off"
     return result
 
 
@@ -144,6 +152,12 @@ class CleanupHook:
 
 
 @dataclass(frozen=True)
+class RuntimeUpdates:
+    policies: dict
+    timeout_seconds: float = 300
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     repository: str
@@ -152,6 +166,7 @@ class Config:
     stop_labels: tuple[str, ...]
     queue: Queue = Queue()
     cleanup: CleanupHook | None = None
+    runtime_updates: RuntimeUpdates | None = None
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
@@ -168,8 +183,29 @@ def load_config(path):
         data = yaml.load(path.read_text(), Loader=UniqueLoader)
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
-    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup"},
+    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
+                          "runtime-updates"},
                    "configuration")
+    runtime_updates = None
+    if "runtime-updates" in data:
+        settings = mapping(data["runtime-updates"], {*CLIS, "timeout-seconds"}, "runtime-updates")
+        policies = {}
+        for cli in CLIS:
+            policy = settings.get(cli, "off")
+            if isinstance(policy, str) and policy in {"auto", "off"}:
+                policies[cli] = policy
+            else:
+                command = mapping(policy, {"command"}, f"runtime-updates {cli}")
+                args = argv(command.get("command"), f"runtime-updates {cli} command")
+                if Path(args[0]).name in {"sudo", "su", "doas", "pkexec"}:
+                    raise AgentError("runtime-updates commands must not request elevated privileges")
+                if "/" in args[0] and not Path(args[0]).is_absolute():
+                    args = (str(root / args[0]),) + args[1:]
+                policies[cli] = args
+        timeout = number(settings.get("timeout-seconds", 300), "runtime-updates timeout-seconds")
+        if timeout > 3600:
+            raise AgentError("runtime-updates timeout-seconds must be at most 3600")
+        runtime_updates = RuntimeUpdates(policies, timeout)
     cleanup = None
     if "cleanup" in data:
         hook = mapping(data["cleanup"], {"command", "timeout-seconds"}, "cleanup")
@@ -283,7 +319,8 @@ def load_config(path):
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
-    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup)
+    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
+                  runtime_updates)
 
 
 def argv(value, where, empty=False):

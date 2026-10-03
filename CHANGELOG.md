@@ -8,6 +8,11 @@ notes are copied from that section.
 
 ### Added
 
+- Opt-in daily Claude Code and Codex maintenance at unclaimed launcher boundaries,
+  with installation detection, targeted updates, shared local cooldowns and locks,
+  active-run protection and executable verification. This repository enables
+  `runtime-updates` for both CLIs (#118).
+
 - `queue.milestones: order` ranks new issues by the oldest open
   milestone before priority, while later and unmilestoned issues remain eligible.
   Local blockers inherit dependents' earliest milestone in dependency `wait` mode,

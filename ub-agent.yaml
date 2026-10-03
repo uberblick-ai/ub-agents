@@ -1,6 +1,9 @@
 # ub-agents develops itself with ub-agents. Project-owned: models, permissions,
 # checks and merge authority are ours to change. Shared guidance is in AGENTS.md.
 repository: uberblick-ai/ub-agents
+runtime-updates:
+  claude: auto
+  codex: auto
 queue:
   milestones: order
   priority:
