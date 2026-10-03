@@ -43,8 +43,11 @@ def installation(cli, which=None, home=None):
         if parent.parent.name in {"@openai", "@anthropic-ai"} and parent.parent.parent.name == "node_modules":
             modules = parent.parent.parent
             expected = "@openai/codex" if cli == "codex" else "@anthropic-ai/claude-code"
-            if modules.parent.name != "lib":
+            if modules.parent.name != "lib" or f"{parent.parent.name}/{parent.name}" != expected:
                 continue  # Project-local npm packages are not global installs.
+            # npm may temporarily replace package.json while the executable is
+            # still present. Its guard identity must not change during that gap.
+            identity = str(parent)
             try:
                 metadata = json.loads((parent / "package.json").read_text())
                 bins = metadata.get("bin", {})

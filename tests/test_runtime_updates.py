@@ -534,3 +534,21 @@ manager.boundary(settings)
         self.assertTrue(self.manager.available("codex"))
         self.manager.boundary(self.settings(policy=(str(updater),)))
         self.assertEqual(self.calls.count((str(updater),)), 1)
+
+    def test_npm_guard_survives_temporarily_missing_package_metadata(self):
+        target = self.npm()
+        second = self.manager_for()
+        def replace_package():
+            (target.parent.parent / "package.json").unlink()
+            self.assertFalse(second.available("codex"))
+            before = list(self.calls)
+            second.boundary(self.settings())
+            self.assertEqual(before, self.calls)
+            with second.reserve("codex") as reserved:
+                self.assertIsNone(reserved)
+        self.action = replace_package
+        self.manager.boundary(self.settings())
+        self.assertTrue(second.available("codex"))
+        count = len(self.calls)
+        second.boundary(self.settings())
+        self.assertEqual(len(self.calls), count)
