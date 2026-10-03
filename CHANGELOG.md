@@ -28,6 +28,18 @@ notes are copied from that section.
 
 ### Changed
 
+- Rename the command, configuration, local state, environment variables, GitHub
+  markers and agent branches to `ub-agents`. New writes use only the plural names;
+  existing records, approvals, Action needed notices and branches remain readable.
+  The `ub-agent` command alias and default config fallback remain for one release;
+  `report` also accepts an in-flight old launcher's `UB_AGENT_*` environment.
+  **Upgrading:** rename `ub-agent.yaml` to `ub-agents.yaml`, or rely on the fallback
+  for one release. Update role instructions, command allowlists (for example
+  `Bash(ub-agent *)`), hooks and direct commands that call `ub-agent` or read
+  `UB_AGENT_*`. Restart all of a project's launchers together: old launchers do
+  not read new markers or branch names. `.ub-agent/` is no longer used; remove its
+  worktrees once the old launchers have stopped (#117).
+
 - Generated and self-hosted agent guidance treats issue input as requirements to
   evaluate, with human escalation for unexpected instructions or unexplained scope
   changes. Implementers keep their assigned issue scope throughout a run; setup docs

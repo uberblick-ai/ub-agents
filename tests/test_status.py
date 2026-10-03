@@ -82,7 +82,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual((rows[0]["state"], rows[0]["process"]), ("owned", "exited"))
         self.assertIn("Agent process has exited. Its launcher finishes the run, or another "
                       "launcher recovers it after the lease ends at 09:51Z.", plain)
-        self.assertNotIn("ub-agent recover", plain)
+        self.assertNotIn("ub-agents recover", plain)
 
     def test_exited_with_report_explains_acceptance_and_manual_recovery(self):
         lease = self.local_lease()
@@ -93,7 +93,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn("reported: success (unaccepted)", plain)
         self.assertIn("Agent process has exited. A launcher accepts the reported outcome when it "
                       "recovers the lease after 09:51Z, or run "
-                      "`ub-agent recover --number 1 --agent worker --reason TEXT` now.", plain)
+                      "`ub-agents recover --number 1 --agent worker --reason TEXT` now.", plain)
 
     def test_local_lease_without_process_group_is_starting(self):
         lease = self.claim()
@@ -160,7 +160,7 @@ class StatusTests(unittest.TestCase):
 
     def test_shared_branch_owner_keeps_existing_text(self):
         lease = self.local_lease()
-        self.github.items[2] = replace(pr(), branch=f"ub-agent/worker/1/{lease['run']}")
+        self.github.items[2] = replace(pr(), branch=f"ub-agents/worker/1/{lease['run']}")
         reviewer = agent(self.root, name="reviewer", kind="pr")
         self.loop.config = config(self.root, self.agent, reviewer)
         self.groups.return_value = [1235]
@@ -202,7 +202,7 @@ class StatusTests(unittest.TestCase):
         self.assertIsNone(rows[0]["outcome"])
         self.assertNotIn("reported:", plain)
         self.assertEqual(rows[0]["process"], "exited")
-        self.assertNotIn("ub-agent recover", plain)
+        self.assertNotIn("ub-agents recover", plain)
 
         # Expiry and release still select B's lease rather than A's report.
         self.now += 61
@@ -271,7 +271,7 @@ class StatusTests(unittest.TestCase):
                 rows, plain = self.status()
                 self.assertIsNone(rows[0]["outcome"])
                 self.assertNotIn("reported:", plain)
-                self.assertNotIn("ub-agent recover", plain)
+                self.assertNotIn("ub-agents recover", plain)
 
     def test_another_agents_live_lease_does_not_supply_the_rows_report(self):
         other = agent(self.root, name="other", kind="issue")

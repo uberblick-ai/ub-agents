@@ -27,7 +27,7 @@ agents:
       - --allowedTools
       - "Bash(git *)"
       - "Bash(gh *)"
-      - "Bash(ub-agent *)"
+      - "Bash(ub-agents *)"
       - "Bash(python3 *)"
       - "Bash(.venv/bin/*)"
       # Shell helpers for inspecting issue context (preparer), code/check output (reviewer),

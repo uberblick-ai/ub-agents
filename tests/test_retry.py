@@ -86,7 +86,7 @@ class RetryTests(unittest.TestCase):
                                     (("needs-changes", "ready"), "labels ready, needs-changes")):
             self.assert_next_step(labels, f"#97 has trigger {description}; "
                                   "a running launcher picks it up on its next poll. "
-                                  "`ub-agent status` shows its progress.")
+                                  "`ub-agents status` shows its progress.")
 
     def test_unknown_agent_and_invalid_input_refuse_without_writes(self):
         for kwargs, message in (({"name": "missing"}, "Unknown configured agent"),
@@ -95,7 +95,7 @@ class RetryTests(unittest.TestCase):
                                 ({"reason": " \t"}, "retry requires a positive item number and a reason")):
             with self.subTest(kwargs=kwargs):
                 result, output, errors = self.retry(**kwargs)
-                self.assertEqual((result, output, errors), (1, "", f"ub-agent: {message}\n"))
+                self.assertEqual((result, output, errors), (1, "", f"ub-agents: {message}\n"))
                 self.assertEqual(self.github.reads, [])
                 self.assertEqual(self.github.writes, [])
 
@@ -107,6 +107,6 @@ class RetryTests(unittest.TestCase):
         writes = list(self.github.writes)
         result, output, errors = self.retry()
         self.assertEqual((result, output, errors),
-                         (1, "", "ub-agent: Cannot reset attempts while an assignment is owned\n"))
+                         (1, "", "ub-agents: Cannot reset attempts while an assignment is owned\n"))
         self.assertEqual(self.github.reads, [("comments", (97,))])
         self.assertEqual(self.github.writes, writes)

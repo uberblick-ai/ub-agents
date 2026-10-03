@@ -1,4 +1,4 @@
-# In this repository `ub-agent` runs this checkout's code, never an installed
+# In this repository `ub-agents` runs this checkout's code, never an installed
 # release. Run `mise run setup` once: .venv holds an editable install.
 [env]
 _.python.venv = ".venv"

@@ -25,7 +25,7 @@ class CleanupTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         git(self.root, "init", "-b", "main")
-        (self.root / ".gitignore").write_text(".ub-agent/\nignored\n")
+        (self.root / ".gitignore").write_text(".ub-agents/\nignored\n")
         (self.root / "file").write_text("base")
         git(self.root, "add", ".")
         self.commit(self.root)
@@ -35,8 +35,8 @@ class CleanupTests(unittest.TestCase):
         self.config = config(self.root)
         self.coordinator = Coordinator(self.github, "operator")
         self.lease = self.coordinator.claim(self.coordinator.plan(issue(), self.config.agents[0], ()))
-        self.branch = f"ub-agent/worker/1/{self.lease['run']}"
-        self.path = self.root / ".ub-agent" / "worktrees" / self.lease["run"]
+        self.branch = f"ub-agents/worker/1/{self.lease['run']}"
+        self.path = self.root / ".ub-agents" / "worktrees" / self.lease["run"]
         git(self.root, "worktree", "add", "-b", self.branch, str(self.path), "HEAD")
         self.coordinator.update(self.lease, state="running", started=True, branch=self.branch)
         self.coordinator.release(self.lease, "retry", "fixture")
@@ -71,11 +71,33 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual([rows[k]["action"] for k in ("worktree", "branch")], ["would remove"] * 2)
         self.assertTrue(self.path.exists())
         self.assertEqual(git(self.root, "rev-parse", self.branch), self.head)
-        self.assertFalse((self.root / ".ub-agent" / "runs").exists())
+        self.assertFalse((self.root / ".ub-agents" / "runs").exists())
+
+    def test_old_branch_and_record_names_keep_cleanup_ownership(self):
+        from tests.test_rename import old_record_names
+        old = self.branch.replace("ub-agents/", "ub-agent/", 1)
+        git(self.path, "branch", "-m", self.branch, old)
+        self.branch = old
+        self.update(branch=old)
+        old_record_names(self.github)
+        self.assertEqual(self.actions()["branch"]["action"], "would remove")
+        self.update(cleanup="unconfirmed")
+        self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
+        self.update(cleanup=None)
+        self.assertEqual(self.actions(True)["branch"]["action"], "removed")
+
+    def test_old_state_worktrees_are_not_cleanup_artifacts(self):
+        old = self.root / ".ub-agent" / "worktrees" / self.lease["run"]
+        old.parent.mkdir(parents=True)
+        git(self.root, "worktree", "move", str(self.path), str(old))
+        artifacts = self.cleaner.inventory()
+        self.assertFalse(any(a.kind == "worktree" for a in artifacts))
+        self.assertEqual(self.actions(True)["branch"]["action"], "kept")
+        self.assertTrue(old.exists())
 
     def test_apply_removes_worktree_and_local_branch_keeps_remote_and_logs(self):
         git(self.root, "update-ref", f"refs/heads/remote-copy", self.head)
-        run_dir = self.root / ".ub-agent" / "runs" / self.lease["run"]
+        run_dir = self.root / ".ub-agents" / "runs" / self.lease["run"]
         run_dir.mkdir(parents=True)
         (run_dir / "keep.log").write_text("retain")
         rows = self.actions(True)
@@ -151,7 +173,7 @@ class CleanupTests(unittest.TestCase):
             self.assertIn("awaiting recovery", self.actions(True)["worktree"]["reason"])
 
     def hook_record(self, pid=None):
-        directory = self.root / ".ub-agent" / "runs" / self.lease["run"] / "cleanup" / "crashed"
+        directory = self.root / ".ub-agents" / "runs" / self.lease["run"] / "cleanup" / "crashed"
         directory.mkdir(parents=True)
         if pid is not None:
             (directory / "pid").write_text(str(pid))
@@ -268,13 +290,13 @@ class CleanupTests(unittest.TestCase):
         with patch.object(self.cleaner, "check", side_effect=race):
             self.assertEqual(self.actions(True)["worktree"]["action"], "kept")
         self.update(state="released")
-        self.hook("import os; from pathlib import Path; (Path(os.environ['UB_AGENT_WORKTREE'])/'dirty').write_text('x')")
+        self.hook("import os; from pathlib import Path; (Path(os.environ['UB_AGENTS_WORKTREE'])/'dirty').write_text('x')")
         self.assertIn("dirty", self.actions(True)["worktree"]["reason"])
 
     def test_successful_hook_receives_context_from_operator_checkout(self):
-        output = self.root / ".ub-agent" / "context-copy.json"
+        output = self.root / ".ub-agents" / "context-copy.json"
         self.hook("import json,os; from pathlib import Path; "
-                  "p=Path(os.environ['UB_AGENT_CLEANUP_CONTEXT']); "
+                  "p=Path(os.environ['UB_AGENTS_CLEANUP_CONTEXT']); "
                   "v=json.loads(p.read_text()); v['cwd']=os.getcwd(); "
                   f"Path({str(output)!r}).write_text(json.dumps(v))")
         self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
@@ -390,7 +412,7 @@ class CleanupTests(unittest.TestCase):
 
     def test_cli_preview_and_apply_dispatch(self):
         from ub_agents.cli import main
-        path = self.root / "ub-agent.yaml"
+        path = self.root / "ub-agents.yaml"
         path.write_text("repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n"
                         "    outcomes: {done: {}}\n")
         with patch("ub_agents.cli.GitHub", return_value=self.github), \

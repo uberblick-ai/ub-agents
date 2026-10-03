@@ -48,7 +48,7 @@ def process_details(lease, history, now, host):
     if reported:
         return "exited", ("Agent process has exited. A launcher accepts the reported outcome "
                           f"when it recovers the lease after {expiry}, or run "
-                          f"`ub-agent recover --number {lease['assignment']} "
+                          f"`ub-agents recover --number {lease['assignment']} "
                           f"--agent {lease['agent']} --reason TEXT` now.")
     return "exited", ("Agent process has exited. Its launcher finishes the run, or another "
                       f"launcher recovers it after the lease ends at {expiry}.")

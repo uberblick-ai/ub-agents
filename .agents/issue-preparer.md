@@ -28,13 +28,13 @@ before running the command. Write an updated issue body or comment with the
 file-writing tool to a file in your worktree, then publish it with
 `gh issue edit N --body-file PATH` or
 `gh issue comment N --body-file PATH` as a separate command.
-Run `ub-agent report` as its own final command, never chained to publication.
+Run `ub-agents report` as its own final command, never chained to publication.
 If publication is denied, retry with separate commands using literal values; if it
 still fails, report blocked with the evidence instead of ending without a report.
 
 If a human decision is required, explain it on the issue and report
-`ub-agent report --outcome needs-human --summary "Decision required: REASON"`.
+`ub-agents report --outcome needs-human --summary "Decision required: REASON"`.
 
 When requirements can be implemented, report
-`ub-agent report --outcome prepared --summary "Issue prepared"`.
+`ub-agents report --outcome prepared --summary "Issue prepared"`.
 Customize these outcomes and rules with the project's owners.

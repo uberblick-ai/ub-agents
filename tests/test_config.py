@@ -14,7 +14,7 @@ class ConfigTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.path = self.root / "ub-agent.yaml"
+        self.path = self.root / "ub-agents.yaml"
 
     def load(self, content):
         self.path.write_text(content)
@@ -151,7 +151,7 @@ agents:
             self.assertNotIn('--status success', instructions)
         self.assertIn("queue:\n  milestones: ignore\n", original)
         self.assertEqual(load_config(self.path).queue, Queue())
-        self.assertIn(".ub-agent/", (self.root / ".gitignore").read_text())
+        self.assertIn(".ub-agents/", (self.root / ".gitignore").read_text())
 
     def test_queue_defaults_and_configured_priority(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"

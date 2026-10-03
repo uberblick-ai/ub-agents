@@ -70,7 +70,7 @@ class EnforcementTests(unittest.TestCase):
 
     def execute(self, verify=None):
         def run(command, cwd, env, run_dir, *args, **kwargs):
-            context = json.loads(Path(env['UB_AGENT_CONTEXT']).read_text())
+            context = json.loads(Path(env['UB_AGENTS_CONTEXT']).read_text())
             if verify:
                 verify(context)
             lease = self.loop.coordinator.history(context['assignment'])[-1]
@@ -132,7 +132,7 @@ class EnforcementTests(unittest.TestCase):
                     self.outside_edit()
                 self.assert_parked(f'Outside {change} edit', writes=True)
                 notice = self.notices()[0]
-                for text in ('re-apply a trigger label', 'ub-agent approve --number 1',
+                for text in ('re-apply a trigger label', 'ub-agents approve --number 1',
                              'then remove', '`needs-human`'):
                     self.assertIn(text, notice['body'])
                 before = self.github.writes[:]
@@ -180,7 +180,7 @@ class EnforcementTests(unittest.TestCase):
         self.start(2, 'needs-changes')
         self.assert_parked('head is not approved', writes=True)
         notice = self.notices(2)[0]
-        for text in ('ub-agent approve --number 2', 'approving review of the current head',
+        for text in ('ub-agents approve --number 2', 'approving review of the current head',
                      'then remove', 'Re-applying a trigger label does not approve a head'):
             self.assertIn(text, notice['body'])
         self.start(2, 'needs-changes', second=20)
@@ -203,7 +203,7 @@ class EnforcementTests(unittest.TestCase):
         self.github.review_store[2] = [feedback(100, second=20, state='COMMENTED', commit_id='a' * 40)]
         self.assert_parked('Outside PR feedback', writes=True)
         self.assertIn('re-apply a trigger label', self.notices(2)[0]['body'])
-        self.assertIn('ub-agent approve --number 2', self.notices(2)[0]['body'])
+        self.assertIn('ub-agents approve --number 2', self.notices(2)[0]['body'])
         self.start(2, 'needs-changes', second=25)
         self.remove_stop(2)
         self.execute()
@@ -251,7 +251,7 @@ class EnforcementTests(unittest.TestCase):
                     self.github.milestones = [dict(number=1, state='open', created_at=at(1))]
                     self.github.items[2] = issue(2, labels=(), milestone=1)
                 elif obstacle == 'runtime':
-                    self.loop.config = config(self.root, replace(self.worker, command=('missing-ub-agent-command',)))
+                    self.loop.config = config(self.root, replace(self.worker, command=('missing-ub-agents-command',)))
                 else:
                     lease = self.loop.coordinator.claim(self.loop.plans()[0])
                     if obstacle in {'backoff', 'blocked'}:
@@ -380,7 +380,7 @@ class EnforcementTests(unittest.TestCase):
         edited = feedback(103, second=2)
         edited['updated_at'] = at(9)
         record = feedback(104, 'maintainer', approval_body(1, 'Requirements', 'Acceptance criteria', [cleared]), 15)
-        notice = feedback(105, 'operator', '<!-- ub-agent:action-needed old-run -->\nAction needed')
+        notice = feedback(105, 'operator', '<!-- ub-agents:action-needed old-run -->\nAction needed')
         self.github.store[1] = [cleared, trusted, unapproved, edited, record, notice]
         def verify(c):
             self.assertEqual([r['id'] for r in c['comments']], [100, 101])
@@ -638,7 +638,7 @@ class EnforcementTests(unittest.TestCase):
                 else:
                     # Reapproving a parent after the child run cannot retroactively grant ancestry.
                     self.github.store[2] = [c for c in self.github.store[2]
-                                            if not c['body'].startswith('<!-- ub-agent:approval:')]
+                                            if not c['body'].startswith('<!-- ub-agents:approval:')]
                     self.github.review_store[2] = [dict(feedback(300, 'maintainer'),
                         created_at='2027-01-01T00:00:00Z', updated_at='2027-01-01T00:00:00Z',
                         state='APPROVED', commit_id='a' * 40)]
