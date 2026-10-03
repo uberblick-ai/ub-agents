@@ -42,7 +42,7 @@ async def probe(runtime):
     started = time.monotonic()
     task = asyncio.create_task(asyncio.to_thread(supervise, commands[runtime], folder, env,
                                                folder, 300, stop, PROMPT))
-    view = View(Observer(ROOT), folder / 'process.log')
+    view = View(Observer(ROOT, log_path=folder / 'process.log'))
     max_buffer = 0
     first_visible = None
     captures = 0
@@ -126,4 +126,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    raise SystemExit('Historical probe code: the #97 live-probe allowance is already used; replay only.')

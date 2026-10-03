@@ -1,106 +1,145 @@
-# #97 terminal observer spike
+# #97 terminal observer spike — revised assessment
 
-**Recommendation: proceed with constraints.** Textual can provide a useful optional
-**separate observer** without changing GitHub coordination or supervision. This
-experiment demonstrates the presentation and local tailing boundary, not a
-production feature. The branch and PR must stay draft for owner assessment.
+**Recommendation: do not proceed with a production Textual observer now.** A
+separate view is feasible in this experiment, but its advantage over existing
+status/log tools and its maintenance cost are not established. Complete delivery
+history is absent from the existing status contract. Prefer assessing the
+no-dependency option before deciding whether the combined interface earns its
+cost. This is advice for the owner, not authorization for more work. PR #99 stays
+draft with `Refs #97`; no follow-on tickets or implementation were created.
 
-## Evidence and verdicts
+This report supersedes the first run's “proceed with constraints” assessment and
+addresses both assigned reviews at `96db2d7`. All code changes are experimental.
+Distributed dependencies, `src/ub_agents`, repository README, public docs and
+changelog remain unchanged; there is no release-facing change.
 
-| Question | Verdict | Evidence and limits |
+The overall operational claim in each acceptance question remains **unverified**.
+The narrower evidence below uses only **demonstrated / disproved / unverified**;
+a successful fixture test is not a claim about a real launcher deployment.
+
+| Question / claim | Verdict | Evidence and limits |
 | --- | --- | --- |
-| Observation | **demonstrated** in fixtures | `model.py` calls unchanged `cli.status_rows`; its rows preserve planner states/reasons, claims, blockers and run-linked outcomes. Group names are presentation buckets. Navigation and redraws use that snapshot and make zero requests or coordination writes. [Request audit](evidence/validation.json) uses the real GitHub transport construction with the existing recording runner: 45 open items, 30 triggered, 3 commenters produce **125 calls per fresh status refresh** (95 REST, 30 GraphQL). Two unchanged fresh refreshes each cost 125. The existing cached planner costs 125 then **2**. [Quota-wait view](evidence/quota-wait.svg) keeps a stale snapshot while local logs and tab changes continue, with zero calls during the simulated wait. **unverified:** real GitHub pagination, quota exhaustion and network failures. |
-| Logs and timestamps | **demonstrated** | [Codex](evidence/codex-sanitized.svg) and [Claude](evidence/claude-sanitized.svg) replay sanitized successful live outputs. Both adapters exercise split records, >40KB records, unfamiliar/error events and lossless raw-file fallback in `validate.py`. A [partial record](evidence/partial-record.svg) is visible before newline. Oversized records become bounded raw fragments; normalized text truncates at 2,048 characters. Synthetic valid event time and first-fragment observer capture time appear separately. Historical data has no invented capture time. The actual probes had no reliable event timestamps, so those stay absent. Tool completion is text evidence only; accepted outcomes come exclusively from coordination records. |
-| Responsiveness | **demonstrated** | Keyboard selection and tabs work while replay grows; [paused scrolling](evidence/paused-scroll.svg) stays stable on append and follow returns to the end. [72×24 view](evidence/narrow-72x24.svg) wraps logs, with some left labels/footer shortcuts clipped. Memory retains **200 entries**, <16KiB pending bytes and **400 rendered lines**; each tick reads ≤32KiB. A 1,000-line stress fixture evicts old entries. Hidden tabs retain bounded data and render on return; resizing reflows it. **unverified:** prolonged high-volume throughput, terminal/accessibility diversity, RSS and slow/network filesystems. |
-| Lifecycle | **demonstrated** | Closing the separate view leaves a real, independently supervised test worker alive; it finishes naturally with exit 0 and an empty owned group. The existing 514-test suite passes, including SIGTERM draining/report/transition/cleanup and SIGINT/SIGHUP termination/release. No launcher signals, ownership decisions or cleanup code changed. [Remote claim](evidence/remote-owned.svg) offers neither its log nor a stop control. **unverified:** closing during a hung GitHub refresh and binding real claimed run paths. |
-| Operator usefulness and cost | **demonstrated** for the three fixture questions | Running work has owner/run metadata; [human-needed view](evidence/human-needed.svg) names the owner decision; [completed step](evidence/recent-accepted.svg) shows accepted success and completed transition. These are faithful fixture records, not acceptance of runtime prose. **unverified:** operator usability study, complete historical activity and real issue-detail hydration. |
+| Observation: reuse existing queue/claim/outcome authority | **demonstrated** in fixtures | Unchanged `status_rows`, planner and coordination parser supply every row. Buckets are presentation only. Current human blocker #6 now stays expanded in Needs attention; its accepted success remains in Runs. Both review regressions reject the former behaviors ([mutation evidence](evidence/regressions.json)). |
+| Observation: navigation/redraw make no requests | **demonstrated** in the pilot | The real `GitHub` transport uses `DiscoveryCostRunner`, not a counter on `FakeGitHub`. Selection, tabs, raw/follow and resize add **0 calls**. A deliberate tab-refresh mutation adds **375 calls**, and the zero-call assertion rejects it. Mount refresh costs **125 fixture calls**. [Validation](evidence/validation.json). |
+| Observation: quota wait preserves the view | **demonstrated** with a simulated response | An injected HTTP 403 traverses the real error parser, costs **1 call**, retains the previous snapshot, and blocks subsequent refresh/navigation calls. [Transport wait](evidence/transport-quota-wait.svg). A separate [growth demo](evidence/quota-wait.svg) tails local output during a simulated wait. Actual quota exhaustion and hung reads remain **unverified**. |
+| Logs: current production formats, partial/long/error output | **demonstrated** on synthetic replay | [Codex human text](evidence/codex-production.svg), [Claude whole-message JSON](evidence/claude-production.svg), and their complete fixture `process.log` files are checked in. Claude includes tool invocation/results, tool errors, system/rate-limit/unknown/error/result records and a **49,439-byte tool-result record**, decoded whole. A split 42KB tool result retains its first-fragment capture time. [Partial preview](evidence/partial-record.svg) appears before newline. Codex human lines stay compact. Raw files keep full bytes; displays explicitly shorten text to 2,048 characters. Records above the 128KiB cap become labeled raw fragments; their readability is **unverified**. |
+| Logs: trustworthy producer timestamps / one real claimed run | **unverified** | Synthetic event time is distinct from observer capture time. Neither first-run probe supplied reliable producer timestamps. Historical data stays untimed. Capture means first observer read, not producer write. The original probes used additional format flags and no claims; they do not satisfy the production-format or real-claimed-run requirement. No new runtime probes ran. |
+| Responsiveness: selection/tabs, scroll/follow, narrow size, memory bound | **demonstrated** in the headless pilot | While output grows, selection/tabs work; paused [scroll](evidence/paused-scroll.svg) stays stable and follow returns to the end. [72×24](evidence/narrow-72x24.svg) wraps logs; labels/shortcuts still clip. Limits: 200 entries, <128KiB pending bytes, 32KiB read/tick, 400 widget lines, ≤2,048 characters per text/raw projection. A 1,000-line fixture evicts entries. Sustained throughput, RSS, target-terminal/herdr usability and accessibility are **unverified**. |
+| Lifecycle: close a separate observer without stopping work | **demonstrated** for an owned dummy worker | A real separate observer process runs in an isolated PTY. Both `q` and Ctrl-C exit 0; the independently supervised Python worker remains alive, finishes naturally and leaves its owned group empty. Ctrl-C is explicitly bound to close the view (Textual defaults to exit help). No supervisor reference or stop control exists in the view. The attached alternative and real host deployment are **unverified**. |
+| Lifecycle: existing graceful stop and interrupt semantics | **demonstrated** by unchanged repository checks | 514 repository tests pass, including graceful drain/report/transition/cleanup and interrupt/release tests. No execution or coordination code changed. The experiment never observes or signals operator workers. |
+| Local claim attribution and remote restrictions | **demonstrated** in fixtures | Select fixture claim **#42**, resolve `host` + `log_dir/process.log`, and read its distinct file rather than #1's file. [Selected lease](evidence/lease-selected-log.svg). A remote claim has no tail or stop control ([remote view](evidence/remote-owned.svg)). Real claim-to-log-to-accepted-outcome integration remains **unverified**. |
+| Operator usefulness: running work and why a human is needed | **demonstrated** in fixtures | Owner/run metadata appears in Runs; [human blocker](evidence/human-needed.svg) explains the decision; [accepted human handoff](evidence/accepted-human-blocker.svg) shows the successful step without hiding the current blocker. Actual operator benefit is **unverified**. |
+| Operator usefulness: complete completed-step history from status alone | **disproved** | Regression completes fixture #7, removes its trigger and releases it successfully: it disappears from `status_rows`. The collapsed Recent activity bucket is empty in this fixture. Runs can show the accepted outcome of a retained row, not all completed steps. Runtime tool output is never accepted as a workflow outcome. |
 
-## Live probes
+Real refresh cost was measured once in a bounded, read-only audit of this repository
+on **2026-10-03 09:23 UTC**. Four manual passes used the production transport and
+project configuration; they read no run logs and made no mutations. [Per-call
+HTTP statuses, conditional requests and quota headers](evidence/network-refresh.json)
+are reproducible with the opt-in `network_audit.py`, which is outside offline checks.
+The snapshot had four status rows/plans; costs change with queue inputs,
+pagination, triggered PR evidence and comment churn.
 
-Exactly one read-only task ran per installed runtime, using the existing
-`execution.supervise`, a private directory inside this worktree and existing auth.
-No GitHub claim or workflow mutation was made for either probe; the attached UI's
-row #1 was explicitly a fixture. The task read only READ_ME.txt and returned
-`SPIKE97_OBSERVER_OK`. See [commands and measurements](evidence/probes.json) and
-[sanitized Codex](evidence/codex-sanitized.jsonl) / [Claude](evidence/claude-sanitized.jsonl).
+| Audit pass | gh calls | REST attempts | Charged REST responses | GraphQL queries | Time | Formula start gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Fresh status | 21 | 18 | 18 | 3 | 12.262s | 259.2s |
+| Fresh status, same transport ETags | 14 | 11 | 1 | 3 | 7.347s | 30s |
+| Cached planner warm-up, same transport | 14 | 11 | 1 | 3 | 7.706s | 30s |
+| Cached planner unchanged | 3 | 3 | 1 | 0 | 2.485s | 30s |
 
-Codex CLI 0.159.3 completed in **12.402s**; Claude Code 2.1.287 in **5.525s**. Both
-exited 0, allowed tab navigation during execution and left no owned group members.
-First visible output appeared at **0.446s / 0.528s** from probe start respectively;
-this includes startup metadata, not time to first model text. The tail interval is
-100ms, not a claim of measured end-to-end latency under load. Raw output was
-927 / 19,830 bytes. Full raw logs remain local and ignored; published evidence
-omits identifiers, system metadata and reasoning. Missing access did not arise.
-No live probe was retried.
+Identity discovery is **one additional charged REST call**, excluded from that
+table. The UI's first refresh includes it: 22 total calls, 19 charged REST responses,
+and an implied 273.6s gap. The second fresh status got ten authenticated 304s;
+these do not consume primary REST quota ([GitHub guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests)).
+GraphQL queries are separate from REST; attributable point cost is **unverified**
+(the audit records headers, not `rateLimit.cost`; other launchers share the account).
+At a hypothetical unchanged 30s cadence, the observed fresh-status mix would
+make 120 charged REST responses and 360 GraphQL queries/hour. This is an
+extrapolation, not an observed hour or a shared-account allowance.
 
-## Cost, boundaries and risks
+`polling.py` reserves half of 5,000 REST requests/hour across **ten launchers**:
+250 charged requests/hour each, or **14.4 seconds/request**, with minimum 30s here,
+maximum 3,600s, and low-quota adjustment. The demo now uses `quota_requests`, as
+the launcher does, rather than attempted `rest_requests`. For comparison only,
+the **45-issue fixture** has no ETags or PRs: 125 calls = 95 REST + 30 GraphQL,
+implying **1,368s (22m48s)** between fresh refresh starts. Its cached unchanged
+planner costs two fixture calls. Those are neither bounds nor real quota costs.
 
-[Textual 8.2.8](https://github.com/Textualize/textual) is maintained and MIT-licensed;
-its [headless pilot](https://textual.textualize.io/guide/testing/) and
-[bounded RichLog](https://textual.textualize.io/widgets/rich_log/) supplied the main
-validation tools. The isolated Python 3.14 environment adds **9 UI distributions,
-20,625,146 installed bytes** including bytecode/metadata (about 19.7MiB), above the
-existing PyYAML. See [versions/dependencies](evidence/dependencies.json) and the
-replay lockfile. No runtime dependency, `src/ub_agents` behavior, repository README,
-public docs or changelog changed; no user-facing release entry is warranted.
+A separate process cannot currently share launchers' `Discovery` memo, ETag cache,
+comment cursor or counters: all are process-local. The demo retains its own
+transport ETags, but `status_rows` deliberately creates fresh discovery each time.
+Using the same formula gives diagnostic cooldowns; it does not allocate an idle
+slot to an observer or coordinate multiple observers. With ten fully allocated
+launchers an extra 250/hour consumer exceeds that half-budget. A production
+allocation/cache-sharing design and GraphQL budget remain **unverified** and
+outside this spike. No policy was changed to make the demo work.
 
-The two runtime adapters remain necessary. Claude uses stream-event deltas,
-assistant text/tool blocks, user tool results and result/error messages; Codex
-uses item lifecycle/agent-message/command-output records and turn/error events.
-Unknown shapes fall back to bounded raw text. Claude deltas and complete messages
-currently duplicate text; a production adapter needs careful assembly and
-compatibility fixtures. Claude already defaults to stream JSON in `command_for`;
-Codex currently defaults to human text, so richer Codex events require an optional
-project-owned `--json` argument. Human text still tails through the raw fallback.
-Neither format should become an outcome authority or promise event timestamps.
+A local observer must run on the lease's recorded host, with the recorded paths
+visible, normally **as the loop user on `uberblick`**. `.ub-agent` is created mode
+0700; ordinary laptop access as another user will not expose real logs. Existing
+file permissions are respected and errors are shown. This experiment uses exact
+hostname equality and offers no remote transport. No credentials or permissions
+were changed. Installation and use in the actual loop user's herdr pane are
+**unverified**. Truncation resets pending bytes/time and replacement checks inode;
+truncate-and-regrow between polls, filesystem races, cleanup removal, content
+sanitization and prolonged high volume remain risks.
 
-`process.log` is already append-only combined stdout/stderr under the existing
-supervisor, with no capture-time sidecar. This supports local tailing without
-pipes or supervision changes, but observer capture is **read time**, not producer
-write time. Historical capture time cannot be recovered. File replacement,
-cleanup removal, truncation races, attribution to the exact lease/run, malformed
-records and untrusted escape sequences need continued attention. This demo strips
-terminal controls and disables markup; it is not a complete content-security audit.
+The library is [Textual 8.2.8](https://github.com/Textualize/textual), MIT-licensed,
+with a maintained upstream and a useful [headless pilot](https://textual.textualize.io/guide/testing/).
+The first-run locked Python 3.14 environment measured **nine extra distributions,
+20,625,146 installed bytes (~19.7MiB)** beyond PyYAML ([dependency inventory](evidence/dependencies.json)):
+Textual, Rich, markdown-it-py, mdit-py-plugins, platformdirs, Pygments,
+typing_extensions, mdurl and linkify-it-py. This is the spike's pinned set, not a
+promise about future resolution.
 
-The grouping heuristic distinguishes some parked reasons by text. It confers no
-authority, but stable presentation categorization deserves review. `status_rows`
-selects current/run-linked outcomes; it is not a complete recent-history API and
-may omit closed work. A fresh status poll's request amplification makes frequent
-polling unsuitable: use existing cached discovery and shared budget accounting,
-with explicit stale/error state, before production. GraphQL cost remains a separate
-resource. Live details, remote transport and all workflow/stop controls are outside
-this demo. Prefer a separate observer so closing it has no supervision meaning.
+| Option | What it adds / loses | Delivery and maintenance cost |
+| --- | --- | --- |
+| Existing `ub-agent status` / `status --json`, `launch.log`, `tail -f process.log`, plus standard-library pretty-printer | Status already answers queue/ownership/blocker questions. UTC launcher events offer local execution/activity context without GitHub reads. Codex text works with plain tail; `pretty.py` makes Claude tool results readable, using the same bounded adapter. Separate terminal panes require manual correlation and lack combined selection/tabs. Launcher text is observation, not a substitute authority for accepted outcomes. | No new distribution. Status still costs its existing GitHub scan; local log reads cost zero requests. A runnable experimental pretty-printer is included, and has no Textual import. Actual operator preference remains **unverified**. |
+| Textual separate observer | Combines selection, issue/run context, wrapping, scrolling/follow and explicit stale/poll state. It does not add authoritative history or recover producer timestamps. | Nine dependencies plus terminal/layout/testing compatibility; each runtime still needs an adapter. Unproven operational advantage over the option above. |
+| Attached foreground UI | Could share in-process snapshots/cache/accounting with a launcher. | Couples closure/signals and UI callbacks to supervision; not prototyped, **unverified**. Separate observer is the recommended lifecycle if any UI is later authorized. |
 
-The smallest sensible implementation split, **if subsequently authorized**, is:
-(1) a read-only snapshot/local-run locator using existing discovery and quota
-contracts; (2) bounded raw tailing plus runtime adapters; (3) optional Textual
-presentation and lifecycle validation. Leave policy, claiming and execution in
-their existing modules. No follow-on implementation or tickets were created.
+The [tap formula at `19ac5c2`](https://github.com/uberblick-ai/homebrew-tap/blob/19ac5c2034db262582244c9ce6876cdcf44f891f/Formula/ub-agents.rb)
+currently declares only PyYAML and installs into `libexec` with
+`virtualenv_install_with_resources`. Shipping Textual there would require nine
+additional pinned, checksummed resource blocks (or explicitly provided formula
+dependencies), install tests and coordinated updates. Homebrew installs resources
+with dependency resolution disabled ([authoring guidance](https://docs.brew.sh/Language-Specific-Formulae#python-dependency-and-resources)).
+A pip optional extra alone would not give current `brew install` users a selectable
+UI; they would need a separate managed environment. A separate observer package/
+formula could keep the core lean, but adds its own release/tests and still maintains
+those resources. No packaging option was implemented or tap edited; maintainer
+agreement would be needed for new runtime dependencies.
 
-## Effort and validation
+Runtime adapters are still needed regardless of UI: Claude whole-message content,
+`tool_use` and `tool_result` blocks plus result/error/unknown fallback; Codex current
+human text with compact lines. Optional Codex JSON and Claude deltas remain fallback
+paths, not reasons to change production flags. Rich UI is not needed to pretty-print
+these formats. Reliable timestamps, complete history, shared budget/cache behavior,
+real claim attribution and terminal usability are the remaining decisive gaps.
+If later authorized, the smallest split is (1) local lease locator/bounded adapters
+and no-dependency observation; (2) decide history and shared-account refresh inputs;
+(3) optional UI/package and signal/terminal validation. No part of that future work
+is authorized by this report.
 
-Start: **2026-10-03 08:26:34 UTC**. One run, no earlier branches. The checkpoint
-ledger below includes setup, implementation, validation and findings; the final
-PR update records total effort including handoff. The four-hour cap is cumulative,
-with the final 30 minutes reserved for findings; this run stops well before both
-that reserve and the 180-minute launcher deadline. Open questions above stay
-**unverified**, rather than extending this spike to complete the UI.
+Validation: **514 repository tests** passed (31.687s), configuration validation and
+whitespace checks passed. **Nine offline experiment checks** pass, including
+subprocess closure; both former-bug mutations fail their respective regression,
+and the navigation-refresh mutation fails the zero-call assertion. The existing
+CI matrix does **not** install Textual or run the experiment. Final candidate SHA
+and its exact checks are named in PR #99's body. [Runnable instructions](README.md)
+distinguish offline replay, the optional network audit and historical probe evidence.
 
-Standard checks: editable install into this worktree's `.venv`; **514 tests passed**
-(32.614s); development `ub-agent check` passed; `git diff --check` passed. The
-separate experiment validation passes five checks and regenerates the screenshots.
-The [runnable instructions](README.md) distinguish replay from the already-used
-live probe allowance. This is ready for human assessment, with a blocked report
-and a draft-only `Refs #97` handoff.
+Effort ledger (cumulative cap: 240 minutes; launcher limit: 180 minutes/run):
 
-Checkpoint: **2026-10-03 08:45:43 UTC**; elapsed active effort
-**19m 9s**, remaining hard-cap budget **220m 51s**.
-Total effort charged for this spike: **about 30 minutes**, conservatively rounded
-up to include final checks, push, PR/issue updates and the installed-launcher report.
-No earlier-run effort exists; at most **210 minutes** remain after this charge.
-No further spike work is planned.
+- Run 1 at `96db2d7`: **30 minutes charged**, including its handoff; **210 minutes remained**.
+- Run 2 started **2026-10-03 09:16:28 UTC**. No runtime probes repeated; earlier
+  timings in `probes.json` are archival and do not establish current-format integration.
+- Run 2 checkpoint and final charge are recorded below and in every PR update.
+  Setup, validation, findings, waiting and handoff are charged conservatively.
+  Findings began well before the final 30 minutes of either deadline. Remaining
+  questions are **unverified**; this assessment needs an owner decision, not a retry.
 
-Final checkpoint: **2026-10-03 08:49:46 UTC**; elapsed **23m 12s**,
-remaining **216m 48s**. Final validation also exercises harmless late timer
-callbacks after view teardown. Total conservative effort charge including handoff:
-**30 minutes**, with **210 minutes** left under the cumulative cap.
+Run 2 checkpoint: **2026-10-03 09:39:26 UTC**; this run elapsed **22m58s**,
+cumulative charged effort **52m58s** (including run 1's 30m), remaining
+**187m02s**. Final conservative charge reserved for checks/CI/handoff:
+**40 minutes for run 2, 70 minutes total, 170 minutes remaining**. The final PR
+and issue update confirm that charge at handback; no third run or retry is needed.

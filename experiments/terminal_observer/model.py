@@ -1,6 +1,7 @@
 """Presentation of existing status/plans. No coordination or execution writes."""
 from pathlib import Path
 import socket
+import subprocess
 import time
 
 from ub_agents.cli import status_rows
@@ -18,20 +19,20 @@ def group(row):
     # Display buckets only: the original state and reason remain visible.
     if row['lease'] or row['state'] == 'owned':
         return 'Running'
-    if row['outcome'] and row['outcome'].get('accepted') and row['result'] == 'success':
-        return 'Recent activity'
     if row['state'] == 'blocked' or (row['state'] == 'parked' and not row['open_blockers']
                                     and not row['reason'].startswith('Waiting')):
         return 'Needs attention'
+    if row['outcome'] and row['outcome'].get('accepted') and row['result'] == 'success':
+        return 'Recent activity'
     if row['state'] in {'ready', 'recover'}:
         return 'Eligible'
     return 'Waiting'
 
 
-def fixture_loop(root):
+def fixture_loop(root, log_path=None):
     worker = agent(root, kind='issue', outcomes={'done': {'add': ('needs-human',), 'remove': ('ready',)}})
     gh = FakeGitHub(*(issue(n) for n in range(1, 7)))
-    gh.change(1, title='Local read-only probe')
+    gh.change(1, title='Local replay (fixture claim)')
     gh.change(2, title='Remote worker (no local log)')
     gh.change(3, title='Owner decision needed', body='Owner must choose attached view or separate observer before implementation.')
     gh.change(4, title='Eligible work')
@@ -43,7 +44,8 @@ def fixture_loop(root):
         plan = next(p for p in loop.plans() if p.item.number == number)
         lease = loop.coordinator.claim(plan)
         loop.coordinator.update(lease, state='running', started=True,
-                                host=socket.gethostname() if number != 2 else 'remote.example')
+                                host=socket.gethostname() if number != 2 else 'remote.example',
+                                log_dir=str(log_path.resolve().parent) if log_path else '')
         if number == 3:
             loop.coordinator.report(lease, 'blocked', 'Need owner choice: attached view or separate observer')
             loop.coordinator.release(lease, 'blocked', 'Need owner choice: attached view or separate observer')
@@ -56,20 +58,25 @@ def fixture_loop(root):
 
 
 class Observer:
-    def __init__(self, root, config_path=None):
-        self.live = config_path is not None
-        if self.live:
+    def __init__(self, root, config_path=None, *, log_path=None, loop=None):
+        self.live = config_path is not None or loop is not None
+        if loop is not None:
+            # Loop.github is its rate-limit-read facade; meter the underlying transport.
+            self.loop, self.github, self.config = loop, loop.github.github, loop.config
+        elif self.live:
             cfg = load_config(config_path)
             self.github = GitHub(cfg.repository)
             # Identity is read once at first explicit refresh, counted there.
             self.loop = None
             self.config = cfg
         else:
-            self.loop, self.github = fixture_loop(root)
+            self.loop, self.github = fixture_loop(root, log_path)
         self.rows = []
         self.details = {}
         self.last_requests = 0
         self.last_rest = 0
+        self.last_quota = 0
+        self.last_graphql = 0
         self.poll = 'not refreshed'
         self.refreshed = None
         self.wait_until = 0.0
@@ -80,14 +87,15 @@ class Observer:
         gh = self.github
         calls = []
         # Count every gh subprocess, including GraphQL and permission reads.
-        original = gh.runner if self.live else None
-        if self.live:
-            import subprocess
+        transport = isinstance(gh, GitHub)
+        original = gh.runner if transport else None
+        if transport:
             def count(command, **kwargs):
                 calls.append(command)
                 return (original or subprocess.run)(command, **kwargs)
             gh.runner = count
         rest_before = gh.rest_requests
+        quota_before = gh.quota_requests if transport else 0
         start = time.time()
         try:
             if self.loop is None:
@@ -104,10 +112,12 @@ class Observer:
         finally:
             self.last_requests = len(calls)
             self.last_rest = gh.rest_requests - rest_before
-            if self.live:
+            self.last_quota = gh.quota_requests - quota_before if transport else 0
+            self.last_graphql = sum(c[c.index('--include') + 1] == 'graphql' for c in calls)
+            if transport:
                 gh.runner = original
         if self.live and self.poll == 'manual refresh; idle':
-            gap, low = idle_interval(self.last_rest, 30, gh.resource_quotas, start, time.time() - start)
+            gap, low = idle_interval(self.last_quota, 30, gh.resource_quotas, start, time.time() - start)
             self.wait_until = start + gap
             self.poll = f'manual; refresh cooldown {gap:.0f}s' + ('; low quota' if low else '')
         return True
@@ -120,3 +130,11 @@ class Observer:
         lease = row['lease']
         return bool(lease and lease.get('host') == socket.gethostname()
                     and lease.get('state') == 'running')
+
+    def log_path(self, row):
+        if not self.log_allowed(row):
+            return None
+        directory = row['lease'].get('log_dir')
+        if not isinstance(directory, str) or not directory or not Path(directory).is_absolute():
+            return None
+        return Path(directory) / 'process.log'

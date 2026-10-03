@@ -26,16 +26,17 @@ class View(App):
     TabPane { padding: 0 1; }
     '''
     BINDINGS = [('q', 'quit', 'Close view'), ('r', 'snapshot', 'Refresh'),
+                Binding('ctrl+c', 'quit', show=False, priority=True),
                 ('f', 'follow', 'Follow'), ('u', 'raw', 'Raw'),
                 ('w', 'quota', 'Quota demo'), ('1', "tab('log')", 'Log'),
                 ('2', "tab('issue')", 'Issue'), ('3', "tab('runs')", 'Runs'),
                 Binding('pageup', 'older', 'Scroll up', priority=True), Binding('pagedown', 'newer', 'Scroll down', priority=True)]
 
-    def __init__(self, observer, log_path=None, replay=False):
+    def __init__(self, observer, replay=False):
         super().__init__()
         self.observer = observer
-        # Explicit single-run path; never follow a remote lease's log_dir.
-        self.tail = Tail(log_path) if log_path else None
+        # The selected lease, not its issue number, locates a local log.
+        self.tail = None
         self.replay = replay
         self.selected = None
         self.follow = True
@@ -79,6 +80,7 @@ class View(App):
     def populate(self):
         tree = self.query_one('#work', Tree)
         previous = (self.selected['number'], self.selected['agent']) if self.selected else None
+        self.selected = None
         tree.clear()
         for name in GROUPS:
             bucket = tree.root.add(name, expand=name != 'Recent activity')
@@ -119,12 +121,17 @@ class View(App):
             run_text += '\nNo accepted outcome for this row’s selected run.'
         run_text += '\n\nRuntime tool output is never a workflow outcome. No stop controls.'
         self.query_one('#runs_text', Static).update(Text(run_text))
+        path = self.observer.log_path(row)
+        if path != (self.tail.path if self.tail else None):
+            self.tail = Tail(path) if path else None
+            if self.tail:
+                self.tail.poll()
         self.seen = -1
         self.query_one('#output', RichLog).clear()
         self.show_log()
 
     def local_selected(self):
-        return self.selected and self.selected['number'] == 1 and self.observer.log_allowed(self.selected)
+        return self.selected and self.observer.log_path(self.selected) is not None
 
     def show_log(self):
         if not self.is_running:
@@ -141,6 +148,9 @@ class View(App):
             self.query_one('#log_note', Static).update('Live log unavailable for this row. No remote log or stop control.')
             return
         buffer = self.tail.buffer
+        if self.tail.error:
+            self.query_one('#log_note', Static).update(Text(f'Local log unreadable: {self.tail.error}'))
+            return
         try:
             raw_path = self.tail.path.relative_to(Path.cwd())
         except ValueError:
@@ -177,12 +187,12 @@ class View(App):
             self.replay_index += 1
             i = self.replay_index
             events = [
-                {'type': 'stream_event', 'timestamp': '2026-10-01T10:00:00Z', 'event': {'delta': {'text': f'Claude delta {i}: inspecting a local file'}}},
-                {'type': 'item.completed', 'item': {'type': 'command_execution', 'command': 'cat READ_ME.txt', 'aggregated_output': f'Codex tool output {i}: completed (not a workflow outcome)'}},
+                {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': f'Claude message {i}: inspecting a local file'}]}},
+                {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'tool_use_id': 'fixture-tool', 'content': f'Tool result {i}: completed (not a workflow outcome)'}]}},
                 {'type': 'future.event', 'payload': 'unfamiliar event; raw preserved'},
                 {'type': 'error', 'message': 'synthetic recoverable error'},
             ]
-            record = (json.dumps(events[i % len(events)]) + '\n').encode()
+            record = (f'exec: synthetic Codex human output {i}\n' if i % 5 == 0 else json.dumps(events[i % len(events)]) + '\n').encode()
             with self.tail.path.open('ab') as stream:
                 stream.write(record)
         if self.tail:
@@ -195,7 +205,8 @@ class View(App):
             return
         o = self.observer
         refreshed = datetime.fromtimestamp(o.refreshed, timezone.utc).strftime('%H:%M:%S UTC') if o.refreshed else 'none'
-        self.query_one('#status', Static).update(Text(f"{'Refreshing' if self.refreshing else 'Snapshot'}: {refreshed} · gh calls/refresh {o.last_requests} (REST {o.last_rest})\n{o.poll} · tail 100ms; selection/tab changes use snapshot"))
+        cost = f'gh calls {o.last_requests}; REST {o.last_rest}; charged {o.last_quota}; GraphQL {o.last_graphql}' if o.live else 'fixture store; no transport'
+        self.query_one('#status', Static).update(Text(f"{'Refreshing' if self.refreshing else 'Snapshot'}: {refreshed} · {cost}\n{o.poll} · tail 100ms; selection/tab changes use snapshot"))
 
     def action_tab(self, tab):
         self.query_one(TabbedContent).active = tab
@@ -227,17 +238,20 @@ class View(App):
 
 def main():
     parser = argparse.ArgumentParser(description='Isolated #97 observer experiment')
-    parser.add_argument('--log', type=Path, help='Explicit local raw log for fixture row #1')
-    parser.add_argument('--config', type=Path, help='Read-only live status refresh (logs/details integration unverified)')
+    parser.add_argument('--log', type=Path, help='Replay file named process.log, bound into a fixture lease')
+    parser.add_argument('--config', type=Path, help='Read-only live status and same-host lease logs (end-to-end unverified)')
     args = parser.parse_args()
-    observer = Observer(Path.cwd(), args.config)
-    if args.log:
-        View(observer, args.log).run()
+    if args.config:
+        View(Observer(Path.cwd(), args.config)).run()
+    elif args.log:
+        if args.log.name != 'process.log':
+            parser.error('--log must be named process.log, as in a real run directory')
+        View(Observer(Path.cwd(), log_path=args.log)).run()
     else:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
             path = Path(directory) / 'process.log'
             path.touch()
-            View(observer, path, replay=True).run()
+            View(Observer(Path.cwd(), log_path=path), replay=True).run()
 
 
 if __name__ == '__main__':
