@@ -8,7 +8,8 @@ import re
 from .errors import AgentError, GitHubError, LostOwnership
 from .notices import ACTION_MARKERS
 from .records import (RECORD_MARKERS, lease_by_id,
-                      positive_int, records, same_run, seconds)
+                      positive_int, records, recovers, same_run, seconds)
+from .trust import LauncherTrust
 
 MARKER = "<!-- ub-agents:approval:v1 -->"
 APPROVAL_MARKERS = (MARKER, "<!-- ub-agent:approval:v1 -->")
@@ -146,10 +147,10 @@ def check_issue(github, number, trigger_labels):
         return ApprovalCheck(False, "Issue approval history is unreadable; retry or ask a maintainer")
 
 
-def check_pr(github, number, trigger_labels, actor=None):
+def check_pr(github, number, trigger_labels, actor=None, *, launchers=None):
     """PR heads require explicit approval or accepted, eligible agent ancestry."""
     try:
-        return _check_input(github, number, set(trigger_labels), "pr", actor or github.actor())
+        return _check_input(github, number, set(trigger_labels), "pr", actor or github.actor(), launchers)
     except (AgentError, KeyError, TypeError, ValueError, AttributeError) as exc:
         if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and exc.rate_limited):
             raise
@@ -160,7 +161,7 @@ def is_record(comment):
     return comment["body"].startswith(APPROVAL_MARKERS + RECORD_MARKERS + ACTION_MARKERS)
 
 
-def _check_input(github, number, trigger_labels, kind="issue", actor=None):
+def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None):
     content = github.issue_content(number) if kind == "issue" else github.pr_content(number)
     if not isinstance(content["title"], str) or not isinstance(content["body"], str):
         raise ValueError("invalid content")
@@ -257,7 +258,7 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None):
                     raise ValueError("invalid reviewed head")
                 approving_reviews.append((seconds(review["created_at"]), review["commit_id"]))
         if not eligible_head(content["head"], number, approving_reviews, approvals, starts,
-                             comments, roles, actor,
+                             comments, roles, actor, launchers=launchers,
                              allow_revisions=(content["head_repository"] is not None and
                                               content["head_repository"].casefold() == github.repository.casefold())):
             return verdict(False, "PR head is not approved; a maintainer must approve the current head",
@@ -281,7 +282,7 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None):
 
 
 def eligible_head(head, number, approving_reviews, approvals, starts, comments, roles, actor, *,
-                  allow_revisions):
+                  allow_revisions, launchers=None):
     """Follow accepted revisions in the base repository from eligible source claims."""
     eligible = {}
     for at, sha in approving_reviews + [(at, r["head_sha"]) for at, r in approvals]:
@@ -292,10 +293,8 @@ def eligible_head(head, number, approving_reviews, approvals, starts, comments, 
     # fork authors can move their branch during a run, and agents cannot revise it.
     if not allow_revisions:
         return False
-    # Only the authenticated launcher's coordination comments supply ancestry.
-    if roles({"login": actor}) not in TRUSTED:
-        return False
-    history = records(comments, actor)
+    trusted = LauncherTrust(roles.github, launchers, role=lambda login: roles({"login": login}))
+    history = records(comments, trusted=trusted)
     changed = True
     while changed:
         changed = False
@@ -313,8 +312,7 @@ def eligible_head(head, number, approving_reviews, approvals, starts, comments, 
                 continue
             # Acceptance alone is insufficient while the run can still push or fail.
             released = (lease["state"] == "released" and lease.get("result") == "success") or any(
-                r["kind"] == "lease" and r.get("recovered_lease_id") == lease["id"]
-                and r.get("recovered_run") == lease["run"] and r["state"] == "released"
+                recovers(r, lease) and r["state"] == "released"
                 and r.get("result") == "success" and r["agent"] == lease["agent"]
                 and r["assignment"] == number and r.get("cleanup") != "unconfirmed" for r in history)
             sha, at = outcome["candidate_sha"], seconds(outcome["created"])

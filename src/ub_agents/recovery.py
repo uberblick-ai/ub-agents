@@ -6,7 +6,7 @@ from .coordination import Plan
 from .errors import AgentError, CleanupError
 from .execution import group_members
 from .loop import Loop
-from .records import latest_leases, live_leases, records
+from .records import latest_leases, live_leases
 
 
 def recover_run(config, github, actor, number, agent_name, reason, output=print):
@@ -24,14 +24,10 @@ def recover_run(config, github, actor, number, agent_name, reason, output=print)
 
     def check(_history=None):
         nonlocal observed
-        # Include other comment authors so a different actor's latest lease is
-        # refused explicitly rather than mistaking an older owned lease for it.
-        history = records(loop.github.comments(number))
+        history = loop.coordinator.history(number)
         observed = latest_leases(history).get((number, agent_name))
         if observed is None:
             refuse("no latest lease")
-        if observed["actor"].casefold() != actor.casefold():
-            refuse("latest lease belongs to another actor")
         if observed.get("host") != socket.gethostname():
             refuse("latest lease belongs to another host or has no recorded host")
         if observed["state"] not in {"claiming", "running"}:

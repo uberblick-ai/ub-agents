@@ -55,7 +55,8 @@ class DiscoveryTests(unittest.TestCase):
                     list(loop.iter_plans())
                     loop.github.reads.clear()
                     list(loop.iter_plans())
-                    self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,))])
+                    self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,)),
+                                                      ("role", ("operator",))])
                     for changes in ({"labels": items[1].labels | {"extra"}},
                                     {"updated_at": "2026-01-03T00:00:00Z"}):
                         loop.github.change(2, **changes)
@@ -127,7 +128,7 @@ class DiscoveryTests(unittest.TestCase):
                         loop = self.loop([issue(n) if kind == "issue" else pr(n, body="")
                                           for n in range(1, size + 1)])
                         github = loop.github
-                        accounts = {"maintainer", "commenter", "editor", "renamer"}
+                        accounts = {"operator", "maintainer", "commenter", "editor", "renamer"}
                         github.roles.update(commenter="write", editor="write", renamer="write",
                                             reviewer="maintain", inline="write", outsider="read")
                         for number, item in github.items.items():
@@ -179,17 +180,20 @@ class DiscoveryTests(unittest.TestCase):
             loop.github.change(number, updated_at=at(30))
         loop.github.reads.clear()
         self.assertEqual([p.state for p in loop.iter_plans()], ["ready", "parked", "parked"])
-        self.assertEqual([args for name, args in loop.github.reads if name == "role"], [("maintainer",)])
+        self.assertEqual([args for name, args in loop.github.reads if name == "role"],
+                         [("operator",), ("maintainer",)])
 
     def test_unreadable_permissions_are_shared_only_until_next_pass(self):
         loop = self.loop([issue(1), issue(2)])
-        loop.github.roles.pop("maintainer")
+        loop.github.roles["maintainer"] = None
         self.assertEqual([p.state for p in loop.iter_plans()], ["parked", "parked"])
-        self.assertEqual([args for name, args in loop.github.reads if name == "role"], [("maintainer",)])
+        self.assertEqual([args for name, args in loop.github.reads if name == "role"],
+                         [("operator",), ("maintainer",)])
         loop.github.roles["maintainer"] = "maintain"
         loop.github.reads.clear()
         self.assertEqual([p.state for p in loop.iter_plans()], ["ready", "ready"])
-        self.assertEqual([args for name, args in loop.github.reads if name == "role"], [("maintainer",)])
+        self.assertEqual([args for name, args in loop.github.reads if name == "role"],
+                         [("operator",), ("maintainer",)])
 
     def test_each_claim_check_rereads_permissions_after_planning(self):
         for status in (False, True):
@@ -210,9 +214,10 @@ class DiscoveryTests(unittest.TestCase):
                             patch("ub_agents.loop.supervise") as run:
                         self.assertEqual(loop.execute(plans[0]), revoke == "after-election")
                     run.assert_not_called()
-                    expected = [("maintainer",)] if revoke == "before-write" else [
-                        ("maintainer",), ("maintainer",), ("operator",)]
-                    self.assertEqual([args for name, args in loop.github.reads if name == "role"], expected)
+                    roles_read = [args for name, args in loop.github.reads if name == "role"]
+                    self.assertEqual(roles_read.count(("maintainer",)),
+                                     1 if revoke == "before-write" else 2)
+                    self.assertIn(("operator",), roles_read)
                     history = loop.coordinator.history(1)
                     self.assertEqual(attempts(history, "worker", loop.coordinator.clock()), [])
                     if revoke == "before-write":
@@ -279,7 +284,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn(("comments", (1,)), loop.github.reads)
         loop.github.reads.clear()
         self.assertEqual(next(loop.iter_plans()).state, "ready")
-        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,))])
+        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,)),
+                                                      ("role", ("operator",))])
 
     def test_changed_blocker_state_updates_inheritance_without_rereading_dependents(self):
         loop = self.loop([issue(1, ("ready", "low")), issue(2, ("urgent",))],
@@ -289,7 +295,8 @@ class DiscoveryTests(unittest.TestCase):
         loop.github.change(2, state="closed")
         loop.github.reads.clear()
         self.assertIsNone(next(loop.iter_plans()).priority_source)
-        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,))])
+        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,)),
+                                                      ("role", ("operator",))])
 
     def test_dependency_links_are_fresh_at_claim_even_after_cached_zero(self):
         loop = self.loop([replace(issue(1), total_blocked_by=0), issue(2, ())])

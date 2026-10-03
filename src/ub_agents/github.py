@@ -289,7 +289,7 @@ class GitHub:
             if isinstance(exc, GitHubError) and exc.rate_limited:
                 raise
             return None
-        role = raw.get("role_name")
+        role = raw.get("role_name") if isinstance(raw, dict) else None
         return role if isinstance(role, str) and role in {"admin", "maintain", "write", "triage", "read", "none"} else None
 
     def timeline(self, number):
@@ -579,6 +579,9 @@ class GitHub:
 
     def update_comment(self, comment_id, body):
         return self.request(f"{self.prefix}/issues/comments/{comment_id}", "PATCH", {"body": body})
+
+    def delete_comment(self, comment_id):
+        return self.request(f"{self.prefix}/issues/comments/{comment_id}", "DELETE")
 
     def graphql(self, query, variables):
         result = self.request("graphql", "POST", {"query": query, "variables": variables})

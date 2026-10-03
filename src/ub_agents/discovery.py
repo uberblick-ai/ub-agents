@@ -80,6 +80,11 @@ class Discovery:
             return None
         account = login.casefold()
         key = ("role", (account,), self.scope)
+        if account in self.pass_roles:
+            value = self.pass_roles[account]
+            if value is not None:
+                self.cache[key] = value
+            return value
         if key not in self.cache:
             if account not in self.pass_roles:
                 self.pass_roles[account] = self.github.role(login)
@@ -88,6 +93,22 @@ class Discovery:
                 return None  # Share unreadable roles this pass, retry next pass.
             self.cache[key] = value
         return self.cache[key]
+
+    def current_role(self, login):
+        # Coordination authors must be rechecked even if no item changed.
+        if not isinstance(login, str) or not login:
+            return None
+        account = login.casefold()
+        key = ("role", (account,))
+        if key in self.pass_errors:
+            raise self.pass_errors[key]
+        if account not in self.pass_roles:
+            try:
+                self.pass_roles[account] = self.github.role(login)
+            except AgentError as exc:
+                self.pass_errors[key] = exc
+                raise
+        return self.pass_roles[account]
 
     def __getattr__(self, name):
         if name not in self.ITEM_READS | {"prs_for_branch"}:

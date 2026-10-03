@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import re
+import socket
 
 from .coordination import Coordinator
 from .errors import AgentError, CleanupError
@@ -43,7 +44,7 @@ class Cleaner:
         self.config = config
         self.root = config.root
         self.github = github
-        self.coordinator = Coordinator(github, actor)
+        self.coordinator = Coordinator(github, actor, launchers=config.launchers)
         self.output = output
         self.blocked_runs = set()
         self.preview_worktrees = set()
@@ -86,8 +87,6 @@ class Cleaner:
         if len(leases) != 1:
             raise AgentError("Run lease cannot be found unambiguously")
         lease = leases[0]
-        if lease["actor"].casefold() != self.coordinator.actor.casefold():
-            raise AgentError("Run lease is owned by another actor")
         if artifact.kind == "branch":
             match = BRANCH.fullmatch(artifact.name)
             if (lease["agent"] != match[1] or lease["assignment"] != int(match[2])
@@ -109,6 +108,8 @@ class Cleaner:
         return lease, outcomes[0] if outcomes else None
 
     def eligible_lease(self, lease, history):
+        if lease.get("host") != socket.gethostname():
+            raise AgentError("Run lease belongs to another host or has no recorded host")
         if lease.get("cleanup") == "unconfirmed":
             raise AgentError("Run cleanup is unconfirmed")
         run_dir = self.root / ".ub-agents" / "runs" / lease["run"]

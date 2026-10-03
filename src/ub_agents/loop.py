@@ -25,6 +25,7 @@ from .refresh import refresh_checkout, refresh_instructions
 from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
+from .trust import LauncherTrust
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -47,7 +48,7 @@ class Loop:
         self.config = config
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
-                                       on_claim=self.github.claimed)
+                                       on_claim=self.github.claimed, launchers=config.launchers)
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
@@ -61,6 +62,7 @@ class Loop:
         self._released_blockers = {}
         self._poll_complete = False
         self._refreshing_checkout = False
+        self._launcher_reason = None
         self._maintaining = False
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
@@ -108,7 +110,8 @@ class Loop:
         triggers = {label for a in self.config.agents if a.kind in {item.kind, "either"}
                     for label in a.triggers}
         check = (check_issue(github, item.number, triggers) if item.kind == "issue" else
-                 check_pr(github, item.number, triggers, self.coordinator.actor))
+                 check_pr(github, item.number, triggers, self.coordinator.actor,
+                          launchers=self.config.launchers))
         if check.snapshot and (check.snapshot["title"], check.snapshot["body"],
                               check.snapshot.get("head")) != (item.title, item.body, item.head):
             return ApprovalCheck(False, "Assignment changed while reading approval input; retry")
@@ -131,11 +134,12 @@ class Loop:
         github = self.discovery if cached else Discovery(self.github)
         lookback = max(agent.lease_seconds for agent in self.config.agents) + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
-        history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
                                   runtime_available=self.maintenance.available,
-                                  runtime_paused=self.usage.paused)
+                                  runtime_paused=self.usage.paused, launchers=self.config.launchers,
+                                  role=github.current_role)
+        history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
         latest = latest_leases(history_index)
         unfinished = {r["assignment"] for r in latest.values()
@@ -270,6 +274,10 @@ class Loop:
             if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
                                                 and seconds(record["expires"]) > now)):
                 plan = coordinator.plan(item, agent, self.config.stop_labels, history)
+                if plan.state in {"ready", "recover", "blocked", "backoff"} and coordinator.actor is not None:
+                    if reason := coordinator.trust.reason(coordinator.actor):
+                        yield replace(plan, state="blocked", runtime=None, reason=reason, history=tuple(history))
+                        continue
                 if plan.state in {"ready", "blocked", "backoff"} and agent in matched:
                     if approval is None:
                         approval = self.input_check(item, github)
@@ -320,6 +328,14 @@ class Loop:
                 self._shown[key] = value
         self._shown = {key: value for key, value in self._shown.items() if key in present}
         self._released_blockers = {key: value for key, value in self._released_blockers.items() if key in present}
+        # Even an empty or already-owned queue must explain why this account
+        # cannot claim. Reuse the discovery pass's permission observation.
+        if self.coordinator.actor is not None:
+            trusted = LauncherTrust(self.discovery, self.config.launchers, self.discovery.current_role)
+            reason = trusted.reason(self.coordinator.actor)
+            if reason and reason != self._launcher_reason:
+                self.output(f"{reason}; claiming no work")
+            self._launcher_reason = reason
         return False
 
     def park_approval(self, plan):
@@ -402,6 +418,8 @@ class Loop:
                 self.github.repository = config.repository
             self.config = config
             self.coordinator.queue = config.queue
+            self.coordinator.trust.launchers = (None if config.launchers is None else
+                                               {login.casefold() for login in config.launchers})
             plan = next((p for p in self.iter_plans() if p.item.number == plan.item.number
                          and p.agent.name == plan.agent.name and p.state == "ready"), None)
             if plan is None:

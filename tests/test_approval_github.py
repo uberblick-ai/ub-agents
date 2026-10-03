@@ -13,7 +13,7 @@ class ApprovalGitHubTests(unittest.TestCase):
             with self.subTest(role=role), patch.object(github, "request", return_value={"role_name": role}) as request:
                 self.assertEqual(github.role("some-bot[bot]"), role)
                 self.assertEqual(request.call_args.args, ("repos/org/project/collaborators/some-bot%5Bbot%5D/permission",))
-        for raw in ({"permission": "admin"}, {"role_name": "custom"}, {"role_name": None}, {"role_name": []}):
+        for raw in ({"permission": "admin"}, {"role_name": "custom"}, {"role_name": None}, {"role_name": []}, [], None):
             with patch.object(github, "request", return_value=raw):
                 self.assertIsNone(github.role("operator"))
         with patch.object(github, "request", side_effect=GitHubError("GET", "permission", "Forbidden")):
