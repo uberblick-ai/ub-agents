@@ -406,7 +406,7 @@ class QueueTests(unittest.TestCase):
             structured = io.StringIO()
             with redirect_stdout(structured):
                 self.assertEqual(main(["status", "--json"]), 0)
-            self.assertEqual(json.loads(structured.getvalue()), rows)
+            self.assertEqual(json.loads(structured.getvalue())["assignments"], rows)
             plain = io.StringIO()
             with redirect_stdout(plain):
                 self.assertEqual(main(["status"]), 0)
@@ -632,7 +632,7 @@ class MilestoneGateTests(unittest.TestCase):
             structured = io.StringIO()
             with redirect_stdout(structured):
                 self.assertEqual(main(["status", "--json"]), 0)
-            self.assertEqual(json.loads(structured.getvalue()), rows)
+            self.assertEqual(json.loads(structured.getvalue())["assignments"], rows)
             plain = io.StringIO()
             with redirect_stdout(plain):
                 self.assertEqual(main(["status"]), 0)

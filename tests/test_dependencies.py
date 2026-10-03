@@ -289,7 +289,7 @@ class DependencyTests(unittest.TestCase):
                 patch("ub_agents.cli.GitHub", return_value=self.github):
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status", "--json"]), 0)
-            self.assertEqual(json.loads(output.getvalue()), rows)
+            self.assertEqual(json.loads(output.getvalue())["assignments"], rows)
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status"]), 0)
             self.assertIn("priority priority:normal (inherited from #21) · "
@@ -414,7 +414,7 @@ class DependencyTests(unittest.TestCase):
                 patch("ub_agents.cli.GitHub", return_value=self.github):
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status", "--json"]), 0)
-            self.assertEqual(json.loads(output.getvalue()), rows)
+            self.assertEqual(json.loads(output.getvalue())["assignments"], rows)
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status"]), 0)
             self.assertIn("priority:urgent (inherited from #21)", output.getvalue())
