@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -270,6 +271,20 @@ class PublisherTests(unittest.TestCase):
             failed.submit(b"{}")
         self.assertEqual(len(self.lines), 1)
         self.assertIn("Cannot start writer", self.lines[0])
+
+    def test_interrupt_during_listener_start_preserves_descriptor_ownership(self):
+        publisher = Publisher.__new__(Publisher)
+        start = threading.Thread.start
+        def interrupt(thread):
+            start(thread)
+            raise KeyboardInterrupt
+        with patch("ub_agents.observations.threading.Thread.start", side_effect=interrupt, autospec=True), \
+                self.assertRaises(KeyboardInterrupt):
+            publisher.__init__(self.root, self.lines.append)
+        publisher.process.wait(timeout=5)
+        publisher.diagnostics.join(timeout=5)
+        self.assertFalse(publisher.diagnostics.is_alive())
+        self.assertEqual(self.lines, [])
 
     def test_heartbeat_keeps_idle_session_fresh(self):
         observer = Observations(config(self.root), "operator", None, self.publisher())

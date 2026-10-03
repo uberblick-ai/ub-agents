@@ -55,7 +55,7 @@ def observation_writer_command(body):
     """Run a controlled failing or stalled writer in the real isolated helper."""
     script = ("import os,sys,socket,time\nfrom pathlib import Path\n"
               "from ub_agents.observation_worker import run\n"
-              "root,fd,life,errors=sys.argv[1:]\n"
+              "root,fd,life,errors,guard=sys.argv[1:]\n"
               "def writer(directory,state):\n"
               "    (Path(root)/'writer-entered').touch()\n" + body + "\n"
               "run(root,socket.socket(fileno=int(fd)),int(life),int(errors),writer=writer)\n")

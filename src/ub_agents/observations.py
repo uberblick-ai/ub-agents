@@ -41,7 +41,7 @@ class Publisher:
         self.process = None
         self.sender = self.receiver = self.life_write = None
         life_read = error_read = error_write = None
-        listener_started = False
+        error_stream = None
         try:
             self.sender, self.receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
             # Darwin's default Unix datagram send buffer is only 2 KiB. Reserve
@@ -54,15 +54,19 @@ class Publisher:
             error_read, error_write = os.pipe()
             argv = command or [sys.executable, "-m", "ub_agents.observation_worker"]
             self.process = subprocess.Popen(
-                [*argv, str(root), str(self.receiver.fileno()), str(life_read), str(error_write)],
-                pass_fds=(self.receiver.fileno(), life_read, error_write),
+                [*argv, str(root), str(self.receiver.fileno()), str(life_read), str(error_write), str(self.sender.fileno())],
+                pass_fds=(self.receiver.fileno(), life_read, error_write, self.sender.fileno()),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
 
+            # Transfer descriptor ownership before starting the listener. A signal
+            # can interrupt Thread.start after the thread has already begun.
+            error_stream = os.fdopen(error_read, "rb")
+            error_read = None
             # Diagnostics and reaping also stay off the execution path.
             def diagnostic():
                 try:
-                    with os.fdopen(error_read, "rb") as stream:
+                    with error_stream as stream:
                         detail = stream.read(1024).decode("utf-8", errors="replace")
                     if detail:
                         self.warning(detail)
@@ -72,14 +76,13 @@ class Publisher:
                         self.warning(f"Observation worker exited {code}")
             self.diagnostics = threading.Thread(target=diagnostic, daemon=True)
             self.diagnostics.start()
-            listener_started = True
         except BaseException as exc:
             self.close()
             if not isinstance(exc, (OSError, RuntimeError)):
                 raise
             self.warning(str(exc))
         finally:
-            for descriptor in (life_read, error_write, error_read if not listener_started else None):
+            for descriptor in (life_read, error_write, error_read):
                 if descriptor is not None:
                     os.close(descriptor)
 

@@ -16,11 +16,12 @@ from ub_agents.doctor import diagnose, render
 from ub_agents.errors import AgentError
 from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
-from tests.support import DoctorGitHub, RecordingRunner, issue
+from tests.support import DoctorGitHub, RecordingRunner, issue, isolate_observations
 
 
 class DoctorTests(unittest.TestCase):
     def setUp(self):
+        isolate_observations(self)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()

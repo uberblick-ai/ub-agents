@@ -13,7 +13,7 @@ from ub_agents.cli import main
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.polling import idle_interval
-from tests.support import RecordingRunner, config
+from tests.support import RecordingRunner, config, isolate_observations
 
 
 def quota(remaining=999, reset=4600, limit=5000):
@@ -23,6 +23,7 @@ def quota(remaining=999, reset=4600, limit=5000):
 
 class IdlePollingTests(unittest.TestCase):
     def setUp(self):
+        isolate_observations(self)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)

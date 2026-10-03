@@ -118,7 +118,10 @@ def run(root, receiver, life, errors, writer=write_snapshot):
 
 
 def main():
-    root, receiver_fd, life_fd, error_fd = sys.argv[1:]
+    root, receiver_fd, life_fd, error_fd, sender_fd = sys.argv[1:]
+    # Keep the inherited sender descriptor open for the lifetime of this helper.
+    # Darwin discards queued datagrams on peer disconnect; this reference lets
+    # the final snapshot survive launcher close/exit without any producer wait.
     receiver = socket.socket(fileno=int(receiver_fd))
     receiver.setblocking(False)
     run(root, receiver, int(life_fd), int(error_fd))
