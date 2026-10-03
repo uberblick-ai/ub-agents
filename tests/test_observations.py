@@ -272,6 +272,20 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(len(self.lines), 1)
         self.assertIn("Cannot start writer", self.lines[0])
 
+    def test_clean_exit_during_an_in_progress_write_drains_final_snapshot(self):
+        body = ("    from ub_agents.observation_worker import write_snapshot\n"
+                "    write_snapshot(directory,state)\n"
+                "    while not (Path(root)/'finish-write').exists():\n"
+                "        time.sleep(0.01)\n"
+                "    time.sleep(0.1)")
+        publisher = self.publisher(observation_writer_command(body))
+        observer = Observations(config(self.root), "operator", None, publisher)
+        self.wait_for(lambda: self.read(observer.state["session"]))
+        observer.close()
+        (self.root / "finish-write").touch()
+        self.wait_for(lambda: self.read(observer.state["session"])["ended"])
+        self.assertEqual(self.lines, [])
+
     def test_interrupt_during_listener_start_preserves_descriptor_ownership(self):
         publisher = Publisher.__new__(Publisher)
         start = threading.Thread.start

@@ -98,6 +98,9 @@ def run(root, receiver, life, errors, writer=write_snapshot):
     try:
         while True:
             select.select([receiver, life], [], [], HEARTBEAT_SECONDS if latest else 0.1)
+            # Capture EOF before draining. If EOF arrives during a write, take
+            # another turn to receive the launcher's final queued snapshot.
+            finishing = ended.is_set()
             # Bound draining so continuous activity cannot starve publication.
             for _ in range(256):
                 try:
@@ -109,7 +112,7 @@ def run(root, receiver, life, errors, writer=write_snapshot):
                     latest = candidate
             if latest:
                 writer(directory, latest)
-            if ended.is_set():
+            if finishing:
                 return
     except Exception as exc:
         os.write(errors, str(exc).encode("utf-8", errors="replace")[:1024])
