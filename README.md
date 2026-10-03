@@ -99,6 +99,7 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agent status` | Show matching work, who owns it, and what it reported |
 | `ub-agent launch --once` | Run at most one assignment, then exit |
 | `ub-agent cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
+| `ub-agent recover --number N --agent NAME [--apply]` | Preview evidence for a stopped local run; apply safe recovery without execution |
 | `ub-agent retry` | Let stopped work run again, with a recorded reason |
 | `ub-agent approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agent check` | Validate the configuration files only |
@@ -292,7 +293,12 @@ confirmed cleanup; the launcher logs the exit code.
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
 transition before it starts. After removing it, set the workflow labels you want or
-run `ub-agent retry`. The exact rules for claims, attempts, transitions and recovery
+run `ub-agent retry`. A run with durable proof of local supervisor shutdown can be
+recovered before lease expiry with `ub-agent recover --number N --agent NAME --apply`;
+omit `--apply` to inspect its evidence and proposed action. Launchers apply the same
+recovery on restart and later polls. Legacy leases wait for expiry. Recovery keeps
+artifacts and failure budgets, and finishes a valid reported outcome or releases
+interrupted work for normal planning. The exact rules for claims, attempts, transitions and recovery
 are in the [coordination contract](docs/coordination.md).
 
 Private worktrees left by crashed runs and retained local branches can be inspected

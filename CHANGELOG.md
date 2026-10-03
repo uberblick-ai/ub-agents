@@ -6,6 +6,15 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- `ub-agent recover --number N --agent NAME [--apply]` previews local shutdown
+  evidence and safely finishes or releases interrupted assignments before lease
+  expiry. Launcher restart and later polls use the same recovery, preserving
+  outcomes, artifacts and failure budgets. Legacy or inconclusive evidence waits
+  for expiry. **Upgrading:** stop and upgrade all project launchers together;
+  older launchers do not recognize superseded early-recovery leases (#102).
+
 ### Changed
 
 - Claims store outcome label additions compactly, with declared triggers and stop

@@ -1,6 +1,7 @@
 """Versioned coordination comments. Prose is for people, JSON is the contract."""
 
 from datetime import datetime, timezone
+import hashlib
 import json
 
 from .errors import AgentError, RecordError
@@ -117,7 +118,7 @@ def latest_leases(history):
     """Latest non-withdrawn lease after each item/agent's last explicit reset."""
     resets = {(r["assignment"], r["agent"]): r["id"] for r in history if r["kind"] == "reset"}
     latest = {}
-    for record in history:
+    for record in elected_leases(history):
         key = record["assignment"], record["agent"]
         if (record["kind"] == "lease" and record["state"] != "withdrawn"
                 and record["id"] > resets.get(key, 0)):
@@ -187,6 +188,16 @@ def validate(record):
     if "attempt_effect" in record and record["attempt_effect"] not in {"pending", "failure", "reset", "unchanged"}:
         raise ValueError("invalid attempt effect")
     if record.get("kind") == "lease":
+        if "supersedes_lease_id" in record:
+            if (record.get("mode") != "recovery" or not positive_int(record["supersedes_lease_id"])
+                    or not positive_int(record.get("recovered_lease_id"))
+                    or not isinstance(record.get("recovered_run"), str)
+                    or not isinstance(record.get("observed_lease"), str)
+                    or len(record["observed_lease"]) != 64
+                    or not isinstance(record.get("recovery"), dict)
+                    or record["recovery"].get("entry_point") not in {"cli", "launcher"}
+                    or record["recovery"].get("actor") != record["actor"]):
+                raise ValueError("invalid exact recovery claim")
         if record.get("state") not in LEASE_STATES:
             raise ValueError("invalid lease state")
         if not positive_int(record.get("attempt")):
@@ -246,15 +257,44 @@ def payload(record):
     return {k: v for k, v in record.items() if k not in {"id", "url"}}
 
 
+def fingerprint(record):
+    return hashlib.sha256(json.dumps(payload(record), sort_keys=True,
+                                    separators=(",", ":")).encode()).hexdigest()
+
+
+def elected_leases(history):
+    """Early recovery supersedes an exact snapshot; lowest contender ID wins.
+
+    Keep the election after release and expiry. A crashed winner is recovered by
+    claiming against that winner, never by resurrecting its original supervisor.
+    A changed source invalidates the whole chain, including its descendants.
+    """
+    selected, superseded = {}, set()
+    for record in sorted(history, key=lambda r: r["id"]):
+        if record["kind"] != "lease" or record["state"] == "withdrawn":
+            continue
+        target = record.get("supersedes_lease_id")
+        if target is not None:
+            source = selected.get(target)
+            if (source is None or target in superseded
+                    or fingerprint(source) != record.get("observed_lease")
+                    or (source["assignment"], source["agent"], source["actor"]) !=
+                       (record["assignment"], record["agent"], record["actor"])):
+                continue
+            superseded.add(target)
+        selected[record["id"]] = record
+    return [r for key, r in selected.items() if key not in superseded]
+
+
 def live_leases(history, now):
-    return [r for r in history if r["kind"] == "lease"
-            and r["state"] in {"claiming", "running"} and seconds(r["expires"]) > now]
+    return [r for r in elected_leases(history)
+            if r["state"] in {"claiming", "running"} and seconds(r["expires"]) > now]
 
 
 def attempt_effect(history, lease, now):
     """Resolve a new run's verdict, including recovery, without rewriting its lease."""
-    recoveries = [r for r in history if r["kind"] == "lease"
-                  and r.get("recovered_lease_id") == lease["id"]
+    recoveries = [r for r in elected_leases(history)
+                  if r.get("recovered_lease_id") == lease["id"]
                   and r.get("recovered_run") == lease["run"]
                   and (r["assignment"], r["agent"], r["actor"]) ==
                       (lease["assignment"], lease["agent"], lease["actor"])

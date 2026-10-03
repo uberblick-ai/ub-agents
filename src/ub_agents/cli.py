@@ -40,6 +40,10 @@ def parser():
     status.add_argument("--json", action="store_true", help="Emit structured status")
     cleanup = commands.add_parser("cleanup", help="Preview stale owned worktrees and local branches")
     cleanup.add_argument("--apply", action="store_true", help="Remove eligible artifacts after rechecking")
+    recover = commands.add_parser("recover", help="Preview recovery of a provably stopped local assignment")
+    recover.add_argument("--number", type=int, required=True)
+    recover.add_argument("--agent", required=True)
+    recover.add_argument("--apply", action="store_true", help="Recheck evidence and recover without execution")
     report = commands.add_parser("report", help="Record a supervised run's explicit outcome on GitHub")
     verdict = report.add_mutually_exclusive_group(required=True)
     verdict.add_argument("--status", choices=["retry", "blocked"], help="Failure verdict; changes no labels")
@@ -186,6 +190,18 @@ def run(args):
                 raise error
         Cleaner(config, github, actor).clean(apply=args.apply)
         return
+    if args.command == "recover":
+        from .recovery import apply, inspect
+        agent = next((a for a in config.agents if a.name == args.agent), None)
+        if agent is None or args.number < 1:
+            raise AgentError("recover requires a positive item number and a configured agent")
+        for _, error in repository_checks(config):
+            if error is not None:
+                raise error
+        loop = Loop(config, github, actor)
+        decision = (apply if args.apply else inspect)(loop, args.number, agent, "cli")
+        decision.render(print)
+        return 1 if args.apply and not decision.applied else 0
     if args.command == "retry":
         if args.agent not in {agent.name for agent in config.agents}:
             raise AgentError("Unknown configured agent")

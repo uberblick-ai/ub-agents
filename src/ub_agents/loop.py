@@ -19,6 +19,7 @@ from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing
 from .rate_limits import RateLimitReads
 from .polling import idle_interval
 from .hooks import run_hook
+from .shutdown import confirm_cleanup
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
                       lease_summary, resolve_transition, seconds, timestamp)
 from .refresh import refresh_checkout, refresh_instructions
@@ -240,7 +241,8 @@ class Loop:
                 yield Plan(item, agent, None, "blocked", str(exc),
                            len(attempts(history, agent.name, now)) + 1, history=tuple(history))
                 continue
-            if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
+            recovering = record and record.get("supersedes_lease_id") is not None and record["state"] in {"claiming", "running"}
+            if (agent in matched or pending or parked or recovering or (record and record["state"] in {"claiming", "running"}
                                                 and seconds(record["expires"]) > now)):
                 plan = coordinator.plan(item, agent, self.config.stop_labels, history)
                 if plan.state in {"ready", "blocked", "backoff"} and agent in matched:
@@ -279,6 +281,17 @@ class Loop:
                     return False
             elif plan.state == "recover":
                 if self.recover(plan):
+                    return True
+            elif plan.state == "owned":
+                from .recovery import apply, inspect
+                decision = inspect(self, plan.item.number, plan.agent, "launcher")
+                if decision.eligible:
+                    decision = apply(self, plan.item.number, plan.agent, "launcher", self._end_poll)
+                key, value = (plan.item.number, plan.agent.name), decision.line()
+                if self._shown.get(key) != value:
+                    self.output(value)
+                self._shown[key] = value
+                if decision.applied:
                     return True
             else:
                 if plan.approval_gate:
@@ -451,6 +464,13 @@ class Loop:
                 return True
             try:
                 workspace.cleanup(before_remove)
+                if record:
+                    try:
+                        confirm_cleanup(self.config, lease)
+                    except (AgentError, OSError, ValueError) as exc:
+                        # Missing diagnostics may disable early recovery, but
+                        # cannot substitute for a successful ordinary release.
+                        diagnostic("cleanup-confirmation-unrecorded", error=str(exc))
             except CleanupError as exc:
                 if record:
                     record_uncertainty(exc)
@@ -475,6 +495,7 @@ class Loop:
             self.coordinator.update(lease, state="running", started=True,
                                     host=socket.gethostname(), log_dir=str(run_dir))
             cwd = workspace.prepare()
+            self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, branch=lease.get("branch"))
             current = self.github.item(plan.item.number, plan.item.kind)
             if current.labels.intersection(self.config.stop_labels):
@@ -708,12 +729,12 @@ class Loop:
         self.coordinator.copy_handoff(lease, outcome)
         # Consume assignment labels before publishing the next role's trigger.
         for label in sorted(set(transition["remove"])):
-            self.coordinator.assert_owned(lease)
             if label in self.github.item(outcome["assignment"]).labels:
+                self.coordinator.assert_owned(lease)
                 self.github.remove_label(outcome["assignment"], label)
-        self.coordinator.assert_owned(lease)
         missing = sorted(set(transition["add"]).difference(self.github.item(target).labels))
         if missing:
+            self.coordinator.assert_owned(lease)
             self.github.add_labels(target, missing)
         if not outcome.get("transition_complete"):
             self.coordinator.update_outcome(lease, outcome, transition_complete=True)
@@ -726,6 +747,12 @@ class Loop:
 
     def _recover(self, plan):
         history = self.coordinator.history(plan.item.number)
+        latest = latest_leases(history).get((plan.item.number, plan.agent.name))
+        if latest and latest.get("supersedes_lease_id") is not None:
+            from .recovery import apply
+            decision = apply(self, plan.item.number, plan.agent, "launcher", self._end_poll)
+            self.output(decision.line())
+            return decision.applied
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
             return False

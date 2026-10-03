@@ -528,6 +528,14 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
+- `ub-agent recover --number N --agent NAME [--apply]` previews the exact lease,
+  reported outcome, shutdown evidence and proposed action. `--apply` rechecks and
+  finishes valid outcomes or releases interrupted work; it exits nonzero when
+  refused. Early recovery requires the same actor, machine and boot, proven
+  supervisor exit, stopped process and hook groups, and durable cleanup confirmation.
+  Legacy or inconclusive evidence keeps the claim until expiry. Launcher restart
+  and later polls use the same operation. Recovery runs no agent or cleanup hook,
+  removes no artifacts and resets no failure budget. See [Recovery](coordination.md#recovery).
 - `ub-agent status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
   Each agent's `reported:` (JSON `outcome`) describes that agent's live lease's run,
   or its latest lease's run when it has no live lease. Recovery leases show the

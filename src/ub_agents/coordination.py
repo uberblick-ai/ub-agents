@@ -4,14 +4,16 @@ from dataclasses import dataclass, field
 import re
 import shutil
 import uuid
+from types import SimpleNamespace
 
 from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime
 from .errors import AgentError, GitHubError, LostOwnership, RecordError
 from .github import Item
 from .notices import Notices
-from .records import (MARKER, LEGACY_MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
+from .records import (MARKER, LEGACY_MARKER, attempt_effect, attempts, backoff, body, fingerprint, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       own_comment, payload, records, same_run, seconds, timestamp)
+from .shutdown import identity_fields
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,8 @@ class Coordinator:
         runtime = None
         if live_leases(history, now):
             state, reason = "owned", "An unexpired assignment owns this work item"
+        elif latest and latest[-1].get("supersedes_lease_id") is not None and latest[-1]["state"] in {"claiming", "running"}:
+            state, reason = "recover", "Interrupted recovery must finish without reexecution"
         elif self.pending_completion(history, agent.name, now):
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
         elif latest and latest[-1].get("cleanup") == "unconfirmed":
@@ -287,7 +291,7 @@ class Coordinator:
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False,
-                  "attempt_effect": "pending"}
+                  "attempt_effect": "pending", **identity_fields()}
         if not recovery:
             record["declared_triggers"] = list(plan.agent.triggers)
             record["stop_labels"] = list(stop_labels)
@@ -326,6 +330,8 @@ class Coordinator:
         return created
 
     def update(self, lease, **changes):
+        if lease.get("supersedes_lease_id") is not None:
+            self.assert_owned(lease)
         updated = payload(lease) | changes
         result = records([self.github.update_comment(lease["id"], body(updated))], self.actor)[0]
         lease.clear()
@@ -334,12 +340,29 @@ class Coordinator:
 
     def assert_owned(self, lease):
         try:
-            contenders = live_leases(self.history(lease["assignment"]), self.clock())
+            history = self.history(lease["assignment"])
+            if lease.get("supersedes_lease_id") is not None:
+                history = self.assert_recovery_snapshot(lease)
+            contenders = live_leases(history, self.clock())
         except AgentError as exc:
             raise LostOwnership(f"Cannot establish ownership: {exc}") from exc
         if not contenders or contenders[0]["id"] != lease["id"] or not same_run(contenders[0], lease):
             raise LostOwnership("Assignment ownership was lost or expired")
         return contenders[0]
+
+    def assert_recovery_snapshot(self, lease):
+        item = self.github.item(lease["assignment"])
+        if self.shared_branch_owner(item, SimpleNamespace(name=lease["agent"]), self.history(item.number)):
+            raise LostOwnership("Another live lease or unconfirmed cleanup owns the shared branch")
+        # Branch reads must not leave a stale item snapshot authorizing a write.
+        history = self.history(item.number)
+        current = lease_by_id(history, lease["id"])
+        latest = latest_leases(history).get((item.number, lease["agent"]))
+        if current is None or latest is None or latest["id"] != lease["id"] or fingerprint(current) != fingerprint(lease):
+            raise LostOwnership("Recovery lease was updated, released or replaced, or lost its election")
+        if any(r["id"] != lease["id"] for r in live_leases(history, self.clock())):
+            raise LostOwnership("Another live lease on this item requires waiting")
+        return history
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
                 max_attempts=None):
@@ -354,8 +377,13 @@ class Coordinator:
         changes = {"attempt_effect": attempt_effect} if "attempt_effect" in lease else {}
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, **changes)
-        self.notices.advisory("released run comments", lambda:
-                              self.notices.released(lease, reported, summary, parking_outcome, max_attempts))
+        if lease.get("supersedes_lease_id") is not None:
+            self.notices.before_write = lambda: self.assert_recovery_snapshot(lease)
+        try:
+            self.notices.advisory("released run comments", lambda:
+                                  self.notices.released(lease, reported, summary, parking_outcome, max_attempts))
+        finally:
+            self.notices.before_write = None
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])

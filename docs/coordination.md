@@ -382,8 +382,65 @@ lost, no comment protocol can make that verdict durable.
 
 ## Recovery
 
-An unexpired lease always excludes pickup. Expiry permits a new fresh run, never
-conversation resumption. Durable attempts and backoff survive restarts.
+An unexpired lease excludes pickup until its owner releases it or a recovery
+claim safely supersedes it. Expiry permits a new fresh run, never conversation
+resumption. Durable attempts and backoff survive restarts.
+
+`ub-agent recover --number N --agent NAME` is a read-only preview. It shows the
+item and role, exact lease comment/run/attempt, actor, host identity, expiry,
+reported outcome with acceptance or rejection, every evidence check and the
+proposed action. Add `--apply` to recheck everything and act; refusal exits nonzero.
+Launcher discovery at restart and later polls applies the same evaluator and
+action to eligible unexpired leases.
+
+Early recovery requires all of the following:
+
+- The lease belongs to the current GitHub actor and matches this machine and boot.
+  Linux records machine-id and boot-id; macOS records the platform UUID and boot
+  session UUID. A hostname is only descriptive. Missing or unreadable identities
+  disable early recovery without preventing ordinary execution or expiry recovery.
+- The original supervisor PID, recorded with its birth identity, is absent. A
+  live or reused PID refuses recovery. No process is signalled by these checks.
+- Every recorded agent process group is gone, including groups in local diagnostics,
+  and every cleanup hook has a durable confirmed stop and no remaining group.
+- The supervisor durably wrote a matching `cleanup-confirmed.json` after process
+  supervision and workspace cleanup, and neither the lease nor local diagnostics
+  records unconfirmed cleanup. Missing, redirected or unreadable evidence refuses.
+
+A success report, missing heartbeat, missing process group, or launcher restart
+alone proves nothing. Legacy leases without machine/boot and supervisor identities,
+including the run in PR #74, wait for expiry.
+
+| Observed case | Recovery action |
+|---|---|
+| Reported outcome, no persisted nonsuccess supervisor verdict | Run the usual outcome validation and resumable finalization below. Accept success only if valid; preserve durable rejections, stop-label pauses and candidate provenance. |
+| Persisted timeout, interrupt or failure verdict | Release with the recorded verdict and count effect, retaining its backoff. An early report remains unaccepted. |
+| No report or persisted verdict | Record interruption, add one consecutive failure and release with bounded backoff; `max-attempts` still parks exhausted work. |
+| Any eligibility check fails or cannot be read | Keep the claim and show the failed check and lease expiry. Expiry recovery and human investigation remain available. |
+
+Recovery creates a separate bounded lease recording the actor, CLI or launcher
+entry point, evidence, source comment/run, exact observed lease fingerprint and
+result. It rereads coordination history and shared-branch ownership immediately
+before writes. Only the lowest-comment-ID recoverer of that exact lease wins;
+updated, released or replaced leases and other live item or branch owners refuse.
+The winning claim supersedes the original even after recovery release or expiry,
+so its old supervisor fails its next ownership check. GitHub remains a cooperative
+comment protocol rather than an atomic lock service.
+
+Repeating completed recovery makes no writes. A crash during recovery or
+finalization resumes the same original outcome without execution or double-counting.
+An unfinished recovery claim needs its own same-host shutdown proof or lease
+expiry before another recoverer can supersede it. Missing cleanup confirmation
+after a recovery-claim write therefore waits for expiry. Recovery never runs an
+agent, a cleanup hook or `ub-agent cleanup`, and deletes no comments, runs,
+worktrees, branches or logs. Once released, normal planning applies approval,
+trigger, dependency and retry gates. Preview, apply and launcher logs distinguish
+accepted completion, rejected/blocked or parked outcomes, interrupted work released
+for normal retry with its backoff, and refusal/waiting with the lease expiry.
+
+**Upgrade launchers together:** older releases do not understand early-recovery
+supersession and would continue treating the original lease as live. Stop all
+project launchers, upgrade them together, then restart.
 
 At startup, launcher and `status` discovery read repository issue comments updated
 within the longest configured agent lease plus seven days. The full lease includes

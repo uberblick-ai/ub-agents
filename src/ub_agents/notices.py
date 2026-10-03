@@ -13,6 +13,7 @@ class Notices:
     def __init__(self, github, actor, output=print):
         self.github, self.actor, self.output = github, actor, output
         self._approval_attempted = set()
+        self.before_write = None
 
     def advisory(self, operation, action):
         try:
@@ -29,6 +30,8 @@ class Notices:
         pending = self.advisory("comment minimization state read",
                                 lambda: self.github.unminimized_comments(comments))
         for comment in pending or ():
+            if self.before_write is not None:
+                self.before_write()
             self.advisory(f"minimize comment {comment['id']}",
                           lambda: self.github.minimize_comment(comment))
 
@@ -153,5 +156,7 @@ class Notices:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
         reason = " ".join(summary.split())
+        if self.before_write is not None:
+            self.before_write()
         self.github.create_comment(number,
             f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n")
