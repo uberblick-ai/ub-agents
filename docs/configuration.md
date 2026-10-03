@@ -2,8 +2,8 @@
 
 `ub-agents.yaml` sits at the root of the repository the agents work on. Unknown keys are
 errors; `ub-agents check` validates the file. Commands use this file by default;
-`--config PATH` selects another configuration file. `init` writes the selected file
-or `ub-agents.yaml` by default.
+`--config PATH` selects another configuration file before or after the command.
+`init` writes the selected file or `ub-agents.yaml` by default.
 
 ## Top level
 
@@ -854,7 +854,7 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
   JSON has `version`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
-- `ub-agents approve --number N` prints the current issue or PR title, body and
+- `ub-agents approve N` prints the current issue or PR title, body and
   outside comments; for PRs it also prints the head, outside reviews and review
   comments. It posts one [approval record](approvals.md#approving-current-input),
   pinning a PR head and recording the feedback it clears. It requires the
@@ -879,7 +879,7 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
   signal handling and execution exit codes as `launch --once`.
 - `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
-- `ub-agents recover --number N --agent NAME --reason TEXT` finishes the latest lease's
+- `ub-agents recover N --reason TEXT [--agent NAME]` finishes the latest lease's
   reported outcome on the launcher's host, including before expiry. The lease must
   come from a trusted account, record this hostname and a process group
   with no live members, and have an outcome within its validity window that no
@@ -894,7 +894,7 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
   inspected: live members display `running` and the path to `process.log`; an
   exited group explains launcher completion or recovery after lease expiry. If
   that owning run reported an outcome, the reason also points to
-  `ub-agents recover --number N --agent NAME --reason TEXT` for recovery now; the
+  `ub-agents recover N --agent NAME --reason TEXT` for recovery now; the
   command's eligibility checks still apply. Other reasons distinguish a starting
   run, a claim without a host, another host, outcome recovery and an unknown
   process state with its inspection error. Inspection failures leave `status`
@@ -912,9 +912,21 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
 - `ub-agents report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
-- `ub-agents retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
+- `ub-agents retry N --reason TEXT [--agent NAME]` resets one agent's consecutive failure count on
   an item once you have fixed the cause. It prints the reset record's link and a
-  second line explaining closure, stop labels to remove, trigger labels to add,
+  next-step line explaining closure, stop labels to remove, trigger labels to add,
   or pickup by a running launcher on its next poll. Labels stay unchanged; use
   `ub-agents status` for progress and other pickup gates.
-- `--config PATH` selects a different configuration file.
+  For `retry` and `recover`, omitting `--agent` selects the first configured agent
+  whose `kind` matches the item or is `either`, and prints its name before acting.
+  Trigger labels and other eligibility gates do not affect this selection. If no
+  agent applies, the command fails without recording anything. Specify `--agent`
+  when acting on a particular agent's attempts or lease.
+- `approve`, `retry` and `recover` require a positive item number. The deprecated
+  `--number N` alias remains available for one release and is hidden from help;
+  giving the number both ways is a usage error.
+- `--config PATH` selects a different configuration file before or after any
+  command except `report`, which reads no configuration. Giving it in both
+  positions is a usage error. For example, `ub-agents --config x.yaml launch` and
+  `ub-agents launch --config x.yaml` both write `.ub-agents/launch.log` next to
+  `x.yaml`.

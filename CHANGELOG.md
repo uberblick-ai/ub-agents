@@ -18,6 +18,14 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
   with reached plans, process state and session outcomes. Publication adds no
   GitHub reads and cannot hold up execution or shutdown (#113).
 
+### Changed
+
+- Configuration commands accept `--config` before or after the command; `approve`,
+  `retry` and `recover` take positional numbers, retaining deprecated `--number`
+  for one release (#130).
+- `retry` and `recover` default to the first configured agent whose kind applies
+  and print the selected agent before acting (#130).
+
 ### Removed
 
 - Compatibility with the old `ub-agent` command, configuration, environment,

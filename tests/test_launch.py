@@ -569,7 +569,8 @@ class TargetedLaunchTests(unittest.TestCase):
         writes = self.github.writes[:]
         for role, reason in ((worker, "backoff — Durable retry backoff has not elapsed"),
                              (replace(worker, max_attempts=1),
-                              "blocked — Attempt limit exhausted; inspect failures and use ub-agents retry")):
+                              "blocked — Attempt limit exhausted; inspect failures and use "
+                              "ub-agents retry 11 --agent worker --reason TEXT")):
             self.config = config(self.root, role)
             code, stdout, _, run = self.launch("11")
             self.assertEqual(code, 1)

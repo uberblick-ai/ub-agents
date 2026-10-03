@@ -34,7 +34,7 @@ def parser():
     init = commands.add_parser("init", help="Copy customizable starter configuration and instructions")
     init.add_argument("--repository", help="GitHub owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="Initial cli:model:effort for starter agents")
-    commands.add_parser("check", help="Validate local project configuration without executing agents")
+    check = commands.add_parser("check", help="Validate local project configuration without executing agents")
     doctor = commands.add_parser("doctor", help="Check machine, GitHub and runtime prerequisites")
     doctor.add_argument("--json", action="store_true", help="Emit versioned prerequisite results")
     launch = commands.add_parser("launch", help="Run the serial foreground loop")
@@ -52,15 +52,18 @@ def parser():
     report.add_argument("--summary", required=True)
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
     retry = commands.add_parser("retry", help="Record a human-authorized reset of blocked work/attempt limits")
-    retry.add_argument("--number", type=int, required=True)
-    retry.add_argument("--agent", required=True)
+    retry.add_argument("--agent", help="Configured agent (default: first matching item kind)")
     retry.add_argument("--reason", required=True)
     recover = commands.add_parser("recover", help="Recover a stopped local launcher's reported outcome before expiry")
-    recover.add_argument("--number", type=int, required=True)
-    recover.add_argument("--agent", required=True)
+    recover.add_argument("--agent", help="Configured agent (default: first matching item kind)")
     recover.add_argument("--reason", required=True, help="Attest that the launcher has stopped")
     approve = commands.add_parser("approve", help="Approve current issue or PR input as a maintainer")
-    approve.add_argument("--number", type=int, required=True)
+    for command in (retry, recover, approve):
+        command.add_argument("number", type=int, nargs="?", help="Issue or PR number")
+        command.add_argument("--number", dest="legacy_number", type=int, help=argparse.SUPPRESS)
+    for command in (init, check, doctor, launch, status, cleanup, retry, recover, approve):
+        command.add_argument("--config", dest="command_config",
+                             help="Project configuration (default: ub-agents.yaml)")
     return result
 
 
@@ -222,6 +225,13 @@ def run(args):
         print(f"Approval posted: {created['html_url']}")
         return
     coordinator = Coordinator(github, actor, launchers=config.launchers)
+    if args.command in {"retry", "recover"} and args.agent is None:
+        item = github.item(args.number)
+        agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)
+        if agent is None:
+            raise AgentError(f"No configured agent applies to {item.kind} #{item.number}")
+        args.agent = agent.name
+        print(f"Using agent {agent.name} for {item.kind} #{item.number}.")
     if args.command == "recover":
         from .recovery import recover_run
         recover_run(config, github, actor, args.number, args.agent, args.reason)
@@ -336,6 +346,17 @@ def main(argv=None):
     with ExitStack() as stack:
         try:
             args = parser().parse_args(argv)
+            command_config = getattr(args, "command_config", None)
+            if command_config is not None:
+                if args.config is not None:
+                    parser().error("--config may be given before or after the command, not both")
+                args.config = command_config
+            if args.command in {"approve", "retry", "recover"}:
+                if args.number is not None and args.legacy_number is not None:
+                    parser().error(f"{args.command} accepts either N or --number N, not both")
+                args.number = args.number if args.number is not None else args.legacy_number
+                if args.number is None or args.number < 1:
+                    parser().error(f"{args.command} requires a positive item number")
             args.default_config = args.config is None
             if args.command == "launch":
                 if args.agent is not None and args.number is None:

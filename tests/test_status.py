@@ -93,7 +93,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn("reported: success (unaccepted)", plain)
         self.assertIn("Agent process has exited. A launcher accepts the reported outcome when it "
                       "recovers the lease after 09:51Z, or run "
-                      "`ub-agents recover --number 1 --agent worker --reason TEXT` now.", plain)
+                      "`ub-agents recover 1 --agent worker --reason TEXT` now.", plain)
 
     def test_local_lease_without_process_group_is_starting(self):
         lease = self.claim()
@@ -297,7 +297,7 @@ class StatusTests(unittest.TestCase):
                 by_agent = {row["agent"]: row for row in rows}
                 worker_row, other_row = by_agent[self.agent.name], by_agent[other.name]
                 self.assertEqual((worker_row["process"], other_row["process"]), ("exited", "exited"))
-                self.assertIn("--number 1 --agent other --reason TEXT", worker_row["process_reason"])
+                self.assertIn("recover 1 --agent other --reason TEXT", worker_row["process_reason"])
                 self.assertNotIn("--agent worker", worker_row["process_reason"])
                 self.assertEqual(worker_row["state"], "owned")
                 self.assertEqual(worker_row["lease"]["run"], lease["run"])

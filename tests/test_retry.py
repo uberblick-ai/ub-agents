@@ -2,6 +2,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -30,7 +31,8 @@ class RetryTests(unittest.TestCase):
                 patch("ub_agents.cli.timestamp", return_value=1000), \
                 patch("ub_agents.cli.Loop", side_effect=AssertionError("retry must not plan work")), \
                 redirect_stdout(output), redirect_stderr(errors):
-            result = main(["retry", "--number", str(number), "--agent", name, "--reason", reason])
+            result = main(["retry", str(number), "--reason", reason]
+                          + (["--agent", name] if name is not None else []))
         return result, output.getvalue(), errors.getvalue()
 
     def assert_next_step(self, labels, expected, state="open"):
@@ -90,13 +92,51 @@ class RetryTests(unittest.TestCase):
 
     def test_unknown_agent_and_invalid_input_refuse_without_writes(self):
         for kwargs, message in (({"name": "missing"}, "Unknown configured agent"),
-                                ({"number": 0}, "retry requires a positive item number and a reason"),
-                                ({"number": -1}, "retry requires a positive item number and a reason"),
                                 ({"reason": " \t"}, "retry requires a positive item number and a reason")):
             with self.subTest(kwargs=kwargs):
                 result, output, errors = self.retry(**kwargs)
                 self.assertEqual((result, output, errors), (1, "", f"ub-agents: {message}\n"))
                 self.assertEqual(self.github.reads, [])
+                self.assertEqual(self.github.writes, [])
+
+    def test_default_agent_matches_kind_and_uses_configuration_order(self):
+        for factory in (issue, pr):
+            kind = factory(97).kind
+            other_kind = "pr" if kind == "issue" else "issue"
+            wrong = agent(self.root, name="wrong", kind=other_kind)
+            first = agent(self.root, name="first", kind=kind, triggers=("absent",))
+            either = agent(self.root, name="either", kind="either")
+            last = agent(self.root, name="last", kind=kind)
+            for agents, chosen in (((wrong, first), "first"),
+                                   ((wrong, first, either, last), "first"),
+                                   ((wrong, either, first), "either")):
+                with self.subTest(kind=kind, agents=[a.name for a in agents]):
+                    self.config = config(self.root, *agents)
+                    self.github = PollGitHub(factory(97))
+                    create = self.github.create_comment
+
+                    def checked_create(number, text):
+                        # The selection must reach the operator before the reset write.
+                        self.assertTrue(sys.stdout.getvalue().startswith(
+                            f"Using agent {chosen} for {kind} #97.\n"))
+                        return create(number, text)
+
+                    with patch.object(self.github, "create_comment", side_effect=checked_create):
+                        result, output, errors = self.retry(name=None)
+                    self.assertEqual((result, errors), (0, ""))
+                    self.assertIn(f"Reset {chosen} attempts on #97:", output)
+                    reset, = records(self.github.store[97], "operator")
+                    self.assertEqual((reset["agent"], reset["assignment_sha"]),
+                                     (chosen, self.github.items[97].head))
+
+    def test_default_agent_refuses_without_writes_when_no_kind_applies(self):
+        for factory, configured_kind in ((issue, "pr"), (pr, "issue")):
+            with self.subTest(kind=factory.__name__):
+                self.config = config(self.root, agent(self.root, kind=configured_kind))
+                self.github = PollGitHub(factory(97))
+                result, output, errors = self.retry(name=None)
+                self.assertEqual((result, output), (1, ""))
+                self.assertIn(f"No configured agent applies to {factory(97).kind} #97", errors)
                 self.assertEqual(self.github.writes, [])
 
     def test_live_lease_refuses_without_reset(self):

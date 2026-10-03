@@ -354,7 +354,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_cli_plain_text_and_nonzero_refusal(self):
         lease, _ = self.start()
-        argv = ["recover", "--number", "1", "--agent", self.agent.name, "--reason", "Launcher stopped"]
+        argv = ["recover", "1", "--agent", self.agent.name, "--reason", "Launcher stopped"]
         with patch("ub_agents.cli.load_config", return_value=self.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github):
             self.groups.return_value = [1234]
@@ -369,7 +369,8 @@ class RecoveryTests(unittest.TestCase):
             stdout = io.StringIO()
             self.manual.output = print
             with redirect_stdout(stdout):
-                self.assertEqual(main(argv), 0)
+                self.assertEqual(main(["recover", "1", "--reason", "Launcher stopped"]), 0)
+            self.assertTrue(stdout.getvalue().startswith("Using agent worker for issue #1.\n"))
             self.assertIn("outcome accepted", stdout.getvalue())
             self.assertIn("added to #2: needs-review", stdout.getvalue())
 
@@ -379,3 +380,51 @@ class RecoveryTests(unittest.TestCase):
                 with self.assertRaises(AgentError):
                     self.early(**overrides)
                 self.assertEqual(self.github.writes, [])
+
+
+class RecoveryAgentSelectionTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+
+    def test_default_agent_uses_first_applicable_kind_and_prints_before_recovery(self):
+        for factory in (issue, pr):
+            item = factory(42)
+            wrong = agent(self.root, name="wrong", kind="pr" if item.kind == "issue" else "issue")
+            first = agent(self.root, name="first", kind=item.kind)
+            either = agent(self.root, name="either", kind="either")
+            for agents, chosen in (((wrong, first), "first"),
+                                   ((wrong, first, either), "first"),
+                                   ((wrong, either, first), "either")):
+                with self.subTest(kind=item.kind, agents=[a.name for a in agents]):
+                    cfg = config(self.root, *agents)
+                    github = FakeGitHub(item)
+                    output = io.StringIO()
+
+                    def recover(*args):
+                        self.assertEqual(output.getvalue(), f"Using agent {chosen} for {item.kind} #42.\n")
+
+                    with patch("ub_agents.cli.load_config", return_value=cfg), \
+                            patch("ub_agents.cli.GitHub", return_value=github), \
+                            patch("ub_agents.recovery.recover_run", side_effect=recover) as run, \
+                            redirect_stdout(output):
+                        self.assertEqual(main(["recover", "42", "--reason", "Launcher stopped"]), 0)
+                    run.assert_called_once_with(cfg, github, "operator", 42, chosen, "Launcher stopped")
+
+    def test_no_applicable_agent_refuses_without_recovery_or_records(self):
+        for factory, configured_kind in ((issue, "pr"), (pr, "issue")):
+            with self.subTest(kind=factory.__name__):
+                item = factory(42)
+                cfg = config(self.root, agent(self.root, kind=configured_kind))
+                github = FakeGitHub(item)
+                output, errors = io.StringIO(), io.StringIO()
+                with patch("ub_agents.cli.load_config", return_value=cfg), \
+                        patch("ub_agents.cli.GitHub", return_value=github), \
+                        patch("ub_agents.recovery.recover_run") as run, \
+                        redirect_stdout(output), redirect_stderr(errors):
+                    self.assertEqual(main(["recover", "42", "--reason", "Launcher stopped"]), 1)
+                self.assertEqual(output.getvalue(), "")
+                self.assertIn(f"No configured agent applies to {item.kind} #42", errors.getvalue())
+                run.assert_not_called()
+                self.assertEqual(github.writes, [])
