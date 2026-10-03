@@ -5,7 +5,18 @@ from pathlib import Path
 
 from .errors import CleanupError
 from .execution import group_members
-from .records import same_run, seconds
+from .records import live_leases, same_run, seconds
+
+
+def refusal_reason(plan, now, host):
+    """Use status's process verdict and lease details for a scoped refusal."""
+    active = live_leases(plan.history, now)
+    if not active:
+        return plan.state, plan.reason
+    lease = active[0]
+    process, reason = process_details(lease, plan.history, now, host)
+    state = "running" if plan.state == "owned" and process == "running" else plan.state
+    return state, f"{lease_summary(lease, now)} · {reason}"
 
 
 def display_time(value, now):

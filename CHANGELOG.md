@@ -8,6 +8,11 @@ notes are copied from that section.
 
 ### Added
 
+- `ub-agents launch N [--agent NAME]` runs or recovers one specific item under
+  normal eligibility gates, using the first eligible configured agent or the named
+  agent. It reads only the item's required inputs, skips queue ranking, and explains
+  ineligible work with status reasons and a nonzero exit (#127).
+
 - Launchers pause Claude and Codex runs at 90% usage or a reported usage limit,
   until the window reset plus one minute, with a 15-minute fallback for untrusted
   resets. Limit failures retry without attempts or backoff; alternatives remain

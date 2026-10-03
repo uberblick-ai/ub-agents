@@ -38,6 +38,8 @@ def parser():
     doctor = commands.add_parser("doctor", help="Check machine, GitHub and runtime prerequisites")
     doctor.add_argument("--json", action="store_true", help="Emit versioned prerequisite results")
     launch = commands.add_parser("launch", help="Run the serial foreground loop")
+    launch.add_argument("number", type=int, nargs="?", help="Run only this item, then exit")
+    launch.add_argument("--agent", help="Evaluate only this configured agent (requires an item number)")
     launch.add_argument("--once", action="store_true", help="Observe once and execute at most one assignment")
     status = commands.add_parser("status", help="Read current assignments, leases, attempts, and outcomes")
     status.add_argument("--json", action="store_true", help="Emit structured status")
@@ -204,6 +206,9 @@ def run(args):
         render(result, json_output=args.json)
         return 0 if result["ok"] else 1
     config = load_config(args.config)
+    if args.command == "launch" and args.agent is not None:
+        if not any(agent.name == args.agent for agent in config.agents):
+            parser().error(f"Unknown configured agent: {args.agent}")
     if args.command == "check":
         from .config import instruction_text
         for agent in config.agents:
@@ -302,7 +307,9 @@ def run(args):
                 for sig in (signal.SIGINT, signal.SIGHUP)}
     handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: loop.stop_gracefully())
     try:
-        loop.launch(once=args.once)
+        if args.number is not None:
+            return loop.launch(once=True, number=args.number, agent_name=args.agent)
+        return loop.launch(once=args.once)
     except _GracefulStop:
         return
     finally:
@@ -316,6 +323,10 @@ def main(argv=None):
             args = parser().parse_args(argv)
             args.default_config = args.config is None
             if args.command == "launch":
+                if args.agent is not None and args.number is None:
+                    parser().error("launch --agent requires an item number")
+                if args.number is not None and args.number < 1:
+                    parser().error("launch requires a positive item number")
                 stack.enter_context(launch_output(Path(args.config or DEFAULT_CONFIG).resolve().parent))
             args.config = (Path(args.config or DEFAULT_CONFIG).resolve()
                            if args.command in {"init", "report"} else resolve_config_path(args.config))

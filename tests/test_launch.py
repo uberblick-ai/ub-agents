@@ -1,5 +1,6 @@
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta
+from dataclasses import replace
 import io
 import os
 from pathlib import Path
@@ -12,10 +13,13 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.errors import AgentError
+from ub_agents.config import Priority, Queue
+from ub_agents.coordination import Coordinator
+from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
-from tests.support import FakeGitHub, RecordingRunner, config
+from ub_agents.records import timestamp
+from tests.support import FakeGitHub, PollGitHub, RecordingRunner, agent, config, issue, pr
 
 
 class LaunchTests(unittest.TestCase):
@@ -188,3 +192,309 @@ with patch('ub_agents.cli.run', side_effect=launch):
             if process.poll() is None:
                 process.kill()
             process.communicate(timeout=5)
+
+
+class TargetedLaunchTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
+        self.config = config(self.root)
+        self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+        self.now = timestamp()
+        self.loop = None
+
+    def coordinator(self):
+        return Coordinator(self.github, "operator", clock=lambda: self.now, queue=self.config.queue,
+                           output=lambda *_: None)
+
+    def report_success(self, command, cwd, env, *args, **kwargs):
+        co = self.loop.coordinator
+        number = int(env["UB_AGENTS_ASSIGNMENT"])
+        lease = next(r for r in reversed(co.history(number)) if r["kind"] == "lease")
+        co.report(lease, "success", "Completed", outcome="done")
+        return 0
+
+    def launch(self, *args, execute=None, refresh=None):
+        def create(*args, **kwargs):
+            self.loop = Loop(*args, **kwargs)
+            self.loop.coordinator.clock = lambda: self.now
+            return self.loop
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch("ub_agents.cli.load_config", side_effect=lambda *_: self.config), \
+                patch("ub_agents.loop.load_config", side_effect=lambda *_: self.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.Loop", side_effect=create), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.loop.refresh_checkout", side_effect=refresh), \
+                patch("ub_agents.loop.supervise", side_effect=execute or self.report_success) as run, \
+                patch("threading.Event.wait") as wait, \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            code = main(self.argv + list(args))
+        wait.assert_not_called()
+        log = self.root / ".ub-agents" / "launch.log"
+        self.assertTrue(log.exists())
+        logged = "\n".join(line.split(" ", 1)[1] for line in log.read_text().splitlines())
+        for line in (stdout.getvalue() + stderr.getvalue()).splitlines():
+            self.assertIn(line, logged)
+        return code, stdout.getvalue(), stderr.getvalue(), run
+
+    def assert_scoped(self, number=11):
+        forbidden = {"observe", "repository_comments", "dependency_graph", "milestone_order"}
+        self.assertFalse(forbidden.intersection(name for name, _ in self.github.reads), self.github.reads)
+        item_reads = {"item", "comments", "timeline", "issue_content", "pr_content", "reviews",
+                      "review_comments", "blocked_by"}
+        self.assertTrue(all(args[0] == number for name, args in self.github.reads if name in item_reads),
+                        self.github.reads)
+        self.assertNotIn(1, self.github.store)
+        self.assertEqual(self.github.items[1].labels, frozenset({"ready", "urgent"}))
+
+    def test_eligible_item_runs_once_without_discovering_or_ranking_other_work(self):
+        self.config = config(self.root, queue=Queue(milestones="order", priority=Priority(("urgent",))))
+        self.github.dependencies[1] = [11]  # Would also cause priority inheritance in a queue pass.
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+        self.assertIn("#11 worker: claimed", stdout)
+        lease, outcome = self.coordinator().history(11)
+        self.assertEqual((lease["state"], lease["result"], outcome["accepted"]),
+                         ("released", "success", True))
+        self.assert_scoped()
+
+    def test_explicit_once_is_accepted_with_number(self):
+        code, _, _, run = self.launch("11", "--once")
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+        self.assert_scoped()
+
+    def test_live_lease_refusal_includes_status_process_reason_and_owner(self):
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
+        co.update(lease, state="running", started=True, host="remote-host")
+        writes = self.github.writes[:]
+        self.github.reads.clear()
+        with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
+            code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertIn("#11 worker: owned — claimed by @operator on remote-host", stdout)
+        self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, writes)
+        self.assert_scoped()
+
+    def test_stop_label_refuses_with_status_reason_without_writes(self):
+        self.github.change(11, labels=frozenset({"ready", "needs-human"}))
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: parked — Stop label needs-human is present\n")
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        self.assert_scoped()
+
+    def test_open_dependency_refuses_and_reads_only_targets_blockers(self):
+        self.github.dependencies[11] = [1]
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: parked — Waiting for blockers #1\n")
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        self.assert_scoped()
+
+    def test_no_trigger_refuses_with_labels_to_add(self):
+        self.github.change(11, labels=frozenset())
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n")
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        self.assert_scoped()
+
+    def test_missing_and_closed_items_are_named(self):
+        self.github.read_results["item"] = [GitHubError("GET", "repos/org/project/issues/11", "HTTP 404")]
+        # A failed read is an ordinary one-off launch error, with the item named.
+        with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(main(self.argv + ["11"]), 1)
+        self.assertIn("Cannot read #11", stderr.getvalue())
+        self.assertIn("HTTP 404", stderr.getvalue())
+        self.assertEqual(self.github.writes, [])
+        self.github.change(11, state="closed")
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11: issue is closed\n")
+        run.assert_not_called()
+        self.assert_scoped()
+
+    def test_named_agent_and_default_configuration_order(self):
+        first = agent(self.root, name="first")
+        second = agent(self.root, name="second")
+        self.config = config(self.root, first, second)
+        for args, expected in (((), "first"), (("--agent", "second"), "second")):
+            with self.subTest(args=args):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                code, _, _, run = self.launch("11", *args)
+                self.assertEqual(code, 0)
+                run.assert_called_once()
+                self.assertEqual(self.coordinator().history(11)[0]["agent"], expected)
+                self.assert_scoped()
+
+    def test_default_skips_ineligible_agent_and_named_agent_evaluates_only_it(self):
+        first = agent(self.root, name="first", command=("missing-command-for-test",))
+        second = agent(self.root, name="second")
+        self.config = config(self.root, first, second)
+        code, stdout, _, run = self.launch("11", "--agent", "first")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 first: blocked — Command is not installed: missing-command-for-test\n")
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+        self.assertEqual(self.coordinator().history(11)[0]["agent"], "second")
+        self.assert_scoped()
+
+    def test_named_agent_kind_and_trigger_mismatches_refuse(self):
+        self.config = config(self.root, agent(self.root, name="reviewer", kind="pr"),
+                             agent(self.root, name="other", triggers=("prepare",)))
+        for name, reason in (("reviewer", "No evaluated agent applies to this issue"),
+                             ("other", "No trigger matches; add a trigger label (other: prepare)")):
+            with self.subTest(name=name):
+                code, stdout, _, run = self.launch("11", "--agent", name)
+                self.assertEqual(code, 1)
+                self.assertEqual(stdout, f"#11: {reason}\n")
+                run.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+        self.assert_scoped()
+
+    def test_each_ineligible_agent_gets_its_status_reason(self):
+        self.config = config(self.root, agent(self.root, name="first"), agent(self.root, name="second"))
+        self.github.change(11, labels=frozenset({"ready", "needs-human"}))
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 first: parked — Stop label needs-human is present\n"
+                                 "#11 second: parked — Stop label needs-human is present\n")
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+
+    def test_agent_without_number_unknown_agent_and_invalid_numbers_are_usage_errors(self):
+        for args in (("--agent", "worker"), ("11", "--agent", "unknown"), ("0",), ("-1",),
+                     ("--number", "11")):
+            with self.subTest(args=args), \
+                    patch("ub_agents.cli.load_config", return_value=self.config), \
+                    patch("ub_agents.cli.GitHub") as github, \
+                    redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                main(self.argv + list(args))
+            self.assertEqual(raised.exception.code, 2)
+            github.assert_not_called()
+
+    def test_approval_refusal_performs_normal_parking_without_claiming(self):
+        self.github.timelines[11] = []
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertIn("#11 worker: parked — No maintainer", stdout)
+        run.assert_not_called()
+        self.assertIn("needs-human", self.github.items[11].labels)
+        self.assertEqual(self.coordinator().history(11), [])
+        self.assertTrue(self.github.writes)
+        self.assert_scoped()
+
+    def test_milestone_gate_refuses_but_order_does_not_rank(self):
+        self.config = config(self.root, queue=Queue(milestones="gate"))
+        self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+        self.github.change(1, milestone=3)
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: parked — Waiting for active milestone #3\n")
+        self.assertIn(("active_milestone", ()), self.github.reads)
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        self.assert_scoped()
+
+    def test_backoff_and_attempt_limit_match_status_reasons(self):
+        worker = replace(self.config.agents[0], backoff_seconds=120, max_backoff_seconds=120)
+        self.config = config(self.root, worker)
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], worker, ()))
+        co.update(lease, state="running", started=True)
+        co.report(lease, "retry", "Try later")
+        co.release(lease, "retry", "Try later", 120, attempt_effect="failure")
+        writes = self.github.writes[:]
+        for role, reason in ((worker, "backoff — Durable retry backoff has not elapsed"),
+                             (replace(worker, max_attempts=1),
+                              "blocked — Attempt limit exhausted; inspect failures and use ub-agents retry")):
+            self.config = config(self.root, role)
+            code, stdout, _, run = self.launch("11")
+            self.assertEqual(code, 1)
+            self.assertEqual(stdout, f"#11 worker: {reason}\n")
+            run.assert_not_called()
+            self.assertEqual(self.github.writes, writes)
+        self.assert_scoped()
+
+    def test_pending_completion_recovers_even_without_a_trigger_and_with_stop_label(self):
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
+        co.update(lease, state="running", started=True)
+        outcome = co.report(lease, "retry", "Reported before launcher stopped")
+        self.now += 61
+        self.github.change(11, labels=frozenset({"needs-human"}))
+        self.github.reads.clear()
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        run.assert_not_called()
+        self.assertIn("#11 worker: recovered durable outcome; no execution started", stdout)
+        history = self.coordinator().history(11)
+        recovery = next(r for r in history if r.get("mode") == "recovery")
+        self.assertEqual(recovery["recovered_lease_id"], lease["id"])
+        self.assertEqual(recovery["state"], "released")
+        self.assertEqual(history[1]["id"], outcome["id"])
+        self.assert_scoped()
+
+    def test_refresh_rechecks_only_target_and_refuses_new_stop_label(self):
+        def refresh(*_):
+            self.github.change(11, labels=frozenset({"ready", "needs-human"}))
+
+        code, stdout, _, run = self.launch("11", refresh=refresh)
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: parked — Stop label needs-human is present\n")
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+        self.assert_scoped()
+
+    def test_sigterm_drains_target_and_sigint_terminates_it_with_normal_exit_codes(self):
+        for sig, expected in ((signal.SIGTERM, 0), (signal.SIGINT, 130)):
+            with self.subTest(signal=sig):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                handlers = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM)}
+
+                def execute(*args, **kwargs):
+                    signal.raise_signal(sig)
+                    self.assertTrue(self.loop.stop_event.is_set())
+                    self.assertEqual(self.loop.interrupt_event.is_set(), sig == signal.SIGINT)
+                    if sig == signal.SIGINT:
+                        raise KeyboardInterrupt
+                    return self.report_success(*args, **kwargs)
+
+                code, stdout, stderr, run = self.launch("11", execute=execute)
+                self.assertEqual(code, expected)
+                run.assert_called_once()
+                lease = self.coordinator().history(11)[0]
+                self.assertEqual(lease["state"], "released")
+                if sig == signal.SIGINT:
+                    self.assertEqual(lease["attempt_effect"], "unchanged")
+                    self.assertEqual(stderr, "Stopped; supervised execution terminated\n")
+                self.assertEqual({s: signal.getsignal(s) for s in handlers}, handlers)
+                self.assert_scoped()
+
+    def test_pr_target_uses_pr_approval_without_queue_or_issue_dependency_reads(self):
+        self.github.items[11] = pr(11)
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+        self.assertIn("#11 worker: claimed", stdout)
+        self.assertIn(("pr_content", (11,)), self.github.reads)
+        self.assertFalse(any(name == "blocked_by" for name, _ in self.github.reads))
+        self.assert_scoped()

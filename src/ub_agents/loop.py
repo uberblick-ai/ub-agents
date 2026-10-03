@@ -21,6 +21,7 @@ from .polling import idle_interval
 from .hooks import run_hook
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
                       lease_summary, resolve_transition, seconds, timestamp)
+from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
@@ -60,6 +61,8 @@ class Loop:
         self._released_blockers = {}
         self._poll_complete = False
         self._refreshing_checkout = False
+        self._launch_number = None
+        self._launch_agent = None
 
     def wait_rate_limit(self, error, lease=None):
         now = self.coordinator.clock()
@@ -202,27 +205,58 @@ class Loop:
             if item.kind == "issue" and item.state == "open" and self.config.queue.dependencies == "wait":
                 if dependencies:
                     blockers = dependencies.blockers.get(item.number, ())
-                elif item.total_blocked_by != 0:
-                    blockers = tuple(dict.fromkeys(b.reference(self.config.repository) for b in
-                        sorted(github.blocked_by(item.number),
-                               key=lambda b: (b.repository.casefold(), b.number)) if b.state == "open"))
+                else:
+                    blockers = self._open_blockers(item, github)
             for plan in plans:
-                reasons = []
-                if (plan.state == "ready" or plan.approval_gate) and item.kind == "issue":
-                    if active_milestone is not None and item.milestone != active_milestone:
-                        reasons.append(f"Waiting for active milestone #{active_milestone}")
-                    if blockers:
-                        reasons.append(f"Waiting for blockers {', '.join(blockers)}")
-                if reasons:
-                    plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons),
-                                   approval_gate=None)
+                plan = self._gate_plan(plan, active_milestone, blockers)
                 yield replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
 
-    def _item_plans(self, item, now, github, coordinator):
-        matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
+    def _open_blockers(self, item, github):
+        if (item.kind != "issue" or item.state != "open" or
+                self.config.queue.dependencies != "wait" or item.total_blocked_by == 0):
+            return ()
+        return tuple(dict.fromkeys(b.reference(self.config.repository) for b in
+            sorted(github.blocked_by(item.number),
+                   key=lambda b: (b.repository.casefold(), b.number)) if b.state == "open"))
+
+    @staticmethod
+    def _gate_plan(plan, active_milestone, blockers):
+        reasons = []
+        if (plan.state == "ready" or plan.approval_gate) and plan.item.kind == "issue":
+            if active_milestone is not None and plan.item.milestone != active_milestone:
+                reasons.append(f"Waiting for active milestone #{active_milestone}")
+            if blockers:
+                reasons.append(f"Waiting for blockers {', '.join(blockers)}")
+        if reasons:
+            plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons),
+                           approval_gate=None)
+        return replace(plan, blockers=blockers)
+
+    def item_plans(self, number, agent_name=None):
+        # Share this item's history and approval reads, without repository
+        # discovery, priority inheritance or milestone ordering.
+        github = Discovery(self.github)
+        github.scope = number
+        try:
+            item = github.item(number)
+        except GitHubError as exc:
+            raise AgentError(f"Cannot read #{number}: {exc}") from exc
+        agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
+        coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
+                                  queue=self.config.queue, output=self.output,
+                                  runtime_paused=self.usage.paused)
+        active = (self.github.active_milestone() if item.kind == "issue" and item.state == "open"
+                  and self.config.queue.milestones == "gate" else None)
+        blockers = self._open_blockers(item, github)
+        plans = self._item_plans(item, coordinator.clock(), github, coordinator, agents)
+        return item, (self._gate_plan(plan, active, blockers) for plan in plans)
+
+    def _item_plans(self, item, now, github, coordinator, agents=None):
+        agents = self.config.agents if agents is None else agents
+        matched = [a for a in agents if item.labels.intersection(a.triggers)
                    and a.kind in {"either", item.kind} and item.state == "open"]
         approval = None
         # The same comments supply coordination history and approval input.
@@ -231,7 +265,7 @@ class Loop:
             history = coordinator.history(item.number)
         except RecordError as exc:
             yield from (Plan(item, a, None, "blocked", str(exc), 1)
-                        for a in matched or self.config.agents)
+                        for a in matched or agents)
             return
         except AgentError as exc:
             # A shared failed comment read must still skip a transiently failed
@@ -246,7 +280,7 @@ class Loop:
             yield from (Plan(item, a, None, "parked", approval.reason, 1) for a in matched)
             return
         latest = latest_leases(history)
-        for agent in self.config.agents:
+        for agent in agents:
             record = latest.get((item.number, agent.name))
             parked = (item.state == "open" and item.labels.intersection(self.config.stop_labels)
                       and any(r["kind"] == "outcome" and r["agent"] == agent.name
@@ -314,6 +348,44 @@ class Loop:
         self._released_blockers = {key: value for key, value in self._released_blockers.items() if key in present}
         return False
 
+    def tick_item(self, number, agent_name=None):
+        item, plans = self.item_plans(number, agent_name)
+        shown = False
+        for plan in plans:
+            self._before_claim()
+            if plan.state == "ready" and self.execute(plan):
+                return True
+            if plan.state == "recover" and self.recover(plan):
+                return True
+            if plan.state in {"ready", "recover"}:
+                # A refresh or claim race may have changed eligibility. Explain
+                # the fresh row rather than printing the stale ready verdict.
+                item, current = self.item_plans(number, plan.agent.name)
+                plan = next(current, None)
+                if plan is None:
+                    continue
+            if plan.approval_gate:
+                self.coordinator.notices.advisory(f"approval parking on #{number}",
+                                                  lambda: self.park_approval(plan))
+            state, reason = refusal_reason(plan, self.coordinator.clock(), socket.gethostname())
+            self.output(f"#{number} {plan.agent.name}: {state} — {reason}")
+            shown = True
+        if not shown:
+            if item.state != "open":
+                reason = f"{item.kind} is {item.state}"
+            else:
+                agents = [a for a in self.config.agents if agent_name is None or a.name == agent_name]
+                applicable = [a for a in agents if a.kind in {"either", item.kind}]
+                if applicable:
+                    labels = "; ".join(f"{a.name}: {', '.join(a.triggers)}" for a in applicable)
+                    reason = f"No trigger matches; add a trigger label ({labels})"
+                else:
+                    reason = f"No evaluated agent applies to this {item.kind}"
+                if not agents:
+                    reason = f"Agent {agent_name} is no longer configured"
+            self.output(f"#{number}: {reason}")
+        return False
+
     def park_approval(self, plan):
         # Recheck authority before advisory writes; stale discovery cannot park
         # closed, stopped, already owned or newly approved work.
@@ -378,7 +450,9 @@ class Loop:
                 self.github.repository = config.repository
             self.config = config
             self.coordinator.queue = config.queue
-            plan = next((p for p in self.iter_plans() if p.item.number == plan.item.number
+            plans = (self.iter_plans() if self._launch_number is None else
+                     self.item_plans(self._launch_number, self._launch_agent)[1])
+            plan = next((p for p in plans if p.item.number == plan.item.number
                          and p.agent.name == plan.agent.name and p.state == "ready"), None)
             if plan is None:
                 return False
@@ -823,11 +897,15 @@ class Loop:
         # may already have written a claim or withdrawn from a claim election.
         self._poll_complete = True
 
-    def launch(self, once=False):
+    def launch(self, once=False, number=None, agent_name=None):
+        self._launch_number = number
+        self._launch_agent = agent_name
         try:
-            return self._launch(once)
+            return self._launch(once or number is not None)
         finally:
             self.usage.close()
+            self._launch_number = None
+            self._launch_agent = None
 
     def _launch(self, once):
         self.usage.reset()
@@ -843,7 +921,8 @@ class Loop:
             started = monotonic()
             requests_before = self.github.quota_requests
             try:
-                worked = self.tick()
+                worked = (self.tick() if self._launch_number is None else
+                          self.tick_item(self._launch_number, self._launch_agent))
             except _GracefulStop:
                 return
             except (_InvalidReload, CleanupError, LostOwnership, RecordError):
@@ -872,7 +951,7 @@ class Loop:
             if self.stop_event.is_set():
                 return
             if once:
-                return
+                return (0 if worked else 1) if self._launch_number is not None else None
             elapsed = monotonic() - started
             interval = self.config.poll_seconds
             if worked:
