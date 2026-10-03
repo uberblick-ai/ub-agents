@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import time
@@ -53,6 +54,35 @@ def repository_checks(config, read_git=None):
         yield "repository-remote", None
     except AgentError as exc:
         yield "repository-remote", exc
+
+
+class ScratchDirectory:
+    def __init__(self, run_dir):
+        self.path = run_dir / "scratch"
+        self.created = False
+
+    def prepare(self):
+        try:
+            self.path.mkdir(mode=0o700)
+            self.created = True
+            # Set the exact mode even when the launcher's umask is more restrictive.
+            self.path.chmod(0o700)
+        except OSError as exc:
+            raise AgentError(f"Cannot create run scratch directory {self.path}: {exc}") from exc
+        return self.path
+
+    def cleanup(self):
+        if not self.created:
+            return
+        if self.path.resolve() != self.path:
+            raise CleanupError("Scratch path redirects outside its owned directory; preserve artifacts")
+        try:
+            shutil.rmtree(self.path)
+        except FileNotFoundError:
+            pass  # The agent may already have removed its scratch directory.
+        except OSError as exc:
+            raise CleanupError(f"Cannot remove run scratch directory; preserve artifacts: {exc}") from exc
+        self.created = False
 
 
 class Workspace:

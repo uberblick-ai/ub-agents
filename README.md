@@ -347,6 +347,11 @@ Projects can configure a supervised [cleanup hook](docs/configuration.md#project
 for resources associated with each private worktree. Document operator-only recovery
 steps in a project operations document linked from `AGENTS.md`.
 
+Each run also gets a private scratch directory via `UB_AGENTS_SCRATCH` and `TMPDIR`.
+Use it for temporary files; the launcher removes it after confirmed process
+termination while retaining run logs. See [runtime permissions](docs/configuration.md#runtime-permissions)
+for runtimes that need access outside their worktree.
+
 ## Development
 
 For development, install from a checkout with Python 3.11+:
