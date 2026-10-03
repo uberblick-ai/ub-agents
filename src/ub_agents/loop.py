@@ -647,9 +647,11 @@ class Loop:
             if not preserve_scratch:
                 try:
                     scratch.cleanup()
-                except CleanupError as exc:
-                    record_uncertainty(exc)
-                    raise
+                except AgentError as exc:
+                    # Scratch removal cannot invalidate confirmed process termination
+                    # or prevent release of a completed run's lease.
+                    diagnostic("scratch-removal-failed", path=str(scratch.path), error=str(exc))
+                    self.output(f"Scratch removal failed: {exc}")
         if usage_output and usage_output.reached and effect != "reset" and not interrupted:
             result, effect = "retry", "unchanged"
             summary = self.usage.limit(plan.runtime.cli, usage_output.hint)

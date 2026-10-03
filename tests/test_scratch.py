@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Runtime
-from ub_agents.errors import CleanupError
+from ub_agents.errors import AgentError, CleanupError, LostOwnership
 from ub_agents.execution import ScratchDirectory, group_members, supervise
 from ub_agents.loop import Loop
 from tests.support import FakeGitHub, agent, config, issue, stub_refresh
@@ -51,6 +51,15 @@ class ScratchTests(unittest.TestCase):
         for name in ("events.jsonl", "process.log", "prompt.txt", "context.json", "pid"):
             self.assertTrue((directory / name).is_file(), name)
 
+    def assert_removal_diagnostic(self, directory, error):
+        events = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+        failures = [event for event in events if event["event"] == "scratch-removal-failed"]
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["path"], str(directory / "scratch"))
+        self.assertIn(error, failures[0]["error"])
+        self.assertTrue(any("Scratch removal failed:" in line and error in line for line in self.output))
+        self.assertFalse(any(event["event"] == "cleanup-unconfirmed" for event in events))
+
     def test_command_receives_private_scratch_and_removes_contents_after_success_or_failure(self):
         for success in (True, False):
             with self.subTest(success=success):
@@ -77,6 +86,88 @@ class ScratchTests(unittest.TestCase):
                 self.assertEqual(outcome["accepted"], success)
                 if not success:
                     self.assertIn("Execution exited 3", lease["summary"])
+
+    def test_readonly_scratch_does_not_block_release_after_confirmed_termination(self):
+        for ending in ("success", "failure", "timeout", "interrupt"):
+            with self.subTest(ending=ending):
+                self.github = FakeGitHub(issue())
+                self.output.clear()
+                script = RECORD_SCRATCH + "(scratch / 'nested').chmod(0o500)\nprint('readonly ready', flush=True)\n"
+                if ending == "failure":
+                    script += "import sys; sys.exit(3)"
+                elif ending in {"timeout", "interrupt"}:
+                    script += "import time; time.sleep(30)"
+                loop = self.loop(script, timeout=1 if ending == "timeout" else 3)
+
+                def execute(command, cwd, env, directory, *args, **kwargs):
+                    def observe(final=False):
+                        if ending == "interrupt" and "readonly ready" in (directory / "process.log").read_text():
+                            loop.interrupt_event.set()
+                    code = supervise(command, cwd, env, directory, *args,
+                                     **(kwargs | {"observe_output": observe}))
+                    if ending == "success":
+                        self.assertEqual(code, 0)
+                        loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", outcome="done")
+                    return code
+
+                with patch("ub_agents.loop.supervise", side_effect=execute):
+                    if ending == "interrupt":
+                        with self.assertRaises(KeyboardInterrupt):
+                            loop.tick()
+                    else:
+                        self.assertTrue(loop.tick())
+                directory = self.run_dir(loop)
+                self.assertIn("readonly ready", (directory / "process.log").read_text())
+                self.assertEqual(group_members(int((directory / "pid").read_text())), [])
+                self.assert_logs_retained(directory)
+                lease, outcome = loop.coordinator.history(1)
+                self.assertEqual((lease["state"], lease["result"]),
+                                 ("released", "success" if ending == "success" else "retry"))
+                self.assertNotEqual(lease.get("cleanup"), "unconfirmed")
+                self.assertEqual(outcome["accepted"], ending == "success")
+                scratch = directory / "scratch"
+                if scratch.exists():
+                    # Privileged users may remove read-only directories without an error.
+                    self.addCleanup((scratch / "nested").chmod, 0o700)
+                    self.assertEqual((scratch / "nested" / "temporary").read_text(), "temporary contents")
+                    self.assert_removal_diagnostic(directory, "Cannot remove run scratch directory")
+                else:
+                    self.assertFalse(any("Scratch removal failed:" in line for line in self.output))
+
+    def test_removal_io_error_is_diagnostic_and_releases_successful_run(self):
+        loop = self.loop()
+
+        def execute(*args, **kwargs):
+            code = supervise(*args, **kwargs)
+            self.assertEqual(code, 0)
+            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", outcome="done")
+            return code
+
+        with patch("ub_agents.loop.supervise", side_effect=execute), \
+                patch("ub_agents.execution.shutil.rmtree", side_effect=OSError("disk failure")):
+            self.assertTrue(loop.tick())
+        directory = self.run_dir(loop)
+        self.assertEqual((directory / "scratch" / "nested" / "temporary").read_text(), "temporary contents")
+        self.assert_removal_diagnostic(directory, "disk failure")
+        self.assert_logs_retained(directory)
+        lease, outcome = loop.coordinator.history(1)
+        self.assertEqual((lease["state"], lease["result"], outcome["accepted"]), ("released", "success", True))
+        self.assertNotEqual(lease.get("cleanup"), "unconfirmed")
+
+    def test_removal_failure_does_not_mask_lost_ownership_or_restart_writes(self):
+        loop = self.loop()
+
+        def execute(*args, **kwargs):
+            self.assertEqual(supervise(*args, **kwargs), 0)
+            self.last_writes = list(self.github.writes)
+            raise LostOwnership("Ownership read failed")
+
+        with patch("ub_agents.loop.supervise", side_effect=execute), \
+                patch("ub_agents.execution.shutil.rmtree", side_effect=OSError("disk failure")), \
+                self.assertRaisesRegex(LostOwnership, "Ownership read failed"):
+            loop.tick()
+        self.assertEqual(self.github.writes, self.last_writes)
+        self.assert_removal_diagnostic(self.run_dir(loop), "disk failure")
 
     def test_timeout_removes_scratch_after_stopping_processes_and_retains_logs(self):
         loop = self.loop(RECORD_SCRATCH + "import time; time.sleep(30)", timeout=1)
@@ -190,6 +281,24 @@ class ScratchTests(unittest.TestCase):
         artifact = shared / "keep"
         artifact.write_text("shared contents")
         scratch.path.symlink_to(shared, target_is_directory=True)
-        with self.assertRaisesRegex(CleanupError, "Scratch path redirects"):
+        with self.assertRaisesRegex(AgentError, "Scratch path redirects"):
             scratch.cleanup()
         self.assertEqual(artifact.read_text(), "shared contents")
+
+    def test_redirected_scratch_is_diagnostic_and_does_not_block_release(self):
+        shared = self.root / "shared"
+        shared.mkdir()
+        artifact = shared / "keep"
+        artifact.write_text("shared contents")
+        loop = self.loop("""import os
+from pathlib import Path
+scratch = Path(os.environ['UB_AGENTS_SCRATCH'])
+scratch.rmdir()
+scratch.symlink_to(Path.cwd() / 'shared', target_is_directory=True)
+""")
+        self.assertTrue(loop.tick())
+        self.assertEqual(artifact.read_text(), "shared contents")
+        self.assert_removal_diagnostic(self.run_dir(loop), "Scratch path redirects")
+        lease = loop.coordinator.history(1)[0]
+        self.assertEqual((lease["state"], lease["result"]), ("released", "retry"))
+        self.assertNotEqual(lease.get("cleanup"), "unconfirmed")

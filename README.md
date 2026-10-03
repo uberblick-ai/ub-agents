@@ -349,7 +349,8 @@ steps in a project operations document linked from `AGENTS.md`.
 
 Each run also gets a private scratch directory via `UB_AGENTS_SCRATCH` and `TMPDIR`.
 Use it for temporary files; the launcher removes it after confirmed process
-termination while retaining run logs. See [runtime permissions](docs/configuration.md#runtime-permissions)
+termination while retaining run logs. Removal failures leave a diagnostic and any
+remaining scratch files without blocking run completion. See [runtime permissions](docs/configuration.md#runtime-permissions)
 for runtimes that need access outside their worktree.
 
 ## Development

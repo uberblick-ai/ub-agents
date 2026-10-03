@@ -74,14 +74,14 @@ class ScratchDirectory:
     def cleanup(self):
         if not self.created:
             return
-        if self.path.resolve() != self.path:
-            raise CleanupError("Scratch path redirects outside its owned directory; preserve artifacts")
         try:
+            if self.path.resolve() != self.path:
+                raise AgentError("Scratch path redirects outside its owned directory; preserve artifacts")
             shutil.rmtree(self.path)
         except FileNotFoundError:
             pass  # The agent may already have removed its scratch directory.
-        except OSError as exc:
-            raise CleanupError(f"Cannot remove run scratch directory; preserve artifacts: {exc}") from exc
+        except (OSError, RuntimeError) as exc:
+            raise AgentError(f"Cannot remove run scratch directory {self.path}; preserve artifacts: {exc}") from exc
         self.created = False
 
 
