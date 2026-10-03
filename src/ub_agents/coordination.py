@@ -10,7 +10,7 @@ from .config import Agent, Queue, Runtime
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .github import Item
 from .notices import Notices
-from .records import (RECORD_MARKERS, V1_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
+from .records import (LEGACY_MARKER, RECORD_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       payload, records, recovers, same_handoff, same_run, seconds, timestamp)
 from .trust import LauncherTrust
 
@@ -104,7 +104,7 @@ class Coordinator:
             try:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
             except (KeyError, ValueError, AttributeError, IndexError) as exc:
-                if comment["body"].startswith(V1_MARKERS):
+                if comment["body"].startswith(LEGACY_MARKER):
                     continue
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Coordination comment has no GitHub assignment URL") from exc
@@ -280,7 +280,7 @@ class Coordinator:
                                and r["agent"] == agent.name and r.get("branch")})
             related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
         else:
-            match = re.fullmatch(r"(?:ub-agents|ub-agent)/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
+            match = re.fullmatch(r"ub-agents/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
             related = [int(match[1])] if match else []
         now = self.clock()
         for number in related:

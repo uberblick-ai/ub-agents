@@ -145,29 +145,6 @@ launcher automatically, upgrade first and then send SIGTERM. When a release says
 launchers must be upgraded together, stop every launcher for the project before
 upgrading any.
 
-For the rename to `ub-agents`, rename `ub-agent.yaml` to `ub-agents.yaml` and update
-role instructions, command allowlists, hooks and direct commands to use `ub-agents`
-and `UB_AGENTS_*`. Add `.ub-agents/` to `.gitignore` and keep `.ub-agent/` ignored
-until that directory is deleted. Commit the ignore changes to the default branch
-and pull them into every control checkout before starting launchers on the new
-build. Startup creates `.ub-agents/launch.log` before checkout refresh, which
-refuses untracked files.
-
-Restart all of a project's launchers together; old launchers cannot read new
-GitHub markers or branch names. After every old launcher has stopped, remove its
-old worktrees with `git worktree remove` (or `git worktree prune` for worktrees
-already deleted), then delete the whole `.ub-agent/` directory, including `runs/`
-and `launch.log`. Removing only the worktrees leaves old logs behind. See the
-[changelog](CHANGELOG.md).
-
-For one release, `ub-agent` is an alias that prints a deprecation notice to stderr
-and preserves stdout and exit status. When no `--config` is supplied and
-`ub-agents.yaml` is missing, commands read an existing `ub-agent.yaml` with one
-warning per process. The launcher resolves this default again on each reload,
-so it can follow a committed config rename. Explicit `--config` paths have no
-fallback. `report` accepts the old `UB_AGENT_*` variables only when their
-`UB_AGENTS_*` counterparts are absent, so in-flight runs can still report.
-
 ## Issue and PR approvals
 
 People who start and approve work use their own accounts with `maintain` or `admin`.

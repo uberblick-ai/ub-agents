@@ -6,13 +6,12 @@ import json
 import re
 
 from .errors import AgentError, GitHubError, LostOwnership
-from .notices import ACTION_MARKERS
+from .notices import ACTION_MARKER
 from .records import (RECORD_MARKERS, lease_by_id,
                       positive_int, records, recovers, same_run, seconds)
 from .trust import LauncherTrust
 
 MARKER = "<!-- ub-agents:approval:v1 -->"
-APPROVAL_MARKERS = (MARKER, "<!-- ub-agent:approval:v1 -->")
 MAINTAINERS = {"maintain", "admin"}
 TRUSTED = MAINTAINERS | {"write"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -43,11 +42,10 @@ def comment_digests(comments):
 
 def parse_approval(body, number, kind="issue"):
     """Malformed or unsupported records grant nothing, even from maintainers."""
-    marker = next((m for m in APPROVAL_MARKERS if body.startswith(f"{m}\n\n```json\n")), None)
-    if marker is None or not body.endswith("\n```\n"):
+    if not body.startswith(f"{MARKER}\n\n```json\n") or not body.endswith("\n```\n"):
         return None
     try:
-        record = json.loads(body[len(marker) + len("\n\n```json\n"):-len("\n```\n")])
+        record = json.loads(body[len(MARKER) + len("\n\n```json\n"):-len("\n```\n")])
         if not isinstance(record, dict):
             return None
         fields = {kind, "content_sha256", "comments"}
@@ -158,7 +156,7 @@ def check_pr(github, number, trigger_labels, actor=None, *, launchers=None):
 
 
 def is_record(comment):
-    return comment["body"].startswith(APPROVAL_MARKERS + RECORD_MARKERS + ACTION_MARKERS)
+    return comment["body"].startswith((MARKER, ACTION_MARKER) + RECORD_MARKERS)
 
 
 def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None):

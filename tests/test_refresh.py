@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.config import Runtime, load_config, resolve_config_path
+from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
@@ -135,25 +135,6 @@ class RefreshTests(unittest.TestCase):
         path = self.root / "ub-agents.yaml"
         self.loop.config = load_config(path)
         self.loop.config_path = path
-
-    def test_default_config_reload_survives_committed_rename(self):
-        git(self.upstream, "mv", "ub-agents.yaml", "ub-agent.yaml")
-        self.commit(self.upstream)
-        git(self.upstream, "push", "origin", "main")
-        git(self.root, "pull", "--ff-only")
-        with patch("ub_agents.config._warned_legacy_config", False), redirect_stderr(io.StringIO()) as warning:
-            self.loop.config = load_config(resolve_config_path(root=self.root))
-            self.loop.config_path = self.root / "ub-agents.yaml"
-            self.loop.default_config = True
-            self.execute()
-            git(self.upstream, "mv", "ub-agent.yaml", "ub-agents.yaml")
-            (self.upstream / "role.md").write_text("Policy after config rename\n")
-            self.commit(self.upstream)
-            git(self.upstream, "push", "origin", "main")
-            self.execute(lambda cwd, prompt: self.assertIn("Policy after config rename", prompt))
-        self.assertEqual(len(warning.getvalue().splitlines()), 1)
-        self.assertTrue((self.root / "ub-agents.yaml").exists())
-        self.assertFalse((self.root / "ub-agent.yaml").exists())
 
     def test_sigterm_during_fast_forward_finishes_refresh_without_claiming(self):
         for reload in (False, True):
