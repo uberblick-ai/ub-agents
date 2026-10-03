@@ -13,6 +13,30 @@ notes are copied from that section.
   changes. Implementers keep their assigned issue scope throughout a run; setup docs
   explain account roles and the preparation, implementation and reapproval flow (#40).
 
+- Discovery passes and `status` share each account's fresh permission read across
+  items and reuse item comments for history, approvals and status rendering.
+  `status` also batches dependency reads for priority ranking. Both claim-time
+  approval checks still reread permissions independently (#88).
+
+- `status` exits with an error on retryable comment-read failures instead of
+  displaying a partially unreadable row (#88).
+
+- Empty discovery passes back off by their REST request cost under a fixed
+  250 requests/hour budget per launcher, assuming ten idle launchers share half
+  an account's quota. Low quota doubles the gap up to reset, ignoring expired
+  quota observations, with a one-hour cap; work resumes normal pacing, and idle
+  messages print only on state changes (#83).
+- GitHub REST reads revalidate in-memory responses with ETags. Unchanged reads
+  confirmed by `304 Not Modified` preserve fresh ownership checks without using
+  REST quota or extending the idle polling budget; writes and GraphQL remain
+  unconditional. Moving `since` cursor queries skip the ETag cache so discovery
+  polls do not accumulate unused responses in memory (#86).
+
+- Launcher and `status` startup scans read repository comments from the longest
+  configured lease plus seven days, then continue incrementally. PR shared-branch
+  ownership reads the issue named in the branch directly; `cleanup` keeps its full
+  scan. Re-apply a trigger or stop label to surface older unfinished outcomes (#87).
+
 ## 0.1.8 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,

@@ -161,7 +161,13 @@ class GitHub:
         self.repository = repository
         self.prefix = f"repos/{repository}"
         self.quota_headers = {}
+        self.resource_quotas = {}
+        # All attempted REST calls, including revalidations and transport failures.
+        self.rest_requests = 0
+        # REST responses that consume quota; GraphQL has a separate budget.
+        self.quota_requests = 0
         self.rate_limited = False
+        self._etag_cache = {}
         self._comment_cache = {}
         self._comment_since = None
 
@@ -182,6 +188,47 @@ class GitHub:
                    "-H", "Accept: application/vnd.github+json", "--include", endpoint]
         if data is not None:
             command += ["--input", "-"]
+        rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
+        conditional = rest and method == "GET"
+        # Discovery's moving since cursor produces one-shot URLs. Retaining
+        # their validators and payloads would grow memory on every poll.
+        cacheable = conditional and "since" not in dict(
+            parse_qsl(urlsplit(endpoint).query, keep_blank_values=True))
+        cached = self._etag_cache.get(endpoint) if cacheable else None
+        status, headers, payload = self._response(command, endpoint, method, data, cached)
+        if status == 304:
+            if not conditional:
+                raise GitHubError(method, endpoint, "Unexpected HTTP 304 for an unconditional operation")
+            if cached is None:
+                # A bodyless response cannot establish authority. Retry only once,
+                # with no validator, even if gh incorrectly returns another 304.
+                status, headers, payload = self._response(command, endpoint, method, data, None)
+                if status == 304:
+                    raise GitHubError(method, endpoint, "HTTP 304 without a stored response after refetch")
+            else:
+                etag, payload = cached
+                self._etag_cache[endpoint] = (headers.get("etag") or etag, payload)
+        if method == "DELETE" and not payload.strip():
+            return None
+        try:
+            value = json.loads(payload)
+            if not isinstance(value, list if array else dict):
+                raise ValueError("expected an array" if array else "expected an object")
+        except (ValueError, TypeError) as exc:
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        if cacheable and status != 304:
+            # Keep the wire payload so callers cannot mutate later cache hits.
+            if headers.get("etag"):
+                self._etag_cache[endpoint] = (headers["etag"], payload)
+            else:
+                self._etag_cache.pop(endpoint, None)
+        return value
+
+    def _response(self, command, endpoint, method, data, cached):
+        if cached is not None:
+            command = command + ["-H", f"If-None-Match: {cached[0]}"]
+        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+            self.rest_requests += 1
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -203,8 +250,18 @@ class GitHub:
         except ValueError as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
         # GraphQL has its own quota; doctor reports the REST account quota.
-        if endpoint != "graphql" and "x-ratelimit-remaining" in headers:
-            self.quota_headers = headers
+        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+            if status != 304 and (status is not None or result.returncode == 0):
+                self.quota_requests += 1
+            if "x-ratelimit-remaining" in headers:
+                self.quota_headers = headers
+        resource = headers.get("x-ratelimit-resource")
+        if resource in {"core", "graphql"}:
+            self.resource_quotas[resource] = headers
+        # gh exits 1 for a 304 and writes "gh: HTTP 304" to stderr. The
+        # server's freshness confirmation takes precedence over that exit code.
+        if status == 304:
+            return status, headers, payload
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
@@ -214,15 +271,7 @@ class GitHub:
                                 rate_limited=limited)
             error.probe_reason = f"exit {result.returncode}"
             raise error
-        if method == "DELETE" and not payload.strip():
-            return None
-        try:
-            value = json.loads(payload)
-            if not isinstance(value, list if array else dict):
-                raise ValueError("expected an array" if array else "expected an object")
-            return value
-        except (ValueError, TypeError) as exc:
-            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        return status, headers, payload
 
     def actor(self):
         data = self.request("user")
@@ -478,12 +527,15 @@ class GitHub:
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("POST", "graphql", "Unreadable PR reviews") from exc
 
-    def repository_comments(self):
-        # Recovery must not depend on a trigger still being present or an item
-        # still being open. Rebuild from GitHub on startup, then read edits/new
-        # comments incrementally. Capture the cursor BEFORE scanning, with overlap.
-        cursor = iso(int(timestamp()) - 60)
+    def repository_comments(self, lookback_seconds=None):
+        # Bound discovery's first scan; cleanup leaves lookback unset for a full
+        # history. Later scans read edits/new comments incrementally. Capture the
+        # cursor BEFORE scanning, with overlap.
+        now = timestamp()
+        cursor = iso(int(now) - 60)
         since, comments = self._comment_since, {}
+        if since is None and lookback_seconds is not None:
+            since = iso(now - lookback_seconds)
         while True:
             query = {"sort": "updated", "direction": "asc", "per_page": 100}
             if since is not None:
