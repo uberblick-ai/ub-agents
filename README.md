@@ -136,12 +136,20 @@ upgrading any.
 
 ## Issue and PR approvals
 
+People who start and approve work use their own accounts with `maintain` or `admin`.
+
 Every issue run, including preparation, needs a maintainer start. The launcher
 checks approvals at pickup and after claiming; disallowed input is parked without
 spending an attempt and resumes after approval without `retry`. Agents receive the
 post-claim title, body and trusted or cleared comments; PR context also includes
 the assigned head, reviews and review comments. Other GitHub comments are not input.
 Outside edits during a run do not stop it.
+
+A maintainer adds `needs-preparation` to start an issue. The preparer adds `ready`,
+and implementation follows without another approval. An outside title or body edit
+parks the issue until a maintainer applies a trigger label again or runs
+`ub-agent approve --number N`. Outside comments are not agent input until a
+maintainer clears them.
 
 When approval is the only pickup obstacle, `launch` adds the configured stop
 label (`needs-human` in the starter) and posts one **Action needed** notice with
@@ -229,7 +237,7 @@ An agent can also be a plain command instead of an LLM session.
 
 | Label | On | Next step |
 |---|---|---|
-| `needs-preparation` | Issue | Turn the request into clear requirements. |
+| `needs-preparation` | Issue | A maintainer applies this label; prepare clear requirements. |
 | `ready` | Issue | Implement it, publish draft checkpoints, then hand off the ready PR. |
 | `needs-review` | PR | Review the current commit. |
 | `needs-changes` | PR | Revise the implementation. |

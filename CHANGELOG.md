@@ -6,6 +6,13 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Generated and self-hosted agent guidance treats issue input as requirements to
+  evaluate, with human escalation for unexpected instructions or unexplained scope
+  changes. Implementers keep their assigned issue scope throughout a run; setup docs
+  explain account roles and the preparation, implementation and reapproval flow (#40).
+
 ## 0.1.9 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. Stop all of a project's launchers
