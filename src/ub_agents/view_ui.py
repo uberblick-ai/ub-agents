@@ -380,6 +380,10 @@ class View(App):
         reading.follow = not reading.follow
         if not reading.follow:
             self.query_one('#output', LogPane).save_anchor()
+        else:
+            # A slow older-page request must not override a later resume command.
+            self.token += 1
+            self.pending_history = None
         if reading.follow and reading.latest:
             reading.page, reading.notice = reading.latest, ''
             reading.seen = reading.latest.total

@@ -88,6 +88,25 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             old_start = app.reading.page.start
+            entered, release = threading.Event(), threading.Event()
+            original = app.worker.read
+            def slow_history(request):
+                result = original(request)
+                if request.older_end is not None:
+                    entered.set()
+                    release.wait(5)
+                return result
+            try:
+                with patch.object(app.worker, 'read', side_effect=slow_history):
+                    await pilot.press('h')
+                    await self.ready(app, pilot, entered.is_set)
+                    await pilot.press('f')
+                    release.set()
+                    await pilot.pause(0.4)
+                    self.assertTrue(app.reading.follow)
+                    self.assertEqual(app.reading.page.start, old_start)
+            finally:
+                release.set()
             await pilot.press('h')
             await self.ready(app, pilot, lambda: app.reading.page.start < old_start)
             self.assertFalse(app.reading.follow)
