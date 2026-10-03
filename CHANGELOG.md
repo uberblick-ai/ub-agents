@@ -6,6 +6,19 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.10 — 2026-10-03
+
+**Upgrading:** stop all of a project's launchers, wait until every one has exited,
+upgrade, then start them together. Never mix releases within a project: older
+launchers don't read the new record markers or branch names, and launchers on
+different GitHub accounts now share one queue. This release renames the tool to
+`ub-agents`. Rename `ub-agent.yaml` to `ub-agents.yaml`, add `.ub-agents/` to
+`.gitignore` and pull it into every control checkout before starting, and update
+role instructions, command allowlists and hooks that call `ub-agent` or read
+`UB_AGENT_*` (now `UB_AGENTS_*`). After the old launchers stop, remove their
+worktrees and the old `.ub-agent/` directory. Claude and Codex runs now pause at
+90% of a usage window until it resets; daily runtime updates are opt-in.
+
 ### Added
 
 - `ub-agents launch N [--agent NAME]` runs or recovers one specific item under
