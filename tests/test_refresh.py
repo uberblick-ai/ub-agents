@@ -16,11 +16,12 @@ from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, timestamp
-from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, PollGitHub, agent, config, isolate_runtime_state, issue, pr
 
 
 class RefreshTests(unittest.TestCase):
     def setUp(self):
+        isolate_runtime_state(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         base = Path(self.temp.name).resolve()

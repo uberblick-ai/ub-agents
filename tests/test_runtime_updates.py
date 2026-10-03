@@ -128,6 +128,37 @@ class RuntimeUpdateTests(unittest.TestCase):
         second.boundary(settings)
         self.assertEqual(len(self.updates()), 2)
 
+    def test_project_opt_out_does_not_suppress_another_project_update(self):
+        self.native()
+        policies = {"off": RuntimeUpdates({"claude": "off"}),
+                    "omitted": RuntimeUpdates({"codex": "auto"}), "absent": None}
+        for name, policy in policies.items():
+            with self.subTest(policy=name):
+                self.calls.clear()
+                first, second = self.manager_for(), self.manager_for()
+                first.root = second.root = self.root / name
+                settings = replace(self.settings("claude"), runtime_updates=policy)
+                first.boundary(settings)
+                first.boundary(settings)
+                self.assertEqual(self.calls, [])
+                self.assertFalse(first.root.exists())
+                second.boundary(replace(self.settings("claude", ("custom-updater", "claude")),
+                                        root=self.root / "other-project"))
+                self.assertEqual(self.calls.count(("custom-updater", "claude")), 1)
+
+    def test_launcher_disable_updates_does_not_suppress_another_launcher(self):
+        self.native()
+        settings = self.settings("claude")
+        with patch.dict(os.environ, {"DISABLE_UPDATES": "1"}):
+            self.manager.boundary(settings)
+            self.manager.boundary(settings)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(self.manager.root.exists())
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn("DISABLE_UPDATES", self.lines[0])
+        self.manager_for().boundary(settings)
+        self.assertEqual(len(self.updates()), 1)
+
     def test_guard_blocks_another_loop_and_opt_out_runtime_start(self):
         self.npm()
         second = self.manager_for()
@@ -359,6 +390,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                     self.manager.boundary(self.settings("claude"))
                 self.assertIn("DISABLE_UPDATES", self.lines[-1])
                 self.assertEqual(self.updates(), [])
+                self.assertFalse(self.manager.root.exists())
         self.now += COOLDOWN_SECONDS
         user.unlink(missing_ok=True)
         with patch.dict(os.environ, {"DISABLE_AUTOUPDATER": "1"}):
@@ -429,12 +461,45 @@ class RuntimeUpdateTests(unittest.TestCase):
         second = self.manager_for()
         with self.manager.reserve("claude") as reserved:
             self.assertTrue(self.manager.available("claude"))
-            self.assertFalse(second.available("claude"))
+            self.assertTrue(second.available("claude"))
             second.boundary(self.settings("claude"))
             self.assertEqual(self.calls, [])
             reserved.started()
             second.boundary(self.settings("claude"))
             self.assertEqual(len(self.updates()), 1)
+
+    def test_concurrent_start_reservations_defer_maintenance_until_both_start(self):
+        self.native()
+        second, updater = self.manager_for(), self.manager_for()
+        settings = self.settings("claude")
+        with self.manager.reserve("claude") as first:
+            with second.reserve("claude") as other:
+                self.assertIsNotNone(first)
+                self.assertIsNotNone(other)
+                self.assertTrue(updater.available("claude"))
+                updater.boundary(settings)
+                self.assertEqual(self.calls, [])
+                first.started()
+                updater.boundary(settings)
+                self.assertEqual(self.calls, [])
+                other.started()
+                updater.boundary(settings)
+                self.assertEqual(len(self.updates()), 1)
+
+    def test_read_only_availability_guard_does_not_block_start_reservation(self):
+        self.native()
+        second = self.manager_for()
+        state_path = self.manager.paths(installation("claude", self.which))[2]
+        self.manager.root.mkdir()
+        self.manager.paths(installation("claude", self.which))[0].touch()
+        read = self.manager.read
+        def read_while_starting(path):
+            if path == state_path:
+                with second.reserve("claude") as reserved:
+                    self.assertIsNotNone(reserved)
+            return read(path)
+        with patch.object(self.manager, "read", side_effect=read_while_starting):
+            self.assertTrue(self.manager.available("claude"))
 
     def test_sigterm_and_sigint_during_maintenance_exit_without_claim(self):
         from contextlib import redirect_stdout, redirect_stderr
@@ -468,7 +533,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                 self.assertEqual(state["result"], "failed")
                 self.assertTrue(state["usable"])
 
-    def test_broken_changed_next_path_stays_unavailable_during_cooldown(self):
+    def test_broken_changed_next_path_is_reprobed_without_retrying_updater(self):
         self.npm()
         broken = self.executable(self.root / "broken")
         Path(str(broken) + ".version").unlink()
@@ -477,7 +542,96 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.assertFalse(self.manager_for().available("codex"))
         count = len(self.calls)
         self.manager_for().boundary(self.settings())
+        self.assertEqual(self.calls[count:], [(str(self.bin / "codex"), "--version")])
+        self.assertFalse(self.manager.available("codex"))
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_failed_health_probe_recovers_before_update_cooldown_expires(self):
+        target = self.npm()
+        settings = self.settings()
+        version = Path(str(target) + ".version")
+        self.action = version.unlink
+        self.manager.boundary(settings)
+        state_path = self.manager.paths(installation("codex", self.which))[2]
+        failed = self.manager.read(state_path)
+        self.assertFalse(failed["usable"])
+        self.now += 60
+        version.write_text("2.0")
+        repaired = self.manager_for()
+        repaired.boundary(settings)
+        self.assertTrue(repaired.available("codex"))
+        with repaired.reserve("codex") as reserved:
+            self.assertIsNotNone(reserved)
+        recovered = repaired.read(state_path)
+        self.assertEqual(recovered, failed | {"usable": True, "version": "2.0"})
+        self.assertIn("recovered", self.lines[-1])
+        self.assertEqual(len(self.updates()), 1)
+        count = len(self.calls)
+        repaired.boundary(settings)
         self.assertEqual(len(self.calls), count)
+        self.now = failed["checked"] + COOLDOWN_SECONDS
+        self.action = lambda: None
+        repaired.boundary(settings)
+        self.assertEqual(len(self.updates()), 2)
+
+    def test_transient_version_timeout_recovers_at_next_boundary(self):
+        self.npm()
+        probes = 0
+        def transient_timeout(command, env, timeout, cancellable=True):
+            nonlocal probes
+            if command[-1] == "--version":
+                probes += 1
+                if probes == 2:
+                    raise MaintenanceFailure("timed out after 5s")
+            return self.run_command(command, env, timeout, cancellable)
+        self.manager.runner = transient_timeout
+        settings = self.settings()
+        self.manager.boundary(settings)
+        self.assertFalse(self.manager.available("codex"))
+        state_path = self.manager.paths(installation("codex", self.which))[2]
+        checked = self.manager.read(state_path)["checked"]
+        # The failed probe needs no operator repair or update retry.
+        self.manager_for().boundary(settings)
+        self.assertTrue(self.manager.available("codex"))
+        self.assertEqual(self.manager.read(state_path)["checked"], checked)
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_opt_out_launchers_can_recover_shared_failed_health(self):
+        target = self.npm()
+        version = Path(str(target) + ".version")
+        settings = self.settings()
+        for policy in (None, RuntimeUpdates({"codex": "off"})):
+            with self.subTest(policy=policy):
+                version.write_text("1.0")
+                self.action = version.unlink
+                self.now += COOLDOWN_SECONDS
+                self.manager.boundary(settings)
+                state_path = self.manager.paths(installation("codex", self.which))[2]
+                checked = self.manager.read(state_path)["checked"]
+                self.assertFalse(self.manager.available("codex"))
+                version.write_text("1.0")
+                repaired = self.manager_for()
+                repaired.boundary(replace(settings, runtime_updates=policy))
+                self.assertTrue(repaired.available("codex"))
+                self.assertEqual(repaired.read(state_path)["checked"], checked)
+
+    def test_health_recovery_defers_while_maintenance_holds_guard(self):
+        target = self.npm()
+        version = Path(str(target) + ".version")
+        self.action = version.unlink
+        settings = self.settings()
+        self.manager.boundary(settings)
+        guard, _, state_path = self.manager.paths(installation("codex", self.which))
+        version.write_text("1.0")
+        count = len(self.calls)
+        with lock(guard) as held:
+            self.assertIsNotNone(held)
+            self.manager_for().boundary(settings)
+            self.manager_for().boundary(replace(settings, runtime_updates=None))
+            self.assertEqual(len(self.calls), count)
+            self.assertFalse(self.manager.read(state_path)["usable"])
+        self.manager_for().boundary(settings)
+        self.assertTrue(self.manager.available("codex"))
 
     def test_read_only_availability_creates_no_state(self):
         self.executable(self.bin / "codex")

@@ -464,7 +464,7 @@ not interpret this output; the outcome comes only from `ub-agent report`.
 ### Daily runtime maintenance
 
 Maintenance is opt-in per project. With no `runtime-updates` key, the launcher
-runs no update checks. Configure each CLI as `auto`, `off` (the default for an
+runs no updaters. Configure each CLI as `auto`, `off` (the default for an
 omitted CLI), or a mapping containing an explicit updater `command` argv:
 
 ```yaml
@@ -525,15 +525,19 @@ and allows this explicit update. For Homebrew, the launcher also checks
 `DISABLE_UPDATES` in its environment, Claude's user `settings.json` (including
 `CLAUDE_CONFIG_DIR`) and system `managed-settings.json` / `managed-settings.d`
 files before invoking brew. It skips when that policy cannot be read safely.
+These policy skips are local to the launcher: they do not start the shared
+cooldown, so a launcher with updates enabled can still update the installation.
 The cask name preserves the installed stable or latest channel. See
 [Claude's update documentation](https://code.claude.com/docs/en/setup#update-claude-code)
 and the [official Codex update commands](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex#quickstart-using-goals).
 
 Checks run only at unclaimed launcher boundaries before new work, separately
 from instruction refresh. A run that crosses the due time continues undisturbed.
-Every completed check (`updated`, `up-to-date`, `skipped` or `failed`, including a
-timeout) starts a 24-hour cooldown. Active-run or guard contention defers the
-check without starting that cooldown. `launch --once` uses the same boundary.
+Every completed installation check (`updated`, `up-to-date`, `skipped` or
+`failed`, including a timeout) starts a 24-hour cooldown. An `off` or omitted
+policy reports a local skip without writing shared maintenance state.
+Active-run or guard contention defers the check without starting that cooldown.
+`launch --once` uses the same boundary.
 Each check prints one line with the runtime, install method, available before
 and after versions, result and any skip or failure reason.
 
@@ -549,15 +553,19 @@ including across projects. **Opting out in one project does not stop another
 project's launcher from updating the shared installation.** GitHub is not used
 for maintenance state.
 
-A start reservation holds the maintenance guard through process start. While
-an updater holds the guard, other launchers cannot start that runtime. npm,
+A start reservation holds a shared maintenance guard through process start;
+availability reads share this guard too, so concurrent launchers can reserve
+and start the same runtime. While an updater holds the guard, other launchers
+cannot start that runtime. npm,
 Homebrew and operator-command updates replace files in place, so they wait until
 all tracked local runs of the installation finish. Claude native updates can
 proceed alongside existing runs because Claude retains versions in use. Run
 locks are inherited by the runtime process; updater processes inherit their
 maintenance locks too. Locks are released when their final holder
-exits; a crashed launcher cannot leave a stale marker blocking maintenance
-forever, and its still-running child continues to protect the installation.
+exits; a crashed launcher leaves no stale marker, and its still-running child
+continues to protect the installation. Descendants that retain an inherited
+descriptor, including detached background processes, defer in-place maintenance
+until they exit or close it.
 All cooperating launchers must use a version with this locking protocol; it
 does not track sessions launched outside ub-agent.
 
@@ -568,8 +576,12 @@ including a failure or skip, the launcher re-resolves PATH and runs that next
 executable's `--version`; an updater's exit code alone cannot establish success.
 If the runtime still works, the launcher continues using it. If it fails this
 probe, selection treats it as unavailable and can use an eligible alternative.
-Updates are not retried before the cooldown expires. There is no automatic
-rollback.
+At later unclaimed launch boundaries, an unavailable installation's `--version`
+is rechecked under the maintenance guard, including in projects with updates
+disabled. A successful probe restores availability after a transient failure or
+an operator repair in place. Health recovery preserves the original update
+cooldown; no updater is retried before it expires. `status` only reads shared
+health and does not run a recovery probe. There is no automatic rollback.
 
 ### Runtime permissions
 

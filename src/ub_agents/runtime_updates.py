@@ -13,7 +13,7 @@ import tempfile
 import time
 
 from .execution import stop_group
-from .runtime_installations import installation, updater
+from .runtime_installations import claude_updates_disabled, installation, updater
 
 COOLDOWN_SECONDS = 24 * 60 * 60
 
@@ -147,7 +147,7 @@ class RuntimeMaintenance:
             return self.read(state).get("usable", True)
         try:
             if guard.exists():
-                with lock(guard, create=False) as held:
+                with lock(guard, shared=True, create=False) as held:
                     if held is None:
                         return False
                     return self.read(state).get("usable", True)
@@ -164,7 +164,7 @@ class RuntimeMaintenance:
             return
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         guard, runs, state = self.paths(install)
-        with lock(guard) as held:
+        with lock(guard, shared=True) as held:
             if held is None or not self.read(state).get("usable", True):
                 yield None
                 return
@@ -180,14 +180,13 @@ class RuntimeMaintenance:
 
     def boundary(self, config):
         settings = config.runtime_updates
-        if settings is None:
-            return
         used = {runtime.cli for agent in config.agents for runtime in agent.runtimes}
-        for cli, policy in settings.policies.items():
+        policies = settings.policies if settings is not None else {}
+        for cli in sorted(used | policies.keys()):
             if self.stopped():
                 return
             if cli not in used:
-                key = cli, str(policy)
+                key = cli, str(policies[cli])
                 if key not in self._unused:
                     self.output(f"Runtime maintenance {cli} (unused): skipped — no configured runtime uses {cli}")
                     self._unused.add(key)
@@ -195,16 +194,54 @@ class RuntimeMaintenance:
             install = installation(cli, self.which)
             if install is None:
                 key = cli, "missing"
-                if key not in self._unused:
+                if settings is not None and key not in self._unused:
                     self.output(f"Runtime maintenance {cli} (missing): skipped — install the runtime manually; no updater run")
                     self._unused.add(key)
                 continue
             try:
-                self.check(cli, install, policy, settings.timeout_seconds)
+                if settings is None:
+                    self.recover(cli, install)
+                else:
+                    self.check(cli, install, policies.get(cli, "off"), settings.timeout_seconds)
             except OSError as exc:
                 self.output(f"Runtime maintenance {cli} ({install.method}): failed — warning: local state unavailable: {exc}")
 
+    def recover(self, cli, install):
+        """Recheck failed health without changing another project's update policy."""
+        guard, _, state_path = self.paths(install)
+        if self.read(state_path).get("usable", True):
+            return
+        with lock(guard) as held:
+            if held is not None:
+                self._recover_locked(cli, install, state_path, self.read(state_path), held)
+
+    def _recover_locked(self, cli, install, state_path, state, held):
+        if state.get("usable", True):
+            return
+        self._maintenance_fds = (held.fileno(),)
+        try:
+            version = self.version(cli, os.environ.copy())
+        finally:
+            self._maintenance_fds = ()
+        if version is not None:
+            # Preserve the completed check's cooldown and updater result.
+            self.write(state_path, state | {"usable": True, "version": version})
+            self.output(f"Runtime health {cli} ({install.method}) {version}: recovered — new runs can start")
+
     def check(self, cli, install, policy, timeout):
+        reason = None
+        if policy == "off":
+            reason = "runtime-updates policy is off"
+        elif cli == "claude":
+            reason = claude_updates_disabled(os.environ)
+        if reason is not None:
+            # Project/launcher policy must not start the shared cooldown.
+            self.recover(cli, install)
+            key = cli, reason
+            if key not in self._unused:
+                self.output(f"Runtime maintenance {cli} ({install.method}): skipped — {reason}")
+                self._unused.add(key)
+            return
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         guard, runs, state_path = self.paths(install)
         with lock(guard) as held:
@@ -212,6 +249,7 @@ class RuntimeMaintenance:
                 return  # Another check is in progress; no cooldown or repeat.
             state = self.read(state_path)
             if self.clock() - state.get("checked", float("-inf")) < COOLDOWN_SECONDS:
+                self._recover_locked(cli, install, state_path, state, held)
                 return
             # Even command updates of native installations may replace files in place.
             in_place = not install.native or isinstance(policy, tuple)
