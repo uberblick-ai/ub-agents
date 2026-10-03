@@ -11,8 +11,9 @@ notes are copied from that section.
 - Launchers pause Claude and Codex runs at 90% usage or a reported usage limit,
   until the window reset plus one minute, with a 15-minute fallback for untrusted
   resets. Limit failures retry without attempts or backoff; alternatives remain
-  eligible and paused-only items wait. Local pause state appears in `status` and
-  `doctor`; `status --json` now returns `assignments` and `runtime_pauses`.
+  eligible and paused-only items wait. Local pause state in `.ub-agents/runtime-usage/`
+  appears in `status` and `doctor`; `status --json` now returns `assignments` and
+  `runtime_pauses`.
   Launchers remove their state on exit and prune abandoned local state at startup;
   process start times prevent recycled PIDs from showing stale pauses.
   Codex runs use `--json` and their fresh session's usage records, and `check`

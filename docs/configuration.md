@@ -486,7 +486,7 @@ session's usage records. A redundant `--json` is accepted.
 JSON event stream. Claude runs log the JSON stream of tool calls, tool results and
 the final result, including Claude Code's `permission_denials`. The launcher does
 interpret structured usage metadata; an accepted outcome still comes only from
-`ub-agent report`.
+`ub-agents report`.
 
 ### Runtime usage pauses
 
@@ -524,7 +524,7 @@ these waits normally. `launch --once` still observes just once.
 
 One line announces each CLI pause with its reason and UTC end. Each launcher
 publishes its unexpired readings and pauses atomically in its own
-`.ub-agent/runtime-usage/LAUNCHER_ID.json` file. `status` and `doctor` read the
+`.ub-agents/runtime-usage/LAUNCHER_ID.json` file. `status` and `doctor` read the
 unexpired pauses of live launchers on this host without changing those files;
 a pause does not fail `doctor`. Launchers schedule from their own readings.
 Restarting a launcher starts with no pauses, providing an override when usage is
