@@ -1,0 +1,149 @@
+<svg class="rich-terminal" viewBox="0 0 897 635.5999999999999" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .terminal-1295635050-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .terminal-1295635050-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .terminal-1295635050-r1 { fill: #c5c8c6 }
+    </style>
+
+    <defs>
+    <clipPath id="terminal-1295635050-clip-terminal">
+      <rect x="0" y="0" width="877.4" height="584.5999999999999" />
+    </clipPath>
+    <clipPath id="terminal-1295635050-line-0">
+    <rect x="0" y="1.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-1">
+    <rect x="0" y="25.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-2">
+    <rect x="0" y="50.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-3">
+    <rect x="0" y="74.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-4">
+    <rect x="0" y="99.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-5">
+    <rect x="0" y="123.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-6">
+    <rect x="0" y="147.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-7">
+    <rect x="0" y="172.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-8">
+    <rect x="0" y="196.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-9">
+    <rect x="0" y="221.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-10">
+    <rect x="0" y="245.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-11">
+    <rect x="0" y="269.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-12">
+    <rect x="0" y="294.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-13">
+    <rect x="0" y="318.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-14">
+    <rect x="0" y="343.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-15">
+    <rect x="0" y="367.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-16">
+    <rect x="0" y="391.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-17">
+    <rect x="0" y="416.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-18">
+    <rect x="0" y="440.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-19">
+    <rect x="0" y="465.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-20">
+    <rect x="0" y="489.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-21">
+    <rect x="0" y="513.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-1295635050-line-22">
+    <rect x="0" y="538.3" width="878.4" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="895" height="633.6" rx="8"/><text class="terminal-1295635050-title" fill="#c5c8c6" text-anchor="middle" x="447" y="27">pretty.py&#160;—&#160;owned&#160;PTY&#160;output;&#160;modeled&#160;final&#160;viewport</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+
+    <g transform="translate(9, 41)" clip-path="url(#terminal-1295635050-clip-terminal)">
+
+    <g class="terminal-1295635050-matrix">
+    <text class="terminal-1295635050-r1" x="878.4" y="20" textLength="12.2" clip-path="url(#terminal-1295635050-line-0)">
+</text><text class="terminal-1295635050-r1" x="0" y="44.4" textLength="878.4" clip-path="url(#terminal-1295635050-line-1)">I&#160;didn&#x27;t&#160;create&#160;the&#160;plan&#160;file&#160;that&#160;plan&#160;mode&#160;asks&#160;for,&#160;because&#160;you&#160;said&#160;</text><text class="terminal-1295635050-r1" x="878.4" y="44.4" textLength="12.2" clip-path="url(#terminal-1295635050-line-1)">
+</text><text class="terminal-1295635050-r1" x="0" y="68.8" textLength="878.4" clip-path="url(#terminal-1295635050-line-2)">not&#160;to&#160;write&#160;files.&#160;I&#160;also&#160;didn&#x27;t&#160;look&#160;at&#160;any&#160;parent&#160;directories,&#160;creden</text><text class="terminal-1295635050-r1" x="878.4" y="68.8" textLength="12.2" clip-path="url(#terminal-1295635050-line-2)">
+</text><text class="terminal-1295635050-r1" x="0" y="93.2" textLength="878.4" clip-path="url(#terminal-1295635050-line-3)">tials,&#160;configuration,&#160;network&#160;or&#160;MCP,&#160;and&#160;I&#160;didn&#x27;t&#160;hand&#160;anything&#160;off&#160;to&#160;</text><text class="terminal-1295635050-r1" x="878.4" y="93.2" textLength="12.2" clip-path="url(#terminal-1295635050-line-3)">
+</text><text class="terminal-1295635050-r1" x="0" y="117.6" textLength="158.6" clip-path="url(#terminal-1295635050-line-4)">other&#160;agents.</text><text class="terminal-1295635050-r1" x="878.4" y="117.6" textLength="12.2" clip-path="url(#terminal-1295635050-line-4)">
+</text><text class="terminal-1295635050-r1" x="0" y="142" textLength="500.2" clip-path="url(#terminal-1295635050-line-5)">event=—&#160;·&#160;capture=—&#160;(historical)&#160;·&#160;result</text><text class="terminal-1295635050-r1" x="878.4" y="142" textLength="12.2" clip-path="url(#terminal-1295635050-line-5)">
+</text><text class="terminal-1295635050-r1" x="0" y="166.4" textLength="244" clip-path="url(#terminal-1295635050-line-6)">SPIKE111_MESSAGE_END</text><text class="terminal-1295635050-r1" x="878.4" y="166.4" textLength="12.2" clip-path="url(#terminal-1295635050-line-6)">
+</text><text class="terminal-1295635050-r1" x="878.4" y="190.8" textLength="12.2" clip-path="url(#terminal-1295635050-line-7)">
+</text><text class="terminal-1295635050-r1" x="0" y="215.2" textLength="878.4" clip-path="url(#terminal-1295635050-line-8)">-&#160;**`python3&#160;fixture_output.py`&#160;worked&#160;(exit&#160;0).**&#160;It&#160;printed&#160;`SPIKE111_</text><text class="terminal-1295635050-r1" x="878.4" y="215.2" textLength="12.2" clip-path="url(#terminal-1295635050-line-8)">
+</text><text class="terminal-1295635050-r1" x="0" y="239.6" textLength="878.4" clip-path="url(#terminal-1295635050-line-9)">COMMAND_BEGIN`,&#160;then&#160;240&#160;row&#160;lines&#160;(`SPIKE111_ROW_000`&#160;through&#160;`SPIKE111</text><text class="terminal-1295635050-r1" x="878.4" y="239.6" textLength="12.2" clip-path="url(#terminal-1295635050-line-9)">
+</text><text class="terminal-1295635050-r1" x="0" y="264" textLength="878.4" clip-path="url(#terminal-1295635050-line-10)">_ROW_239`,&#160;each&#160;containing&#160;&quot;café&quot;),&#160;then&#160;one&#160;long&#160;line.&#160;It&#160;also&#160;printed&#160;</text><text class="terminal-1295635050-r1" x="878.4" y="264" textLength="12.2" clip-path="url(#terminal-1295635050-line-10)">
+</text><text class="terminal-1295635050-r1" x="0" y="288.4" textLength="878.4" clip-path="url(#terminal-1295635050-line-11)">one&#160;line&#160;to&#160;stderr&#160;(`SPIKE111_STDERR:&#160;owned&#160;diagnostic,&#160;command&#160;still&#160;su</text><text class="terminal-1295635050-r1" x="878.4" y="288.4" textLength="12.2" clip-path="url(#terminal-1295635050-line-11)">
+</text><text class="terminal-1295635050-r1" x="0" y="312.8" textLength="585.6" clip-path="url(#terminal-1295635050-line-12)">cceeds`),&#160;and&#160;ended&#160;with&#160;`SPIKE111_COMMAND_END`.</text><text class="terminal-1295635050-r1" x="878.4" y="312.8" textLength="12.2" clip-path="url(#terminal-1295635050-line-12)">
+</text><text class="terminal-1295635050-r1" x="0" y="337.2" textLength="878.4" clip-path="url(#terminal-1295635050-line-13)">-&#160;**Long&#160;output:**&#160;that&#160;one&#160;line&#160;has&#160;`abcdefghij`&#160;repeated&#160;600&#160;times&#160;(6,</text><text class="terminal-1295635050-r1" x="878.4" y="337.2" textLength="12.2" clip-path="url(#terminal-1295635050-line-13)">
+</text><text class="terminal-1295635050-r1" x="0" y="361.6" textLength="878.4" clip-path="url(#terminal-1295635050-line-14)">000&#160;characters)&#160;between&#160;`SPIKE111_LONG_BEGIN`&#160;and&#160;`SPIKE111_LONG_END`.&#160;I</text><text class="terminal-1295635050-r1" x="878.4" y="361.6" textLength="12.2" clip-path="url(#terminal-1295635050-line-14)">
+</text><text class="terminal-1295635050-r1" x="0" y="386" textLength="463.6" clip-path="url(#terminal-1295635050-line-15)">t&#160;came&#160;through&#160;whole&#160;on&#160;a&#160;single&#160;line.</text><text class="terminal-1295635050-r1" x="878.4" y="386" textLength="12.2" clip-path="url(#terminal-1295635050-line-15)">
+</text><text class="terminal-1295635050-r1" x="0" y="410.4" textLength="878.4" clip-path="url(#terminal-1295635050-line-16)">-&#160;**Intentional&#160;failure:**&#160;`cat&#160;missing-owned.txt`&#160;exited&#160;with&#160;code&#160;1&#160;an</text><text class="terminal-1295635050-r1" x="878.4" y="410.4" textLength="12.2" clip-path="url(#terminal-1295635050-line-16)">
+</text><text class="terminal-1295635050-r1" x="0" y="434.8" textLength="878.4" clip-path="url(#terminal-1295635050-line-17)">d&#160;printed&#160;`cat:&#160;missing-owned.txt:&#160;No&#160;such&#160;file&#160;or&#160;directory`.&#160;As&#160;instru</text><text class="terminal-1295635050-r1" x="878.4" y="434.8" textLength="12.2" clip-path="url(#terminal-1295635050-line-17)">
+</text><text class="terminal-1295635050-r1" x="0" y="459.2" textLength="414.8" clip-path="url(#terminal-1295635050-line-18)">cted,&#160;I&#160;didn&#x27;t&#160;retry&#160;it&#160;or&#160;fix&#160;it.</text><text class="terminal-1295635050-r1" x="878.4" y="459.2" textLength="12.2" clip-path="url(#terminal-1295635050-line-18)">
+</text><text class="terminal-1295635050-r1" x="878.4" y="483.6" textLength="12.2" clip-path="url(#terminal-1295635050-line-19)">
+</text><text class="terminal-1295635050-r1" x="0" y="508" textLength="878.4" clip-path="url(#terminal-1295635050-line-20)">I&#160;didn&#x27;t&#160;create&#160;the&#160;plan&#160;file&#160;that&#160;plan&#160;mode&#160;asks&#160;for,&#160;because&#160;you&#160;said&#160;</text><text class="terminal-1295635050-r1" x="878.4" y="508" textLength="12.2" clip-path="url(#terminal-1295635050-line-20)">
+</text><text class="terminal-1295635050-r1" x="0" y="532.4" textLength="878.4" clip-path="url(#terminal-1295635050-line-21)">not&#160;to&#160;write&#160;files.&#160;I&#160;also&#160;didn&#x27;t&#160;look&#160;at&#160;any&#160;parent&#160;directories,&#160;creden</text><text class="terminal-1295635050-r1" x="878.4" y="532.4" textLength="12.2" clip-path="url(#terminal-1295635050-line-21)">
+</text><text class="terminal-1295635050-r1" x="0" y="556.8" textLength="878.4" clip-path="url(#terminal-1295635050-line-22)">tials,&#160;configuration,&#160;network&#160;or&#160;MCP,&#160;and&#160;I&#160;didn&#x27;t&#160;hand&#160;anything&#160;off&#160;to&#160;</text><text class="terminal-1295635050-r1" x="878.4" y="556.8" textLength="12.2" clip-path="url(#terminal-1295635050-line-22)">
+</text><text class="terminal-1295635050-r1" x="0" y="581.2" textLength="158.6" clip-path="url(#terminal-1295635050-line-23)">other&#160;agents.</text>
+    </g>
+    </g>
+</svg>

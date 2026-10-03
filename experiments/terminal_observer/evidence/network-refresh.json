@@ -1,0 +1,751 @@
+{
+  "repository": "uberblick-ai/ub-agents",
+  "observed_at": "2026-10-03T09:23:10.268468+00:00",
+  "identity_calls": 1,
+  "source": "real network; no runtime/log access",
+  "passes": [
+    {
+      "mode": "fresh status",
+      "rows_or_plans": 4,
+      "seconds": 12.262,
+      "gh_calls": 21,
+      "rest_attempts": 18,
+      "rest_quota_requests": 18,
+      "graphql_calls": 3,
+      "http_statuses": {
+        "200": 21
+      },
+      "idle_start_gap_seconds": 259.2,
+      "low_resources": [],
+      "calls": [
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues?state=open&sort=created&direction=asc&per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4965",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "35"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-09-26T06%3A08%3A10.931221Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4963",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "37"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-01T19%3A53%3A13Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4962",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "38"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-02T08%3A16%3A59Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4961",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "39"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-02T10%3A43%3A17Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4960",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "40"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-02T13%3A52%3A13Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4959",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "41"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-02T16%3A13%3A20Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4958",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "42"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-03T07%3A39%3A07Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4957",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "43"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-03T08%3A35%3A19Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4956",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "44"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/milestones?state=open&per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4955",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "45"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4998",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "2"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/pulls/74",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4954",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "46"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/74/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4953",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "47"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/85/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4952",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "48"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4997",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "3"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/85/timeline?per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4951",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "49"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/collaborators/bk-one/permission",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4950",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "50"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/97/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4949",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "51"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/4/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4948",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "52"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4996",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "4"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/4/timeline?per_page=100&page=1",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4947",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "53"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "fresh status with transport ETags",
+      "rows_or_plans": 4,
+      "seconds": 7.347,
+      "gh_calls": 14,
+      "rest_attempts": 11,
+      "rest_quota_requests": 1,
+      "graphql_calls": 3,
+      "http_statuses": {
+        "304": 10,
+        "200": 4
+      },
+      "idle_start_gap_seconds": 30,
+      "low_resources": [],
+      "calls": [
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues?state=open&sort=created&direction=asc&per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4947",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "53"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-03T09%3A22%3A10Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/milestones?state=open&per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4995",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "5"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/pulls/74",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/74/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/85/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4994",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "6"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/85/timeline?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/collaborators/bk-one/permission",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/97/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/4/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4993",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "7"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/4/timeline?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "cached planner warm-up",
+      "rows_or_plans": 4,
+      "seconds": 7.706,
+      "gh_calls": 14,
+      "rest_attempts": 11,
+      "rest_quota_requests": 1,
+      "graphql_calls": 3,
+      "http_statuses": {
+        "304": 10,
+        "200": 4
+      },
+      "idle_start_gap_seconds": 30,
+      "low_resources": [],
+      "calls": [
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues?state=open&sort=created&direction=asc&per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4946",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "54"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-03T09%3A22%3A23Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/milestones?state=open&per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4992",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "8"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/pulls/74",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/74/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/85/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4991",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "9"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/85/timeline?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/collaborators/bk-one/permission",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/97/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4945",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "55"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/4/comments?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4944",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "56"
+          }
+        },
+        {
+          "endpoint": "graphql",
+          "method": "POST",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4990",
+            "x-ratelimit-reset": "1791022817",
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-used": "10"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/4/timeline?per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4944",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "56"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "cached planner unchanged",
+      "rows_or_plans": 4,
+      "seconds": 2.485,
+      "gh_calls": 3,
+      "rest_attempts": 3,
+      "rest_quota_requests": 1,
+      "graphql_calls": 0,
+      "http_statuses": {
+        "304": 2,
+        "200": 1
+      },
+      "idle_start_gap_seconds": 30,
+      "low_resources": [],
+      "calls": [
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues?state=open&sort=created&direction=asc&per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4944",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "56"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/issues/comments?sort=updated&direction=asc&per_page=100&since=2026-10-03T09%3A22%3A30Z",
+          "method": "GET",
+          "status": 200,
+          "conditional": false,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4943",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "57"
+          }
+        },
+        {
+          "endpoint": "repos/uberblick-ai/ub-agents/milestones?state=open&per_page=100&page=1",
+          "method": "GET",
+          "status": 304,
+          "conditional": true,
+          "quota": {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4943",
+            "x-ratelimit-reset": "1791022575",
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-used": "57"
+          }
+        }
+      ]
+    }
+  ]
+}

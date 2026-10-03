@@ -1,0 +1,10 @@
+{
+  "test_current_human_blocker_and_completed_history": {
+    "former_behavior_mutation_rejected": true,
+    "assertion_failures": 1
+  },
+  "test_truncation_clears_unfinished_record_and_time": {
+    "former_behavior_mutation_rejected": true,
+    "assertion_failures": 1
+  }
+}

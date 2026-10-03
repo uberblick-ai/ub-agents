@@ -1,0 +1,79 @@
+[
+  {
+    "runtime": "codex",
+    "command": [
+      "codex",
+      "exec",
+      "--model",
+      "gpt-6.1-sol",
+      "--sandbox",
+      "read-only",
+      "--ignore-user-config",
+      "--ephemeral",
+      "--skip-git-repo-check",
+      "--json",
+      "-"
+    ],
+    "seconds": 12.402,
+    "exit_code": 0,
+    "error_class": null,
+    "event_types": [
+      "item.completed",
+      "item.started",
+      "thread.started",
+      "turn.completed",
+      "turn.started"
+    ],
+    "first_display_seconds": 0.446,
+    "navigation_during_run": true,
+    "max_buffer_entries": 7,
+    "raw_bytes": 927,
+    "owned_group_empty_after_supervise": true,
+    "token_returned": true
+  },
+  {
+    "runtime": "claude",
+    "command": [
+      "claude",
+      "--print",
+      "--model",
+      "sonnet",
+      "--restricted",
+      "--tools",
+      "Read",
+      "--permission-mode",
+      "plan",
+      "--permission-prompts",
+      "none",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "{\"mcpServers\":{}}",
+      "--setting-sources",
+      "",
+      "--settings",
+      "{\"disableAllHooks\":true}",
+      "--no-session-persistence",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages"
+    ],
+    "seconds": 5.525,
+    "exit_code": 0,
+    "error_class": null,
+    "event_types": [
+      "assistant",
+      "rate_limit_event",
+      "result",
+      "stream_event",
+      "system",
+      "user"
+    ],
+    "first_display_seconds": 0.528,
+    "navigation_during_run": true,
+    "max_buffer_entries": 49,
+    "raw_bytes": 19830,
+    "owned_group_empty_after_supervise": true,
+    "token_returned": true
+  }
+]

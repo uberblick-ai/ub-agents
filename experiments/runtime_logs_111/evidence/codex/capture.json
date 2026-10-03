@@ -1,0 +1,41 @@
+{
+  "runtime": "codex",
+  "version": "codex-cli 0.159.3",
+  "runtime_spec": "codex:gpt-6.1-sol:xhigh",
+  "invocation": [
+    "codex",
+    "exec",
+    "--model",
+    "gpt-6.1-sol",
+    "--config",
+    "model_reasoning_effort=\"xhigh\"",
+    "--sandbox",
+    "read-only",
+    "--ignore-user-config",
+    "--ephemeral",
+    "--skip-git-repo-check"
+  ],
+  "cwd": "<owned fixture>",
+  "started_utc": "2026-10-03T12:57:15.422854+00:00",
+  "seconds": 22.289,
+  "timeout_seconds": 120,
+  "exit_code": 0,
+  "failure": null,
+  "complete": true,
+  "final_result": null,
+  "owned_group_empty": true,
+  "raw_sha256": "e348454dab5bb1c4c4256fa84f84e5c83254ac6e2da15d00ab5e29adf2c1e0e1",
+  "raw_bytes": 23420,
+  "sanitized_sha256": "f9d75a97c266bc378572e06eb10b255ddf04558fda71492381e47a85a1500fe4",
+  "sanitized_bytes": 22946,
+  "lines": 302,
+  "provenance": "one new owned read-only probe; launcher command_for and supervise; merged stdout/stderr to file",
+  "sanitization": "entire stream; no records selected or added; paths, IDs, credential-like values, email, socket, opaque signatures and account quota metadata replaced; JSON reserialized",
+  "limitations": [
+    "synthetic workload, not a complete issue implementation",
+    "runtime safety arguments narrower than operator worker arguments",
+    "arrivals are line-completion observer read times, not producer timestamps",
+    "raw private recording is ignored and is never published",
+    "no actual operator-terminal observation"
+  ]
+}

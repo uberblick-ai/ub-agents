@@ -1,0 +1,1057 @@
+{
+  "source_commit": "f9bdba7796e80c977e398dedc139d0717ba55db8",
+  "textual_version": "8.2.8",
+  "checks": "input SHA verification, pretty PTY exact sequential adapter projection, complete byte drain, view/PTY closure awaited",
+  "artifact_publication": "SVG/text exports strip end-of-line whitespace; assertions and paused measurements use original in-memory output; process.log inputs are never whitespace-normalized",
+  "actual_operator_terminal_observation": "unverified",
+  "comparisons": [
+    {
+      "runtime": "claude",
+      "size": [
+        110,
+        32
+      ],
+      "input_sha256": "cc3adffbfac66ad7a7c12c110ead17499faa1621784144a84eeb6df576035239",
+      "observation": "sanitized real recording replay; owned PTY for pretty.py, Textual headless pilot for combined view",
+      "pretty": {
+        "exit_code": 0,
+        "equals_full_adapter_projection": true,
+        "records_printed": 18,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "logical_lines": 86,
+        "modeled_wrapped_rows": 136,
+        "final_viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": false,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_label": "replay: plain autowrap model of owned PTY transcript; no operator observation"
+      },
+      "complete_probe": true,
+      "attachment_drain_seconds": 0.324,
+      "combined": {
+        "decoded_records": 18,
+        "retained_records": 18,
+        "evicted_records": 0,
+        "rendered_rows": 176,
+        "log_region": [
+          69,
+          24
+        ],
+        "scroll_y": 152.0,
+        "max_scroll_y": 152.0,
+        "follow": true,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmpnxtpn8g1/process.log\nFOLLOW · 18/200 records · evicted 0 · last 400 rendered lines · unread 0"
+      },
+      "oldest_available_viewport": {
+        "SPIKE111_MESSAGE_BEGIN": false,
+        "SPIKE111_COMMAND_BEGIN": false,
+        "SPIKE111_ROW_000": false,
+        "SPIKE111_ROW_120": false,
+        "SPIKE111_ROW_239": false,
+        "SPIKE111_LONG_BEGIN": false,
+        "SPIKE111_LONG_END": false,
+        "SPIKE111_STDERR": false,
+        "SPIKE111_COMMAND_END": false,
+        "missing-owned.txt": false,
+        "SPIKE111_MESSAGE_END": false
+      },
+      "after_pane_revisit": {
+        "decoded_records": 18,
+        "retained_records": 18,
+        "evicted_records": 0,
+        "rendered_rows": 176,
+        "log_region": [
+          69,
+          24
+        ],
+        "scroll_y": 74.0,
+        "max_scroll_y": 152.0,
+        "follow": false,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": false,
+          "SPIKE111_MESSAGE_END": false
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmpnxtpn8g1/process.log\nPAUSED · 18/200 records · evicted 0 · last 400 rendered lines · unread 0"
+      },
+      "stream_replay": {
+        "partial_record_visible_before_pause": true,
+        "pause_active": true,
+        "scroll_position_before": 52.0,
+        "scroll_position_after": 52.0,
+        "same_viewport_text_after_append": false,
+        "same_top_visible_row": true,
+        "same_shared_visible_rows": true,
+        "visible_region_before": [
+          69,
+          22
+        ],
+        "visible_region_after": [
+          69,
+          24
+        ],
+        "prior_viewport_still_in_rendered_rows": true,
+        "rendered_rows_before": 96,
+        "rendered_rows_after": 187,
+        "decoded_before": 12,
+        "decoded_after": 18,
+        "pretty_bytes_before_append": 5014,
+        "pretty_bytes_after_append": 9789,
+        "pretty_pause_control": "none in pretty.py; external terminal scrollback not assessed",
+        "schedule": "controlled byte replay: first 60%, then 1024-byte chunks every 20ms; deliberately split record, not original runtime cadence",
+        "follow_resumed": true,
+        "follow_at_consumed_end": true,
+        "final": {
+          "decoded_records": 18,
+          "retained_records": 18,
+          "evicted_records": 0,
+          "rendered_rows": 187,
+          "log_region": [
+            69,
+            24
+          ],
+          "scroll_y": 163.0,
+          "max_scroll_y": 163.0,
+          "follow": true,
+          "retained_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": true,
+            "SPIKE111_COMMAND_BEGIN": true,
+            "SPIKE111_ROW_000": true,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "rendered_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": true,
+            "SPIKE111_COMMAND_BEGIN": true,
+            "SPIKE111_ROW_000": true,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "viewport_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": true,
+            "SPIKE111_ROW_000": true,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "note": "Raw fallback: .ub-agent/spike111-comparison/tmpnxtpn8g1/process.log\nFOLLOW · 18/200 records · evicted 0 · last 400 rendered lines · unread 0"
+        }
+      },
+      "pretty_follow": {
+        "exit_code_after_owned_SIGINT": 0,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "capture_labels": "observer read time; startup bytes can be historical"
+      }
+    },
+    {
+      "runtime": "claude",
+      "size": [
+        72,
+        24
+      ],
+      "input_sha256": "cc3adffbfac66ad7a7c12c110ead17499faa1621784144a84eeb6df576035239",
+      "observation": "sanitized real recording replay; owned PTY for pretty.py, Textual headless pilot for combined view",
+      "pretty": {
+        "exit_code": 0,
+        "equals_full_adapter_projection": true,
+        "records_printed": 18,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "logical_lines": 86,
+        "modeled_wrapped_rows": 166,
+        "final_viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_label": "replay: plain autowrap model of owned PTY transcript; no operator observation"
+      },
+      "complete_probe": true,
+      "attachment_drain_seconds": 0.333,
+      "combined": {
+        "decoded_records": 18,
+        "retained_records": 18,
+        "evicted_records": 0,
+        "rendered_rows": 274,
+        "log_region": [
+          44,
+          14
+        ],
+        "scroll_y": 260.0,
+        "max_scroll_y": 260.0,
+        "follow": true,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": false,
+          "SPIKE111_COMMAND_END": false,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": false
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmp4an4t1qn/process.log\nFOLLOW · 18/200 records · evicted 0 · last 400 rendered lines · unread 0"
+      },
+      "oldest_available_viewport": {
+        "SPIKE111_MESSAGE_BEGIN": false,
+        "SPIKE111_COMMAND_BEGIN": false,
+        "SPIKE111_ROW_000": false,
+        "SPIKE111_ROW_120": false,
+        "SPIKE111_ROW_239": false,
+        "SPIKE111_LONG_BEGIN": false,
+        "SPIKE111_LONG_END": false,
+        "SPIKE111_STDERR": false,
+        "SPIKE111_COMMAND_END": false,
+        "missing-owned.txt": false,
+        "SPIKE111_MESSAGE_END": false
+      },
+      "after_pane_revisit": {
+        "decoded_records": 18,
+        "retained_records": 18,
+        "evicted_records": 0,
+        "rendered_rows": 274,
+        "log_region": [
+          44,
+          14
+        ],
+        "scroll_y": 114.0,
+        "max_scroll_y": 260.0,
+        "follow": false,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": false,
+          "SPIKE111_MESSAGE_END": false
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmp4an4t1qn/process.log\nPAUSED · 18/200 records · evicted 0 · last 400 rendered lines · unread 0"
+      },
+      "stream_replay": {
+        "partial_record_visible_before_pause": true,
+        "pause_active": true,
+        "scroll_position_before": 135.0,
+        "scroll_position_after": 135.0,
+        "same_viewport_text_after_append": false,
+        "same_top_visible_row": true,
+        "same_shared_visible_rows": true,
+        "visible_region_before": [
+          44,
+          10
+        ],
+        "visible_region_after": [
+          44,
+          14
+        ],
+        "prior_viewport_still_in_rendered_rows": true,
+        "rendered_rows_before": 155,
+        "rendered_rows_after": 295,
+        "decoded_before": 12,
+        "decoded_after": 18,
+        "pretty_bytes_before_append": 5014,
+        "pretty_bytes_after_append": 9789,
+        "pretty_pause_control": "none in pretty.py; external terminal scrollback not assessed",
+        "schedule": "controlled byte replay: first 60%, then 1024-byte chunks every 20ms; deliberately split record, not original runtime cadence",
+        "follow_resumed": true,
+        "follow_at_consumed_end": true,
+        "final": {
+          "decoded_records": 18,
+          "retained_records": 18,
+          "evicted_records": 0,
+          "rendered_rows": 295,
+          "log_region": [
+            44,
+            14
+          ],
+          "scroll_y": 281.0,
+          "max_scroll_y": 281.0,
+          "follow": true,
+          "retained_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": true,
+            "SPIKE111_COMMAND_BEGIN": true,
+            "SPIKE111_ROW_000": true,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "rendered_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": true,
+            "SPIKE111_COMMAND_BEGIN": true,
+            "SPIKE111_ROW_000": true,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "viewport_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": false,
+            "SPIKE111_ROW_000": false,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": false,
+            "SPIKE111_LONG_BEGIN": false,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": false,
+            "SPIKE111_COMMAND_END": false,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": false
+          },
+          "note": "Raw fallback: .ub-agent/spike111-comparison/tmp4an4t1qn/process.log\nFOLLOW · 18/200 records · evicted 0 · last 400 rendered lines · unread 0"
+        }
+      },
+      "pretty_follow": {
+        "exit_code_after_owned_SIGINT": 0,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "capture_labels": "observer read time; startup bytes can be historical"
+      }
+    },
+    {
+      "runtime": "codex",
+      "size": [
+        110,
+        32
+      ],
+      "input_sha256": "f9d75a97c266bc378572e06eb10b255ddf04558fda71492381e47a85a1500fe4",
+      "observation": "sanitized real recording replay; owned PTY for pretty.py, Textual headless pilot for combined view",
+      "pretty": {
+        "exit_code": 0,
+        "equals_full_adapter_projection": true,
+        "records_printed": 302,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "logical_lines": 304,
+        "modeled_wrapped_rows": 327,
+        "final_viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": false,
+          "SPIKE111_STDERR": false,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_label": "replay: plain autowrap model of owned PTY transcript; no operator observation"
+      },
+      "complete_probe": true,
+      "attachment_drain_seconds": 0.936,
+      "combined": {
+        "decoded_records": 302,
+        "retained_records": 200,
+        "evicted_records": 102,
+        "rendered_rows": 352,
+        "log_region": [
+          69,
+          24
+        ],
+        "scroll_y": 328.0,
+        "max_scroll_y": 328.0,
+        "follow": true,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": false,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmp3rk5s65t/process.log\nFOLLOW · 200/200 records · evicted 102 · last 400 rendered lines · unread 0"
+      },
+      "oldest_available_viewport": {
+        "SPIKE111_MESSAGE_BEGIN": true,
+        "SPIKE111_COMMAND_BEGIN": false,
+        "SPIKE111_ROW_000": false,
+        "SPIKE111_ROW_120": false,
+        "SPIKE111_ROW_239": false,
+        "SPIKE111_LONG_BEGIN": false,
+        "SPIKE111_LONG_END": false,
+        "SPIKE111_STDERR": false,
+        "SPIKE111_COMMAND_END": false,
+        "missing-owned.txt": true,
+        "SPIKE111_MESSAGE_END": false
+      },
+      "after_pane_revisit": {
+        "decoded_records": 302,
+        "retained_records": 200,
+        "evicted_records": 102,
+        "rendered_rows": 237,
+        "log_region": [
+          69,
+          24
+        ],
+        "scroll_y": 8.0,
+        "max_scroll_y": 213.0,
+        "follow": false,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": false,
+          "SPIKE111_STDERR": false,
+          "SPIKE111_COMMAND_END": false,
+          "missing-owned.txt": false,
+          "SPIKE111_MESSAGE_END": false
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmp3rk5s65t/process.log\nPAUSED · 200/200 records · evicted 102 · last 400 rendered lines · unread 0"
+      },
+      "stream_replay": {
+        "partial_record_visible_before_pause": true,
+        "pause_active": true,
+        "scroll_position_before": 352.0,
+        "scroll_position_after": 352.0,
+        "same_viewport_text_after_append": false,
+        "same_top_visible_row": false,
+        "same_shared_visible_rows": false,
+        "visible_region_before": [
+          69,
+          24
+        ],
+        "visible_region_after": [
+          69,
+          24
+        ],
+        "prior_viewport_still_in_rendered_rows": true,
+        "rendered_rows_before": 400,
+        "rendered_rows_after": 400,
+        "decoded_before": 244,
+        "decoded_after": 302,
+        "pretty_bytes_before_append": 23719,
+        "pretty_bytes_after_append": 31343,
+        "pretty_pause_control": "none in pretty.py; external terminal scrollback not assessed",
+        "schedule": "controlled byte replay: first 60%, then 1024-byte chunks every 20ms; deliberately split record, not original runtime cadence",
+        "follow_resumed": true,
+        "follow_at_consumed_end": true,
+        "final": {
+          "decoded_records": 302,
+          "retained_records": 200,
+          "evicted_records": 102,
+          "rendered_rows": 400,
+          "log_region": [
+            69,
+            24
+          ],
+          "scroll_y": 376.0,
+          "max_scroll_y": 376.0,
+          "follow": true,
+          "retained_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": false,
+            "SPIKE111_ROW_000": false,
+            "SPIKE111_ROW_120": true,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "rendered_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": false,
+            "SPIKE111_ROW_000": false,
+            "SPIKE111_ROW_120": true,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "viewport_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": false,
+            "SPIKE111_ROW_000": false,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": false,
+            "SPIKE111_LONG_BEGIN": false,
+            "SPIKE111_LONG_END": false,
+            "SPIKE111_STDERR": false,
+            "SPIKE111_COMMAND_END": false,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "note": "Raw fallback: .ub-agent/spike111-comparison/tmp3rk5s65t/process.log\nFOLLOW · 200/200 records · evicted 102 · last 400 rendered lines · unread 0"
+        }
+      },
+      "pretty_follow": {
+        "exit_code_after_owned_SIGINT": 0,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "capture_labels": "observer read time; startup bytes can be historical"
+      }
+    },
+    {
+      "runtime": "codex",
+      "size": [
+        72,
+        24
+      ],
+      "input_sha256": "f9d75a97c266bc378572e06eb10b255ddf04558fda71492381e47a85a1500fe4",
+      "observation": "sanitized real recording replay; owned PTY for pretty.py, Textual headless pilot for combined view",
+      "pretty": {
+        "exit_code": 0,
+        "equals_full_adapter_projection": true,
+        "records_printed": 302,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "logical_lines": 304,
+        "modeled_wrapped_rows": 346,
+        "final_viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": false,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_label": "replay: plain autowrap model of owned PTY transcript; no operator observation"
+      },
+      "complete_probe": true,
+      "attachment_drain_seconds": 0.944,
+      "combined": {
+        "decoded_records": 302,
+        "retained_records": 200,
+        "evicted_records": 102,
+        "rendered_rows": 400,
+        "log_region": [
+          44,
+          14
+        ],
+        "scroll_y": 386.0,
+        "max_scroll_y": 386.0,
+        "follow": true,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": false,
+          "SPIKE111_STDERR": false,
+          "SPIKE111_COMMAND_END": false,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmpvbp8_frr/process.log\nFOLLOW · 200/200 records · evicted 102 · last 400 rendered lines · unread 0"
+      },
+      "oldest_available_viewport": {
+        "SPIKE111_MESSAGE_BEGIN": false,
+        "SPIKE111_COMMAND_BEGIN": false,
+        "SPIKE111_ROW_000": false,
+        "SPIKE111_ROW_120": false,
+        "SPIKE111_ROW_239": false,
+        "SPIKE111_LONG_BEGIN": false,
+        "SPIKE111_LONG_END": false,
+        "SPIKE111_STDERR": false,
+        "SPIKE111_COMMAND_END": false,
+        "missing-owned.txt": false,
+        "SPIKE111_MESSAGE_END": false
+      },
+      "after_pane_revisit": {
+        "decoded_records": 302,
+        "retained_records": 200,
+        "evicted_records": 102,
+        "rendered_rows": 400,
+        "log_region": [
+          44,
+          14
+        ],
+        "scroll_y": 114.0,
+        "max_scroll_y": 386.0,
+        "follow": false,
+        "retained_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "rendered_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "viewport_tokens": {
+          "SPIKE111_MESSAGE_BEGIN": false,
+          "SPIKE111_COMMAND_BEGIN": false,
+          "SPIKE111_ROW_000": false,
+          "SPIKE111_ROW_120": false,
+          "SPIKE111_ROW_239": false,
+          "SPIKE111_LONG_BEGIN": false,
+          "SPIKE111_LONG_END": false,
+          "SPIKE111_STDERR": false,
+          "SPIKE111_COMMAND_END": false,
+          "missing-owned.txt": false,
+          "SPIKE111_MESSAGE_END": false
+        },
+        "note": "Raw fallback: .ub-agent/spike111-comparison/tmpvbp8_frr/process.log\nPAUSED · 200/200 records · evicted 102 · last 400 rendered lines · unread 0"
+      },
+      "stream_replay": {
+        "partial_record_visible_before_pause": true,
+        "pause_active": true,
+        "scroll_position_before": 374.0,
+        "scroll_position_after": 374.0,
+        "same_viewport_text_after_append": false,
+        "same_top_visible_row": false,
+        "same_shared_visible_rows": false,
+        "visible_region_before": [
+          44,
+          13
+        ],
+        "visible_region_after": [
+          44,
+          14
+        ],
+        "prior_viewport_still_in_rendered_rows": true,
+        "rendered_rows_before": 400,
+        "rendered_rows_after": 400,
+        "decoded_before": 244,
+        "decoded_after": 302,
+        "pretty_bytes_before_append": 23719,
+        "pretty_bytes_after_append": 31343,
+        "pretty_pause_control": "none in pretty.py; external terminal scrollback not assessed",
+        "schedule": "controlled byte replay: first 60%, then 1024-byte chunks every 20ms; deliberately split record, not original runtime cadence",
+        "follow_resumed": true,
+        "follow_at_consumed_end": true,
+        "final": {
+          "decoded_records": 302,
+          "retained_records": 200,
+          "evicted_records": 102,
+          "rendered_rows": 400,
+          "log_region": [
+            44,
+            14
+          ],
+          "scroll_y": 386.0,
+          "max_scroll_y": 386.0,
+          "follow": true,
+          "retained_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": false,
+            "SPIKE111_ROW_000": false,
+            "SPIKE111_ROW_120": true,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "rendered_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": false,
+            "SPIKE111_ROW_000": false,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": true,
+            "SPIKE111_LONG_BEGIN": true,
+            "SPIKE111_LONG_END": true,
+            "SPIKE111_STDERR": true,
+            "SPIKE111_COMMAND_END": true,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "viewport_tokens": {
+            "SPIKE111_MESSAGE_BEGIN": false,
+            "SPIKE111_COMMAND_BEGIN": false,
+            "SPIKE111_ROW_000": false,
+            "SPIKE111_ROW_120": false,
+            "SPIKE111_ROW_239": false,
+            "SPIKE111_LONG_BEGIN": false,
+            "SPIKE111_LONG_END": false,
+            "SPIKE111_STDERR": false,
+            "SPIKE111_COMMAND_END": false,
+            "missing-owned.txt": true,
+            "SPIKE111_MESSAGE_END": true
+          },
+          "note": "Raw fallback: .ub-agent/spike111-comparison/tmpvbp8_frr/process.log\nFOLLOW · 200/200 records · evicted 102 · last 400 rendered lines · unread 0"
+        }
+      },
+      "pretty_follow": {
+        "exit_code_after_owned_SIGINT": 0,
+        "tokens": {
+          "SPIKE111_MESSAGE_BEGIN": true,
+          "SPIKE111_COMMAND_BEGIN": true,
+          "SPIKE111_ROW_000": true,
+          "SPIKE111_ROW_120": true,
+          "SPIKE111_ROW_239": true,
+          "SPIKE111_LONG_BEGIN": true,
+          "SPIKE111_LONG_END": true,
+          "SPIKE111_STDERR": true,
+          "SPIKE111_COMMAND_END": true,
+          "missing-owned.txt": true,
+          "SPIKE111_MESSAGE_END": true
+        },
+        "capture_labels": "observer read time; startup bytes can be historical"
+      }
+    }
+  ]
+}
