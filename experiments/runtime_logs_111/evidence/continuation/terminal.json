@@ -1,0 +1,165 @@
+{
+  "owner_usability": "unverified",
+  "sessions": [
+    {
+      "size": [
+        110,
+        32
+      ],
+      "TERM": "xterm-256color",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "experiments.runtime_logs_111.preview",
+        "--stream",
+        "--chunk-bytes",
+        "1024",
+        "--interval",
+        ".005"
+      ],
+      "steps": [
+        {
+          "action": "attach and replay captured bytes at controlled cadence",
+          "bytes_received": 132420,
+          "follow_painted": true,
+          "paused_painted": false,
+          "json_type_painted": true
+        },
+        {
+          "action": "Page Up",
+          "bytes_received": 18409,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": true
+        },
+        {
+          "action": "Issue pane",
+          "bytes_received": 23444,
+          "follow_painted": false,
+          "paused_painted": false,
+          "json_type_painted": false
+        },
+        {
+          "action": "Log pane revisit",
+          "bytes_received": 35235,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": true
+        },
+        {
+          "action": "raw projection",
+          "bytes_received": 18837,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": true
+        },
+        {
+          "action": "formatted projection",
+          "bytes_received": 18048,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": true
+        },
+        {
+          "action": "resume follow",
+          "bytes_received": 36523,
+          "follow_painted": true,
+          "paused_painted": false,
+          "json_type_painted": true
+        },
+        {
+          "action": "quit",
+          "bytes_received": 45,
+          "follow_painted": false,
+          "paused_painted": false,
+          "json_type_painted": false
+        }
+      ],
+      "exit_code": 0,
+      "alternate_screen_entered_and_restored": true,
+      "owned_process_awaited": true,
+      "terminal_bytes": 283019,
+      "observation": "real owned PTY and ANSI output inspection; no owner presence or visual usability acceptance"
+    },
+    {
+      "size": [
+        72,
+        24
+      ],
+      "TERM": "xterm-256color",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "experiments.runtime_logs_111.preview",
+        "--stream",
+        "--chunk-bytes",
+        "1024",
+        "--interval",
+        ".005"
+      ],
+      "steps": [
+        {
+          "action": "attach and replay captured bytes at controlled cadence",
+          "bytes_received": 84940,
+          "follow_painted": true,
+          "paused_painted": false,
+          "json_type_painted": true
+        },
+        {
+          "action": "Page Up",
+          "bytes_received": 11150,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": false
+        },
+        {
+          "action": "Issue pane",
+          "bytes_received": 17801,
+          "follow_painted": false,
+          "paused_painted": false,
+          "json_type_painted": false
+        },
+        {
+          "action": "Log pane revisit",
+          "bytes_received": 24719,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": false
+        },
+        {
+          "action": "raw projection",
+          "bytes_received": 12057,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": false
+        },
+        {
+          "action": "formatted projection",
+          "bytes_received": 11910,
+          "follow_painted": false,
+          "paused_painted": true,
+          "json_type_painted": false
+        },
+        {
+          "action": "resume follow",
+          "bytes_received": 20963,
+          "follow_painted": true,
+          "paused_painted": false,
+          "json_type_painted": false
+        },
+        {
+          "action": "quit",
+          "bytes_received": 45,
+          "follow_painted": false,
+          "paused_painted": false,
+          "json_type_painted": false
+        }
+      ],
+      "exit_code": 0,
+      "alternate_screen_entered_and_restored": true,
+      "owned_process_awaited": true,
+      "terminal_bytes": 183643,
+      "observation": "real owned PTY and ANSI output inspection; no owner presence or visual usability acceptance"
+    }
+  ]
+}

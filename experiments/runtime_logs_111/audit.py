@@ -12,6 +12,7 @@ ROOT = Path.cwd()
 HERE = ROOT / 'experiments/runtime_logs_111'
 EVIDENCE = HERE / 'evidence'
 PIN = 'f9bdba7796e80c977e398dedc139d0717ba55db8'
+BASELINE = '1fd246e3aef664b953cfa8fbeff084bac0715019'
 
 
 def main():
@@ -26,6 +27,18 @@ def main():
         if path.endswith('.svg'):
             original = b'\n'.join(line.rstrip() for line in original.splitlines()) + b'\n'
         assert actual == original, path
+    original_report = subprocess.run(['git', 'show', f'{BASELINE}:experiments/runtime_logs_111/REPORT.md'],
+                                     capture_output=True, check=True).stdout
+    assert (HERE / 'REPORT.baseline.md').read_bytes() == original_report
+    baseline_paths = subprocess.run(['git', 'ls-tree', '-r', '--name-only', BASELINE,
+                                     'experiments/runtime_logs_111/evidence'],
+                                    capture_output=True, text=True, check=True).stdout.splitlines()
+    for path in baseline_paths:
+        if path.endswith('/coverage.json'):  # Adds the historical Codex format label only.
+            continue
+        original = subprocess.run(['git', 'show', f'{BASELINE}:{path}'],
+                                  capture_output=True, check=True).stdout
+        assert (ROOT / path).read_bytes() == original, path
     coverage = {'unchanged_source_commit': PIN, 'unchanged_files_checked': len(paths),
                 'actual_operator_terminal': 'unverified', 'runtimes': {}}
     for runtime in ('claude', 'codex'):
@@ -76,14 +89,16 @@ def main():
                           permission_denials=records[-1].get('permission_denials'),
                           final_result='success; not a workflow outcome')
         else:
-            assert all(e.kind == 'text' for e in entries), 'Codex must remain human text'
-            assert '--json' not in metadata['invocation']
+            # Provenance of the retained recording, not a requirement for Codex.
+            # The current launcher uses --json after #119; #126 owns formatting.
+            assert all(e.kind == 'text' for e in entries), 'historical recording changed shape'
             begin = text.index('SPIKE111_COMMAND_BEGIN\n')
             end = text.index('SPIKE111_COMMAND_END\n', begin)
             output = text[begin:end]
             assert 'exited 1' in text
             assert 'SPIKE111_MESSAGE_BEGIN\n' in text and 'SPIKE111_MESSAGE_END\n' in text
             common.update(event_types=f'none invented; {len(entries)} plain human-text lines',
+                          format_scope='historical human-text recording only; current --json integration unverified, #126',
                           commands='cat fixture_output.py; python3 fixture_output.py; cat missing-owned.txt',
                           command_output_bytes=len(output.encode()), final_result='exit 0 and final message; not a workflow outcome')
         rows = re.findall(r'^SPIKE111_ROW_\d{3}:', output, flags=re.MULTILINE)
@@ -94,7 +109,7 @@ def main():
         common['fixture_output_complete'] = True
         coverage['runtimes'][runtime] = common
     (EVIDENCE / 'coverage.json').write_text(json.dumps(coverage, indent=2) + '\n')
-    print('PASS: pinned sources/normalized SVGs verified; both complete owned probes verified; sanitized hashes, arrivals and real coverage checked')
+    print('PASS: pinned sources and baseline report/comparisons/recordings unchanged; complete owned probes, sanitized hashes, arrivals and coverage checked')
 
 
 if __name__ == '__main__':

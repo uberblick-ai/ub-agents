@@ -88,6 +88,7 @@
       "partial": "demonstrated in controlled replay of split real bytes; no partial-message flag",
       "live_and_paused": "headless controlled replay, not actual operator observation",
       "event_types": "none invented; 302 plain human-text lines",
+      "format_scope": "historical human-text recording only; current --json integration unverified, #126",
       "commands": "cat fixture_output.py; python3 fixture_output.py; cat missing-owned.txt",
       "command_output_bytes": 20520,
       "final_result": "exit 0 and final message; not a workflow outcome",

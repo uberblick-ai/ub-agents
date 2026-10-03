@@ -1,0 +1,14 @@
+event=— ·
+capture=2026-10-03T15:12:27.261+00:00 ·
+assistant
+SYNTHETIC_ROW_1624: bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load
+event=— ·
+capture=2026-10-03T15:12:27.261+00:00 ·
+assistant
+SYNTHETIC_ROW_1625: bounded history load

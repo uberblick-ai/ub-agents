@@ -1,0 +1,14 @@
+3
+4       print('SPIKE111_COMMAND_BEGIN',
+flush=True)
+5       for row in range(240):
+6           print(f'SPIKE111_ROW_{row:03d}:
+owned fixture output, café, plain [text]',
+flush=True)
+7       print('SPIKE111_LONG_BEGIN ' +
+'abcdefghij' * 600 + ' SPIKE111_LONG_END',
+flush=True)
+8       print('SPIKE111_STDERR: owned
+diagnostic, command still succeeds',
+file=sys.stderr, flush=True)
+9       print('SPIKE111_COMMAND_END',
