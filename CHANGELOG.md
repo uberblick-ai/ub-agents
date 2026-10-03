@@ -6,6 +6,15 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.9 — 2026-10-03
+
+**Upgrading:** no configuration edits are required. Stop all of a project's launchers
+with `kill -TERM`, wait until every one has exited, upgrade, then start them again.
+Launchers from 0.1.5 through 0.1.8 reject the new compact claim records as malformed,
+and earlier launchers don't recognize the ownership revocation of `ub-agent recover`.
+Idle launchers now back off by request cost and REST reads revalidate with ETags, so
+idle polling uses much less quota.
+
 ### Added
 
 - `ub-agent recover --number N --agent NAME --reason TEXT` completes a stopped local
@@ -48,6 +57,7 @@ notes are copied from that section.
   an account's quota. Low quota doubles the gap up to reset, ignoring expired
   quota observations, with a one-hour cap; work resumes normal pacing, and idle
   messages print only on state changes (#83).
+
 - GitHub REST reads revalidate in-memory responses with ETags. Unchanged reads
   confirmed by `304 Not Modified` preserve fresh ownership checks without using
   REST quota or extending the idle polling budget; writes and GraphQL remain
