@@ -34,14 +34,17 @@ class IdlePollingTests(unittest.TestCase):
         self.now = 1000
         self.loop.coordinator.clock = lambda: self.now
 
-    def response(self, endpoint, payload=None, *, method="GET", data=None, headers=None, status=200):
+    def response(self, endpoint, payload=None, *, method="GET", data=None, headers=None, status=200,
+                 validator=None):
         command = ("gh", "api", "--hostname", "github.com", "--method", method, "-H",
                    "Accept: application/vnd.github+json", "--include", endpoint)
         if data is not None:
             command += ("--input", "-")
+        if validator is not None:
+            command += ("-H", f"If-None-Match: {validator}")
         header_text = "".join(f"{name}: {value}\n" for name, value in (headers or {}).items())
         self.runner.responses[command] = subprocess.CompletedProcess(
-            [], int(status >= 400), f"HTTP/2.0 {status} Response\n{header_text}\n"
+            [], int(status >= 400 or status == 304), f"HTTP/2.0 {status} Response\n{header_text}\n"
             + json.dumps({} if payload is None else payload), "")
 
     def run_passes(self, tick, count=2):
@@ -102,10 +105,39 @@ class IdlePollingTests(unittest.TestCase):
         starts, waits = self.run_passes(tick)
         self.assertAlmostEqual(waits[0], 57.6)
         self.assertEqual(self.github.rest_requests, 4)
+        self.assertEqual(self.github.quota_requests, 4)
         self.assertEqual(len(self.runner.calls), 14)
         self.assertIn("(4 requests last poll)", self.lines[0])
         self.assertEqual(self.github.resource_quotas["graphql"]["x-ratelimit-remaining"], "2000")
         self.assertFalse(any("rate_limit" in command for command, _ in self.runner.calls))
+
+    def test_idle_budget_excludes_revalidations_and_observes_their_quota_headers(self):
+        for remaining, gap in ((2000, 30), (999, 60)):
+            with self.subTest(remaining=remaining):
+                self.setUp()
+                for number in range(5):
+                    endpoint = f"rows/{number}"
+                    self.response(endpoint, {"version": 1}, headers={"ETag": '"one"'})
+                    self.github.request(endpoint)
+                    self.response(endpoint, {"version": 2} if number == 0 else None,
+                                  status=200 if number == 0 else 304, validator='"one"',
+                                  headers={"ETag": '"two"' if number == 0 else '"one"',
+                                           "X-RateLimit-Resource": "core"} | quota(remaining))
+
+                def tick():
+                    for number in range(5):
+                        self.assertEqual(self.github.request(f"rows/{number}"),
+                                         {"version": 2 if number == 0 else 1})
+                    return False
+
+                starts, waits = self.run_passes(tick)
+                self.assertEqual(starts, [1000, 1000 + gap])
+                self.assertEqual(waits, [gap])
+                self.assertEqual(self.github.rest_requests, 10)
+                self.assertEqual(self.github.quota_requests, 6)
+                self.assertIn("(1 requests last poll)", self.lines[0])
+                self.assertEqual(self.github.resource_quotas["core"]["x-ratelimit-remaining"],
+                                 str(remaining))
 
     def test_rate_limit_retries_count_and_wait_consumes_idle_gap(self):
         for duration in (10, 100):
@@ -127,6 +159,7 @@ class IdlePollingTests(unittest.TestCase):
                 with patch("ub_agents.github.timestamp", side_effect=lambda: self.now):
                     starts, waits = self.run_passes(lambda: self.loop.github.actor() and False)
                 self.assertEqual(self.github.rest_requests, 2)
+                self.assertEqual(self.github.quota_requests, 2)
                 self.assertEqual(starts, [1000, 1000 + max(30, duration)])
                 self.assertEqual(waits, [duration, 30 - duration] if duration < 30 else [duration])
 
@@ -208,7 +241,7 @@ class IdlePollingTests(unittest.TestCase):
             "No eligible work; next poll in 2.4 min (5 requests last poll)"])
 
     def test_once_empty_poll_never_waits_or_logs_idle(self):
-        self.github.rest_requests = 500
+        self.github.quota_requests = 500
         self.github.resource_quotas = {"core": quota()}
         with patch.object(self.loop, "tick", return_value=False), \
                 patch.object(self.loop.stop_event, "wait") as wait:

@@ -35,10 +35,11 @@ Empty passes back off under a fixed budget rule, not a configuration key: **ten
 idle launchers** sharing one account together get at most half the common **5,000
 REST requests/hour** quota. Each launcher's share is **250 REST requests/hour**
 (`5000 × 0.5 / 10`), leaving the other half for busy loops and agents' `gh` calls.
-After an empty pass making `N` REST requests, the next pass starts
+After an empty pass using `N` quota-counted REST responses, the next pass starts
 `max(poll-seconds, N × 14.4 seconds)` after this pass started, capped at **one hour**.
-Every REST request counts, including extra pages, rate-limit retries and
-approval-parking writes; GraphQL requests do not. A cached five-request pass waits
+REST responses count, including extra pages, rate-limit retries and
+approval-parking writes; HTTP 304 confirmations, GraphQL and transport failures
+without an HTTP response do not. A five-response pass using REST quota waits
 72 seconds; a cold 230-request pass waits 3,312 seconds (about 55 minutes). Time
 already spent in the pass, including rate-limit waits, counts toward the gap.
 The next pass that runs or recovers work returns to normal `poll-seconds` pacing.
@@ -54,6 +55,7 @@ do not add a wait.
 
 When the launcher becomes idle, and again when the set of low-quota resources
 changes, it prints `No eligible work; next poll in <n> min (<k> requests last poll)`.
+The request count measures REST quota usage, excluding HTTP 304 confirmations.
 It does not repeat the message on every empty pass. Ctrl-C and SIGHUP wake this
 wait with exit 130; SIGTERM wakes it with exit 0.
 
@@ -74,22 +76,24 @@ cached input never authorizes a claim or a write. Restarting a launcher drops it
 cache. With configured priorities, cold discovery lists the dependency graph in
 pages to preserve inheritance without one REST request per queued issue.
 
-For a rough request budget, an unchanged warm pass costs one request per page of
+For a rough request budget, an unchanged warm pass sends one request per page of
 open issues/PRs, plus the incremental repository comment scan (usually one page),
 and an optional milestone list. List pages hold up to 100 rows; a full REST page
 also needs a request to check for a following page. A cold pass or changed item adds
 roughly 3–7 reads for each candidate actually reached, plus one permission read per
 distinct account across those candidates, with extra pages for long histories.
-Configured priorities add a paginated dependency-graph list on cold discovery and
-each `status` invocation; very large dependency lists may
+Unchanged REST reads with an ETag consume no quota when GitHub confirms freshness
+with HTTP 304; the incremental comment scan's moving `since` cursor skips ETag
+caching. Configured priorities add a paginated dependency-graph list on cold
+discovery and each `status` invocation; very large dependency lists may
 need extra pages. Fresh claim/recovery reads, approval-parking writes, execution
 heartbeats and completion add their own requests. `status` pays for every row.
 
-For a REST discovery cost `R`, the idle interval is at least `R × 14.4` seconds,
-so idle traffic averages at most 250 requests/hour per loop for passes below the
-one-hour cap. A two-request unchanged pass at the default 30 seconds is about
-240 requests/hour; ten such loops use about 2,400. Cold passes can spend requests
-in a burst, and a pass exceeding 250 requests reaches the cap; this pacing is not
+For a REST quota discovery cost `R`, the idle interval is at least `R × 14.4` seconds,
+so idle quota usage averages at most 250 requests/hour per loop for passes below the
+one-hour cap. A pass consuming two quota-counted responses at the default 30 seconds
+uses about 240 requests/hour; ten such loops use about 2,400. Cold passes can spend
+requests in a burst, and a pass exceeding 250 requests reaches the cap; this pacing is not
 a strict rolling-hour limiter. Sum all loops using the account, including other
 repositories, and add busy discovery, execution/write costs and agents' calls.
 GraphQL has a separate point budget; graph-list query cost depends on its
