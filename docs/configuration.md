@@ -695,6 +695,21 @@ grant sufficient permissions.
 only on agents with a single runtime. Codex's `workspace-write` sandbox cannot commit in
 private worktrees, whose Git metadata lives in the main checkout.
 
+Each run's scratch directory is outside private worktrees, at
+`.ub-agents/runs/<run>/scratch` in the control checkout. Runtimes restricted to the
+working directory need `runtime-args` that also allow access to scratch. For
+example, add Claude's `--add-dir` with the **absolute path to the control checkout's
+`.ub-agents/runs` directory**:
+
+```yaml
+runtime-args: [--add-dir, /absolute/path/to/project/.ub-agents/runs]
+```
+
+Combine this with the role's other permission arguments. Granting the parent
+directory works for every run; `runtime-args` are static and the run id changes.
+The launcher adds no permission flags and does not expand environment variables
+in `runtime-args`.
+
 ## Commands instead of agents
 
 ```yaml
@@ -717,9 +732,21 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 | `UB_AGENTS_REPOSITORY` | `owner/name` |
 | `UB_AGENTS_ASSIGNMENT` | Issue or PR number |
 | `UB_AGENTS_RUN` | Run id |
+| `UB_AGENTS_SCRATCH` | Absolute path to the run's private scratch directory; `TMPDIR` is set to the same path |
 | `UB_AGENTS_LEASE_ID` | The claim's comment id |
 | `UB_AGENTS_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
 | `UB_AGENTS_BRANCH` | The branch to work on, when known |
+
+Use `UB_AGENTS_SCRATCH` for temporary files instead of writing directly under
+`/tmp`. Before starting a runtime or command, the launcher creates this directory
+with mode `0700`; creation failure ends the run as a visible setup failure without
+starting the agent. Once the run's processes are confirmed stopped, scratch and
+its contents are removed after success, failure, timeout or interruption. Run logs
+and other artifacts remain. Unconfirmed process termination preserves scratch,
+and a launcher killed before cleanup leaves it behind. If scratch removal fails
+after confirmed termination, the launcher leaves any remaining files, prints the
+error and records a `scratch-removal-failed` event in `events.jsonl`. The run still
+completes and releases its lease; this does not mark process cleanup unconfirmed.
 
 Only `report` falls back to the old `UB_AGENT_*` names when the corresponding
 `UB_AGENTS_*` variable is absent. Execution and cleanup hooks receive only the

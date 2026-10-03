@@ -14,7 +14,7 @@ from .dependencies import Dependencies
 from .discovery import Discovery
 from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
-from .execution import Workspace, command_for, repository_checks, supervise
+from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
 from .polling import idle_interval
@@ -458,7 +458,9 @@ class Loop:
                                     expires=iso(self.coordinator.clock()), summary=approval.reason)
             self.output(f"#{plan.item.number} {plan.agent.name}: parked — {approval.reason}")
             return True
-        run_dir = self.config.root / ".ub-agents" / "runs" / lease["run"]
+        run_dir = self.config.root.resolve() / ".ub-agents" / "runs" / lease["run"]
+        scratch = ScratchDirectory(run_dir)
+        preserve_scratch = False
         workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github)
         self.output(f"#{plan.item.number} {plan.agent.name}: claimed {lease['run']} ({lease['runtime']})")
         self.output(f"Logs: {run_dir}")
@@ -489,6 +491,7 @@ class Loop:
         hook_attempted = False
 
         def cleanup_workspace(record=True):
+            nonlocal preserve_scratch
             def before_remove():
                 nonlocal hook_attempted
                 if hook_attempted:
@@ -518,6 +521,7 @@ class Loop:
             try:
                 workspace.cleanup(before_remove)
             except CleanupError as exc:
+                preserve_scratch = True
                 if record:
                     record_uncertainty(exc)
                 else:
@@ -543,6 +547,7 @@ class Loop:
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, state="running", started=True,
                                     host=socket.gethostname(), log_dir=str(run_dir))
+            scratch.prepare()
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
             current = self.github.item(plan.item.number, plan.item.kind)
@@ -570,6 +575,7 @@ class Loop:
                         "UB_AGENTS_ASSIGNMENT": str(plan.item.number),
                         "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
                         "UB_AGENTS_CONTEXT": str(context_path),
+                        "UB_AGENTS_SCRATCH": str(scratch.path), "TMPDIR": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENTS_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))
@@ -608,6 +614,7 @@ class Loop:
                 result, summary = "success", outcome["summary"]
                 effect = "reset"
         except CleanupError as exc:
+            preserve_scratch = True
             record_uncertainty(exc)
             raise
         except LostOwnership as exc:
@@ -636,6 +643,15 @@ class Loop:
                           and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
             summary = str(exc)
             cleanup_workspace()
+        finally:
+            if not preserve_scratch:
+                try:
+                    scratch.cleanup()
+                except AgentError as exc:
+                    # Scratch removal cannot invalidate confirmed process termination
+                    # or prevent release of a completed run's lease.
+                    diagnostic("scratch-removal-failed", path=str(scratch.path), error=str(exc))
+                    self.output(f"Scratch removal failed: {exc}")
         if usage_output and usage_output.reached and effect != "reset" and not interrupted:
             result, effect = "retry", "unchanged"
             summary = self.usage.limit(plan.runtime.cli, usage_output.hint)
@@ -687,6 +703,8 @@ class Loop:
                 "This run is a single, non-interactive session that is never resumed. "
                 "Ending your turn ends the run. Run checks in the foreground or wait for every "
                 "background job to finish before ending your turn. End the run with ub-agents report.\n"
+                "Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, "
+                "not directly under /tmp. TMPDIR points to the same directory.\n"
                 f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                 f"Project instructions:\n{instructions}\n\n"
                 "The assignment context is the issue or PR input: use its title, body, comments, "
