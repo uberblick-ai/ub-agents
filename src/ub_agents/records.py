@@ -257,10 +257,11 @@ def payload(record):
 def live_leases(history, now):
     # A recovery claim permanently revokes its source, even before expiry. The
     # recoverers still elect the lowest live comment id using the usual rules.
+    sources = {r["id"]: r for r in history if r["kind"] == "lease"}
     superseded = {source["id"] for recovery in history
                   if recovery["kind"] == "lease" and recovery.get("mode") == "recovery"
                   and recovery["state"] != "withdrawn"
-                  if (source := lease_by_id(history, recovery.get("recovered_lease_id"))) is not None
+                  if (source := sources.get(recovery.get("recovered_lease_id"))) is not None
                   and recovery.get("recovered_run") == source["run"]
                   and all(recovery[k] == source[k] for k in ("assignment", "agent", "actor"))}
     return [r for r in history if r["kind"] == "lease"
@@ -286,7 +287,8 @@ def attempt_effect(history, lease, now):
     if lease["state"] == "released":
         return "failure"  # A missing final classification is unsafe.
     outcomes = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == lease["id"]
-                and same_run(r, lease) and seconds(r["created"]) <= seconds(lease["expires"])]
+                and same_run(r, lease)
+                and seconds(lease["created"]) <= seconds(r["created"]) <= seconds(lease["expires"])]
     if (len(outcomes) == 1 and outcomes[0]["status"] == "success"
             and outcomes[0]["accepted"] and not outcomes[0].get("rejected")):
         return "reset"

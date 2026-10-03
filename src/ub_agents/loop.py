@@ -736,8 +736,10 @@ class Loop:
         if recovery is None:
             return False
         # The claim reread may have observed a supervisor's newer outcome flags.
-        outcome = self.coordinator.outcome(lease_by_id(self.coordinator.history(plan.item.number),
-                                                    recovery["recovered_lease_id"]))
+        source = lease_by_id(self.coordinator.history(plan.item.number), recovery["recovered_lease_id"])
+        outcome = self.coordinator.outcome(source) if source else None
+        if outcome is None:
+            raise LostOwnership("Recovered outcome disappeared after claiming")
         result, summary = outcome["status"], outcome["summary"]
         effect = "unchanged" if result == "blocked" else "failure"
         if result == "success":
@@ -756,19 +758,24 @@ class Loop:
                 result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
                 self.coordinator.assert_owned(recovery)
                 self.coordinator.update(recovery, result=result, summary=summary, attempt_effect=effect)
-        self.coordinator.assert_owned(recovery)
-        self.coordinator.update(recovery, recovered_run=outcome["run"],
-                                recovered_lease_id=outcome["lease_id"])
-        self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
-        # Expiry permits recovery; it is not positive proof of the old process's death.
-        failures = len(attempts(self.coordinator.history(plan.item.number), plan.agent.name, self.coordinator.clock()))
+        verdict = {"result": result, "attempt_effect": effect, "summary": f"Recovered {outcome['run']}: {summary}"}
+        # Count the source using this verdict even when its lease is unexpired.
+        # Persist the classification and backoff together before report/release,
+        # just as the execution supervisor does, so a crash loses neither.
+        history = [r | verdict if r["id"] == recovery["id"] else r
+                   for r in self.coordinator.history(plan.item.number)]
+        failures = len(attempts(history, plan.agent.name, self.coordinator.clock()))
         delay = backoff(plan.agent, max(1, failures)) if result == "retry" else 0
+        self.coordinator.assert_owned(recovery)
+        self.coordinator.update(recovery, **verdict,
+                                retry_after=iso(self.coordinator.clock() + delay) if delay else None)
+        self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
+        transition = self.validate_report(outcome) if recovery_reason is not None and result == "success" else None
         self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
                                  attempt_effect=effect, parking_outcome=outcome)
         if recovery_reason is None:
             self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         elif result == "success":
-            transition = self.validate_report(outcome)
             target = outcome.get("handoff") or outcome["assignment"]
             removed = ", ".join(sorted(set(transition["remove"]))) or "none"
             added = ", ".join(sorted(set(transition["add"]))) or "none"

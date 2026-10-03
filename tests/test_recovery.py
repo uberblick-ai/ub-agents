@@ -214,6 +214,62 @@ class RecoveryTests(unittest.TestCase):
                 self.assertEqual(result[-3:], (status, effect, failures))
                 self.assertIn("outcome rejected — Checks passed", self.output[-1])
 
+    def retry_after_failure(self):
+        self.agent = replace(self.agent, backoff_seconds=10, max_backoff_seconds=100)
+        self.config = config(self.root, self.agent)
+        self.loop = self.new_loop()
+        self.manual = self.new_loop()
+        self.co = self.loop.coordinator
+        previous, _ = self.start(report=False)
+        self.co.release(previous, "retry", "Earlier failure", attempt_effect="failure")
+        return self.start(status="retry")[0]
+
+    def test_early_retry_backoff_matches_expiry_with_prior_failures(self):
+        for early in (True, False):
+            with self.subTest(early=early):
+                self.github = FakeGitHub(issue(), pr())
+                lease = self.retry_after_failure()
+                with patch("ub_agents.recovery.Loop", return_value=self.manual):
+                    if early:
+                        self.early()
+                    else:
+                        self.now = seconds(lease["expires"]) + 1
+                        self.loop.recover(self.co.plan(self.github.item(1), self.agent, self.config.stop_labels))
+                recovery = next(r for r in reversed(self.co.history(1)) if r.get("mode") == "recovery")
+                self.assertEqual(seconds(recovery["retry_after"]) - seconds(recovery["expires"]), 20)
+                self.assertEqual(len(attempts(self.co.history(1), self.agent.name, self.now)), 2)
+
+    def test_early_retry_verdict_and_backoff_survive_a_crash_before_release(self):
+        lease = self.retry_after_failure()
+        short_config = config(self.root, replace(self.agent, lease_seconds=5))
+        with patch("ub_agents.recovery.Loop", return_value=self.manual), \
+                patch.object(self.manual.coordinator, "report", side_effect=LostOwnership("Recovery stopped")):
+            with self.assertRaises(LostOwnership):
+                recover_run(short_config, self.github, "operator", 1, self.agent.name, "Launcher stopped")
+        recovery = next(r for r in reversed(self.co.history(1)) if r.get("mode") == "recovery")
+        self.assertEqual((recovery["state"], recovery["result"], recovery["attempt_effect"]),
+                         ("claiming", "retry", "failure"))
+        self.assertEqual(seconds(recovery["retry_after"]) - self.now, 20)
+        self.now += 6
+        plan = self.co.plan(self.github.item(1), self.agent, self.config.stop_labels)
+        self.assertEqual((plan.state, plan.attempt), ("backoff", 3))
+        with self.assertRaises(LostOwnership):
+            self.co.assert_owned(lease)
+
+    def test_only_matching_nonwithdrawn_recovery_claims_revoke_ownership(self):
+        source, _ = self.start()
+        recovery = payload(source) | {"id": 99, "run": "recoverer", "mode": "recovery",
+                                     "recovered_lease_id": source["id"], "recovered_run": source["run"]}
+        for changes in ({"state": "withdrawn"}, {"recovered_run": "unrelated"},
+                        {"recovered_lease_id": 999}, {"assignment": 2}, {"agent": "other"},
+                        {"actor": "other-operator"}):
+            with self.subTest(changes=changes):
+                self.assertIn(source, live_leases([source, recovery | changes], self.now))
+        for state, expires in (("claiming", self.now + 5), ("running", self.now + 5),
+                               ("released", self.now - 1), ("claiming", self.now - 1)):
+            with self.subTest(state=state, expires=expires):
+                self.assertNotIn(source, live_leases([source, recovery | {"state": state, "expires": iso(expires)}], self.now))
+
     def test_early_recovery_and_launcher_expiry_recovery_use_the_same_election(self):
         lease, _ = self.start()
         self.now = seconds(lease["expires"]) + 1
