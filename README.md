@@ -104,7 +104,7 @@ Review the [coordination contract](docs/coordination.md) and
 | Signal | Effect | Exit |
 |---|---|---|
 | `SIGTERM` (`kill -TERM <pid>`) | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup; an in-progress checkout refresh finishes without a claim. When idle it exits promptly. | 0 |
-| `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
+| `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`, including when idle or during a GitHub request. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
 | `SIGHUP` | Same as Ctrl-C. | 130 |
 | Further `SIGTERM` | During a SIGTERM drain: no change, the drain continues. After Ctrl-C or SIGHUP: does not interrupt process-group termination, cleanup or release. | unchanged |
 
@@ -115,6 +115,9 @@ error keeps its nonzero exit even during a drain. See the
 [configuration reference](docs/configuration.md#top-level) for detailed wait rules
 and the [coordination contract](docs/coordination.md#execution-boundaries) for
 execution and cleanup boundaries.
+
+The launcher does not reload code; restart it after an upgrade or after checkout
+refresh pulls code changes.
 
 Before upgrading, check the [changelog](CHANGELOG.md) and
 [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases) for any
