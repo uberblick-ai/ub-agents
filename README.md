@@ -40,16 +40,16 @@ comments count, so launchers on different accounts would not see each other's cl
 ```sh
 brew install uberblick-ai/tap/ub-agents
 cd your-project
-ub-agent init         # starter ub-agent.yaml, AGENTS.md and .agents/ instructions
-ub-agent doctor       # check the machine, GitHub labels/access and runtimes
-ub-agent launch       # run the loop in the foreground; Ctrl-C stops it
+ub-agents init         # starter ub-agents.yaml, AGENTS.md and .agents/ instructions
+ub-agents doctor       # check the machine, GitHub labels/access and runtimes
+ub-agents launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
 Launch output is flushed immediately to the terminal and appended to
-`.ub-agent/launch.log` in the control checkout, with a UTC timestamp on each file
+`.ub-agents/launch.log` in the control checkout, with a UTC timestamp on each file
 line, including stop and error messages. This also applies to `launch --once`;
 the log is never truncated or rotated. Follow it from another terminal with
-`tail -f .ub-agent/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
+`tail -f .ub-agents/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
 Empty polls back off according to their REST quota cost, excluding unchanged
@@ -75,12 +75,12 @@ Before launching, create any missing labels, fill in the project checks in
 `AGENTS.md`, and uncomment or customize each agent's starter `runtime-args` to grant
 the [permissions](docs/configuration.md#runtime-permissions) its job needs. These
 examples match `init --runtime` and remain commented out until you enable them.
-`doctor` warns for each runtime agent without arguments. Commit `ub-agent.yaml`,
+`doctor` warns for each runtime agent without arguments. Commit `ub-agents.yaml`,
 `AGENTS.md` and `.agents/`. `init` preserves an existing `AGENTS.md`.
 
 Customize these parts:
 
-- In `ub-agent.yaml`, set each role's trigger labels, CLI and model, runtime
+- In `ub-agents.yaml`, set each role's trigger labels, CLI and model, runtime
   permissions, worktree choice, named outcomes and their label transitions, and
   any labels that should pause all work.
 - In `.agents/<role>.md` and shared guidance such as `AGENTS.md`, define each role's
@@ -90,21 +90,21 @@ Customize these parts:
   match your merge policy.
 
 A trigger selects work. An agent reports a declared outcome with
-`ub-agent report --outcome NAME --summary TEXT [--handoff PR]`; the launcher validates
+`ub-agents report --outcome NAME --summary TEXT [--handoff PR]`; the launcher validates
 it and applies the project's transition. `--status retry|blocked` changes no labels.
 Review the [coordination contract](docs/coordination.md) and
 [configuration reference](docs/configuration.md) for recovery and permissions.
 
 | Command | What it does |
 |---|---|
-| `ub-agent status` | Show matching work, lease details, whether local agents are running, and what they reported |
-| `ub-agent launch --once` | Run at most one assignment, then exit |
-| `ub-agent cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
-| `ub-agent recover --number N --agent NAME --reason TEXT` | Recover a stopped local launcher's reported outcome before its lease expires |
-| `ub-agent retry` | Let stopped work run again, with a recorded reason |
-| `ub-agent approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
-| `ub-agent check` | Validate the configuration files only |
-| `ub-agent report` | Used by agents to record their outcome |
+| `ub-agents status` | Show matching work, lease details, whether local agents are running, and what they reported |
+| `ub-agents launch --once` | Run at most one assignment, then exit |
+| `ub-agents cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
+| `ub-agents recover --number N --agent NAME --reason TEXT` | Recover a stopped local launcher's reported outcome before its lease expires |
+| `ub-agents retry` | Let stopped work run again, with a recorded reason |
+| `ub-agents approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
+| `ub-agents check` | Validate the configuration files only |
+| `ub-agents report` | Used by agents to record their outcome |
 
 ## Stopping and restarting
 
@@ -130,10 +130,33 @@ Before upgrading, check the [changelog](CHANGELOG.md) and
 [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases) for any
 required configuration edits. Send SIGTERM and wait for the launcher to exit,
 upgrade with `brew upgrade ub-agents` (or `git pull` for a development checkout),
-then start `ub-agent launch` again. Under tmux, systemd or similar that restarts the
+then start `ub-agents launch` again. Under tmux, systemd or similar that restarts the
 launcher automatically, upgrade first and then send SIGTERM. When a release says
 launchers must be upgraded together, stop every launcher for the project before
 upgrading any.
+
+For the rename to `ub-agents`, rename `ub-agent.yaml` to `ub-agents.yaml` and update
+role instructions, command allowlists, hooks and direct commands to use `ub-agents`
+and `UB_AGENTS_*`. Add `.ub-agents/` to `.gitignore` and keep `.ub-agent/` ignored
+until that directory is deleted. Commit the ignore changes to the default branch
+and pull them into every control checkout before starting launchers on the new
+build. Startup creates `.ub-agents/launch.log` before checkout refresh, which
+refuses untracked files.
+
+Restart all of a project's launchers together; old launchers cannot read new
+GitHub markers or branch names. After every old launcher has stopped, remove its
+old worktrees with `git worktree remove` (or `git worktree prune` for worktrees
+already deleted), then delete the whole `.ub-agent/` directory, including `runs/`
+and `launch.log`. Removing only the worktrees leaves old logs behind. See the
+[changelog](CHANGELOG.md).
+
+For one release, `ub-agent` is an alias that prints a deprecation notice to stderr
+and preserves stdout and exit status. When no `--config` is supplied and
+`ub-agents.yaml` is missing, commands read an existing `ub-agent.yaml` with one
+warning per process. The launcher resolves this default again on each reload,
+so it can follow a committed config rename. Explicit `--config` paths have no
+fallback. `report` accepts the old `UB_AGENT_*` variables only when their
+`UB_AGENTS_*` counterparts are absent, so in-flight runs can still report.
 
 ## Issue and PR approvals
 
@@ -149,7 +172,7 @@ Outside edits during a run do not stop it.
 A maintainer adds `needs-preparation` to start an issue. The preparer adds `ready`,
 and implementation follows without another approval. An outside title or body edit
 parks the issue until a maintainer applies a trigger label again or runs
-`ub-agent approve --number N`. Outside comments are not agent input until a
+`ub-agents approve --number N`. Outside comments are not agent input until a
 maintainer clears them.
 
 When approval is the only pickup obstacle, `launch` adds the configured stop
@@ -161,7 +184,7 @@ without parking writes, and `status` stays read-only.
 Trusted-authored PRs need no start, and outside feedback cannot stall them.
 Outside-authored PRs need both a maintainer trigger label and an approved head;
 later outside edits or feedback suspend pickup. Maintainers approve current input
-with `ub-agent approve --number N`, including a PR's head and outside feedback.
+with `ub-agents approve --number N`, including a PR's head and outside feedback.
 A maintainer approving review can approve its head; accepted agent revisions from
 eligible heads in the base repository need no new approval. Every changed fork head
 needs explicit maintainer approval. Fork PRs can be reviewed, but agent revision
@@ -172,7 +195,7 @@ Use a dedicated launcher account with `write`; `doctor` warns about `maintain` o
 
 ## Configure the agents
 
-`ub-agent.yaml` lists the agents. In this example, review always runs on a different
+`ub-agents.yaml` lists the agents. In this example, review always runs on a different
 model from the implementation:
 
 ```yaml
@@ -252,7 +275,7 @@ Your project contains:
 
 ```text
 your-project/
-├── ub-agent.yaml
+├── ub-agents.yaml
 ├── AGENTS.md          # shared guidance; init preserves an existing file
 └── .agents/
     ├── issue-preparer.md
@@ -262,14 +285,14 @@ your-project/
 ```
 
 Commit these files with your project and review changes to them like code. Credentials
-stay in each tool's own login. Logs and worktrees live under `.ub-agent/`, which
+stay in each tool's own login. Logs and worktrees live under `.ub-agents/`, which
 `init` adds to `.gitignore`.
 
 ## When things go wrong
 
 Before every new agent run, the launcher fetches `origin`, fast-forwards the
 operator's control checkout on the repository's default branch, and rereads that
-role's instruction file and `ub-agent.yaml`. It replans the claim with the refreshed
+role's instruction file and `ub-agents.yaml`. It replans the claim with the refreshed
 configuration. Keep that checkout clean and free of local-only commits.
 Unsafe checkout state, Git refresh failures, invalid configuration or invalid
 instructions stop the launcher
@@ -292,12 +315,12 @@ recovery. Agent-reported `blocked` outcomes and human-paused transitions preserv
 count and park the item. Crashes without a report, timeouts, exits without a report
 (zero or nonzero), setup failures and agent-reported `retry` increment it and retry
 with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures
-increment it and park the item. `ub-agent retry` resets
+increment it and park the item. `ub-agents retry` resets
 the count to 0 and clears the failure block and backoff. It prints the reset record's
 link, then explains whether the item is closed, needs stop labels removed or a
 trigger label added, or can be picked up by a running launcher on its next poll.
-It leaves labels unchanged; `ub-agent status` shows progress and other pickup gates.
-The issue and handoff PR keep separate counts; `ub-agent status` shows the
+It leaves labels unchanged; `ub-agents status` shows progress and other pickup gates.
+The issue and handoff PR keep separate counts; `ub-agents status` shows the
 consecutive failure count in `attempts`.
 A success counts only after the launcher has checked the result on GitHub; an exit
 code alone never does.
@@ -311,11 +334,11 @@ charging item attempts. Runtime alternatives and other CLIs keep working;
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
 transition before it starts. After removing it, set the workflow labels you want or
-run `ub-agent retry`. The exact rules for claims, attempts, transitions and recovery
+run `ub-agents retry`. The exact rules for claims, attempts, transitions and recovery
 are in the [coordination contract](docs/coordination.md).
 
 Private worktrees left by crashed runs and retained local branches can be inspected
-with `ub-agent cleanup` and removed with `ub-agent cleanup --apply`. Removal needs
+with `ub-agents cleanup` and removed with `ub-agents cleanup --apply`. Removal needs
 an actor-owned, eligible GitHub lease; dirty, locked or uncertain artifacts stay.
 Projects can configure a supervised [cleanup hook](docs/configuration.md#project-cleanup-hook)
 for resources associated with each private worktree. Document operator-only recovery
@@ -332,7 +355,7 @@ python3 -m venv .venv
 ```
 
 Tests use fakes for GitHub and real child processes for supervision; they never call a
-model. This repository is developed with its own loop: see [ub-agent.yaml](ub-agent.yaml)
+model. This repository is developed with its own loop: see [ub-agents.yaml](ub-agents.yaml)
 and [AGENTS.md](AGENTS.md). The roadmap is in the
 [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 

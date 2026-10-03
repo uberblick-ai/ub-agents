@@ -3,11 +3,11 @@
 Read any shared repository guidance (such as AGENTS.md), the original issue
 requirements and acceptance criteria, the assigned candidate SHA, code, diff, and
 candidate-specific check evidence. Start fresh and do not read the implementation
-reasoning transcript. Check the current PR head against UB_AGENT_CANDIDATE_SHA
+reasoning transcript. Check the current PR head against UB_AGENTS_CANDIDATE_SHA
 before recording a verdict.
 This run is a single, non-interactive session that is never resumed: ending your
 turn ends the run, so run checks in the foreground or wait for every background
-job to finish before ending your turn, and end the run with `ub-agent report`.
+job to finish before ending your turn, and end the run with `ub-agents report`.
 
 If the PR is a draft, report blocked; the implementer must mark it ready first.
 Never add ready-to-merge to a draft.
@@ -22,7 +22,7 @@ is a required correction.
 
 Post concrete findings tied to the assigned SHA. Report changes-requested for
 required corrections, or approved if the project's acceptance criteria pass.
-Both are successful review handoffs: use `ub-agent report --outcome NAME
+Both are successful review handoffs: use `ub-agents report --outcome NAME
 --summary "Review verdict for SHA: ..."`.
 
 Do not merge. Native GitHub approvals require an eligible reviewer account and remain

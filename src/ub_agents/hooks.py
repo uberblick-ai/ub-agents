@@ -11,7 +11,7 @@ from .records import iso, timestamp
 
 
 def diagnostic(config, run, event, **details):
-    directory = config.root / ".ub-agent" / "runs" / run
+    directory = config.root / ".ub-agents" / "runs" / run
     # Never follow a redirected run-log directory when doing maintenance.
     if directory.resolve() != directory:
         raise CleanupError("Run diagnostics path redirects; preserve artifacts")
@@ -25,7 +25,7 @@ def diagnostic(config, run, event, **details):
 
 def confirm_hook_groups_stopped(config, run):
     """A crashed supervisor's hook must not overlap retries or artifact removal."""
-    parent = config.root / ".ub-agent" / "runs" / run / "cleanup"
+    parent = config.root / ".ub-agents" / "runs" / run / "cleanup"
     try:
         if parent.resolve() != parent:
             raise ValueError("redirected hook diagnostics")
@@ -59,7 +59,7 @@ def run_hook(config, lease, worktree, outcome=None, expires=None):
     if config.cleanup is None:
         return None
     confirm_hook_groups_stopped(config, lease["run"])
-    directory = config.root / ".ub-agent" / "runs" / lease["run"] / "cleanup" / uuid.uuid4().hex
+    directory = config.root / ".ub-agents" / "runs" / lease["run"] / "cleanup" / uuid.uuid4().hex
     if directory.resolve() != directory:
         raise CleanupError("Hook diagnostics path redirects; preserve artifacts")
     directory.mkdir(parents=True, exist_ok=True)
@@ -75,12 +75,13 @@ def run_hook(config, lease, worktree, outcome=None, expires=None):
     }
     path = directory / "context.json"
     path.write_text(json.dumps(context, indent=2))
-    env = {key: value for key, value in os.environ.items() if not key.startswith("UB_AGENT_")}
-    env.update({"UB_AGENT_CLEANUP_CONTEXT": str(path),
-                "UB_AGENT_REPOSITORY": config.repository,
-                "UB_AGENT_RUN": lease["run"], "UB_AGENT_AGENT": lease["agent"],
-                "UB_AGENT_ASSIGNMENT": str(lease["assignment"]),
-                "UB_AGENT_WORKTREE": str(worktree), "UB_AGENT_BRANCH": lease.get("branch") or ""})
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("UB_AGENTS_", "UB_AGENT_"))}
+    env.update({"UB_AGENTS_CLEANUP_CONTEXT": str(path),
+                "UB_AGENTS_REPOSITORY": config.repository,
+                "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_AGENT": lease["agent"],
+                "UB_AGENTS_ASSIGNMENT": str(lease["assignment"]),
+                "UB_AGENTS_WORKTREE": str(worktree), "UB_AGENTS_BRANCH": lease.get("branch") or ""})
     confirmed = True
     try:
         code = supervise(list(config.cleanup.command), config.root, env, directory,

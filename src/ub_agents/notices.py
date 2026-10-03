@@ -6,7 +6,8 @@ import socket
 from .errors import LostOwnership
 from .records import declared_transition, lease_by_id, own_comment, records, resolve_transition
 
-ACTION_MARKER = "<!-- ub-agent:action-needed "
+ACTION_MARKER = "<!-- ub-agents:action-needed "
+ACTION_MARKERS = (ACTION_MARKER, "<!-- ub-agent:action-needed ")
 
 
 class Notices:
@@ -36,7 +37,7 @@ class Notices:
         def minimize_actions():
             self.minimize([comment for comment in self.github.comments(number)
                            if own_comment(comment, self.actor)
-                           and (comment.get("body") or "").startswith(ACTION_MARKER)])
+                           and (comment.get("body") or "").startswith(ACTION_MARKERS)])
         self.advisory(f"resume notices on #{number}", minimize_actions)
         self._approval_attempted = {key for key in self._approval_attempted if key[0] != number}
 
@@ -52,7 +53,8 @@ class Notices:
         if key in self._approval_attempted:
             return
         marker = f"{ACTION_MARKER}approval-{check.gate_key}-{epoch} -->"
-        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(marker) for c in comments):
+        markers = tuple(f"{m}approval-{check.gate_key}-{epoch} -->" for m in ACTION_MARKERS)
+        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(markers) for c in comments):
             self._approval_attempted.add(key)
             return
         # Failed writes are advisory and are not retried for this gate in this
@@ -64,12 +66,12 @@ class Notices:
             resume = (f"A maintainer must remove the stop label(s) {labels} and re-apply a trigger label: "
                       f"{trigger_text}. An approval alone does not start work.")
         elif check.gate == "head":
-            resume = (f"A maintainer must run `ub-agent approve --number {number}` or submit an approving "
+            resume = (f"A maintainer must run `ub-agents approve --number {number}` or submit an approving "
                       f"review of the current head; then remove the stop label(s) {labels}. "
                       "Re-applying a trigger label does not approve a head.")
         else:
             resume = (f"A maintainer must re-apply a trigger label ({trigger_text}), or run "
-                      f"`ub-agent approve --number {number}`; then remove the stop label(s) {labels}.")
+                      f"`ub-agents approve --number {number}`; then remove the stop label(s) {labels}.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
         self.advisory(f"Action needed post on #{number}", lambda: self.github.create_comment(
             number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n"))
@@ -116,8 +118,9 @@ class Notices:
 
     def post_action(self, number, lease, outcome, summary, stops, resume_triggers=()):
         marker = f"{ACTION_MARKER}{lease['run']} -->"
+        markers = tuple(f"{m}{lease['run']} -->" for m in ACTION_MARKERS)
         comments = self.github.comments(number)
-        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(marker) for c in comments):
+        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(markers) for c in comments):
             return
         history = records(comments, self.actor)
         anchors = [r["id"] for r in history if r["run"] == lease["run"]
@@ -142,7 +145,7 @@ class Notices:
             triggers = ", ".join(f"`{label}`" for label in resume_triggers)
             resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
         else:
-            command = (f"ub-agent retry --number {number} --agent {lease['agent']} "
+            command = (f"ub-agents retry --number {number} --agent {lease['agent']} "
                        f"--reason {json.dumps('Human resolved the blocker')}")
             triggers = ", ".join(f"`{label}`" for label in lease.get("triggers", ()))
             resume = f"After resolving the blocker, run:\n\n```sh\n{command}\n```"

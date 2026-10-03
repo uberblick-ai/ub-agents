@@ -100,7 +100,7 @@ def local_pauses(root, now=None):
     """Read all live launchers on this host without rewriting their files."""
     now = timestamp() if now is None else now
     rows = []
-    for path in sorted((Path(root) / ".ub-agent" / "runtime-usage").glob("*.json")):
+    for path in sorted((Path(root) / ".ub-agents" / "runtime-usage").glob("*.json")):
         try:
             state = json.loads(path.read_text())
             if (state.get("version") != 1 or state.get("host") != socket.gethostname()
@@ -121,7 +121,7 @@ class RuntimeUsage:
     def __init__(self, root, clock=timestamp, output=print, read_only=False):
         self.root, self.clock, self.output, self.read_only = Path(root), clock, output, read_only
         self.launcher = uuid.uuid4().hex
-        self.path = self.root / ".ub-agent" / "runtime-usage" / f"{self.launcher}.json"
+        self.path = self.root / ".ub-agents" / "runtime-usage" / f"{self.launcher}.json"
         self.readings, self.pauses = {}, {}
         self._write_warning = False
         self._process_started = None

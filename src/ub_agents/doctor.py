@@ -97,7 +97,7 @@ class Doctor:
         except (AgentError, OSError, UnicodeError) as exc:
             missing = not Path(path).exists()
             self.add("config", "fail", str(exc),
-                     "Run ub-agent init to create the configuration" if missing else
+                     "Run ub-agents init to create the configuration" if missing else
                      "Fix the configuration error in the selected YAML file")
         if config:
             for agent in config.agents:
@@ -316,22 +316,22 @@ class Doctor:
                 self.add("different-runtime-from", "ok", f"independent execution available after {agent.different_from}", agent=agent)
 
     def local(self, config, git_ready):
-        local = config.root / ".ub-agent"
+        local = config.root / ".ub-agents"
         try:
             if local.is_symlink() or (local.exists() and not (local.is_dir() and self.access(local, os.W_OK | os.X_OK))):
-                raise AgentError(".ub-agent/ must be a real, writable directory")
+                raise AgentError(".ub-agents/ must be a real, writable directory")
             if not local.exists() and not self.access(config.root, os.W_OK):
                 raise AgentError("project root is not writable")
-            self.add("local-state", "ok", ".ub-agent/ is writable" if local.exists() else ".ub-agent/ created at launch")
+            self.add("local-state", "ok", ".ub-agents/ is writable" if local.exists() else ".ub-agents/ created at launch")
         except (OSError, AgentError) as exc:
-            self.add("local-state", "fail", str(exc) if isinstance(exc, AgentError) else ".ub-agent/ could not be inspected",
-                     "Choose a writable project root and restore .ub-agent/ as a real directory owned by the current user")
+            self.add("local-state", "fail", str(exc) if isinstance(exc, AgentError) else ".ub-agents/ could not be inspected",
+                     "Choose a writable project root and restore .ub-agents/ as a real directory owned by the current user")
         if git_ready:
             try:
-                self.probe(["git", "-C", str(config.root), "check-ignore", "-q", ".ub-agent/"], config.root)
-                self.add("local-state-ignored", "ok", ".ub-agent/ is ignored by Git")
+                self.probe(["git", "-C", str(config.root), "check-ignore", "-q", ".ub-agents/"], config.root)
+                self.add("local-state-ignored", "ok", ".ub-agents/ is ignored by Git")
             except AgentError as exc:
-                self.add("local-state-ignored", "fail", f".ub-agent/ ignore check: {exc}", "Add .ub-agent/ to .gitignore (as ub-agent init does)")
+                self.add("local-state-ignored", "fail", f".ub-agents/ ignore check: {exc}", "Add .ub-agents/ to .gitignore (as ub-agents init does)")
         else:
             self.add("local-state-ignored", "skip", "git unavailable")
 

@@ -11,7 +11,7 @@ from .execution import git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
 from .records import seconds
 
-BRANCH = re.compile(r"ub-agent/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
+BRANCH = re.compile(r"(?:ub-agents|ub-agent)/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
 RUN = re.compile(r"[A-Za-z0-9_-]+\Z")
 
 
@@ -50,7 +50,7 @@ class Cleaner:
         self.branch_tips = {}
 
     def inventory(self):
-        parent = self.root / ".ub-agent" / "worktrees"
+        parent = self.root / ".ub-agents" / "worktrees"
         artifacts = []
         registered = set()
         for tree in worktrees(self.root):
@@ -63,7 +63,8 @@ class Cleaner:
             for path in sorted(parent.iterdir()):
                 if str(path) not in registered:
                     artifacts.append(Artifact("worktree", str(path), path.name))
-        for branch in git(self.root, "for-each-ref", "--format=%(refname:short)", "refs/heads/ub-agent/").splitlines():
+        for branch in git(self.root, "for-each-ref", "--format=%(refname:short)",
+                          "refs/heads/ub-agents/", "refs/heads/ub-agent/").splitlines():
             match = BRANCH.fullmatch(branch)
             if match:
                 artifacts.append(Artifact("branch", branch, match[3]))
@@ -110,7 +111,7 @@ class Cleaner:
     def eligible_lease(self, lease, history):
         if lease.get("cleanup") == "unconfirmed":
             raise AgentError("Run cleanup is unconfirmed")
-        run_dir = self.root / ".ub-agent" / "runs" / lease["run"]
+        run_dir = self.root / ".ub-agents" / "runs" / lease["run"]
         if not RUN.fullmatch(lease["run"]) or run_dir.resolve() != run_dir:
             raise AgentError("Run diagnostics path is uncertain")
         events = run_dir / "events.jsonl"
@@ -168,7 +169,7 @@ class Cleaner:
             raise AgentError("Branch is still checked out in a kept worktree")
         # Hook failure must retain the branch even for a detached worktree.
         for run in {artifact.run} | self.related_runs(artifact.name):
-            path = self.root / ".ub-agent" / "worktrees" / run
+            path = self.root / ".ub-agents" / "worktrees" / run
             if path.exists() and str(path) not in self.preview_worktrees:
                 raise AgentError("Run still has a kept worktree")
         prs = self.github.prs_for_branch(artifact.name, state="all")
@@ -197,8 +198,8 @@ class Cleaner:
         if any(t.get("branch") == f"refs/heads/{artifact.name}"
                and t["worktree"] not in self.preview_worktrees for t in worktrees(self.root)):
             raise AgentError("Branch became checked out while checking remote history")
-        if any((self.root / ".ub-agent" / "worktrees" / run).exists()
-               and str(self.root / ".ub-agent" / "worktrees" / run) not in self.preview_worktrees
+        if any((self.root / ".ub-agents" / "worktrees" / run).exists()
+               and str(self.root / ".ub-agents" / "worktrees" / run) not in self.preview_worktrees
                for run in self.related_runs(artifact.name) | {artifact.run}):
             raise AgentError("Run acquired a kept worktree while checking remote history")
         if any(pr.state == "open" for pr in self.github.prs_for_branch(artifact.name)):

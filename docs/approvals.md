@@ -15,8 +15,8 @@ starter) and posts one **Action needed** notice with the reason and resume steps
 | Gate | Maintainer action to resume |
 |---|---|
 | No maintainer start | Remove `needs-human` and re-apply a trigger label. Approval alone does not start work. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agent approve --number N`; then remove `needs-human`. |
-| Outside PR head not approved | Run `ub-agent approve --number N` or submit an approving review of the current head; then remove `needs-human`. Re-applying a trigger does not approve a head. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve --number N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agents approve --number N` or submit an approving review of the current head; then remove `needs-human`. Re-applying a trigger does not approve a head. |
 
 Use the project's configured stop and trigger labels when they differ from the
 starter. Each unresolved gate gets the label and notice at most once; repeated
@@ -26,10 +26,10 @@ advisory: failures are logged without coordination records, claims or attempt
 changes. Uncleared outside comments on issues and trusted-authored PRs only lose
 input clearance and do not park work. Unreadable approval history and input that
 changes during the read are retried on the next poll without parking writes.
-`ub-agent status` remains read-only.
+`ub-agents status` remains read-only.
 
 A failed post-claim check withdraws the
-claim before execution, spends no attempt and needs no `ub-agent retry`; the item
+claim before execution, spends no attempt and needs no `ub-agents retry`; the item
 becomes eligible when its input is approved. Existing live runs and durable-outcome
 recovery finish under their original assignment.
 
@@ -145,10 +145,10 @@ including a head observed by an accepted successful run.
 
 ## Approving current input
 
-Run from a project configured with `ub-agent.yaml`:
+Run from a project configured with `ub-agents.yaml`:
 
 ```sh
-ub-agent approve --number 123
+ub-agents approve --number 123
 ```
 
 The command refuses without posting if the authenticated `gh` account is not a
@@ -159,11 +159,15 @@ expresses approval; there is no interactive confirmation. It refuses when the in
 changes between display and the final read. Changes during posting are handled by
 record validation. The command does not change labels.
 
+Existing `<!-- ub-agent:approval:v1 -->` records remain valid under the same
+approval checks. Old coordination and Action needed markers also remain excluded
+from assignment feedback; new comments use the plural name.
+
 The exact version 1 comment format is the marker, a blank line, one JSON fence and
 a trailing newline:
 
 ````text
-<!-- ub-agent:approval:v1 -->
+<!-- ub-agents:approval:v1 -->
 
 ```json
 {

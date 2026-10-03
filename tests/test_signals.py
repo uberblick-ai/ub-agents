@@ -45,7 +45,7 @@ class SignalTests(unittest.TestCase):
             return main(["launch"])
 
     def run_signals(self, signals):
-        marker = self.root / ".ub-agent" / "finished"
+        marker = self.root / ".ub-agents" / "finished"
 
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             script = "import os,signal,time; " + "; ".join(
@@ -62,7 +62,7 @@ class SignalTests(unittest.TestCase):
         return result, marker
 
     def test_sigterm_finishes_active_process_report_transition_and_cleanup(self):
-        cleaned = self.root / ".ub-agent" / "hook-finished"
+        cleaned = self.root / ".ub-agents" / "hook-finished"
         hook = CleanupHook((sys.executable, "-c",
                             f"open({str(cleaned)!r}, 'w').write('cleaned')"))
         self.config = replace(self.config, cleanup=hook)
