@@ -40,8 +40,13 @@ def record_view(record):
     keys = ('kind', 'id', 'run', 'agent', 'assignment', 'lease_id', 'state', 'actor',
             'host', 'log_dir', 'expires', 'created', 'runtime', 'result', 'summary',
             'status', 'accepted', 'transition_complete', 'outcome')
-    return {key: bounded(record[key], 2048) if isinstance(record[key], str) else record[key]
-            for key in keys if key in record}
+    result = {key: bounded(record[key], 2048) if isinstance(record[key], str) else record[key]
+              for key in keys if key in record}
+    transition = record.get('transition', {})
+    if record.get('accepted') and record.get('transition_complete'):
+        result['observed_stop_labels'] = [bounded(label, 256) for label in sorted(
+            set(transition.get('add', ())).intersection(transition.get('stop_labels', ())))[:16]]
+    return result
 
 
 def row_for(plan):
@@ -185,6 +190,19 @@ class Projection:
                     key = lease['run']
                     self.recent[key] = deepcopy(row) | {'local_current': False, 'local_recent': True}
                     self.recent.move_to_end(key)
+                    outcome = row.get('outcome') or {}
+                    observed_key = f'{row["number"]}:{row["agent"]}'
+                    if outcome.get('accepted') and outcome.get('transition_complete'):
+                        # This launcher observed the completed transition already.
+                        # Keep its human handoff visible separately from history,
+                        # without a read to discover the resulting labels again.
+                        stops = outcome.get('observed_stop_labels', [])
+                        if stops:
+                            self.rows[observed_key] = deepcopy(row) | {'local_current': False,
+                                'lease': None, 'state': 'parked',
+                                'reason': 'Observed accepted transition added stop labels: ' + ', '.join(stops)}
+                        else:
+                            self.rows.pop(observed_key, None)
                     while len(self.recent) > MAX_RECENT:
                         self.recent.popitem(last=False)
                         self.evicted += 1

@@ -27,11 +27,11 @@ Screenshots are headless Textual captures, not photographs of an operator sessio
 | Codex current human text | **demonstrated** in synthetic replay | [Human-text output](evidence/local-codex-human.svg) preserves compact ordinary lines, command text and diagnostics without invented structured events or `--json`. A 42,032-byte line shortens visibly. The existing real Codex recording is four curated **optional JSON** records ([replay](evidence/local-codex-recorded.svg)); real current human-text recording is **unverified**. |
 | Streaming/partial/oversized content | **demonstrated** in replay; readable structure above 128KiB **disproved** | Split records, UTF-8, a partial preview, multiline content and mixed text are covered. Above 128KiB the adapter deliberately uses labeled raw fragments, not reliable structured formatting. Full raw bytes remain in the file; producer timestamps are unavailable in the real recordings. Live labels are **capture time at observer read**, and historical bytes stay untimed. |
 | Scroll, follow, panes and narrow resize | **demonstrated** in headless pilot | [Paused append](evidence/local-paused.svg) holds position; follow returns to the consumed end. Selection/panes and a [72×24 resize](evidence/local-live-narrow.svg) work while output grows. Narrow labels/shortcuts still clip. Bounds can evict paused scrollback. Actual operator readability/accessibility is **unverified**. |
-| Responsive bounded processing | **demonstrated** for the short synthetic flood | A 2,088,000-byte/24,000-line burst had maximum log-tick time **40.6ms**, median **16.1ms**; tab dispatch **8.8–126.7ms**, maximum 20ms-heartbeat gap **119.2ms**. Tracemalloc/debug/pilot add overhead. The multi-key sequence plus resize took **12.0s including pilot idle waits**, not measured terminal key latency. Retained traced growth was **2.10MB**, peak **11.18MB**; overall RSS, prolonged memory plateau and slow-filesystem UI responsiveness are **unverified**. |
-| Consuming sustained output faster than limits | **disproved** | The same burst left **820,584 bytes** unread/queued at the checkpoint ([flood view](evidence/local-flood-narrow.svg)). Bounded local lag preserves the worker/raw file but cannot promise real-time consumption at arbitrary throughput. Follow follows consumed data. |
+| Responsive bounded processing | **demonstrated** for the short synthetic flood | A 2,088,000-byte/24,000-line burst had maximum log-tick time **64.3ms**, median **16.9ms**; tab dispatch **9.2–60.8ms**, maximum 20ms-heartbeat gap **105.9ms**. Tracemalloc/debug/pilot add overhead. The multi-key sequence plus resize took **12.0s including pilot idle waits**, not measured terminal key latency. Retained traced growth was **1.93MB**, peak **11.19MB**; overall RSS, prolonged memory plateau and slow-filesystem UI responsiveness are **unverified**. |
+| Consuming sustained output faster than limits | **disproved** | The same burst left **787,785 bytes** unread/queued at the checkpoint ([flood view](evidence/local-flood-narrow.svg)). Bounded local lag preserves the worker/raw file but cannot promise real-time consumption at arbitrary throughput. Follow follows consumed data. |
 | Existing observations, zero additional background calls | **demonstrated** in the single-launcher harness | UI off/on each made **70 recording-transport calls**, in identical method/endpoint order, with identical durable results. Startup, redraws, timers, tailing, loaded navigation and resize added **0**. Only plan #1 was yielded; 29 other triggered fixture plans stayed unevaluated. A deliberate navigation-read defect made **3** extra calls and failed the zero-call assertion. This is offline recording transport, not a new live quota audit. |
 | Optional explicit missing details | **demonstrated** in the harness | [Loading](evidence/local-detail-loading.svg) leaves navigation/worker active. One explicit `o` caused **one GET** for the selected item; [cached revisit](evidence/local-detail-cached.svg) caused **0**. Loaded details caused **0**. HTTP 429 stops further reads until reset; errors remain cached without automatic retry. A 20-open session cap rejects the 21st request. Real network/UI detail loading is **unverified**. |
-| Local recent activity and outcome authority | **demonstrated** in the harness | [Unaccepted report](evidence/local-unaccepted.svg) and [accepted finalized result](evidence/local-accepted.svg) remain distinct. Twenty bounded local released runs can survive disappearance from the next discovery, without repository history reads. Current blockers still outrank earlier success in the retained regression. Complete repository history and cross-restart persistence are not required or claimed. |
+| Local recent activity and outcome authority | **demonstrated** in the harness | [Unaccepted report](evidence/local-unaccepted.svg) and [accepted finalized result](evidence/local-accepted.svg) remain distinct. Twenty bounded local released runs can survive disappearance from the next discovery, without repository history reads. The launcher’s own [finalized human handoff](evidence/local-human-handoff.svg) stays visible in Needs attention alongside its accepted history, without waiting for another discovery. The retained blocker-precedence regression still passes. Complete repository history and cross-restart persistence are not required or claimed. |
 | Closure, drain, interrupt and worker isolation | **demonstrated** with owned dummy processes | A separate snapshot-fed OS process in an isolated PTY exited 0 on both q and Ctrl-C while the launcher worker continued, adding **0** transport calls. Actual Loop stop/interrupt callbacks preserved the same released-success/accepted and released-retry/unaccepted results with UI off/on; owned process groups ended empty. Disk publication and tap-callback failures did not veto worker success. Real launcher/runtime attachment, actual OS signals with this tap and an attached foreground UI are **unverified**; existing repository signal tests still pass. |
 
 The adapter keeps 200 entries, 2,048 displayed characters/entry and <128KiB of
@@ -54,7 +54,7 @@ simulated through the transport. No real assignment/LLM was launched.
 The tap publishes at most 64 encountered rows/details and 20 local recent runs
 through one pending snapshot to an atomic file. Coalescing under a blocked writer
 kept the newest snapshot and did not wait on disk. With 64 collected details,
-measured observation callbacks were **0.30ms median / 0.77ms maximum** in the
+measured observation callbacks were **0.47ms median / 0.82ms maximum** in the
 short fixture benchmark. Files are capped at 2MiB; malformed/unavailable snapshots
 show stale/unavailable state. Explicit detail results/errors are separately cached
 for at most 20 opens, with 8,192-character text limits plus a shortening notice. No extra background
@@ -97,7 +97,7 @@ feature, ticket, packaging change, merge or release.
 ## Validation and effort
 
 This continuation passed **514 repository tests** (38.260s), configuration and
-whitespace checks, **nine launcher-local checks** (34.463s), **nine retained
+whitespace checks, **ten launcher-local checks** (35.999s), **nine retained
 experiment checks** (22.634s), and both former-bug mutations. The zero-request
 mutation was also rejected. Candidate SHA and CI results are named in PR #99's
 body; CI runs package checks only, not the experiment. Every owned worker,
@@ -108,7 +108,8 @@ publisher, subprocess and check was awaited. No live probe/quota audit was run.
 | 2026-10-03 10:21:07, setup | 0m29s | 70m29s | 169m31s |
 | 2026-10-03 10:39:04, evidence | 18m26s | 88m26s | 151m34s |
 | 2026-10-03 10:44:03, findings | 23m25s | 93m25s | 146m35s |
-| 2026-10-03 10:48:25, final checks | 27m47s | 97m47s | 142m13s |
+| 2026-10-03 10:48:25, checks | 27m47s | 97m47s | 142m13s |
+| 2026-10-03 11:03:34, final human-handoff check | 42m56s | 112m56s | 127m04s |
 
 Run 3 started **2026-10-03 10:20:38 UTC**. Findings began well before the last
 30 minutes of the allowed continuation and the separate 180-minute run timeout.

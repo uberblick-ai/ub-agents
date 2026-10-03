@@ -76,7 +76,7 @@ class View(App):
         self.footer_state()
         try:
             changed = await asyncio.to_thread(self.observer.refresh)
-            if changed:
+            if changed or (self.selected is None and self.observer.rows):
                 self.populate()
         finally:
             self.refreshing = False

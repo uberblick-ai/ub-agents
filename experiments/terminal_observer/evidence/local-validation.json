@@ -2,20 +2,20 @@
   "flood": {
     "source": "headless Textual pilot; synthetic 24000 human lines",
     "raw_bytes": 2088000,
-    "tick_count": 134,
-    "max_tick_seconds": 0.040577656123787165,
-    "median_tick_seconds": 0.016057966509833932,
-    "max_20ms_heartbeat_gap_seconds": 0.11922034109011292,
-    "multi_key_navigation_and_resize_seconds": 11.960587971843779,
+    "tick_count": 138,
+    "max_tick_seconds": 0.06429216591641307,
+    "median_tick_seconds": 0.01692024595104158,
+    "max_20ms_heartbeat_gap_seconds": 0.10586409224197268,
+    "multi_key_navigation_and_resize_seconds": 12.033277680166066,
     "tab_key_dispatch_seconds": [
-      0.12670690612867475,
-      0.019367400091141462,
-      0.008833533152937889
+      0.06083087110891938,
+      0.009196090046316385,
+      0.010661268141120672
     ],
     "measurement_overhead": "tracemalloc + asyncio debug + headless pilot idle waits; not terminal latency",
-    "traced_retained_growth_bytes": 2101793,
-    "traced_peak_bytes": 11177158,
-    "backlog_bytes_at_checkpoint": 820584,
+    "traced_retained_growth_bytes": 1930970,
+    "traced_peak_bytes": 11188570,
+    "backlog_bytes_at_checkpoint": 787785,
     "backlog_is_lossless_in_raw_file": true,
     "paused_scroll_stable_with_append": true,
     "follow_resumed": true,
@@ -75,6 +75,12 @@
     "actual_os_launcher_signals": "unverified in this harness; repository suite covers signals",
     "attached_foreground_ui": "unverified; not prototyped"
   },
+  "human_handoff": {
+    "source": "actual fixture Loop finalization; no follow-up discovery",
+    "observed_current_blocker_group": "Needs attention",
+    "accepted_step_in_local_history": true,
+    "background_read_to_reconstruct_blocker": 0
+  },
   "negative_control": {
     "navigation_read_defect_calls": 3,
     "zero_background_call_assertion_rejects_mutation": true
@@ -88,8 +94,8 @@
     "file_cap_bytes": 2097152,
     "publisher_pending_snapshots": 1,
     "coalesced_under_blocked_writer": 99,
-    "max_bounded_observe_callback_seconds": 0.0007706317119300365,
-    "median_bounded_observe_callback_seconds": 0.000299657229334116,
+    "max_bounded_observe_callback_seconds": 0.0008217701688408852,
+    "median_bounded_observe_callback_seconds": 0.0004672594368457794,
     "slow_disk_does_not_block_callbacks": true,
     "publisher_disk_failure_worker_success": true,
     "tap_callback_failure_worker_success": true

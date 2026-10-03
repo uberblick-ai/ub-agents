@@ -458,6 +458,34 @@ class Evidence(unittest.IsolatedAsyncioTestCase):
             'owned_groups_empty_after_completion': True, 'actual_os_launcher_signals': 'unverified in this harness; repository suite covers signals',
             'attached_foreground_ui': 'unverified; not prototyped'}
 
+    async def test_finalized_human_blocker_and_history(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            folder = Path(directory)
+            projection = Projection('org/project')
+            loop, runner, _ = make_loop(folder, projection=projection, seconds=.01, human=True)
+            self.assertTrue(await asyncio.to_thread(test_session, loop, runner))
+            before = len(runner.calls)
+            observer = LocalObserver(projection=projection)
+            observer.refresh()
+            blocker = next(r for r in observer.rows if not r.get('local_recent'))
+            recent = next(r for r in observer.rows if r.get('local_recent'))
+            self.assertEqual(LocalObserver.group(blocker), 'Needs attention')
+            self.assertIn('needs-human', blocker['reason'])
+            self.assertTrue(blocker['outcome']['accepted'])
+            self.assertEqual(LocalObserver.group(recent), 'Local recent activity')
+            self.assertTrue(recent['outcome']['transition_complete'])
+            app = View(observer)
+            async with app.run_test() as pilot:
+                await pilot.pause(.2)
+                self.assertEqual(LocalObserver.group(app.selected), 'Needs attention')
+                app.action_tab('runs'); await pilot.pause(.1)
+                app.save_screenshot('local-human-handoff.svg', path=str(EVIDENCE))
+                await pilot.press('q')
+            self.assertEqual(len(runner.calls), before)
+        FINDINGS['human_handoff'] = {'source': 'actual fixture Loop finalization; no follow-up discovery',
+            'observed_current_blocker_group': 'Needs attention', 'accepted_step_in_local_history': True,
+            'background_read_to_reconstruct_blocker': 0}
+
     async def test_current_codex_human_projection(self):
         source = (EVIDENCE / 'codex-production/process.log').read_text()
         text = source.split('BEGIN tool output')[0] + 'single command result BEGIN ' + 'x' * 42000 + ' END\n'

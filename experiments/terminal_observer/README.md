@@ -111,7 +111,7 @@ uses a recording transport for this path; no live missing-detail read was made.
 git diff --check
 ```
 
-The nine launcher-local checks write `evidence/local-validation.json` and
+The ten launcher-local checks write `evidence/local-validation.json` and
 `local-*.svg`. They compare UI off/on transport traces and detect an injected
 navigation-read defect. They also test detail loading/errors/caching, floods,
 projection failure isolation and owned-worker drain/interrupt/closure. The nine
