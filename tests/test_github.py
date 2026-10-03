@@ -17,6 +17,31 @@ from tests.support import RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_rate_limit_classification_uses_real_response_headers_and_messages(self):
+        command = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                   'Accept: application/vnd.github+json', '--include', 'user')
+        cases = [
+            (403, 'X-RateLimit-Remaining: 0\nX-RateLimit-Reset: 4600\n', '{}', '', True, 4605),
+            (403, 'Retry-After: 12\n', '{}', '', True, 1012),
+            (429, 'Retry-After: 12\n', '{}', '', True, 1012),
+            (403, '', '{"message":"API rate limit exceeded"}', 'HTTP 403', True, 1060),
+            (429, '', '{"message":"secondary rate limit"}', '', True, 1060),
+            (403, 'X-RateLimit-Reset: 1100\n', '{}', 'Resource not accessible', False, None),
+            (429, '', '{}', 'Unknown failure', False, None),
+            (401, 'Retry-After: 12\n', '{}', 'Bad credentials', False, None),
+        ]
+        for status, headers, payload, stderr, limited, reset in cases:
+            with self.subTest(status=status, headers=headers, payload=payload):
+                runner = RecordingRunner(Path('/synthetic'))
+                runner.responses[command] = subprocess.CompletedProcess(
+                    [], 1, f'HTTP/2.0 {status} Error\n{headers}\n{payload}', stderr)
+                github = GitHub('org/project', runner)
+                with patch('ub_agents.github.timestamp', return_value=1000), self.assertRaises(GitHubError) as raised:
+                    github.actor()
+                self.assertEqual(raised.exception.rate_limited, limited)
+                self.assertEqual(raised.exception.reset_at, reset)
+                self.assertEqual(github.rate_limited, limited)
+
     def test_minimization_state_reads_rest_node_ids_in_bounded_batches(self):
         comments = [{"id": i, "node_id": f"IC_{i}"} for i in range(205)]
         github = GitHub('org/project')
@@ -225,9 +250,88 @@ class GitHubTests(unittest.TestCase):
         for summary, expected in cases:
             with self.subTest(summary=summary), \
                     patch.object(github, "request", return_value=[raw | {"issue_dependencies_summary": summary}]):
-                self.assertEqual(github.observe()[0].total_blocked_by, expected)
+                item = github.observe()[0]
+                self.assertEqual(item.total_blocked_by, expected)
+                self.assertEqual(item.open_blocked_by, summary["blocked_by"] if expected is not None else None)
         with patch.object(github, "request", return_value=[raw]):
             self.assertIsNone(github.observe()[0].total_blocked_by)
+
+    def test_dependency_graph_lists_pages_and_falls_back_for_large_connections(self):
+        def links(number, more=False):
+            return {"number": number, "blockedBy": {
+                "nodes": [{"number": 31, "state": "OPEN", "repository": {"nameWithOwner": "other/project"}}],
+                "pageInfo": {"hasNextPage": more}}}
+        pages = [{"repository": {"issues": {"nodes": [links(1)],
+                  "pageInfo": {"hasNextPage": True, "endCursor": "next"}}}},
+                 {"repository": {"issues": {"nodes": [links(2, True)],
+                  "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        github = GitHub("org/project")
+        with patch.object(github, "graphql", side_effect=pages) as graphql, \
+                patch.object(github, "blocked_by", return_value=[Dependency("org/project", 32, "closed")]) as rest:
+            self.assertEqual(github.dependency_graph(), {
+                1: [Dependency("other/project", 31, "open")], 2: [Dependency("org/project", 32, "closed")]})
+        self.assertEqual([call.args[1]["cursor"] for call in graphql.call_args_list], [None, "next"])
+        self.assertIn("states:OPEN", graphql.call_args.args[0])
+        rest.assert_called_once_with(2)
+
+    def test_dependency_graph_fails_on_unreadable_or_repeated_pages(self):
+        good = {"repository": {"issues": {"nodes": [{"number": 1, "blockedBy": {
+            "nodes": [], "pageInfo": {"hasNextPage": False}}}],
+            "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
+        bad = [{}, {"repository": None}]
+        for field, value in (("number", True), ("number", 0), ("blockedBy", None)):
+            malformed = deepcopy(good)
+            malformed["repository"]["issues"]["nodes"][0][field] = value
+            bad.append(malformed)
+        malformed = deepcopy(good)
+        malformed["repository"]["issues"]["pageInfo"]["hasNextPage"] = "yes"
+        bad.append(malformed)
+        for response in bad:
+            with self.subTest(response=response), \
+                    patch.object(GitHub, "graphql", return_value=response), self.assertRaises(GitHubError):
+                GitHub("org/project").dependency_graph()
+        repeated = deepcopy(good)
+        repeated["repository"]["issues"]["pageInfo"] = {"hasNextPage": True, "endCursor": "same"}
+        with patch.object(GitHub, "graphql", return_value=repeated), self.assertRaises(GitHubError):
+            GitHub("org/project").dependency_graph()
+
+    def test_lazy_pr_discovery_uses_only_paginated_issue_list_and_chosen_detail(self):
+        class QueueRunner:
+            def __init__(self, size):
+                self.calls = []
+                self.rows = [{"number": n, "title": "Candidate", "body": "", "state": "open",
+                              "labels": [{"name": "needs-changes"}], "created_at": iso(n),
+                              "updated_at": iso(1000), "pull_request": {}}
+                             for n in range(1, size + 1)]
+            def __call__(self, command, **kwargs):
+                self.calls.append(command)
+                endpoint = command[-1]
+                path = urlsplit(endpoint).path
+                if path.endswith("/issues"):
+                    page = int(parse_qs(urlsplit(endpoint).query)["page"][0])
+                    response = self.rows[(page - 1) * 100:page * 100]
+                elif path.endswith("/pulls/1"):
+                    response = self.rows[0] | {"draft": False, "head": {"sha": "a" * 40, "ref": "candidate"}}
+                else:
+                    response = []
+                return subprocess.CompletedProcess(command, 0, json.dumps(response), "")
+        from ub_agents.approvals import ApprovalCheck
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for size in (1, 99, 100, 101, 201):
+                runner = QueueRunner(size)
+                loop = Loop(config(root, agent(root)), GitHub("org/project", runner), "operator")
+                with patch.object(loop, "input_check", return_value=ApprovalCheck(True, "Approved")), \
+                        patch.object(loop, "execute", return_value=True):
+                    self.assertTrue(loop.tick())
+                    first_count = len(runner.calls)
+                    self.assertTrue(loop.tick())
+                list_pages = size // 100 + 1
+                # Cold discovery: issue list + repository comments + one PR's
+                # details and history. Warm discovery: just the two list scans.
+                self.assertEqual(first_count, list_pages + 3)
+                self.assertEqual(len(runner.calls) - first_count, list_pages + 1)
+                self.assertEqual(sum(urlsplit(c[-1]).path.endswith("/pulls/1") for c in runner.calls), 1)
 
     def test_closing_keywords_accept_local_qualified_and_url_references(self):
         for keyword in ("close", "closes", "closed", "fix", "fixes", "fixed",

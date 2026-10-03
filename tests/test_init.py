@@ -105,6 +105,8 @@ class InitTests(unittest.TestCase):
         self.assertIn('stop and report', roles['implementer'])
         self.assertIn('--status blocked', roles['implementer'])
         self.assertIn('read PR comments, reviews, and inline feedback', roles['implementer'])
+        self.assertIn("For a revision, address the assignment context's `feedback` as well as its comments, "
+                      "reviews and review comments", roles['implementer'])
 
     def test_yes_creates_exactly_missing_labels_and_reports_each(self):
         code, output, error, prompt = self.init(terminal=True, answer='yes')
