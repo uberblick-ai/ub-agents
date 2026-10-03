@@ -307,6 +307,69 @@ class RecordingRunner:
         return subprocess.CompletedProcess(command, 0, response, "ghp-private-stderr")
 
 
+class DiscoveryCostRunner:
+    """45-item request audit: 30 triggered issues, 15 idle, three shared accounts.
+
+    Exercise real GitHub request construction and pagination without network IO.
+    Triggered issues have unknown dependency summaries; idle issues prove zero.
+    """
+    def __init__(self):
+        from ub_agents.records import iso
+        self.calls = []
+        self.rows = []
+        self.comments = {}
+        for number in range(1, 46):
+            row = {"number": number, "title": "Work", "body": "Requirements", "state": "open",
+                   "labels": [{"name": "ready"}] if number <= 30 else [],
+                   "created_at": iso(number), "updated_at": iso(1000), "user": {"login": "operator"}}
+            if number > 30:
+                row["issue_dependencies_summary"] = dict.fromkeys(
+                    ("blocked_by", "blocking", "total_blocked_by", "total_blocking"), 0)
+            self.rows.append(row)
+            self.comments[number] = [
+                {"id": number * 3 + offset, "body": "Feedback", "user": {"login": login},
+                 "created_at": iso(60 + number), "updated_at": iso(60 + number),
+                 "issue_url": f"https://api.github.com/repos/org/project/issues/{number}"}
+                for offset, login in enumerate(("maintainer", "operator", "commenter"))] if number <= 30 else []
+
+    def __call__(self, command, **kwargs):
+        import subprocess
+        from urllib.parse import urlsplit
+        from ub_agents.records import iso
+        self.calls.append(command)
+        endpoint = command[command.index("--include") + 1]
+        path = urlsplit(endpoint).path
+        if path == "graphql":
+            data = json.loads(kwargs["input"])
+            if "userContentEdits" in data["query"]:
+                row = self.rows[data["variables"]["number"] - 1]
+                repository = {"issue": {"title": row["title"], "body": row["body"],
+                    "createdAt": row["created_at"], "lastEditedAt": None,
+                    "userContentEdits": {"nodes": [], "pageInfo": {"hasNextPage": False}}}}
+            else:
+                repository = {"issues": {"nodes": [
+                    {"number": row["number"], "blockedBy": {
+                        "nodes": [], "pageInfo": {"hasNextPage": False}}} for row in self.rows],
+                    "pageInfo": {"hasNextPage": False}}}
+            response = {"data": {"repository": repository}}
+        elif path.endswith("/permission"):
+            response = {"role_name": "maintain" if "/maintainer/" in path else "write"}
+        elif path.endswith("/timeline"):
+            response = [{"event": "labeled", "actor": {"login": "maintainer"},
+                         "label": {"name": "ready"}, "created_at": iso(50)}]
+        elif path.endswith("/issues/comments"):
+            response = [c for comments in self.comments.values() for c in comments]
+        elif path.endswith("/comments"):
+            response = self.comments[int(path.split("/")[-2])]
+        elif path.endswith("/issues"):
+            response = self.rows
+        elif path.endswith("/dependencies/blocked_by"):
+            response = []
+        else:
+            raise AssertionError(f"Unexpected audit request: {command}")
+        return subprocess.CompletedProcess(command, 0, json.dumps(response), "")
+
+
 class DoctorGitHub(FakeGitHub):
     def __init__(self):
         super().__init__()

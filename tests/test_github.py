@@ -14,10 +14,30 @@ from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
 from ub_agents.notices import Notices
 from ub_agents.records import body, iso, seconds, timestamp
-from tests.support import RecordingRunner, agent, config, issue, pr
+from tests.support import DiscoveryCostRunner, RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_45_item_status_and_cold_discovery_request_cost(self):
+        from ub_agents.cli import status_rows
+        from ub_agents.config import Priority, Queue
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for status in (False, True):
+                with self.subTest(status=status):
+                    runner = DiscoveryCostRunner()
+                    loop = Loop(config(root, agent(root),
+                                       queue=Queue(priority=Priority(("urgent", "low"), "low"))),
+                                GitHub("org/project", runner), "operator")
+                    rows = status_rows(loop) if status else list(loop.iter_plans())
+                    self.assertEqual(len(rows), 30)
+                    self.assertEqual(len(runner.calls), 96)
+                    paths = [urlsplit(c[c.index("--include") + 1]).path for c in runner.calls]
+                    self.assertEqual(sum(p.endswith("/comments") and not p.endswith("/issues/comments")
+                                         for p in paths), 30)
+                    self.assertEqual(sum(p.endswith("/permission") for p in paths), 3)
+                    self.assertEqual(sum(p.endswith("/dependencies/blocked_by") for p in paths), 0)
+
     def test_latest_quota_headers_are_retained_per_resource_including_failures(self):
         runner = RecordingRunner(Path('/synthetic'))
         github = GitHub('org/project', runner)
