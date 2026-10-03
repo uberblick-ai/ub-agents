@@ -738,6 +738,32 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(run.call_args_list[0].kwargs['input'], '{"labels": ["needs-review"]}')
         self.assertIn('repos/org/project/issues/1/labels/workflow%2Fready', run.call_args_list[1].args[0])
 
+    def test_queue_gate_and_priority_preserve_transition_recovery(self):
+        self.claim_and_report(handoff=2)
+        self.github.change(1, milestone=20, labels=self.github.item(1).labels | {'low'})
+        self.github.change(2, labels=frozenset({'low'}))
+        self.github.items[3] = issue(3, labels=('ready', 'urgent'), milestone=10)
+        self.github.milestones = [{'number': 10, 'state': 'open', 'created_at': iso(100)}]
+        self.now += 61
+        reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
+        restarted = Loop(config(self.root, self.agent, reviewer,
+                                queue=Queue('gate', Priority(('urgent', 'low')))),
+                         self.github, 'operator', output=lambda *_: None)
+        restarted.coordinator.clock = lambda: self.now
+        plans = restarted.plans()
+        recovery = next(p for p in plans if p.item.number == 1 and p.agent.name == self.agent.name)
+        new_work = next(p for p in plans if p.item.number == 3)
+        self.assertEqual((recovery.state, new_work.state), ('recover', 'ready'))
+        self.assertFalse(any(p.item.number == 2 for p in plans))
+        self.assertLess(plans.index(recovery), plans.index(new_work))
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.assertTrue(restarted.tick())
+        history = restarted.coordinator.history(1)
+        self.assertTrue(history[1]['accepted'])
+        self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
+        self.assertEqual(self.github.item(1).labels, {'unrelated', 'low'})
+        self.assertEqual(self.github.item(2).labels, {'needs-review', 'low'})
+
 
 class LegacyTransitionTests(TransitionTests):
     """All report, pause and crash scenarios also run against 0.1.5 records."""

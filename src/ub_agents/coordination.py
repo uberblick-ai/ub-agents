@@ -281,6 +281,10 @@ class Coordinator:
             fresh = self.plan(current, plan.agent, stop_labels, history)
             if fresh.state != "ready" or fresh.runtime != plan.runtime:
                 return None
+        if self.queue.milestones == "gate" and not recovery and current.kind == "issue":
+            active_milestone = self.github.active_milestone()
+            if active_milestone is not None and current.milestone != active_milestone:
+                return None
         if (self.queue.dependencies == "wait" and not recovery and current.kind == "issue"
                 and any(b.state == "open" for b in self.github.blocked_by(current.number))):
             return None

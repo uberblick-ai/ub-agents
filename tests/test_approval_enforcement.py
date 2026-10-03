@@ -236,7 +236,7 @@ class EnforcementTests(unittest.TestCase):
                     self.assertEqual(self.notices(), [])
 
     def test_approval_is_not_the_only_obstacle_so_no_parking_writes(self):
-        for obstacle in ('stop', 'closed', 'dependency', 'backoff', 'blocked', 'runtime', 'owned'):
+        for obstacle in ('stop', 'closed', 'dependency', 'milestone', 'backoff', 'blocked', 'runtime', 'owned'):
             with self.subTest(obstacle=obstacle):
                 self.setUp()
                 if obstacle == 'stop':
@@ -246,6 +246,10 @@ class EnforcementTests(unittest.TestCase):
                 elif obstacle == 'dependency':
                     self.github.items[2] = issue(2, labels=())
                     self.github.dependencies[1] = [2]
+                elif obstacle == 'milestone':
+                    self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
+                    self.github.milestones = [dict(number=1, state='open', created_at=at(1))]
+                    self.github.items[2] = issue(2, labels=(), milestone=1)
                 elif obstacle == 'runtime':
                     self.loop.config = config(self.root, replace(self.worker, command=('missing-ub-agent-command',)))
                 else:
@@ -276,7 +280,9 @@ class EnforcementTests(unittest.TestCase):
                 original = self.loop.park_approval
                 def park(plan):
                     with patch.object(self.github, 'milestone_order',
-                                      side_effect=AssertionError('parking must not read milestones')):
+                                      side_effect=AssertionError('parking must not read milestones')), \
+                            patch.object(self.github, 'active_milestone',
+                                         side_effect=AssertionError('order must not recheck the gate')):
                         original(plan)
                 with patch.object(self.loop, 'park_approval', side_effect=park):
                     self.assert_parked('No maintainer', writes=True)
@@ -292,7 +298,7 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
 
     def test_gate_reapproved_or_item_changed_before_writes_is_not_parked(self):
-        for change in ('approval', 'closed', 'stop', 'trigger', 'dependency', 'during-read'):
+        for change in ('approval', 'closed', 'stop', 'trigger', 'dependency', 'milestone', 'during-read'):
             with self.subTest(change=change):
                 self.setUp()
                 self.github.timelines[1] = []
@@ -309,6 +315,10 @@ class EnforcementTests(unittest.TestCase):
                     elif change == 'dependency':
                         self.github.items[2] = issue(2, labels=())
                         self.github.dependencies[1] = [2]
+                    elif change == 'milestone':
+                        self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
+                        self.github.milestones = [dict(number=1, state='open', created_at=at(1))]
+                        self.github.items[2] = issue(2, labels=(), milestone=1)
                     if change == 'during-read':
                         read = self.github.issue_content
                         def content(number):

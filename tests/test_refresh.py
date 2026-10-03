@@ -243,12 +243,15 @@ class RefreshTests(unittest.TestCase):
         for edit in (lambda text: text.replace("trigger: ready", "trigger: other"),
                      lambda text: text.replace("worker:", "replacement:"),
                      lambda text: text.replace("runtime: codex:model:high", "kind: pr\n    runtime: codex:model:high"),
+                     lambda text: text + "queue: {milestones: gate}\n",
                      lambda text: text + "stop-labels: [paused]\n"):
             with self.subTest(edit=edit):
                 self.setUp()
                 self.enable_reload()
                 self.github.change(1, labels=frozenset({"ready", "paused"}))
                 self.github.change(3, labels=frozenset({"ready", "paused"}))
+                self.github.milestones = [{"number": 1, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+                self.github.items[4] = issue(4, labels=(), milestone=1)
                 path = self.upstream / "ub-agent.yaml"
                 path.write_text(edit(path.read_text()))
                 self.commit(self.upstream)

@@ -144,6 +144,7 @@ agents:
             with self.subTest(extra=extra):
                 self.assertEqual(self.load(base + extra).queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  milestones: order\n").queue, Queue("order"))
+        self.assertEqual(self.load(base + "queue:\n  milestones: gate\n").queue, Queue("gate"))
         self.assertEqual(self.load(base + "queue:\n  dependencies: wait\n").queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  dependencies: ignore\n").queue,
                          Queue(dependencies="ignore"))
@@ -151,12 +152,16 @@ agents:
         self.assertEqual(self.load(base + extra).queue.priority, Priority(("urgent", "normal", "low")))
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
 
-    def test_check_rejects_removed_milestone_gate_and_names_order(self):
-        self.path.write_text("repository: org/project\nqueue:\n  milestones: gate\nagents:\n"
-                             "  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n")
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
-            self.assertEqual(main(["--config", str(self.path), "check"]), 1)
-        self.assertIn("milestones must be order or ignore", errors.getvalue())
+    def test_check_accepts_all_milestone_modes_and_names_them_for_invalid_values(self):
+        for mode in ("gate", "order", "ignore", "oldest"):
+            with self.subTest(mode=mode):
+                self.path.write_text(f"repository: org/project\nqueue:\n  milestones: {mode}\nagents:\n"
+                                     "  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n")
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(main(["--config", str(self.path), "check"]),
+                                     1 if mode == "oldest" else 0)
+                if mode == "oldest":
+                    self.assertIn("milestones must be gate, order or ignore", errors.getvalue())
 
     def test_queue_validation_through_check(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"

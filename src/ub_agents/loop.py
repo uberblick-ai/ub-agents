@@ -129,6 +129,8 @@ class Loop:
             if number not in items:
                 item = github.item(number)
                 items[item.number] = item
+        active_milestone = (self.github.active_milestone()
+                            if self.config.queue.milestones == "gate" else None)
         milestones = (self.github.milestone_order()
                       if self.config.queue.milestones == "order" else ())
         milestone_ranks = {number: rank for rank, number in enumerate(milestones)}
@@ -197,9 +199,14 @@ class Loop:
                         sorted(github.blocked_by(item.number),
                                key=lambda b: (b.repository.casefold(), b.number)) if b.state == "open"))
             for plan in plans:
-                if item.kind == "issue" and blockers and (plan.state == "ready" or plan.approval_gate):
-                    plan = replace(plan, state="parked", runtime=None,
-                                   reason=f"Waiting for blockers {', '.join(blockers)}",
+                reasons = []
+                if (plan.state == "ready" or plan.approval_gate) and item.kind == "issue":
+                    if active_milestone is not None and item.milestone != active_milestone:
+                        reasons.append(f"Waiting for active milestone #{active_milestone}")
+                    if blockers:
+                        reasons.append(f"Waiting for blockers {', '.join(blockers)}")
+                if reasons:
+                    plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons),
                                    approval_gate=None)
                 yield replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
@@ -307,9 +314,14 @@ class Loop:
             return
         if self.coordinator.plan(current, plan.agent, self.config.stop_labels).state != "ready":
             return
-        if (current.kind == "issue" and self.config.queue.dependencies == "wait"
-                and any(b.state == "open" for b in self.github.blocked_by(current.number))):
-            return
+        if current.kind == "issue":
+            if self.config.queue.milestones == "gate":
+                active = self.github.active_milestone()
+                if active is not None and current.milestone != active:
+                    return
+            if (self.config.queue.dependencies == "wait"
+                    and any(b.state == "open" for b in self.github.blocked_by(current.number))):
+                return
         approval = self.input_check(current)
         if approval.gate_key != plan.approval_gate.gate_key:
             return

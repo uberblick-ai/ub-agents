@@ -152,6 +152,10 @@ class FakeGitHub:
                 if item.kind == "pr" and not details else item
                 for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
 
+    def active_milestone(self):
+        milestones = FakeGitHub.milestone_order(self)
+        return milestones[0] if milestones else None
+
     def milestone_order(self):
         from ub_agents.records import seconds
         active = [(seconds(m["created_at"]), m["number"]) for m in self.milestones
@@ -288,6 +292,9 @@ class PollGitHub(FakeGitHub):
 
     def comments(self, number):
         return self._read("comments", number)
+
+    def active_milestone(self):
+        return self._read("active_milestone")
 
     def milestone_order(self):
         return self._read("milestone_order")

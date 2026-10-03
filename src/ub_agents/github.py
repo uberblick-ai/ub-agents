@@ -394,6 +394,10 @@ class GitHub:
         raw = self.request(endpoint)
         return self.item(number, "pr") if "pull_request" in raw else parse_item(raw, "issue", endpoint)
 
+    def active_milestone(self):
+        milestones = self.milestone_order()
+        return milestones[0] if milestones else None
+
     def milestone_order(self):
         endpoint = f"{self.prefix}/milestones?state=open&per_page=100"
         data = self.request(endpoint, paginate=True)
