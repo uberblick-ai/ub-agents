@@ -1,10 +1,11 @@
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
 import json
 import os
 from pathlib import Path
 import sys
+import signal
 import tempfile
 import threading
 import unittest
@@ -74,6 +75,24 @@ class RuntimeUsageTests(unittest.TestCase):
         self.now += 100
         self.assertEqual(self.usage.rows(), [])
 
+    def test_new_reset_updates_pause_without_extending_untrusted_fallback(self):
+        self.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        self.now += 10
+        self.usage.record("claude", "five_hour", 92, self.now + 200, 18000)
+        self.assertEqual(self.usage.paused("claude")["ends_at"], iso(self.start + 270))
+        self.assertEqual(self.usage.readings["claude"]["five_hour"]["reset_at"], self.start + 210)
+        self.assertIn(iso(self.start + 270), self.lines[-1])
+        self.usage.record("claude", "five_hour", 92, "bad", 18000)
+        self.now += 10
+        self.usage.record("claude", "five_hour", 92, None, 18000)
+        self.assertEqual(self.usage.paused("claude")["ends_at"], iso(self.start + 910))
+
+    def test_untrusted_update_after_long_active_run_still_pauses(self):
+        self.usage.record("claude", "five_hour", 90, self.now + 3000, 18000)
+        self.now += 1000
+        self.usage.record("claude", "five_hour", 95, None, 18000)
+        self.assertEqual(self.usage.paused("claude")["ends_at"], iso(self.now + 900))
+
     def test_untrusted_resets_have_fixed_fallback_even_with_repeated_readings(self):
         for reset in (None, "bad", float("nan"), float("inf"), True,
                       self.start, self.start - 1, self.start + 18001):
@@ -133,10 +152,21 @@ class UsageOutputTests(unittest.TestCase):
             self.assertTrue(output.reached)
         self.assertFalse(UsageOutput("claude", self.run_dir, self.usage, {}).reached)
 
+    def test_codex_exact_warning_threshold_and_structured_error_with_last_reset(self):
+        output = UsageOutput("codex", self.run_dir, self.usage, {})
+        output.event(codex(self.now + 100, 89.9, None))
+        self.assertIsNone(self.usage.paused("codex"))
+        output.event(codex(self.now + 100, 90, None))
+        self.assertTrue(self.usage.paused("codex"))
+        self.assertFalse(output.reached)
+        output.event({"type": "error", "codex_error_info": "usage_limit_exceeded"})
+        self.assertTrue(output.reached)
+        self.assertEqual(output.hint, ("primary", self.now + 100, 18000))
+
     def test_incremental_partial_json_and_unrelated_tool_output(self):
         output = UsageOutput("claude", self.run_dir, self.usage, {})
         event = json.dumps(claude(self.now + 100, .9, "allowed_warning"))
-        self.log.write_text('not json\n[]\n{"type":"user","content":"rate_limit"}\n' + event[:40])
+        self.log.write_text('not json\n[]\n{"type":[]}\n{"type":"user","content":"rate_limit"}\n' + event[:40])
         output.poll()
         self.assertEqual(self.usage.rows(), [])
         with self.log.open("a") as stream:
@@ -233,6 +263,40 @@ class UsageLoopTests(unittest.TestCase):
                     self.assertTrue(self.loop.tick())
                     self.assertEqual(run.call_count, 2)
 
+    def test_untrusted_limit_allows_one_probe_then_uses_new_reset(self):
+        resets = iter([None, self.start + 1200])
+        calls = []
+
+        def run(*args, **kwargs):
+            calls.append(self.now)
+            return self.runtime(claude(next(resets)))(*args, **kwargs)
+
+        with patch("ub_agents.loop.supervise", side_effect=run):
+            self.assertTrue(self.loop.tick())
+            self.now += 899
+            self.assertFalse(self.loop.tick())
+            self.now += 1
+            self.assertTrue(self.loop.tick())
+            self.now = self.start + 1259
+            self.assertFalse(self.loop.tick())
+        self.assertEqual(calls, [self.start, self.start + 900])
+        self.assertEqual(self.loop.usage.paused("claude")["ends_at"], iso(self.start + 1260))
+        self.assertEqual(attempts(self.loop.coordinator.history(1), self.role.name, self.now), [])
+
+    def test_limit_preserves_existing_failure_count_and_backoff(self):
+        with patch("ub_agents.loop.supervise", return_value=1):
+            self.loop.tick()
+        earlier = self.loop.coordinator.history(1)[0]
+        self.assertEqual(earlier["retry_after"], iso(self.start + 60))
+        self.now += 60
+        with patch("ub_agents.loop.supervise", side_effect=self.runtime(claude(self.now + 100))):
+            self.loop.tick()
+        history = self.loop.coordinator.history(1)
+        self.assertEqual(history[0]["retry_after"], earlier["retry_after"])
+        self.assertEqual(len(attempts(history, self.role.name, self.now)), 1)
+        self.assertEqual((self.loop.plans()[0].state, self.loop.plans()[0].attempt), ("waiting", 2))
+        self.assertIsNone(next(r for r in reversed(history) if r["kind"] == "lease").get("retry_after"))
+
     def test_warning_pauses_after_accepted_run_and_does_not_change_outcome(self):
         with patch("ub_agents.loop.supervise", side_effect=self.runtime(
                 claude(self.now + 300, .9, "allowed_warning"), report=True)):
@@ -278,6 +342,23 @@ class UsageLoopTests(unittest.TestCase):
         loop.coordinator.clock = lambda: self.now
         loop.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
         self.assertEqual(loop.plans()[0].state, "waiting")
+
+    def test_paused_independent_runtime_cannot_fall_back_to_authors_cli(self):
+        author = replace(self.role, name="author", kind="pr", runtimes=(Runtime("codex", "author-model", "high"),))
+        reviewer = replace(self.role, name="reviewer", kind="pr", different_from="author",
+                           runtimes=self.role.runtimes + (Runtime("codex", "other-model", "high"),))
+        github = FakeGitHub(pr(labels=("ready",)))
+        loop = Loop(config(self.root, author, reviewer), github, "operator", output=self.lines.append)
+        loop.coordinator.clock = lambda: self.now
+        coordinator = loop.coordinator
+        plan = coordinator.plan(github.item(2), author, ())
+        lease = coordinator.claim(plan)
+        coordinator.update(lease, state="running", started=True)
+        outcome = coordinator.report(lease, "success", "Authored", outcome="done")
+        coordinator.accept(lease, outcome)
+        coordinator.release(lease, "success", "Authored")
+        loop.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        self.assertEqual(next(p for p in loop.plans() if p.agent.name == "reviewer").state, "waiting")
 
     def test_all_paused_keeps_polling_and_wakes_by_earliest_expiry(self):
         self.loop.config = replace(self.loop.config, poll_seconds=5000)
@@ -325,3 +406,28 @@ class UsageLoopTests(unittest.TestCase):
                     self.assertIn(f"claude paused: five_hour usage 90%; pause ends {iso(self.now + 160)}", output.getvalue())
         self.assertEqual(self.loop.usage.path.read_bytes(), before)
         self.assertEqual(github.writes, [])
+
+    def test_signals_interrupt_runtime_pause_wait(self):
+        from ub_agents.records import timestamp
+        settings = replace(self.loop.config, poll_seconds=5000)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=sig):
+                handler = signal.getsignal(sig)
+
+                def tick(loop):
+                    loop.usage.record("claude", "five_hour", 90, timestamp() + 100, 18000)
+                    return False
+
+                def wait(delay):
+                    self.assertLessEqual(delay, 160)
+                    signal.raise_signal(sig)
+
+                with patch("ub_agents.cli.load_config", return_value=settings), \
+                        patch("ub_agents.cli.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch.object(Loop, "tick", autospec=True, side_effect=tick), \
+                        patch("threading.Event.wait", side_effect=wait), \
+                        redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.root / "ub-agent.yaml"), "launch"]),
+                                     0 if sig == signal.SIGTERM else 130)
+                self.assertEqual(signal.getsignal(sig), handler)

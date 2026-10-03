@@ -22,9 +22,9 @@ def number(value):
         return None
 
 
-def deadline(started, reset, length):
+def deadline(started, reset, length, observed=None):
     reset, length = number(reset), number(length)
-    if trusted_reset(started, reset, length):
+    if trusted_reset(started if observed is None else observed, reset, length):
         return reset + MARGIN_SECONDS
     return started + FALLBACK_SECONDS
 
@@ -46,7 +46,10 @@ def pause_rows(state, now):
             started = number(pause.get("started_at"))
             if started is None or started > now or not isinstance(pause.get("reason"), str):
                 continue
-            end = deadline(started, pause.get("reset_at"), pause.get("window_seconds"))
+            observed = number(pause.get("observed_at", started))
+            if observed is None or not started <= observed <= now:
+                continue
+            end = deadline(started, pause.get("reset_at"), pause.get("window_seconds"), observed)
             if end > now:
                 active.append((end, pause["reason"]))
         if active:
@@ -112,7 +115,7 @@ class RuntimeUsage:
             for windows in groups.values():
                 for name, reading in list(windows.items()):
                     if deadline(reading["started_at"], reading.get("reset_at"),
-                                reading.get("window_seconds")) <= now:
+                                reading.get("window_seconds"), reading.get("observed_at")) <= now:
                         del windows[name]
                         changed = True
         if changed:
@@ -129,24 +132,32 @@ class RuntimeUsage:
         return min(delay, max(0, min(map(seconds, ends)) - self.clock()))
 
     def pause(self, cli, window, reset, length, reason):
-        self.rows()
+        previous = self.paused(cli)
         windows = self.pauses.setdefault(cli, {})
-        if window in windows:
-            return windows[window]
-        reading = {"started_at": self.clock(), "reset_at": number(reset),
-                   "window_seconds": number(length), "reason": reason}
-        was_paused = bool(windows)
+        reading = windows.get(window)
+        reset, length = number(reset), number(length)
+        if reading is None:
+            reading = {"started_at": self.clock(), "observed_at": self.clock(),
+                       "reset_at": reset, "window_seconds": length, "reason": reason}
+        elif (reset, length) != (reading["reset_at"], reading["window_seconds"]):
+            # A new reset supersedes the old one, but untrusted updates retain
+            # the first untrusted reading's fallback start. Identical resets stay fixed.
+            if (trusted_reset(reading["observed_at"], reading["reset_at"], reading["window_seconds"])
+                    and not trusted_reset(self.clock(), reset, length)):
+                reading["started_at"] = self.clock()
+            reading.update(reset_at=reset, window_seconds=length, observed_at=self.clock())
+        reading["reason"] = reason
         windows[window] = reading
         self.save()
-        end = deadline(reading["started_at"], reset, length)
-        if not was_paused:
-            self.output(f"{cli} {reason}; pausing {cli} runs until {iso(end)} "
-                        f"({(end - self.clock()) / 60:g} min)")
+        current = self.paused(cli)
+        if current and (previous is None or previous["ends_at"] != current["ends_at"]):
+            self.output(f"{cli} {reason}; pausing {cli} runs until {current['ends_at']} "
+                        f"({(seconds(current['ends_at']) - self.clock()) / 60:g} min)")
         return reading
 
     def record(self, cli, window, percent, reset, length, status=None):
         self.rows()
-        reading = {"started_at": self.clock(), "used_percent": number(percent),
+        reading = {"started_at": self.clock(), "observed_at": self.clock(), "used_percent": number(percent),
                    "reset_at": number(reset), "window_seconds": number(length), "status": status}
         self.readings.setdefault(cli, {})[window] = reading
         if reading["used_percent"] is not None and reading["used_percent"] >= 90:
@@ -155,13 +166,12 @@ class RuntimeUsage:
             pause = self.pause(cli, window, reset, length, reason)
             # Repeated readings cannot extend an untrusted reset's fallback.
             reading["started_at"] = pause["started_at"]
+            reading["observed_at"] = pause["observed_at"]
         self.save()
 
     def limit(self, cli, hint):
         window, reset, length = hint
         pause = self.pause(cli, window, reset, length, "usage limit reached")
-        pause["reason"] = "usage limit reached"
-        self.save()
-        valid = trusted_reset(pause["started_at"], reset, length)
-        end = number(reset) if valid else deadline(pause["started_at"], reset, length)
+        valid = trusted_reset(pause["observed_at"], reset, length)
+        end = number(reset) if valid else deadline(pause["started_at"], reset, length, pause["observed_at"])
         return f"{cli} usage limit reached; resets {iso(end)}"

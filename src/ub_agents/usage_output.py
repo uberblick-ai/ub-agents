@@ -45,7 +45,7 @@ class UsageOutput:
 
     def poll(self, final=False):
         for event in self.log.read(final):
-            if self.cli == "codex" and event.get("type") == "thread.started":
+            if self.cli == "codex" and self.thread is None and event.get("type") == "thread.started":
                 try:
                     self.thread = str(uuid.UUID(event["thread_id"]))
                 except (KeyError, ValueError, TypeError, AttributeError):
@@ -54,8 +54,11 @@ class UsageOutput:
         if self.cli == "codex" and self.thread:
             if self.session is None:
                 # The exact fresh thread, never --last or another run's transcript.
-                matches = list((self.codex_home / "sessions").glob(
-                    f"*/*/*/rollout-*-{self.thread}.jsonl"))
+                try:
+                    matches = list((self.codex_home / "sessions").glob(
+                        f"*/*/*/rollout-*-{self.thread}.jsonl"))
+                except OSError:
+                    matches = []
                 if len(matches) == 1:
                     self.session = JsonLines(matches[0])
             if self.session:
@@ -88,9 +91,10 @@ class UsageOutput:
                     name = name if isinstance(name, str) and name in WINDOWS else "limit"
                     self.hint = (name, info.get("resetsAt"), WINDOWS.get(name))
                     if isinstance(windows, dict) and isinstance(windows.get(name), dict):
-                        self.hint = (name, windows[name].get("resetsAt"), WINDOWS.get(name))
+                        reset = windows[name].get("resetsAt")
+                        self.hint = (name, reset if reset is not None else info.get("resetsAt"), WINDOWS.get(name))
                     self.reached = True
-            elif (event.get("type") in {"assistant", "result", "error"}
+            elif (event.get("type") in ("assistant", "result", "error")
                   and (event.get("error") == "rate_limit" or event.get("api_error_status") == 429)):
                 self.reached = True
         else:

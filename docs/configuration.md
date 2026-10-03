@@ -485,7 +485,8 @@ limits. A CLI with no reading starts normally.
 
 Pauses end on the clock, at the reset plus a fixed one-minute margin. Missing,
 unreadable, past, or beyond-window resets instead pause for 15 minutes from the
-first reading. Repeated readings do not extend that fallback. All limiting windows
+first untrusted reading. Repeated untrusted readings do not extend that fallback.
+New resets from an active run update the window's pause. All limiting windows
 must expire before a CLI starts again; expired readings cannot pause it again.
 The next fresh run supplies new readings and can establish another pause.
 
