@@ -7,7 +7,7 @@ from unittest.mock import patch
 from ub_agents.config import Priority, Queue
 from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError
-from ub_agents.loop import Loop
+from ub_agents.loop import COMMENT_RECOVERY_SECONDS, Loop
 from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
 
 
@@ -51,7 +51,7 @@ class DiscoveryTests(unittest.TestCase):
                     list(loop.iter_plans())
                     loop.github.reads.clear()
                     list(loop.iter_plans())
-                    self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", ())])
+                    self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,))])
                     for changes in ({"labels": items[1].labels | {"extra"}},
                                     {"updated_at": "2026-01-03T00:00:00Z"}):
                         loop.github.change(2, **changes)
@@ -154,7 +154,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn(("comments", (1,)), loop.github.reads)
         loop.github.reads.clear()
         self.assertEqual(next(loop.iter_plans()).state, "ready")
-        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", ())])
+        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,))])
 
     def test_changed_blocker_state_updates_inheritance_without_rereading_dependents(self):
         loop = self.loop([issue(1, ("ready", "low")), issue(2, ("urgent",))],
@@ -164,7 +164,7 @@ class DiscoveryTests(unittest.TestCase):
         loop.github.change(2, state="closed")
         loop.github.reads.clear()
         self.assertIsNone(next(loop.iter_plans()).priority_source)
-        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", ())])
+        self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (60 + COMMENT_RECOVERY_SECONDS,))])
 
     def test_dependency_links_are_fresh_at_claim_even_after_cached_zero(self):
         loop = self.loop([replace(issue(1), total_blocked_by=0), issue(2, ())])

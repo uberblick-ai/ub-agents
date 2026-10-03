@@ -248,6 +248,19 @@ run, and the launcher does not report,
 accept, or release after losing ownership. Between observations, an agent with
 GitHub credentials can still write: comments cannot prevent this.
 
+REST GETs revalidate the last in-memory response with `If-None-Match` when GitHub
+provided an ETag for that exact URL, including its query and page. A `304 Not
+Modified` confirms freshness and returns the stored payload without consuming
+REST quota; it still satisfies the reread before every durable write. Idle polling
+uses quota-counted REST responses, so 304 confirmations do not extend its budget
+gap. Their rate-limit headers still update low-quota pacing. A 304 with
+no stored response is refetched once without a validator. Changed responses
+replace the cached ETag and payload. Writes and GraphQL are unconditional. This
+cache lasts only for the client process, with no configuration or on-disk state.
+Queries with a `since` cursor skip ETag storage and validators because discovery
+advances the cursor on each poll; these one-shot URLs would otherwise accumulate
+unused responses in memory.
+
 GitHub rate limits during claim election, ownership checks and completion reads
 (including recovery) wait and retry without treating the limit as changed ownership.
 Waits use real response headers and the [rate-limit rules](configuration.md#top-level).
@@ -372,8 +385,11 @@ lost, no comment protocol can make that verdict durable.
 An unexpired lease always excludes pickup. Expiry permits a new fresh run, never
 conversation resumption. Durable attempts and backoff survive restarts.
 
-Discovery reads every repository issue comment at startup, including records on
-closed items and items whose trigger was removed, then polls updated comments with
+At startup, launcher and `status` discovery read repository issue comments updated
+within the longest configured agent lease plus seven days. The full lease includes
+the agent timeout, the 15-minute grace and any cleanup hook timeout, so every live
+lease falls inside the window. `ub-agent cleanup` still scans the full repository
+comment history. Later discovery scans poll updated comments with
 `sort=updated` and `since`, a 60-second overlap and a cursor captured before the
 scan. Each page advances `since` to one second before its last update and
 deduplicates by comment id, because page offsets skip rows when comments move. A
@@ -384,10 +400,21 @@ reuses unchanged per-item reads and evaluates only rows it reaches in rank order
 before a claim or approval-parking write, so stale cached records never supply
 authority. See [poll timing and request budgeting](configuration.md#top-level).
 
-Discovery follows the latest non-withdrawn lease after the last reset for each
-item and agent. A released retry or blocked result, or an expired run without an
-outcome, stays visible as blocked on closed or unlabelled items; a missing trigger
-never authorizes reexecution. A later accepted success supersedes older crashed
+PR shared-branch ownership checks parse `ub-agent/<agent>/<N>/<run>` and read issue
+N's full history, independently of the repository window. Branches outside that
+pattern have no shared-branch owner.
+
+Within the discovered history, the queue follows the latest non-withdrawn lease
+after the last reset for each item and agent. A released retry or blocked result,
+or an expired run without an outcome, stays visible as blocked on closed or
+unlabelled items; a missing trigger never authorizes reexecution. After a restart,
+older records on closed or untriggered items fall outside discovery and no longer
+appear in `status` or the launcher queue.
+Re-applying a trigger or stop label surfaces an open item again; item evaluation
+reads its full history and can still recover it. The remaining loss case is a crash
+after a started transition removed its triggers but before outcome acceptance,
+with no launcher running for the whole seven days. Re-apply a trigger or stop label
+to recover that outcome. A later accepted success supersedes older crashed
 runs and resets the consecutive failure count. Failed scans stop visibly.
 
 An expired, unfinished lease whose outcome was reported within its validity window
