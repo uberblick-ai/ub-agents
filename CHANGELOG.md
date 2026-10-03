@@ -29,6 +29,9 @@ notes are copied from that section.
 
 ### Changed
 
+- The starter implementer template requires rerunning checks for the PR's additions
+  and changes after merging the base branch, including changes without conflicts (#125).
+
 - Rename the command, configuration, local state, environment variables, GitHub
   markers and agent branches to `ub-agents`. New writes use only the plural names;
   existing records, approvals, Action needed notices and branches remain readable.
