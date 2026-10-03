@@ -411,6 +411,8 @@ class Loop:
             return False
         with self.maintenance.reserve(runtime.cli) as reservation:
             if reservation is None:
+                self.output(f"#{plan.item.number} {plan.agent.name}: waiting — "
+                            f"{runtime.cli} runtime became unavailable before the claim; retry next poll")
                 return False
             self._before_claim()
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation)

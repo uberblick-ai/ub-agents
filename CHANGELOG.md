@@ -11,8 +11,8 @@ notes are copied from that section.
 - Opt-in daily Claude Code and Codex maintenance at unclaimed launcher boundaries,
   with installation detection, targeted updates, shared local cooldowns and locks,
   active-run protection, concurrent start reservations and health recovery
-  without retrying updates. Opt-out policies leave other projects' shared
-  cooldowns untouched. This repository enables
+  without retrying updates. Opt-out and automatic-policy skips leave other
+  projects' shared cooldowns untouched. This repository enables
   `runtime-updates` for both CLIs (#118).
 
 - `queue.milestones: order` ranks new issues by the oldest open

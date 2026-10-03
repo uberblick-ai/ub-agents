@@ -518,13 +518,18 @@ and unwritable package installations are skipped with an instruction to
 configure `runtime-updates.CLI.command` or update manually. apt, dnf and apk
 installs that need root are skipped; no command uses `sudo`, upgrades unrelated
 packages, changes credentials, models or permissions, or switches install methods.
+These automatic-policy skips stay local to the launcher and do not start a
+shared cooldown, so another project's configured command can update the same
+installation. Each launcher remembers its own automatic skip for 24 hours;
+changing the policy to a command takes effect at the next boundary.
 
 Claude's own updater retains its release channel and version bounds and honors
 `DISABLE_UPDATES`. `DISABLE_AUTOUPDATER` only disables Claude's background checks
-and allows this explicit update. For Homebrew, the launcher also checks
+and allows this explicit update. For every Claude installation and updater,
+including operator-supplied commands, the launcher checks
 `DISABLE_UPDATES` in its environment, Claude's user `settings.json` (including
 `CLAUDE_CONFIG_DIR`) and system `managed-settings.json` / `managed-settings.d`
-files before invoking brew. It skips when that policy cannot be read safely.
+files before invoking the updater. It skips when that policy cannot be read safely.
 These policy skips are local to the launcher: they do not start the shared
 cooldown, so a launcher with updates enabled can still update the installation.
 The cask name preserves the installed stable or latest channel. See
@@ -533,13 +538,15 @@ and the [official Codex update commands](https://developers.openai.com/cookbook/
 
 Checks run only at unclaimed launcher boundaries before new work, separately
 from instruction refresh. A run that crosses the due time continues undisturbed.
-Every completed installation check (`updated`, `up-to-date`, `skipped` or
-`failed`, including a timeout) starts a 24-hour cooldown. An `off` or omitted
-policy reports a local skip without writing shared maintenance state.
+Every completed installation check (`updated`, `up-to-date` or `failed`,
+including a timeout) starts a shared 24-hour cooldown. An `off`, omitted or
+unsupported automatic policy reports a local skip without writing shared
+maintenance state, except for recovery of previously recorded failed health.
 Active-run or guard contention defers the check without starting that cooldown.
 `launch --once` uses the same boundary.
-Each check prints one line with the runtime, install method, available before
-and after versions, result and any skip or failure reason.
+Each completed check prints one line with the runtime, install method, available
+before and after versions, result and any failure reason. Local skips print the
+runtime, install method and actionable reason.
 
 The cooldown and runtime health survive restarts in per-user local state at
 `$XDG_STATE_HOME/ub-agent/runtime-updates`, or
@@ -555,7 +562,9 @@ for maintenance state.
 
 A start reservation holds a shared maintenance guard through process start;
 availability reads share this guard too, so concurrent launchers can reserve
-and start the same runtime. While an updater holds the guard, other launchers
+and start the same runtime. Healthy cooldown reads do not acquire an exclusive
+guard. If availability changes before a claim's reservation, the launcher prints
+`waiting` and retries on a later poll. While an updater holds the guard, other launchers
 cannot start that runtime. npm,
 Homebrew and operator-command updates replace files in place, so they wait until
 all tracked local runs of the installation finish. Claude native updates can
@@ -572,7 +581,7 @@ does not track sessions launched outside ub-agent.
 Shutdown (`stop_gracefully`, SIGTERM or SIGINT) stops the updater and records a
 completed check, then exits before claiming. Updater failures produce a launcher
 warning and no assignment attempt or GitHub failure. After every completed check,
-including a failure or skip, the launcher re-resolves PATH and runs that next
+including a failure, the launcher re-resolves PATH and runs that next
 executable's `--version`; an updater's exit code alone cannot establish success.
 If the runtime still works, the launcher continues using it. If it fails this
 probe, selection treats it as unavailable and can use an eligible alternative.

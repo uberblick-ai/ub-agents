@@ -70,6 +70,7 @@ class RuntimeMaintenance:
         self.which = which
         self.runner = runner or self._run
         self._unused = set()
+        self._skipped = {}
         self._reserved = set()
         self._maintenance_fds = ()
 
@@ -242,13 +243,20 @@ class RuntimeMaintenance:
                 self.output(f"Runtime maintenance {cli} ({install.method}): skipped — {reason}")
                 self._unused.add(key)
             return
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         guard, runs, state_path = self.paths(install)
+        state = self.read(state_path)
+        local_checked = self._skipped.get((cli, install.identity, policy), float("-inf"))
+        if self.cooling_down(state) or self.clock() - local_checked < COOLDOWN_SECONDS:
+            # Healthy cooldown reads need no exclusive guard, so they cannot
+            # divert another launcher's start reservation for this tick.
+            self.recover(cli, install)
+            return
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         with lock(guard) as held:
             if held is None:
                 return  # Another check is in progress; no cooldown or repeat.
             state = self.read(state_path)
-            if self.clock() - state.get("checked", float("-inf")) < COOLDOWN_SECONDS:
+            if self.cooling_down(state):
                 self._recover_locked(cli, install, state_path, state, held)
                 return
             # Even command updates of native installations may replace files in place.
@@ -260,12 +268,17 @@ class RuntimeMaintenance:
                 # a launcher crash, just as a still-running agent retains its lock.
                 self._maintenance_fds = (held.fileno(), active.fileno())
                 try:
-                    self._check_locked(cli, install, policy, timeout, state_path)
+                    self._check_locked(cli, install, policy, timeout, state_path, state, held)
                 finally:
                     self._maintenance_fds = ()
 
-    def _check_locked(self, cli, install, policy, timeout, state_path):
-        before = self.version(cli, os.environ.copy())
+    def cooling_down(self, state):
+        # Older versions recorded automatic-policy skips in shared state.
+        return (state.get("result") != "skipped" and
+                self.clock() - state.get("checked", float("-inf")) < COOLDOWN_SECONDS)
+
+    def _check_locked(self, cli, install, policy, timeout, state_path, state, held):
+        before = None
         result, reason = "failed", None
         deadline = time.monotonic() + timeout
         env = os.environ.copy()
@@ -279,13 +292,21 @@ class RuntimeMaintenance:
         try:
             command, env, reason = updater(cli, install, policy, probe, env, self.which)
             if command is None:
-                result = "skipped"
-            else:
-                probe(command, env)
-                result = "up-to-date"  # Classified by the next executable's version below.
+                # Choosing auto cannot suppress another project's command.
+                # Remember this skip only in this launcher; shared failed
+                # health can still recover without resetting its cooldown.
+                self._skipped[(cli, install.identity, policy)] = self.clock()
+                self._recover_locked(cli, install, state_path, state, held)
+                self.output(f"Runtime maintenance {cli} ({install.method}): skipped — {reason}")
+                return
+            remaining = deadline - time.monotonic()
+            before = self.version(cli, os.environ.copy())
+            deadline = time.monotonic() + remaining  # Version probes have their own bound.
+            probe(command, env)
+            result = "up-to-date"  # Classified by the next executable's version below.
         except (MaintenanceFailure, OSError, ValueError, TypeError) as exc:
             reason = str(exc)
-        # Always re-resolve PATH, including after a failed/skipped check or shutdown.
+        # Always re-resolve PATH after an attempted check, including failure/shutdown.
         after = self.version(cli, os.environ.copy(), cancellable=False)
         if after is None:
             result = "failed"

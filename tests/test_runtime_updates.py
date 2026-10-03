@@ -1,3 +1,4 @@
+from contextlib import contextmanager, ExitStack
 from dataclasses import replace
 import json
 import os
@@ -158,6 +159,72 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.assertIn("DISABLE_UPDATES", self.lines[0])
         self.manager_for().boundary(settings)
         self.assertEqual(len(self.updates()), 1)
+
+    def test_auto_skips_do_not_suppress_another_projects_command_update(self):
+        cases = ("unknown", "shim", "npm-privileges", "brew-privileges",
+                 "npm-owner", "brew-owner", "prerelease")
+        for case in cases:
+            with self.subTest(case=case), ExitStack() as cleanup:
+                self.calls.clear()
+                first, second = self.manager_for(), self.manager_for()
+                first.root = second.root = self.root / ("state-" + case)
+                if case == "unknown":
+                    self.executable(self.bin / "codex")
+                elif case == "shim":
+                    self.link("codex", self.executable(self.root / "mise/shims/codex"))
+                elif case.startswith("npm") or case == "prerelease":
+                    target = self.npm(prefix=self.root / case,
+                                      version="2.0-alpha.1" if case == "prerelease" else "1.0")
+                    if case == "npm-privileges":
+                        target.parent.parent.chmod(0o555)
+                        cleanup.callback(target.parent.parent.chmod, 0o755)
+                    elif case == "npm-owner":
+                        (self.root / case / "bin/npm").unlink()
+                else:
+                    self.brew()
+                    if case == "brew-privileges":
+                        (self.root / "brew").chmod(0o555)
+                        cleanup.callback((self.root / "brew").chmod, 0o755)
+                    else:
+                        (self.root / "brew/bin/brew").unlink()
+                first.boundary(self.settings())
+                self.assertIn("skipped", self.lines[-1])
+                state_path = first.paths(installation("codex", self.which))[2]
+                self.assertFalse(state_path.exists())
+                calls, lines = list(self.calls), list(self.lines)
+                first.boundary(self.settings())
+                self.assertEqual(self.calls, calls)
+                self.assertEqual(self.lines, lines)
+                self.now += COOLDOWN_SECONDS - 60
+                second.boundary(replace(self.settings(policy=("custom-updater", "codex")),
+                                        root=self.root / "other-project"))
+                self.assertEqual(self.calls.count(("custom-updater", "codex")), 1)
+                self.assertTrue(second.read(state_path)["usable"])
+                # A completed command check still shares its cooldown with auto.
+                self.now += 60
+                calls = list(self.calls)
+                first.boundary(self.settings())
+                self.assertEqual(self.calls, calls)
+
+    def test_legacy_shared_auto_skip_does_not_suppress_command_update(self):
+        self.executable(self.bin / "codex")
+        install = installation("codex", self.which)
+        self.manager.root.mkdir()
+        self.manager.write(self.manager.paths(install)[2],
+                           {"checked": self.now, "usable": True, "result": "skipped"})
+        self.manager_for().boundary(self.settings(policy=("custom-updater", "codex")))
+        self.assertEqual(self.calls.count(("custom-updater", "codex")), 1)
+
+    def test_local_auto_skip_can_be_replaced_by_command_and_retried_next_day(self):
+        self.executable(self.bin / "codex")
+        settings = self.settings()
+        self.manager.boundary(settings)
+        self.now += COOLDOWN_SECONDS
+        count = len(self.lines)
+        self.manager.boundary(settings)
+        self.assertEqual(len(self.lines), count + 1)
+        self.manager.boundary(self.settings(policy=("custom-updater", "codex")))
+        self.assertEqual(self.calls.count(("custom-updater", "codex")), 1)
 
     def test_guard_blocks_another_loop_and_opt_out_runtime_start(self):
         self.npm()
@@ -397,6 +464,23 @@ class RuntimeUpdateTests(unittest.TestCase):
             self.manager.boundary(self.settings("claude"))
         self.assertEqual(len(self.updates()), 1)
 
+    def test_claude_policy_precheck_covers_native_npm_and_operator_commands(self):
+        user = self.home / ".claude/settings.json"
+        user.parent.mkdir()
+        for method in ("native", "npm", "command"):
+            for contents in ('{"env": {"DISABLE_UPDATES": "1"}}', "malformed"):
+                with self.subTest(method=method, contents=contents):
+                    if method == "npm":
+                        self.npm("claude")
+                    else:
+                        self.native()
+                    user.write_text(contents)
+                    policy = ("custom-updater", "claude") if method == "command" else "auto"
+                    self.manager_for().boundary(self.settings("claude", policy))
+                    self.assertIn("skipped", self.lines[-1])
+                    self.assertEqual(self.calls, [])
+                    self.assertFalse(self.manager.root.exists())
+
     def test_real_fake_updater_timeout_and_shutdown_stop_process(self):
         self.executable(self.bin / "codex")
         updater = self.root / "fake-updater"
@@ -500,6 +584,61 @@ class RuntimeUpdateTests(unittest.TestCase):
             return read(path)
         with patch.object(self.manager, "read", side_effect=read_while_starting):
             self.assertTrue(self.manager.available("claude"))
+
+    def test_healthy_cooldown_boundary_does_not_exclude_concurrent_starts(self):
+        self.native()
+        settings = self.settings("claude")
+        self.manager.boundary(settings)
+        second = self.manager_for()
+        read = self.manager.read
+        def read_while_starting(path):
+            with second.reserve("claude") as reserved:
+                self.assertIsNotNone(reserved)
+            return read(path)
+        with patch.object(self.manager, "read", side_effect=read_while_starting):
+            self.manager.boundary(settings)
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_concurrent_completed_check_is_rechecked_under_guard(self):
+        self.npm()
+        settings = self.settings()
+        second = self.manager_for()
+        read = self.manager.read
+        reads = 0
+        def complete_check_after_read(path):
+            nonlocal reads
+            state = read(path)
+            reads += 1
+            if reads == 1:
+                second.boundary(settings)
+            return state
+        with patch.object(self.manager, "read", side_effect=complete_check_after_read):
+            self.manager.boundary(settings)
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_reservation_race_reports_waiting_without_claiming(self):
+        stub_refresh(self)
+        self.native()
+        settings = self.settings("claude")
+        github = FakeGitHub(issue())
+        loop = Loop(settings, github, "operator", output=self.lines.append)
+        loop.maintenance = self.manager
+        loop.coordinator.runtime_available = self.manager.available
+        plan = loop.plans()[0]
+        self.assertEqual(plan.state, "ready")
+        guard = self.manager.paths(installation("claude", self.which))[0]
+        self.manager.boundary(settings)
+        reserve = self.manager.reserve
+        @contextmanager
+        def maintenance_wins(cli):
+            with lock(guard):
+                with reserve(cli) as reservation:
+                    yield reservation
+        with patch.object(self.manager, "reserve", side_effect=maintenance_wins):
+            self.assertFalse(loop.execute(plan))
+        self.assertEqual(github.writes, [])
+        self.assertIn("waiting", self.lines[-1])
+        self.assertIn("claude runtime became unavailable before the claim", self.lines[-1])
 
     def test_sigterm_and_sigint_during_maintenance_exit_without_claim(self):
         from contextlib import redirect_stdout, redirect_stderr
@@ -614,6 +753,24 @@ class RuntimeUpdateTests(unittest.TestCase):
                 repaired.boundary(replace(settings, runtime_updates=policy))
                 self.assertTrue(repaired.available("codex"))
                 self.assertEqual(repaired.read(state_path)["checked"], checked)
+
+    def test_cached_auto_skip_can_recover_failed_health_without_shared_cooldown(self):
+        target = self.executable(self.bin / "codex")
+        version = Path(str(target) + ".version")
+        self.action = version.unlink
+        self.manager.boundary(self.settings(policy=("custom-updater", "codex")))
+        state_path = self.manager.paths(installation("codex", self.which))[2]
+        failed = self.manager.read(state_path)
+        self.assertFalse(failed["usable"])
+        self.now += COOLDOWN_SECONDS
+        self.manager.boundary(self.settings())
+        self.assertIn("skipped", self.lines[-1])
+        self.assertEqual(self.manager.read(state_path), failed)
+        version.write_text("2.0")
+        self.manager.boundary(self.settings())
+        self.assertTrue(self.manager.available("codex"))
+        self.assertEqual(self.manager.read(state_path), failed | {"usable": True, "version": "2.0"})
+        self.assertEqual(self.calls.count(("custom-updater", "codex")), 1)
 
     def test_health_recovery_defers_while_maintenance_holds_guard(self):
         target = self.npm()
