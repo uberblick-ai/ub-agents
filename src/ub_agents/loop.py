@@ -25,6 +25,7 @@ from .refresh import refresh_checkout, refresh_instructions
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
 POLL_FAILURE_LIMIT = 6
+COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
 
 
 class _GracefulStop(Exception):
@@ -112,12 +113,13 @@ class Loop:
 
     def iter_plans(self, cached=True):
         github = self.discovery if cached else self.github
+        lookback = max(agent.lease_seconds for agent in self.config.agents) + COMMENT_RECOVERY_SECONDS
         if cached:
-            items, comments = self.discovery.observe()
-            history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
+            items, comments = self.discovery.observe(lookback)
         else:
             items = {item.number: item for item in self.github.observe(details=False)}
-            history_index, invalid, histories = self.coordinator.repository_history(by_item=True)
+            comments = self.github.repository_comments(lookback_seconds=lookback)
+        history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output)
         now = coordinator.clock()
@@ -181,7 +183,7 @@ class Loop:
                 self.discovery.scope = item.number
             if item.kind == "pr":
                 item = github.item(item.number, "pr")
-            plans = self._item_plans(item, history_index, now, github, coordinator)
+            plans = self._item_plans(item, now, github, coordinator)
             blockers = ()
             if item.kind == "issue" and item.state == "open" and self.config.queue.dependencies == "wait":
                 if dependencies:
@@ -203,7 +205,7 @@ class Loop:
                 yield replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers)
 
-    def _item_plans(self, item, history_index, now, github, coordinator):
+    def _item_plans(self, item, now, github, coordinator):
         matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
                    and a.kind in {"either", item.kind} and item.state == "open"]
         approval = None
@@ -241,7 +243,7 @@ class Loop:
                 continue
             if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
                                                 and seconds(record["expires"]) > now)):
-                plan = coordinator.plan(item, agent, self.config.stop_labels, history, history_index)
+                plan = coordinator.plan(item, agent, self.config.stop_labels, history)
                 if plan.state in {"ready", "blocked", "backoff"} and agent in matched:
                     if approval is None:
                         approval = self.input_check(item, github)

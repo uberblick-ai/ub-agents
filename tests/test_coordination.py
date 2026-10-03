@@ -298,9 +298,11 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, frozenset({"ready"}))
 
     def test_issue_and_pr_on_a_shared_branch_exclude_each_other(self):
-        # An earlier issue run left draft PR #2 on feature/test, the pr() fixture's branch.
+        # An earlier issue run left draft PR #2 on its ub-agent branch.
+        branch = "ub-agent/worker/1/earlier"
+        self.github.change(2, branch=branch)
         old = self.start()
-        self.co.update(old, branch="feature/test")
+        self.co.update(old, branch=branch)
         self.co.release(old, "retry", "Interrupted")
         self.github.change(2, draft=True)
         revision = self.start(self.github.item(2))
@@ -319,8 +321,10 @@ class CoordinationTests(unittest.TestCase):
         self.assertIsNone(self.co.claim(pr_plan))
 
     def test_shared_branch_claim_race_elects_one_owner(self):
+        branch = "ub-agent/worker/1/earlier"
+        self.github.change(2, branch=branch)
         old = self.start()
-        self.co.update(old, branch="feature/test")
+        self.co.update(old, branch=branch)
         self.co.release(old, "retry", "Interrupted")
         self.github.change(2, draft=True)
         issue_plan, pr_plan = self.plan(), self.plan(self.github.item(2))
@@ -337,6 +341,38 @@ class CoordinationTests(unittest.TestCase):
             results = list(pool.map(self.co.claim, [issue_plan, pr_plan]))
         self.assertEqual(sum(r is not None for r in results), 1)
         self.co.assert_owned(next(r for r in results if r))
+
+    def test_pr_branch_owner_is_read_directly_even_when_lease_is_outside_window(self):
+        branch = "ub-agent/worker_name-2/1/earlier"
+        self.github.change(2, branch=branch)
+        lease = self.start()
+        old = iso(self.now - self.agent.lease_seconds - 7 * 86400 - 1)
+        self.co.update(lease, branch=branch, created=old)
+        self.github.store[1][0]["updated_at"] = old
+        for cleanup, expected in ((None, "owned"), ("unconfirmed", "blocked")):
+            with self.subTest(cleanup=cleanup):
+                if cleanup:
+                    self.co.update(lease, cleanup=cleanup, expires=iso(self.now - 1))
+                    self.github.store[1][0]["updated_at"] = old
+                # The bounded index contains none of issue #1's old comments.
+                with patch.object(self.github, "repository_comments", return_value=[]):
+                    loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
+                    loop.coordinator.clock = lambda: self.now
+                    plan = next(p for p in loop.plans() if p.item.number == 2)
+                    self.assertEqual(plan.state, expected)
+                with patch.object(self.github, "repository_comments", side_effect=AssertionError("no index lookup")):
+                    self.assertIsNone(self.co.claim(plan))
+
+    def test_pr_without_exact_agent_branch_pattern_has_no_shared_owner(self):
+        lease = self.start()
+        for branch in ("feature/test", "ub-agent/Worker/1/run", "ub-agent/1worker/1/run",
+                       "ub-agent/worker/01/run", "ub-agent/worker/1/run/extra", "ub-agent/worker/1/", None):
+            with self.subTest(branch=branch):
+                self.co.update(lease, branch=branch)
+                self.github.change(2, branch=branch)
+                with patch.object(self.github, "repository_comments", side_effect=AssertionError("no index lookup")), \
+                        patch.object(self.co, "history", side_effect=AssertionError("no related issue")):
+                    self.assertIsNone(self.co.shared_branch_owner(self.github.item(2), self.agent, []))
 
     def test_draft_pr_labels_still_govern_pr_kind_pickup(self):
         self.github.change(2, draft=True)

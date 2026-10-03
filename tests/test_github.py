@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from ub_agents.errors import AgentError, GitHubError
+from ub_agents.config import load_config
 from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
 from ub_agents.notices import Notices
@@ -515,6 +516,41 @@ class GitHubTests(unittest.TestCase):
                 github.repository_comments()
         self.assertIsNone(github._comment_since)
         self.assertEqual(github._comment_cache, {})
+
+    def test_launcher_and_status_bound_first_scan_by_longest_full_configured_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ub-agent.yaml"
+            path.write_text("""repository: org/project
+cleanup:
+  command: [echo]
+  timeout-seconds: 120
+agents:
+  short:
+    command: [echo]
+    trigger: ready
+    outcomes: {done: {}}
+    agent-timeout-minutes: 1
+  long:
+    command: [echo]
+    trigger: ready
+    outcomes: {done: {}}
+    agent-timeout-minutes: 240
+""")
+            cfg = load_config(path)
+            now = 2_000_000
+            for cached in (True, False):  # Launcher discovery and status.
+                with self.subTest(cached=cached):
+                    github = GitHub("org/project")
+                    loop = Loop(cfg, github, "operator")
+                    with patch.object(github, "observe", return_value=[]), \
+                            patch.object(github, "active_milestone", return_value=None), \
+                            patch.object(github, "request", return_value=[]) as request, \
+                            patch("ub_agents.github.timestamp", side_effect=[now, now + 100]):
+                        list(loop.iter_plans(cached=cached))
+                        list(loop.iter_plans(cached=cached))
+                    queries = [parse_qs(urlsplit(c.args[0]).query) for c in request.call_args_list]
+                    self.assertEqual(queries[0]["since"], [iso(now - (14400 + 900 + 120 + 7 * 86400))])
+                    self.assertEqual(queries[1]["since"], [iso(now - 60)])
 
     def test_edit_or_deletion_during_scan_cannot_hide_closed_item_failure(self):
         for mutation in ("edit", "delete"):
