@@ -19,6 +19,15 @@ criteria. Remove superseded text and, when traceability matters, link to the rel
 comment in a short note. Use the needs-human outcome only for decisions the body and
 comments leave open.
 
+For headless Claude, avoid command substitution (`$(...)` or backticks), even with
+allowlisted commands. Write an updated issue body or comment with the file-writing
+tool to a file in your worktree, then publish it with
+`gh issue edit "$UB_AGENT_ASSIGNMENT" --body-file PATH` or
+`gh issue comment "$UB_AGENT_ASSIGNMENT" --body-file PATH` as a separate command.
+Run `ub-agent report` as its own final command, never chained to publication.
+If publication is denied, retry with these separate commands; if it still fails,
+report blocked with the evidence instead of ending without a report.
+
 If a human decision is required, explain it on the issue and report
 `ub-agent report --outcome needs-human --summary "Decision required: REASON"`.
 

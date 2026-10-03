@@ -24,5 +24,15 @@ for required corrections, or approved if the project's acceptance criteria pass.
 Both are successful review handoffs: use `ub-agent report --outcome NAME
 --summary "Review verdict for SHA: ..."`.
 
+For headless Claude, avoid command substitution (`$(...)` or backticks), even with
+allowlisted commands. Write the review body with the file-writing tool to a file in
+your worktree. Immediately before publishing, run
+`gh pr view "$UB_AGENT_ASSIGNMENT" --json headRefOid` as a separate command and
+compare its output with UB_AGENT_CANDIDATE_SHA; report blocked if they differ.
+Publish with `gh pr review "$UB_AGENT_ASSIGNMENT" --comment --body-file PATH`.
+Run `ub-agent report` as its own final command, never chained to the head check or
+review publication. If publication is denied, retry with these separate commands;
+if it still fails, report blocked with the evidence instead of ending without a report.
+
 Do not merge. Native GitHub approvals require an eligible reviewer account and remain
 subject to branch protection. Explicit outcomes do not bypass those rules.

@@ -30,24 +30,18 @@ agents:
       - "Bash(ub-agent *)"
       - "Bash(python3 *)"
       - "Bash(.venv/bin/*)"
-      # Read-only and scratch helpers: Claude Code checks every part of a compound command
-      # (`test … && gh …`, `--body "$(cat <<EOF …)"`, `… | tail`), and a denial ends the run
-      # without a report (#95 reviewer, 2026-10-03).
-      - "Bash(test *)"
+      # Shell helpers for inspecting issue context (preparer), code/check output (reviewer),
+      # and merge evidence (integrator), including plain pipelines such as `… | tail`.
+      # Arguments are unrestricted; these permissions do not enforce read-only access.
+      # Command substitution can still be denied: see each role's publication guidance.
       - "Bash(cat *)"
-      - "Bash(echo *)"
       - "Bash(grep *)"
-      - "Bash(sed *)"
       - "Bash(ls *)"
       - "Bash(wc *)"
       - "Bash(sort *)"
-      - "Bash(find *)"
       - "Bash(head *)"
       - "Bash(tail *)"
       - "Bash(jq *)"
-      - "Bash(cd *)"
-      - "Bash(mkdir *)"
-      - "Bash(mktemp *)"
 
   implementer:
     runtime: "codex:gpt-6.1-sol:high"

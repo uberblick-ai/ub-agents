@@ -8,6 +8,18 @@ turn ends the run, so run checks in the foreground or wait for every background
 job to finish before ending your turn, and end the run with `ub-agent report`.
 Do not infer permission to merge from a label alone.
 
+For headless Claude, avoid command substitution (`$(...)` or backticks), even with
+allowlisted commands. Check the head with
+`gh pr view "$UB_AGENT_ASSIGNMENT" --json headRefOid` as a separate command before
+merging or publishing a handoff; compare its output with UB_AGENT_CANDIDATE_SHA and
+report blocked if they differ. Write any GitHub comment with the file-writing tool
+to a file in your worktree and publish it with
+`gh pr comment "$UB_AGENT_ASSIGNMENT" --body-file PATH` as a separate command.
+Run `ub-agent report` as its own final command, never chained to the head check,
+merge or comment publication. If an action is denied, retry with these separate
+commands; if it still fails, report blocked with the evidence instead of ending
+without a report.
+
 If the project's merge policy authorizes this merge and its gates pass, merge exactly
 the assigned SHA with the project's merge method (for example `gh pr merge PR
 --match-head-commit "$UB_AGENT_CANDIDATE_SHA"`) and close the linked issue when
