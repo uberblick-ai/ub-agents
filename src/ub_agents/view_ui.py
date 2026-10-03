@@ -22,7 +22,7 @@ MAX_RENDER_LINES = 400
 
 class RawAccess(ModalScreen):
     BINDINGS = [Binding('escape,p', 'dismiss', 'Close', priority=True)]
-    DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; }'
+    DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; } #raw_status { height: 2; background: $panel; }'
 
     def __init__(self, message):
         super().__init__()
@@ -31,6 +31,7 @@ class RawAccess(ModalScreen):
     def compose(self):
         with VerticalScroll():
             yield Static(Text(self.message))
+        yield Static('', id='raw_status', markup=False)
 
     def action_dismiss(self):
         self.dismiss()
@@ -233,8 +234,6 @@ class View(App):
         return self.readings.setdefault(self.selected, Reading())
 
     def tick(self):
-        if isinstance(self.screen, RawAccess):
-            return
         try:
             result = self.worker.results.get_nowait()
         except Empty:
@@ -345,8 +344,11 @@ class View(App):
         freshness = self.session.freshness() if self.session else 'freshness unavailable'
         errors = (' · malformed: ' + self.session.error) if self.session and self.session.error else ''
         size = ' · minimum 110×32' if self.size.width < 110 or self.size.height < 32 else ''
-        self.query_one('#status', Static).update(Text(f'{freshness} · {state} · {mode} · unread {unread} entries · lag {lag}B{size}\n'
-                                                     f'Local files only · {"reading" if self.busy else "idle"}{errors}'))
+        status = Text(f'{freshness} · {state} · {mode} · unread {unread} entries · lag {lag}B{size}\n'
+                      f'Local files only · {"reading" if self.busy else "idle"}{errors}')
+        self.query_one('#status', Static).update(status)
+        if isinstance(self.screen, RawAccess):
+            self.screen.query_one('#raw_status', Static).update(status)
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
         if not row or not row.log:
@@ -372,6 +374,8 @@ class View(App):
         self.query_one('#log_note', Static).update(Text(note))
 
     def action_follow(self):
+        if isinstance(self.screen, RawAccess):
+            return
         reading = self.reading
         reading.follow = not reading.follow
         if not reading.follow:
@@ -383,12 +387,16 @@ class View(App):
         self.update_status()
 
     def action_raw(self):
+        if isinstance(self.screen, RawAccess):
+            return
         reading = self.reading
         reading.raw = not reading.raw
         self.query_one('#output', LogPane).set_reading(reading)
         self.update_status()
 
     def action_history(self):
+        if isinstance(self.screen, RawAccess):
+            return
         reading = self.reading
         output = self.query_one('#output', LogPane)
         page = reading.page
@@ -407,6 +415,8 @@ class View(App):
         self.update_status()
 
     def action_tab(self, tab):
+        if isinstance(self.screen, RawAccess):
+            return
         if self.query_one(TabbedContent).active == 'log':
             self.query_one('#output', LogPane).save_anchor()
         self.query_one(TabbedContent).active = tab
@@ -420,13 +430,12 @@ class View(App):
         if row and row.log:
             self.push_screen(RawAccess(f'Full raw file (open with an external pager):\n{row.log}\n\n'
                                       'The u view is a bounded raw projection. The file contains all retained bytes.\n'
-                                      + self.reading.notice + '\n\n'
-                                      + ('FOLLOW' if self.reading.follow else 'PAUSED') + ' · '
-                                      + ('RAW' if self.reading.raw else 'FORMATTED') + ' · '
-                                      + (self.session.freshness() if self.session else 'freshness unavailable')
-                                      + '\n\nEscape closes this read-only path view.'))
+                                      + self.reading.notice + '\n\nEscape closes this read-only path view.'))
 
     def action_page_up(self):
+        if isinstance(self.screen, RawAccess):
+            self.screen.query_one(VerticalScroll).scroll_page_up(animate=False)
+            return
         if self.query_one(TabbedContent).active == 'log':
             if self.reading.follow:
                 self.action_follow()
@@ -436,6 +445,9 @@ class View(App):
             self.query_one('#' + self.query_one(TabbedContent).active + ' VerticalScroll', VerticalScroll).scroll_page_up(animate=False)
 
     def action_page_down(self):
+        if isinstance(self.screen, RawAccess):
+            self.screen.query_one(VerticalScroll).scroll_page_down(animate=False)
+            return
         if self.query_one(TabbedContent).active == 'log':
             self.query_one('#output', LogPane).scroll_page_down(animate=False)
             self.call_after_refresh(self.query_one('#output', LogPane).save_anchor)
@@ -443,11 +455,17 @@ class View(App):
             self.query_one('#' + self.query_one(TabbedContent).active + ' VerticalScroll', VerticalScroll).scroll_page_down(animate=False)
 
     def action_home(self):
+        if isinstance(self.screen, RawAccess):
+            self.screen.query_one(VerticalScroll).scroll_home(animate=False)
+            return
         if self.reading.follow:
             self.action_follow()
         self.query_one('#output', LogPane).scroll_home(animate=False)
         self.call_after_refresh(self.query_one('#output', LogPane).save_anchor)
 
     def action_end(self):
+        if isinstance(self.screen, RawAccess):
+            self.screen.query_one(VerticalScroll).scroll_end(animate=False)
+            return
         self.query_one('#output', LogPane).scroll_end(animate=False)
         self.call_after_refresh(self.query_one('#output', LogPane).save_anchor)

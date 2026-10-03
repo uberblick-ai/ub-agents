@@ -106,6 +106,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('p')
             await pilot.pause()
             self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
+            self.assertIn('FOLLOW', str(app.screen.query_one('#raw_status').render()))
+            await pilot.press('pageup', 'pagedown', 'home', 'end', 'f', 'u', 'h', '2', '3', '1')
+            self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
             await pilot.press('q')
         app.worker.thread.join(2)
 

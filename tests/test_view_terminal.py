@@ -108,8 +108,13 @@ sys.exit(app.return_code or 1)
                         self.assertIn(b'FOLLOW', drain())
                         before_size = log.stat().st_size
                         os.write(master, quit_key)
-                        drain(0.6)
-                        self.assertEqual(app.wait(timeout=5), 1 if quit_key == b'x' else 0, bytes(transcript[-2000:]))
+                        # Keep draining until exit. A rich crash traceback can fill
+                        # a small CI PTY buffer and block if wait() stops reading.
+                        deadline = time.monotonic() + 5
+                        while app.poll() is None and time.monotonic() < deadline:
+                            drain(0.05)
+                        self.assertEqual(app.wait(timeout=1), 1 if quit_key == b'x' else 0, bytes(transcript[-2000:]))
+                        drain(0.05)
                         if quit_key == b'x':
                             self.assertIn(b'Intentional rendering failure', transcript)
                         self.assertIn(b'\x1b[?1049l', transcript)
