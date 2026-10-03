@@ -13,10 +13,14 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Runtime, RuntimeUpdates
+from ub_agents.execution import supervise
 from ub_agents.loop import Loop
+from ub_agents.records import attempts, iso
 from ub_agents.runtime_installations import installation
 from ub_agents.runtime_updates import (COOLDOWN_SECONDS, MaintenanceFailure, RuntimeMaintenance,
                                       lock, state_directory)
+from ub_agents.runtime_usage import RuntimeUsage
+from ub_agents.usage_output import UsageOutput
 from tests.support import FakeGitHub, agent, config, issue, stub_refresh
 
 
@@ -539,6 +543,127 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.assertEqual(len(self.updates()), 1)
         loop.tick()
         self.assertEqual(len(self.updates()), 2)
+
+    def test_usage_limit_preserves_run_lock_pause_and_uncharged_retry(self):
+        stub_refresh(self)
+        for cli in ("claude", "codex"):
+            with self.subTest(cli=cli):
+                self.npm(cli)
+                self.calls.clear()
+                settings = self.settings(cli)
+                role = replace(settings.agents[0], backoff_seconds=60)
+                settings = replace(settings, agents=(role,))
+                self.manager.boundary(settings)
+                self.now += COOLDOWN_SECONDS - 1
+                github = FakeGitHub(issue())
+                loop = Loop(settings, github, "operator", output=self.lines.append)
+                loop.coordinator.clock = lambda: self.now
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+
+                def execution(command, cwd, env, run_dir, *args, **kwargs):
+                    self.assertEqual(command[0], str(self.bin / cli))
+                    self.assertTrue(kwargs["pass_fds"])
+                    if cli == "codex":
+                        self.assertIn("--json", command)
+                    kwargs["process_started"](12345)
+                    self.now += 1
+                    self.manager_for().boundary(settings)
+                    self.assertEqual(len(self.updates()), 1)
+                    if cli == "claude":
+                        event = {"type": "rate_limit_event", "rate_limit_info": {
+                            "status": "rejected", "rateLimitType": "five_hour",
+                            "resetsAt": self.now + 100}}
+                    else:
+                        event = {"type": "token_count", "rate_limits": {
+                            "primary": {"used_percent": 100, "window_minutes": 300,
+                                        "resets_at": self.now + 100},
+                            "rate_limit_reached_type": "rate_limit_reached"}}
+                    (run_dir / "process.log").write_text(json.dumps(event) + "\n")
+                    kwargs["observe_output"]()
+                    return 1
+
+                with patch("ub_agents.loop.supervise", side_effect=execution) as run:
+                    self.assertTrue(loop.tick())
+                    history = loop.coordinator.history(1)
+                    self.assertEqual((history[0]["result"], history[0]["attempt_effect"]),
+                                     ("retry", "unchanged"), history[0]["summary"])
+                    self.assertIsNone(history[0].get("retry_after"))
+                    self.assertEqual(attempts(history, role.name, self.now), [])
+                    self.assertEqual(loop.usage.paused(cli)["ends_at"], iso(self.now + 160))
+                    writes = list(github.writes)
+                    self.assertFalse(loop.tick())
+                    self.assertEqual(len(self.updates()), 2)
+                    self.assertEqual(github.writes, writes)
+                    self.assertEqual(loop.plans()[0].state, "waiting")
+                    run.assert_called_once()
+                self.now += 160
+                self.assertEqual((loop.plans()[0].state, loop.plans()[0].attempt), ("ready", 1))
+
+    def test_health_recovery_keeps_usage_pause_and_allows_healthy_alternative(self):
+        stub_refresh(self)
+        self.npm("claude")
+        target = self.npm("codex")
+        version = Path(str(target) + ".version")
+        self.action = version.unlink
+        self.manager.boundary(self.settings("codex"))
+        state_path = self.manager.paths(installation("codex", self.which))[2]
+        checked = self.manager.read(state_path)["checked"]
+        self.action = lambda: None
+        settings = self.settings("claude")
+        role = replace(settings.agents[0], runtimes=settings.agents[0].runtimes +
+                       (Runtime("codex", "model", "high"),))
+        settings = replace(settings, agents=(role,), runtime_updates=RuntimeUpdates({
+            "claude": "auto", "codex": "auto"}))
+        github = FakeGitHub(issue())
+        loop = Loop(settings, github, "operator", output=self.lines.append)
+        loop.coordinator.clock = lambda: self.now
+        loop.maintenance = self.manager
+        loop.coordinator.runtime_available = self.manager.available
+        loop.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        self.assertFalse(loop.tick())
+        self.assertEqual(github.writes, [])
+        self.assertEqual(loop.plans()[0].state, "waiting")
+        version.write_text("repaired")
+        with patch("ub_agents.loop.supervise", return_value=1) as run:
+            self.assertTrue(loop.tick())
+        self.assertEqual(run.call_args.args[0][0], str(self.bin / "codex"))
+        self.assertTrue(loop.usage.paused("claude"))
+        self.assertTrue(self.manager.available("codex"))
+        self.assertEqual(self.manager.read(state_path)["checked"], checked)
+        self.assertEqual(len(self.updates()), 2)
+
+    def test_supervision_inherits_run_lock_while_observing_usage(self):
+        self.npm("claude")
+        settings = self.settings("claude")
+        usage = RuntimeUsage(self.root, lambda: self.now, self.lines.append)
+        run_dir = self.root / "run"
+        output = UsageOutput("claude", run_dir, usage, {})
+        observed = []
+
+        def observe(final=False):
+            output.poll(final)
+            if usage.paused("claude"):
+                observed.append(final)
+                self.manager_for().boundary(settings)
+                self.assertEqual(self.updates(), [])
+
+        with self.manager.reserve("claude") as reserved:
+            event = {"type": "rate_limit_event", "rate_limit_info": {
+                "status": "allowed_warning", "unifiedWindows": {"five_hour": {
+                    "utilization": .9, "resetsAt": self.now + 100}}}}
+            script = (f"import os, time; os.fstat({reserved.descriptor}); "
+                      f"print({json.dumps(event)!r}, flush=True); "
+                      "time.sleep(.4); print('finished')")
+            self.assertEqual(supervise([sys.executable, "-c", script], self.root,
+                                      os.environ.copy(), run_dir, 3, threading.Event(),
+                                      process_started=lambda pid: reserved.started(),
+                                      pass_fds=(reserved.descriptor,), observe_output=observe), 0)
+        self.assertIn(False, observed)
+        self.assertIn("finished", (run_dir / "process.log").read_text())
+        self.manager.boundary(settings)
+        self.assertEqual(len(self.updates()), 1)
+        self.assertTrue(usage.paused("claude"))
 
     def test_start_reservation_keeps_guard_until_process_started(self):
         self.native()

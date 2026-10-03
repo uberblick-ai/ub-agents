@@ -28,6 +28,10 @@ class RetryableExecutionError(AgentError):
     """A classified execution timeout or launch failure permits bounded retry."""
 
 
+class RuntimePaused(AgentError):
+    """Eligible runtimes are temporarily waiting for usage resets."""
+
+
 class LostOwnership(AgentError):
     """The launcher must terminate its execution before doing anything else."""
 

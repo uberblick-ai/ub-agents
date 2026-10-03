@@ -23,6 +23,8 @@ from .records import (attempts, backoff, declared_transition, iso, latest_leases
                       lease_summary, resolve_transition, seconds, timestamp)
 from .refresh import refresh_checkout, refresh_instructions
 from .runtime_updates import RuntimeMaintenance
+from .runtime_usage import RuntimeUsage
+from .usage_output import UsageOutput
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -40,7 +42,7 @@ class _InvalidReload(AgentError):
 
 class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print,
-                 config_path=None, interrupt_event=None):
+                 config_path=None, interrupt_event=None, usage_read_only=False):
         self.config = config
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
@@ -49,6 +51,9 @@ class Loop:
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
         self.output = output
+        self.usage = RuntimeUsage(config.root, clock=lambda: self.coordinator.clock(),
+                                  output=output, read_only=usage_read_only)
+        self.coordinator.runtime_paused = self.usage.paused
         self.discovery = Discovery(self.github)
         self._shown = {}
         self._released_blockers = {}
@@ -127,7 +132,8 @@ class Loop:
         history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
-                                  runtime_available=self.maintenance.available)
+                                  runtime_available=self.maintenance.available,
+                                  runtime_paused=self.usage.paused)
         now = coordinator.clock()
         latest = latest_leases(history_index)
         unfinished = {r["assignment"] for r in latest.values()
@@ -307,7 +313,7 @@ class Loop:
                 key, value = (plan.item.number, plan.agent.name), (plan.state, plan.reason)
                 released = self._released_blockers.pop(key, None)
                 announced = plan.state == "blocked" and released is not None and released in plan.reason
-                if not announced and (plan.state not in {"blocked", "parked"} or self._shown.get(key) != value):
+                if not announced and (plan.state not in {"blocked", "parked", "waiting"} or self._shown.get(key) != value):
                     self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
                 self._shown[key] = value
         self._shown = {key: value for key, value in self._shown.items() if key in present}
@@ -527,6 +533,7 @@ class Loop:
         effect = "failure"
         result, summary = "retry", "Assignment ended without a validated outcome"
         outcome = None
+        usage_output = None
         try:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
@@ -565,11 +572,16 @@ class Loop:
             command = command_for(plan.agent, plan.runtime)
             if reservation is not None:
                 command[0] = reservation.executable
+            if plan.runtime:
+                usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env)
             code = supervise(command, cwd, env, run_dir,
                              plan.agent.timeout_seconds, self.interrupt_event,
                              self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
                              expires=seconds(lease["expires"]), process_started=process_started,
+                             observe_output=usage_output.poll if usage_output else None,
                              **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
+            if usage_output:
+                usage_output.poll(final=True)
             diagnostic("execution-exited", code=code)
             # No acceptance or release until all attributable execution has ended.
             cleanup_workspace()
@@ -619,6 +631,9 @@ class Loop:
                           and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
             summary = str(exc)
             cleanup_workspace()
+        if usage_output and usage_output.reached and effect != "reset" and not interrupted:
+            result, effect = "retry", "unchanged"
+            summary = self.usage.limit(plan.runtime.cli, usage_output.hint)
         delay = backoff(plan.agent, lease["attempt"]) if result == "retry" and effect == "failure" else 0
         if result != "success":
             # Persist the supervised verdict before a report/release can crash.
@@ -854,6 +869,13 @@ class Loop:
         self._poll_complete = True
 
     def launch(self, once=False):
+        try:
+            return self._launch(once)
+        finally:
+            self.usage.close()
+
+    def _launch(self, once):
+        self.usage.reset()
         self.github.discovery = not once
         if self.coordinator.actor is None:
             self.coordinator.actor = self.github.actor()
@@ -887,7 +909,7 @@ class Loop:
                               if retryable else "failure is not retryable; retries not exhausted")
                     raise AgentError(f"{detail}; {reason}. Fix the cause and restart ub-agent launch.") from exc
                 self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
-                self.stop_event.wait(delay)
+                self.stop_event.wait(self.usage.bound_wait(delay))
                 continue
             failures = 0
             if self.interrupt_event.is_set():
@@ -905,11 +927,12 @@ class Loop:
                 interval, low = idle_interval(requests, interval,
                                               self.github.resource_quotas,
                                               self.coordinator.clock(), elapsed)
+                interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
                 if idle_state != low:
                     self.output(f"No eligible work; next poll in {max(0, interval - elapsed) / 60:g} min "
                                 f"({requests} requests last poll)")
                 idle_state = low
-            delay = max(0, interval - elapsed)
+            delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
                 self.stop_event.wait(delay)
         if self.interrupt_event.is_set():

@@ -271,6 +271,10 @@ def load_config(path):
         # Provenance records cli:model:effort and independence checks trust it; sessions start fresh.
         forbidden = {"--model", "-m", "--effort", "--resume", "-r", "resume", "--continue",
                      "model", "model_provider", "model_reasoning_effort"}
+        if any(r.cli == "codex" for r in runtimes):
+            if any(arg.split("=", 1)[0] == "--ephemeral" for arg in runtime_args):
+                raise AgentError(f"{name}: runtime-args must not set --ephemeral; "
+                                 "the launcher reads Codex usage from its fresh session record")
         if any(r.cli == "claude" for r in runtimes):
             forbidden.add("-c")  # Claude's --continue; Codex's -c is --config.
             if any(arg.split("=", 1)[0] == "--output-format" for arg in runtime_args):

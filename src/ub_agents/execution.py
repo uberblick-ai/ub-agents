@@ -14,7 +14,7 @@ def command_for(agent, runtime):
     if agent.command:
         return list(agent.command)
     if runtime.cli == "codex":
-        command = ["codex", "exec", "--model", runtime.model,
+        command = ["codex", "exec", "--json", "--model", runtime.model,
                    "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}"]
     else:
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
@@ -171,7 +171,7 @@ def _stop_group(process, grace):
 
 
 def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expires=None,
-              process_started=None, pass_fds=()):
+              process_started=None, pass_fds=(), observe_output=None):
     if os.name != "posix":
         raise AgentError("Process supervision requires Linux or macOS")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -190,6 +190,8 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
             if process_started is not None:
                 process_started(process.pid)
             while process.poll() is None:
+                if observe_output is not None:
+                    observe_output()
                 if stop_event.is_set():
                     raise KeyboardInterrupt
                 if time.monotonic() >= deadline:
@@ -201,3 +203,5 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
             return process.returncode
         finally:
             stop_group(process)
+            if observe_output is not None:
+                observe_output(final=True)

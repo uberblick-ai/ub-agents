@@ -307,6 +307,11 @@ code alone never does.
 A report followed by a nonzero exit is validated and applied normally after
 confirmed cleanup; the launcher logs the exit code.
 
+Claude and Codex usage limits pause new runs on that CLI until reset, without
+charging item attempts. Runtime alternatives and other CLIs keep working;
+`status` and `doctor` show local pauses. See
+[runtime usage pauses](docs/configuration.md#runtime-usage-pauses).
+
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
 transition before it starts. After removing it, set the workflow labels you want or
 run `ub-agent retry`. The exact rules for claims, attempts, transitions and recovery

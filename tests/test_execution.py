@@ -28,7 +28,7 @@ class ExecutionTests(unittest.TestCase):
     def test_thin_adapters_keep_argv_model_effort_and_explicit_permissions(self):
         configured = agent(self.root, command=(), runtime_args=("--sandbox", "read-only"))
         codex = command_for(configured, Runtime("codex", "configured-model", "high"))
-        self.assertEqual(codex, ["codex", "exec", "--model", "configured-model", "--config",
+        self.assertEqual(codex, ["codex", "exec", "--json", "--model", "configured-model", "--config",
                                  'model_reasoning_effort="high"', "--sandbox", "read-only"])
         claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high"))
         self.assertEqual(claude, ["claude", "--print", "--output-format", "stream-json", "--verbose",

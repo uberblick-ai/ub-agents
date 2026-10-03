@@ -143,6 +143,21 @@ agents:
                 configured = self.load(base.replace("RUNTIME", "codex:model:high").replace("ARGS", args))
                 self.assertTrue(configured.agents[0].runtime_args)
 
+    def test_codex_usage_requires_persistent_sessions(self):
+        (self.root / "instructions.md").write_text("Do the task")
+        base = '''repository: org/project
+agents:
+  task:
+    runtime: RUNTIME
+    instructions: instructions.md
+    trigger: ready
+    outcomes: {done: {}}
+    runtime-args: [--ephemeral]
+'''
+        for runtime in ("codex:model:high", "[codex:model:high, claude:model:high]"):
+            with self.subTest(runtime=runtime), self.assertRaisesRegex(AgentError, "must not set --ephemeral"):
+                self.load(base.replace("RUNTIME", runtime))
+
     def test_init_and_installed_template_preservation(self):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "init", "--repository", "org/project"]), 0)

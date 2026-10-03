@@ -446,7 +446,7 @@ request may already have written the transition start marker.
 The prompt, made of the assignment context and the agent's instructions, arrives on
 stdin:
 
-- `codex:MODEL:EFFORT` runs `codex exec --model MODEL --config model_reasoning_effort="EFFORT"`.
+- `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
 
 `runtime-args` are appended. They must not change the model or effort, or resume a
@@ -455,11 +455,63 @@ recorded `cli:model:effort` and every run starts fresh.
 For agents with a Claude runtime, `runtime-args` must not set `--output-format`
 (including `--output-format=…`); `check` rejects it because the launcher owns the
 stream format. A redundant `--verbose` is accepted.
+Codex `runtime-args` must not set `--ephemeral`: the launcher needs the fresh
+session's usage records. A redundant `--json` is accepted.
 
 `process.log` records each CLI's stdout and stderr directly. Codex runs log their
-full transcript. Claude runs log the JSON stream of tool calls, tool results and
+JSON event stream. Claude runs log the JSON stream of tool calls, tool results and
 the final result, including Claude Code's `permission_denials`. The launcher does
-not interpret this output; the outcome comes only from `ub-agent report`.
+interpret structured usage metadata; an accepted outcome still comes only from
+`ub-agent report`.
+
+### Runtime usage pauses
+
+Usage pauses apply to one CLI (`claude` or `codex`) on one launcher, across all
+models and efforts. Claude `rate_limit_event` records supply `rate_limit_info.status`
+and the latest `unifiedWindows.five_hour` and `.seven_day` utilization and `resetsAt`
+epoch seconds. For Codex, `--json` identifies the new session with `thread.started`.
+The launcher reads only that session's `event_msg` usage metadata from
+`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-THREAD_ID.jsonl` (default
+`~/.codex/sessions/`): `rate_limits.primary` and `.secondary` supply `used_percent`,
+`window_minutes`, and `resets_at`, plus `rate_limit_reached_type`. It never resumes
+a session or uses another session's usage or transcript.
+
+At 90% usage in any window, the launcher pauses new runs on that CLI; the current
+run keeps running. If a run ends without an accepted outcome and reports a usage
+limit, it releases as `retry` with the CLI and UTC reset in its summary, leaving
+attempts unchanged and adding no retry backoff. Claude's rejected rate-limit
+events, `error: rate_limit`, and `api_error_status: 429` identify limits. Codex's
+limit-reached snapshots and structured `usage_limit_exceeded` errors identify
+limits. A CLI with no reading starts normally.
+
+Pauses end on the clock, at the reset plus a fixed one-minute margin. Missing,
+unreadable, past, or beyond-window resets instead pause for 15 minutes from the
+first untrusted reading. Repeated untrusted readings do not extend that fallback.
+New resets from an active run update the window's pause. All limiting windows
+must expire before a CLI starts again; expired readings cannot pause it again.
+The next fresh run supplies new readings and can establish another pause.
+
+Runtime alternatives are tried in order, skipping paused CLIs while retaining
+`different-runtime-from` rules. An item whose eligible runtimes are all paused
+shows `waiting`, without label changes or attempts. Other CLIs keep working.
+Continuous launch keeps polling even when every CLI is paused; ordinary, idle,
+and empty-poll waits wake by the earliest CLI pause expiry. Signals interrupt
+these waits normally. `launch --once` still observes just once.
+
+One line announces each CLI pause with its reason and UTC end. Each launcher
+publishes its unexpired readings and pauses atomically in its own
+`.ub-agent/runtime-usage/LAUNCHER_ID.json` file. `status` and `doctor` read the
+unexpired pauses of live launchers on this host without changing those files;
+a pause does not fail `doctor`. Launchers schedule from their own readings.
+Restarting a launcher starts with no pauses, providing an override when usage is
+lifted early. A launcher removes its own state when it exits and prunes abandoned
+state from this host at startup. Process start times distinguish live launchers
+from recycled PIDs; state from stopped launchers is ignored. Other hosts' state
+and state whose owner cannot be inspected are preserved.
+
+`status --json` returns an object with `assignments` (the assignment rows) and
+`runtime_pauses` (entries with `cli`, `reason`, UTC `ends_at`, and `launcher`).
+The pause list is present even when no assignments match.
 
 ### Daily runtime maintenance
 
@@ -538,6 +590,8 @@ and the [official Codex update commands](https://developers.openai.com/cookbook/
 
 Checks run only at unclaimed launcher boundaries before new work, separately
 from instruction refresh. A run that crosses the due time continues undisturbed.
+Usage pauses allow maintenance and health checks to continue; updating or
+repairing a runtime preserves its usage pause until the window expires.
 Every completed installation check (`updated`, `up-to-date` or `failed`,
 including a timeout) starts a shared 24-hour cooldown. An `off`, omitted or
 unsupported automatic policy reports a local skip without writing shared
