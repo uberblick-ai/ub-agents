@@ -9,6 +9,17 @@ For one release, an implicit default falls back to `ub-agent.yaml` if
 each checkout refresh, so a committed rename takes effect without losing its
 configuration. `init` always writes `ub-agents.yaml` by default.
 
+When upgrading from `ub-agent`, add `.ub-agents/` to `.gitignore` and keep
+`.ub-agent/` ignored until that directory is deleted. Commit the ignore changes
+to the default branch and pull them into every control checkout before starting
+launchers on the new build. Startup creates `.ub-agents/launch.log` before checkout
+refresh, which refuses untracked files. Restart all of the project's launchers
+together; old launchers cannot read new GitHub markers or branch names. After
+every old launcher has stopped, remove the old worktrees and the whole old state
+directory as described in [Stale artifact cleanup](#stale-artifact-cleanup).
+See the [changelog](../CHANGELOG.md) for the configuration, role allowlist and hook
+updates required by the rename.
+
 ## Top level
 
 | Key | Meaning |
@@ -206,9 +217,14 @@ safe to retry, because a crash after hook success can leave a worktree to clean 
 `ub-agents cleanup` previews every registered worktree directly under this checkout's
 `.ub-agents/worktrees/<run>` and local branch named `ub-agents/<agent>/<number>/<run>`.
 It also recognizes the old `ub-agent/<agent>/<number>/<run>` branch prefix with
-the same lease ownership checks. Worktrees under `.ub-agent/` are no longer read;
-remove them after every old launcher has stopped.
-It reports `would remove` or `kept` with a reason. Unregistered entries under the
+the same lease ownership checks. Worktrees under `.ub-agent/` are no longer read.
+After every old launcher has stopped, remove its old worktrees with
+`git worktree remove` (or `git worktree prune` for worktrees already deleted), then
+delete the whole `.ub-agent/` directory, including `runs/` and `launch.log`.
+Removing only the worktrees leaves old logs behind. Keep `.ub-agent/` ignored
+until the whole directory is deleted.
+
+The preview reports `would remove` or `kept` with a reason. Unregistered entries under the
 worktree directory are reported as uncertain and kept. Other tools' worktrees,
 remote branches and run logs are outside its deletion scope.
 

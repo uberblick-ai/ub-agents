@@ -137,10 +137,18 @@ upgrading any.
 
 For the rename to `ub-agents`, rename `ub-agent.yaml` to `ub-agents.yaml` and update
 role instructions, command allowlists, hooks and direct commands to use `ub-agents`
-and `UB_AGENTS_*`. Update `.gitignore` to ignore `.ub-agents/`.
-Restart all of a project's launchers together; old launchers
-cannot read new GitHub markers or branch names. `.ub-agent/` is no longer used;
-remove its worktrees after the old launchers stop. See the [changelog](CHANGELOG.md).
+and `UB_AGENTS_*`. Add `.ub-agents/` to `.gitignore` and keep `.ub-agent/` ignored
+until that directory is deleted. Commit the ignore changes to the default branch
+and pull them into every control checkout before starting launchers on the new
+build. Startup creates `.ub-agents/launch.log` before checkout refresh, which
+refuses untracked files.
+
+Restart all of a project's launchers together; old launchers cannot read new
+GitHub markers or branch names. After every old launcher has stopped, remove its
+old worktrees with `git worktree remove` (or `git worktree prune` for worktrees
+already deleted), then delete the whole `.ub-agent/` directory, including `runs/`
+and `launch.log`. Removing only the worktrees leaves old logs behind. See the
+[changelog](CHANGELOG.md).
 
 For one release, `ub-agent` is an alias that prints a deprecation notice to stderr
 and preserves stdout and exit status. When no `--config` is supplied and

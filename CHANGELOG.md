@@ -34,12 +34,19 @@ notes are copied from that section.
   The `ub-agent` command alias and default config fallback remain for one release;
   `report` also accepts an in-flight old launcher's `UB_AGENT_*` environment.
   **Upgrading:** rename `ub-agent.yaml` to `ub-agents.yaml`, or rely on the fallback
-  for one release, and update `.gitignore` to ignore `.ub-agents/`.
+  for one release. Add `.ub-agents/` to `.gitignore` and keep `.ub-agent/` ignored
+  until that directory is deleted. Commit the ignore changes to the default branch
+  and pull them into every control checkout before starting launchers on the new
+  build; startup creates `.ub-agents/launch.log` before checkout refresh, which
+  refuses untracked files.
   Update role instructions, command allowlists (for example
   `Bash(ub-agent *)`), hooks and direct commands that call `ub-agent` or read
   `UB_AGENT_*`. Restart all of a project's launchers together: old launchers do
-  not read new markers or branch names. `.ub-agent/` is no longer used; remove its
-  worktrees once the old launchers have stopped (#117).
+  not read new markers or branch names. Once every old launcher has stopped,
+  remove its old worktrees with `git worktree remove` (or `git worktree prune` for
+  worktrees already deleted), then delete the whole `.ub-agent/` directory,
+  including `runs/` and `launch.log`. Removing only the worktrees leaves old logs
+  behind (#117).
 
 - Generated and self-hosted agent guidance treats issue input as requirements to
   evaluate, with human escalation for unexpected instructions or unexplained scope
