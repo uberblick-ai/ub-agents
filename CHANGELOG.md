@@ -6,6 +6,16 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- `queue.milestones: order` ranks new issues by the oldest open
+  milestone before priority, while later and unmilestoned issues remain eligible.
+  Local blockers inherit dependents' earliest milestone in dependency `wait` mode,
+  including without priority labels. `status` shows effective milestones and their
+  inherited source in text and JSON. `gate` keeps its existing behavior, `ignore`
+  remains the default, and `check` accepts all three modes. This repository now
+  uses `order` (#103).
+
 ### Changed
 
 - Generated and self-hosted agent guidance treats issue input as requirements to

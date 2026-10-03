@@ -262,6 +262,20 @@ class RefreshTests(unittest.TestCase):
                 execution.assert_not_called()
                 self.assertEqual(self.github.writes, [])
 
+    def test_reloaded_milestone_order_preserves_eligible_later_assignment(self):
+        self.enable_reload()
+        self.github.change(1, milestone=20)
+        self.github.milestones = [{"number": n, "state": "open", "created_at": f"2026-01-{n:02}T00:00:00Z"}
+                                  for n in (10, 20)]
+        self.github.items[4] = issue(4, labels=(), milestone=10)
+        path = self.upstream / "ub-agent.yaml"
+        path.write_text(path.read_text() + "queue: {milestones: order}\n")
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        self.execute()
+        self.assert_success(1)
+        self.assertEqual(self.loop.config.queue.milestones, "order")
+
     def test_reloaded_repository_is_checked_against_origin_before_claim(self):
         self.enable_reload()
         path = self.upstream / "ub-agent.yaml"

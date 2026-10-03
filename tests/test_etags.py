@@ -181,7 +181,7 @@ class CoordinationRunner(RecordingRunner):
 
     Forty-five open items: 30 ready issues and 15 untriggered PRs. The worker
     selects issue #1, hands off to ready PR #31, consumes its trigger and routes
-    the handoff. Priority ranking and milestone/dependency gates are enabled.
+    the handoff. Priority/milestone ranking and dependency waits are enabled.
     """
     def __init__(self, root, honor_etags):
         super().__init__(root)
@@ -273,6 +273,12 @@ class CoordinationRunner(RecordingRunner):
 
 class RequestBudgetTests(unittest.TestCase):
     def test_45_item_claim_to_release_uses_at_most_half_the_rest_quota(self):
+        self.assert_request_budget('gate')
+
+    def test_45_item_milestone_order_claim_to_release_uses_at_most_half_the_rest_quota(self):
+        self.assert_request_budget('order')
+
+    def assert_request_budget(self, milestone_mode):
         stub_refresh(self)
         counts, request_counts = [], []
         for honor_etags in (True, False):
@@ -281,7 +287,7 @@ class RequestBudgetTests(unittest.TestCase):
                 runner = CoordinationRunner(root, honor_etags)
                 github = GitHub('org/project', runner)
                 worker = agent(root, kind='issue', outcomes={'done': {'add': ('needs-review',), 'remove': ()}})
-                queue = Queue(milestones='gate', priority=Priority(('p1', 'p2')))
+                queue = Queue(milestones=milestone_mode, priority=Priority(('p1', 'p2')))
                 output = []
                 loop = Loop(config(root, worker, queue=queue), github, 'operator', output=output.append)
 

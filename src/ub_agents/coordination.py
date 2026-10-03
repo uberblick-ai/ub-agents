@@ -25,6 +25,9 @@ class Plan:
     priority: str | None = None
     priority_source: int | None = None
     priority_from_issue: int | None = None
+    milestone: int | None = None
+    milestone_source: int | None = None
+    milestone_rank: int = 0
     blockers: tuple[str, ...] = ()
     approval_gate: ApprovalCheck | None = None
     history: tuple[dict, ...] = field(default=(), compare=False, repr=False)

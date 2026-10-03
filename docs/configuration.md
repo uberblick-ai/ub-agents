@@ -13,7 +13,7 @@ errors; `ub-agent check` validates the file.
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
-| `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
+| `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
 `ub-agent launch`, including `--once`, appends stdout and stderr to
 `.ub-agent/launch.log` in the control checkout. Every file line starts with a UTC
@@ -240,7 +240,7 @@ queue:
   priority:
     labels: [priority:urgent, priority:high, priority:normal, priority:low]
     default: priority:normal
-  milestones: gate
+  milestones: order
   dependencies: wait
 ```
 
@@ -259,11 +259,28 @@ PR references and references to other repositories do not contribute. This PR
 rule applies in both dependency modes: `ignore` disables issue dependency
 inheritance, but PRs still inherit their closing issues' own configured priority.
 
-`milestones` accepts only `gate` or `ignore` and defaults to `ignore`. In `gate`
-mode, new issues wait for the oldest open milestone with open issues or PRs to
-close or empty; PR work and recovery remain eligible.
-In `ignore` mode, planning and claiming do not read milestones. This repository
-explicitly sets `gate`.
+`milestones` accepts `gate`, `order` or `ignore` and defaults to `ignore`.
+
+In `gate` mode, new issues wait for the oldest open milestone with open issues or
+PRs to close or empty. Creation time and then milestone number select that active
+milestone. Later and unmilestoned issues wait even when the active milestone has
+no eligible issue. Planning, claiming and approval parking enforce this gate;
+PR work, owned runs and recovery remain eligible.
+
+In `order` mode, new issues rank first by open milestones with open issues or PRs,
+oldest first by creation time and then milestone number. Issues without a milestone,
+or with a milestone outside that list (such as a closed milestone), rank after all
+listed milestones. Within each milestone, effective priority, item creation time
+and item number decide order. An earlier milestone wins even against higher
+priority in a later milestone. Milestones never hold back an otherwise eligible
+issue; later and unmilestoned work can start when earlier work cannot.
+PR work, owned runs and recovery keep their existing priority order before new
+issue starts. Ordering uses the milestone list and each listed issue's milestone;
+an unreadable milestone list stops selection visibly. In `ignore` mode, planning
+and claiming do not read milestones. `ub-agent check` accepts all three modes.
+This repository explicitly sets `order`; existing `gate` configurations remain
+valid. To let later and unmilestoned work start while earlier work cannot, switch
+`gate` to `order`.
 
 `dependencies` accepts only `wait` or `ignore` and defaults to `wait`, including
 without a `queue` block. In `wait` mode, an issue cannot start preparation or
@@ -271,9 +288,14 @@ implementation while any GitHub blocked-by issue is open, including blockers
 in other repositories. Closed blockers do not gate it. The gate is rechecked
 before claiming. An open local issue inherits the highest effective priority
 of its open local dependents, directly or transitively, without changing labels.
-Cycles terminate and share the highest reachable priority. With `ignore`, links
-affect neither eligibility nor priority, and dependency reads are skipped.
-PR work, recovery and completion of started runs remain ungated. With milestone gating, a new issue must pass both gates.
+In milestone `order` mode, blockers also inherit the earliest milestone from open
+local dependents, directly or transitively, even without configured priority
+labels. Priority and milestone inheritance choose their sources independently.
+Cycles terminate and share the highest reachable priority and earliest milestone.
+With `ignore`, links affect neither eligibility nor priority or milestone rank,
+and dependency reads are skipped. PR work, recovery and completion of started
+runs remain ungated. With milestone `gate`, a new issue must pass both gates;
+blockers inherit priority but keep their own milestone.
 A failed or unreadable dependency read stops selection visibly.
 Planning skips link reads only when the issue list's dependency summary reliably
 reports zero total blockers; missing or malformed summaries require a full read.
@@ -283,19 +305,25 @@ The claim-time recheck always reads the selected new issue's blocker links.
 `queue` block, priorities are unconfigured, milestones are ignored and dependency
 waits apply.
 
-Within each work class, priority is followed by item creation time and then item
-number. See [selection order](coordination.md#selection-order) for eligibility and
+Priority is followed by item creation time and then item number; milestone `order`
+adds milestone rank first for new issue starts. See
+[selection order](coordination.md#selection-order) for eligibility and
 PR precedence. `ub-agent status` and `status --json` use the same rank order and
 show each item's effective priority (`none` in text, `null` in JSON when no label
-or default applies). Waiting issues name the active milestone number and open
-blockers, using `owner/repo#N` for external blockers. Inherited priority names its
-origin, for example `priority:urgent (inherited from #21)`. JSON includes
+or default applies). In `order` mode, each issue also shows its effective milestone
+next to priority (`none` when unmilestoned), with the source when inherited, such
+as `milestone #2 (inherited from #21)`. JSON includes `milestone` (the effective
+milestone number, or `null`) and `milestone_inherited_from` (the source issue number,
+or `null`). In `gate` mode, waiting issues keep the
+`Waiting for active milestone #N` reason. Waiting issues also name open blockers,
+using `owner/repo#N` for external blockers. Inherited priority names its origin,
+for example `priority:urgent (inherited from #21)`. JSON includes
 `priority_inherited_from` (the source issue number, or `null`) and `open_blockers`
 (a list of issue references). PRs name the issue they close, for example
 `priority:urgent (from closed issue #21)`; that wording identifies a closing
 reference to an issue that is still open. JSON records it as `priority_from_issue`
-(the issue number, or `null`). An item's own priority wins ties; among equally
-urgent inherited sources the lowest issue number is shown.
+(the issue number, or `null`). An item's own priority or milestone wins ties;
+among equally ranked inherited sources the lowest issue number is shown.
 
 ## Agents
 

@@ -67,22 +67,34 @@ this change does not reclassify them. Use `ub-agent retry` to clear them.
    Outside feedback suspends outside PRs, while issues and trusted PRs only exclude
    uncleared feedback.
 2. PR work before new issue starts: PR assignments, recovery and completion of
-   already-started runs. Neither queue gate holds back this work.
-3. New issues pass the milestone gate and the dependency gate when configured, as
-   the [queue reference](configuration.md#queue) defines them. Planning and a fresh
-   claim-time read both enforce each gate.
-4. Within PR work and within issue work: effective priority (the item's own label,
-   inherited from open local dependents, or for a PR from the open issues it
-   closes), then item creation time, then item number. Agents on the same item
-   keep YAML order. The launcher never changes priority labels.
+   already-started runs. Neither queue gate holds back this work, and milestone
+   ordering does not change its rank.
+3. New issues pass the dependency gate and, in milestone `gate` mode, the milestone
+   gate, as the [queue reference](configuration.md#queue) defines them. Planning
+   and a fresh claim-time read both enforce each gate. Approval parking also
+   rechecks them. In milestone `order` mode, milestones never gate eligibility.
+4. In milestone `order` mode, new issues rank first by open milestones with open
+   items, oldest creation time and then milestone number first. Unmilestoned
+   issues and issues whose milestone is outside that list rank last. Open local
+   blockers inherit their dependents' earliest milestone, directly or transitively,
+   in dependency `wait` mode, even without priority labels.
+5. Within PR work and within each issue milestone rank: effective priority (the
+   item's own label, inherited from open local dependents, or for a PR from the
+   open issues it closes), then item creation time, then item number. With milestone
+   `gate` or `ignore`, new issues use this priority order without milestone ranks.
+   Agents on the same item keep YAML order. The launcher never changes priority labels.
 
 `ub-agent status` lists rows in this order with each item's effective priority and
-its source, and names what a waiting issue waits for. Concurrent launchers rank the
+its source, adds each issue's milestone and inherited source in `order` mode, and
+names what a waiting issue waits for, including `Waiting for active milestone #N`
+in `gate` mode. Concurrent launchers rank the
 GitHub state each observes and try claims in that order; existing claims resolve
 contention, and there is no global order across machines. Dependency reads skip
 issues whose list summary reliably reports zero blockers; a failed read stops
-selection rather than becoming an empty list. Like milestone rechecks, this is
-cooperative observation, not an atomic snapshot.
+selection rather than becoming an empty list. An unreadable milestone list also
+stops selection. Gate rechecks are cooperative observation, not an atomic
+snapshot; milestone `order` requires no claim-time or approval-parking milestone
+recheck.
 
 ## Assignment input
 

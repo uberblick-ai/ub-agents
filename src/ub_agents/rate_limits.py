@@ -5,7 +5,7 @@ from .errors import GitHubError
 
 READS = frozenset({
     "actor", "role", "timeline", "issue_content", "pr_content", "labels", "observe",
-    "item", "active_milestone", "blocked_by", "comments", "review_comments", "reviews",
+    "item", "active_milestone", "milestone_order", "blocked_by", "comments", "review_comments", "reviews",
     "repository_comments", "unminimized_comments", "candidate_evidence", "default_branch",
     "prs_for_branch", "dependency_graph",
 })

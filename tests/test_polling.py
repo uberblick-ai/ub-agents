@@ -78,7 +78,8 @@ class PollingTests(unittest.TestCase):
     def test_failed_reads_through_claim_revalidation_never_write(self):
         cases = [("observe", [], Queue()), ("repository_comments", [], Queue()),
                  ("comments", [], Queue()), ("comments", [None], Queue()),
-                 ("item", [], Queue()), ("active_milestone", [], Queue(milestones="gate")),
+                 ("item", [], Queue()), ("milestone_order", [], Queue(milestones="order")),
+                 ("active_milestone", [], Queue(milestones="gate")),
                  ("active_milestone", [None], Queue(milestones="gate")),
                  ("blocked_by", [], Queue()), ("blocked_by", [None], Queue())]
         for name, earlier, queue in cases:
@@ -365,15 +366,17 @@ class PollingTests(unittest.TestCase):
         command = ("gh", "api", "--hostname", "github.com", "--method", "GET", "-H",
                    "Accept: application/vnd.github+json", "--include", endpoint)
         runner.responses[command] = '[{"number":1,"created_at":"invalid"}]'
-        with self.assertRaises(GitHubError) as raised:
-            GitHub("org/project", runner).active_milestone()
-        self.github.read_results["active_milestone"] = [raised.exception]
-        self.loop.config = replace(self.config, queue=Queue(milestones="gate"))
-        with patch.object(self.loop.stop_event, "wait") as waits, \
-                self.assertRaisesRegex(AgentError, "GET repos/org/project/milestones.*Unreadable"):
-            self.loop.launch()
-        waits.assert_not_called()
-        self.assertEqual(self.github.writes, [])
+        for mode, name in (("gate", "active_milestone"), ("order", "milestone_order")):
+            with self.subTest(mode=mode):
+                with self.assertRaises(GitHubError) as raised:
+                    getattr(GitHub("org/project", runner), name)()
+                self.github.read_results[name] = [raised.exception]
+                self.loop.config = replace(self.config, queue=Queue(milestones=mode))
+                with patch.object(self.loop.stop_event, "wait") as waits, \
+                        self.assertRaisesRegex(AgentError, "GET repos/org/project/milestones.*Unreadable"):
+                    self.loop.launch()
+                waits.assert_not_called()
+                self.assertEqual(self.github.writes, [])
 
     def test_once_and_status_exit_one_without_retry(self):
         for argv in (["launch", "--once"], ["status"]):

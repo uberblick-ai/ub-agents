@@ -103,7 +103,9 @@ class Loop:
 
     @staticmethod
     def _rank(plan, priority):
-        return (0 if plan.item.kind == "pr" or plan.state in {"owned", "recover"} else 1,
+        existing = plan.item.kind == "pr" or plan.state in {"owned", "recover"}
+        return (0 if existing else 1,
+                0 if existing else plan.milestone_rank,
                 priority.labels.index(plan.priority) if plan.priority is not None else len(priority.labels),
                 seconds(plan.item.created_at), plan.item.number)
 
@@ -129,6 +131,9 @@ class Loop:
                 items[item.number] = item
         active_milestone = (self.github.active_milestone()
                             if self.config.queue.milestones == "gate" else None)
+        milestones = (self.github.milestone_order()
+                      if self.config.queue.milestones == "order" else ())
+        milestone_ranks = {number: rank for rank, number in enumerate(milestones)}
         priority = self.config.queue.priority
         candidates = []
         for item in items.values():
@@ -151,12 +156,13 @@ class Loop:
                                    priority=priority.effective(item.labels)))
         if not candidates:
             return
-        # Without configured priority, dependencies cannot affect ranking. Read
-        # only a reached item's links. Priority inheritance requires the graph.
-        if self.config.queue.dependencies == "wait" and priority.labels:
+        # Priority or milestone inheritance requires the open local graph.
+        # Otherwise read only a reached item's links for dependency waits.
+        inherit = (self.config.queue.dependencies == "wait" and
+                   (priority.labels or self.config.queue.milestones == "order"))
+        if inherit:
             github.prepare_dependencies(items.values())
-        dependencies = (Dependencies(github, items.values(), priority)
-                        if self.config.queue.dependencies == "wait" and priority.labels else None)
+        dependencies = Dependencies(github, items.values(), priority, milestones) if inherit else None
         issue_priorities = {i.number: priority.effective(i.labels) for i in items.values()
                             if i.kind == "issue" and i.state == "open"}
         if dependencies:
@@ -164,8 +170,10 @@ class Loop:
         ranked = []
         for plan in candidates:
             label, source, from_issue = plan.priority, None, None
+            milestone, milestone_source = plan.item.milestone, None
             if dependencies and plan.item.kind == "issue":
                 label, source = dependencies.priorities.get(plan.item.number, (label, None))
+                milestone, milestone_source = dependencies.milestones.get(plan.item.number, (milestone, None))
             elif plan.item.kind == "pr":
                 for number in sorted(closing_issues(plan.item, self.config.repository)):
                     inherited = issue_priorities.get(number)
@@ -173,7 +181,9 @@ class Loop:
                             priority.labels.index(inherited) < priority.labels.index(label)):
                         label, from_issue = inherited, number
             ranked.append(replace(plan, priority=label, priority_source=source,
-                                  priority_from_issue=from_issue))
+                                  priority_from_issue=from_issue, milestone=milestone,
+                                  milestone_source=milestone_source,
+                                  milestone_rank=milestone_ranks.get(milestone, len(milestones))))
         for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
             item = candidate.item
             github.scope = item.number
@@ -199,7 +209,9 @@ class Loop:
                     plan = replace(plan, state="parked", runtime=None, reason="; ".join(reasons),
                                    approval_gate=None)
                 yield replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
-                              priority_from_issue=candidate.priority_from_issue, blockers=blockers)
+                              priority_from_issue=candidate.priority_from_issue, blockers=blockers,
+                              milestone=candidate.milestone, milestone_source=candidate.milestone_source,
+                              milestone_rank=candidate.milestone_rank)
 
     def _item_plans(self, item, now, github, coordinator):
         matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)

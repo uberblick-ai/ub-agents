@@ -267,6 +267,26 @@ class EnforcementTests(unittest.TestCase):
                 run.assert_not_called()
                 self.assertEqual(self.github.writes, before)
 
+    def test_milestone_order_allows_approval_parking_without_milestone_recheck(self):
+        for milestone in (None, 20):
+            with self.subTest(milestone=milestone):
+                self.setUp()
+                self.github.timelines[1] = []
+                self.github.change(1, milestone=milestone)
+                self.loop.config = config(self.root, self.worker, queue=Queue(milestones='order'))
+                self.github.milestones = [dict(number=10, state='open', created_at=at(1)),
+                                          dict(number=20, state='open', created_at=at(2))]
+                self.github.items[2] = issue(2, labels=(), milestone=10)
+                original = self.loop.park_approval
+                def park(plan):
+                    with patch.object(self.github, 'milestone_order',
+                                      side_effect=AssertionError('parking must not read milestones')), \
+                            patch.object(self.github, 'active_milestone',
+                                         side_effect=AssertionError('order must not recheck the gate')):
+                        original(plan)
+                with patch.object(self.loop, 'park_approval', side_effect=park):
+                    self.assert_parked('No maintainer', writes=True)
+
     def test_changed_input_during_discovery_retries_without_parking_writes(self):
         self.github.timelines[1] = []
         original = self.github.issue_content
