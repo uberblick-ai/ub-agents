@@ -204,6 +204,19 @@ class LauncherTrustTests(unittest.TestCase):
             roles = Counter(args[0].casefold() for name, args in self.github.reads if name == "role")
             self.assertEqual(roles["bob"], 1)
 
+    def test_empty_queue_still_explains_untrusted_own_account(self):
+        self.github.change(1, labels=frozenset())
+        self.github.roles["alice"] = "read"
+        loop = self.loop(self.alice)
+        self.assertFalse(loop.tick())
+        self.assertTrue(any("write or higher" in line for line in self.lines))
+        before = list(self.lines)
+        self.assertFalse(loop.tick())
+        self.assertEqual(self.lines, before)
+        self.github.roles["alice"] = "write"
+        self.assertFalse(loop.tick())
+        self.assertEqual(self.github.writes, [])
+
     def test_cross_account_expiry_recovery_settles_source_attempt_and_handoff(self):
         for status, expected_effect, failures in (("success", "reset", 0), ("retry", "failure", 1),
                                                    ("blocked", "unchanged", 0)):

@@ -24,6 +24,7 @@ from .records import (attempts, backoff, declared_transition, iso, latest_leases
 from .refresh import refresh_checkout, refresh_instructions
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
+from .trust import LauncherTrust
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -60,6 +61,7 @@ class Loop:
         self._released_blockers = {}
         self._poll_complete = False
         self._refreshing_checkout = False
+        self._launcher_reason = None
 
     def wait_rate_limit(self, error, lease=None):
         now = self.coordinator.clock()
@@ -318,6 +320,14 @@ class Loop:
                 self._shown[key] = value
         self._shown = {key: value for key, value in self._shown.items() if key in present}
         self._released_blockers = {key: value for key, value in self._released_blockers.items() if key in present}
+        # Even an empty or already-owned queue must explain why this account
+        # cannot claim. Reuse the discovery pass's permission observation.
+        if self.coordinator.actor is not None:
+            trusted = LauncherTrust(self.discovery, self.config.launchers, self.discovery.current_role)
+            reason = trusted.reason(self.coordinator.actor)
+            if reason and reason != self._launcher_reason:
+                self.output(f"{reason}; claiming no work")
+            self._launcher_reason = reason
         return False
 
     def park_approval(self, plan):
