@@ -62,7 +62,7 @@ class InitTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
         prompt.assert_not_called()
         guidance = (self.path.parent / 'AGENTS.md').read_text()
-        for expected in ('<project build command>', '<project test command>', 'ub-agent report',
+        for expected in ('<project build command>', '<project test command>', 'ub-agents report',
                          'Closes #N', 'Never approve your own PR or enable auto-merge',
                          'directory the launcher gives you'):
             self.assertIn(expected, guidance)
@@ -207,10 +207,10 @@ class InitTests(unittest.TestCase):
             ('codex:model:high', ['--sandbox', 'danger-full-access'],
              'Grants full access without the Codex sandbox'),
             ('claude:model:high', ['--permission-mode', 'acceptEdits', '--permission-prompts', 'none',
-                                   '--allowedTools', 'Bash(git *)', 'Bash(gh *)', 'Bash(ub-agent *)'],
+                                   '--allowedTools', 'Bash(git *)', 'Bash(gh *)', 'Bash(ub-agents *)'],
              'Grants unattended edits and git/gh/report commands')):
             with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
-                self.path = Path(directory) / 'ub-agent.yaml'
+                self.path = Path(directory) / 'ub-agents.yaml'
                 self.assertEqual(self.init(runtime=runtime)[0], 0)
                 config = load_config(self.path)
                 self.assertTrue(all(not agent.runtime_args for agent in config.agents))

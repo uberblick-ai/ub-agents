@@ -115,7 +115,7 @@ class PollingTests(unittest.TestCase):
         self.assertIn("GET repos/org/project/issues/comments", stderr.getvalue())
         self.assertIn("HTTP 504", stderr.getvalue())
         self.assertIn("retries exhausted after 6", stderr.getvalue())
-        self.assertIn("Fix the cause and restart ub-agent launch", stderr.getvalue())
+        self.assertIn("Fix the cause and restart ub-agents launch", stderr.getvalue())
 
     def test_completed_empty_poll_resets_failure_count(self):
         self.github.items.clear()

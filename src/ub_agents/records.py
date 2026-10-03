@@ -5,8 +5,11 @@ import json
 
 from .errors import AgentError, RecordError
 
-MARKER = "<!-- ub-agent:v2 -->"
-LEGACY_MARKER = "<!-- ub-agent:v1 -->"
+MARKER = "<!-- ub-agents:v2 -->"
+LEGACY_MARKER = "<!-- ub-agents:v1 -->"
+V2_MARKERS = (MARKER, "<!-- ub-agent:v2 -->")
+V1_MARKERS = (LEGACY_MARKER, "<!-- ub-agent:v1 -->")
+RECORD_MARKERS = V2_MARKERS + V1_MARKERS
 LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
 OUTCOMES = {"success", "retry", "blocked"}
 # Fields that tie an outcome, a recovery or a contender to the run that owns it.
@@ -76,8 +79,8 @@ def records(comments, actor=None):
             continue
         try:
             text = comment["body"] or ""
-            legacy = text.startswith(LEGACY_MARKER)
-            if not text.startswith(MARKER) and not legacy:
+            legacy = text.startswith(V1_MARKERS)
+            if not text.startswith(V2_MARKERS) and not legacy:
                 continue
             if not legacy:
                 text = text.removesuffix("\n")
@@ -101,9 +104,9 @@ def records(comments, actor=None):
                     raise ValueError("record is posted on the wrong item")
             result.append(record | {"id": comment["id"], "url": comment.get("html_url", "")})
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, AgentError) as exc:
-            if isinstance(comment.get("body"), str) and comment["body"].startswith(LEGACY_MARKER):
+            if isinstance(comment.get("body"), str) and comment["body"].startswith(V1_MARKERS):
                 continue  # Old layouts must never mark an item malformed.
-            raise RecordError(f"Malformed ub-agent comment {comment.get('id', '?')}: {exc}") from exc
+            raise RecordError(f"Malformed ub-agents comment {comment.get('id', '?')}: {exc}") from exc
     return sorted(result, key=lambda record: record["id"])
 
 

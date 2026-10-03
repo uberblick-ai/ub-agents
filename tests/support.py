@@ -7,7 +7,7 @@ import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
-from ub_agents.records import MARKER, body, lease_by_id, payload, records
+from ub_agents.records import MARKER, RECORD_MARKERS, body, lease_by_id, payload, records
 
 
 def write_legacy_records(github):
@@ -32,7 +32,7 @@ def write_legacy_records(github):
                 source = lease_by_id(records(github.comments(record["assignment"])), record["lease_id"])
                 record["transition"] = source["outcomes"][record["outcome"]] | {
                     "started": record["transition"]["started"]}
-            text = body(record)
+            text = body(record).replace(MARKER, "<!-- ub-agent:v2 -->", 1)
         return create(number, text)
 
     github.create_comment = legacy_create
@@ -201,7 +201,7 @@ class FakeGitHub:
 
     def create_comment(self, number, body):
         from ub_agents.records import iso, timestamp
-        data = records([{"body": body, "id": 0, "user": {"login": self.login}}])[0] if body.startswith(MARKER) else {}
+        data = records([{"body": body, "id": 0, "user": {"login": self.login}}])[0] if body.startswith(RECORD_MARKERS) else {}
         with self.lock:
             created_at = iso(timestamp())
             comment = {"id": self.next_id, "node_id": f"node-{self.next_id}", "body": body, "user": {"login": self.login},
@@ -325,7 +325,7 @@ class RecordingRunner:
         self.responses = {
             ("git", "-C", str(root), "rev-parse", "--show-toplevel"): str(root),
             ("git", "-C", str(root), "remote", "get-url", "origin"): "git@github.com:org/project.git",
-            ("git", "-C", str(root), "check-ignore", "-q", ".ub-agent/"): "",
+            ("git", "-C", str(root), "check-ignore", "-q", ".ub-agents/"): "",
             ("ps", "-axo", "pid=,pgid=,stat="): f"{os.getpid()} {os.getpgrp()} S\n",
             ("codex", "login", "status"): "sk-auth-secret\n",
             ("claude", "auth", "status"): "sk-auth-secret\n",

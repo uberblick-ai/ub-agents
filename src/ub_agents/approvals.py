@@ -6,11 +6,12 @@ import json
 import re
 
 from .errors import AgentError, GitHubError, LostOwnership
-from .notices import ACTION_MARKER
-from .records import (LEGACY_MARKER, MARKER as COORDINATION_MARKER, lease_by_id,
+from .notices import ACTION_MARKERS
+from .records import (RECORD_MARKERS, lease_by_id,
                       positive_int, records, same_run, seconds)
 
-MARKER = "<!-- ub-agent:approval:v1 -->"
+MARKER = "<!-- ub-agents:approval:v1 -->"
+APPROVAL_MARKERS = (MARKER, "<!-- ub-agent:approval:v1 -->")
 MAINTAINERS = {"maintain", "admin"}
 TRUSTED = MAINTAINERS | {"write"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -41,10 +42,11 @@ def comment_digests(comments):
 
 def parse_approval(body, number, kind="issue"):
     """Malformed or unsupported records grant nothing, even from maintainers."""
-    if not body.startswith(f"{MARKER}\n\n```json\n") or not body.endswith("\n```\n"):
+    marker = next((m for m in APPROVAL_MARKERS if body.startswith(f"{m}\n\n```json\n")), None)
+    if marker is None or not body.endswith("\n```\n"):
         return None
     try:
-        record = json.loads(body[len(MARKER) + len("\n\n```json\n"):-len("\n```\n")])
+        record = json.loads(body[len(marker) + len("\n\n```json\n"):-len("\n```\n")])
         if not isinstance(record, dict):
             return None
         fields = {kind, "content_sha256", "comments"}
@@ -155,7 +157,7 @@ def check_pr(github, number, trigger_labels, actor=None):
 
 
 def is_record(comment):
-    return comment["body"].startswith((MARKER, COORDINATION_MARKER, LEGACY_MARKER, ACTION_MARKER))
+    return comment["body"].startswith(APPROVAL_MARKERS + RECORD_MARKERS + ACTION_MARKERS)
 
 
 def _check_input(github, number, trigger_labels, kind="issue", actor=None):

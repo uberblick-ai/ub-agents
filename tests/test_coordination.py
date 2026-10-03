@@ -298,8 +298,8 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, frozenset({"ready"}))
 
     def test_issue_and_pr_on_a_shared_branch_exclude_each_other(self):
-        # An earlier issue run left draft PR #2 on its ub-agent branch.
-        branch = "ub-agent/worker/1/earlier"
+        # An earlier issue run left draft PR #2 on its ub-agents branch.
+        branch = "ub-agents/worker/1/earlier"
         self.github.change(2, branch=branch)
         old = self.start()
         self.co.update(old, branch=branch)
@@ -321,7 +321,7 @@ class CoordinationTests(unittest.TestCase):
         self.assertIsNone(self.co.claim(pr_plan))
 
     def test_shared_branch_claim_race_elects_one_owner(self):
-        branch = "ub-agent/worker/1/earlier"
+        branch = "ub-agents/worker/1/earlier"
         self.github.change(2, branch=branch)
         old = self.start()
         self.co.update(old, branch=branch)
@@ -343,7 +343,7 @@ class CoordinationTests(unittest.TestCase):
         self.co.assert_owned(next(r for r in results if r))
 
     def test_pr_branch_owner_is_read_directly_even_when_lease_is_outside_window(self):
-        branch = "ub-agent/worker_name-2/1/earlier"
+        branch = "ub-agents/worker_name-2/1/earlier"
         self.github.change(2, branch=branch)
         lease = self.start()
         old = iso(self.now - self.agent.lease_seconds - 7 * 86400 - 1)
@@ -365,8 +365,8 @@ class CoordinationTests(unittest.TestCase):
 
     def test_pr_without_exact_agent_branch_pattern_has_no_shared_owner(self):
         lease = self.start()
-        for branch in ("feature/test", "ub-agent/Worker/1/run", "ub-agent/1worker/1/run",
-                       "ub-agent/worker/01/run", "ub-agent/worker/1/run/extra", "ub-agent/worker/1/", None):
+        for branch in ("feature/test", "ub-agents/Worker/1/run", "ub-agents/1worker/1/run",
+                       "ub-agents/worker/01/run", "ub-agents/worker/1/run/extra", "ub-agents/worker/1/", None):
             with self.subTest(branch=branch):
                 self.co.update(lease, branch=branch)
                 self.github.change(2, branch=branch)

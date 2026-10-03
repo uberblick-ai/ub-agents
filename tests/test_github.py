@@ -553,7 +553,7 @@ class GitHubTests(unittest.TestCase):
 
     def test_launcher_and_status_bound_first_scan_by_longest_full_configured_lease(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "ub-agent.yaml"
+            path = Path(directory) / "ub-agents.yaml"
             path.write_text("""repository: org/project
 cleanup:
   command: [echo]
@@ -663,14 +663,14 @@ agents:
     def test_branch_pr_reads_can_include_closed_heads_without_changing_open_default(self):
         github = GitHub("org/project")
         with patch.object(github, "request", return_value=[]) as request:
-            github.prs_for_branch("ub-agent/worker/27/run")
+            github.prs_for_branch("ub-agents/worker/27/run")
             endpoint = request.call_args.args[0]
             self.assertEqual(parse_qs(urlsplit(endpoint).query)["state"], ["open"])
             self.assertTrue(request.call_args.kwargs["paginate"])
-            github.prs_for_branch("ub-agent/worker/27/run", state="all")
+            github.prs_for_branch("ub-agents/worker/27/run", state="all")
             query = parse_qs(urlsplit(request.call_args.args[0]).query)
             self.assertEqual(query["state"], ["all"])
-            self.assertEqual(query["head"], ["org:ub-agent/worker/27/run"])
+            self.assertEqual(query["head"], ["org:ub-agents/worker/27/run"])
 
     def test_active_milestone_reads_every_page_and_sorts_by_creation_then_number(self):
         later = {"number": 1, "created_at": iso(300), "state": "open", "open_issues": 1}

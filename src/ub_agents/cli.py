@@ -1,4 +1,4 @@
-"""The standalone ub-agent command. No Uberblick imports or workspace services."""
+"""The standalone ub-agents command. No Uberblick imports or workspace services."""
 
 import argparse
 from contextlib import ExitStack
@@ -13,7 +13,7 @@ import threading
 import uuid
 
 from . import __version__
-from .config import load_config
+from .config import DEFAULT_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
 from .errors import AgentError
 from .execution import repository_checks
@@ -27,9 +27,9 @@ from .runtime_usage import local_pauses
 
 
 def parser():
-    result = argparse.ArgumentParser(prog="ub-agent", description="Project-owned engineering loops on GitHub")
-    result.add_argument("--version", action="version", version=f"ub-agent {__version__}")
-    result.add_argument("--config", default="ub-agent.yaml", help="Project configuration (default: ub-agent.yaml)")
+    result = argparse.ArgumentParser(prog="ub-agents", description="Project-owned engineering loops on GitHub")
+    result.add_argument("--version", action="version", version=f"ub-agents {__version__}")
+    result.add_argument("--config", help="Project configuration (default: ub-agents.yaml)")
     commands = result.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="Copy customizable starter configuration and instructions")
     init.add_argument("--repository", help="GitHub owner/name (otherwise inferred through gh)")
@@ -78,13 +78,13 @@ def init_project(args):
         except (ValueError, KeyError) as exc:
             raise AgentError("Unreadable gh repository response") from exc
     templates = files("ub_agents").joinpath("templates")
-    targets = {config_path: templates.joinpath("ub-agent.yaml").read_text()
+    targets = {config_path: templates.joinpath("ub-agents.yaml").read_text()
                .replace("your-org/your-project", repository).replace("codex:gpt-6.1-sol:high", args.runtime)}
     if args.runtime.split(":", 1)[0] == "claude":
         targets[config_path] = targets[config_path].replace(
             "[--sandbox, danger-full-access]",
             '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
-            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agent *)"]').replace(
+            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)"]').replace(
             "Grants full access without the Codex sandbox",
             "Grants unattended edits and git/gh/report commands")
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
@@ -102,9 +102,9 @@ def init_project(args):
         with target.open("x") as stream:
             stream.write(content)
     ignore = root / ".gitignore"
-    if not ignore.exists() or ".ub-agent/" not in ignore.read_text().splitlines():
+    if not ignore.exists() or ".ub-agents/" not in ignore.read_text().splitlines():
         with ignore.open("a") as stream:
-            stream.write("\n# Disposable ub-agent execution artifacts\n.ub-agent/\n")
+            stream.write("\n# Disposable ub-agents execution artifacts\n.ub-agents/\n")
     # Validate even the generated configuration; errors are actionable before launch.
     config = load_config(config_path)
     print(f"Created {config_path} and .agents instructions; shared guidance is in {guidance}. "
@@ -113,20 +113,22 @@ def init_project(args):
 
 
 def report_run(args):
-    required = ["UB_AGENT_REPOSITORY", "UB_AGENT_ASSIGNMENT", "UB_AGENT_RUN", "UB_AGENT_LEASE_ID"]
-    if any(not os.environ.get(key) for key in required):
-        raise AgentError("report requires the environment of a supervised ub-agent assignment")
+    # A pre-upgrade launcher can finish through either installed command name.
+    env = {key: os.environ.get(f"UB_AGENTS_{key}", os.environ.get(f"UB_AGENT_{key}"))
+           for key in ("REPOSITORY", "ASSIGNMENT", "RUN", "LEASE_ID")}
+    if any(not value for value in env.values()):
+        raise AgentError("report requires the environment of a supervised ub-agents assignment")
     if not args.summary.strip() or len(args.summary) > 8000:
         raise AgentError("summary must contain 1–8000 characters")
     try:
-        number = int(os.environ["UB_AGENT_ASSIGNMENT"])
-        lease_id = int(os.environ["UB_AGENT_LEASE_ID"])
+        number = int(env["ASSIGNMENT"])
+        lease_id = int(env["LEASE_ID"])
     except ValueError as exc:
         raise AgentError("Invalid supervised assignment environment") from exc
-    github = GitHub(os.environ["UB_AGENT_REPOSITORY"])
+    github = GitHub(env["REPOSITORY"])
     coordinator = Coordinator(github, github.actor())
     lease = next((r for r in coordinator.history(number) if r["kind"] == "lease"
-                  and r["id"] == lease_id and r["run"] == os.environ["UB_AGENT_RUN"]), None)
+                  and r["id"] == lease_id and r["run"] == env["RUN"]), None)
     if lease is None:
         raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")
     record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
@@ -186,7 +188,7 @@ def retry_next_step(item, agent, stop_labels):
         return (f"#{item.number} won't run until one of {agent.name}'s trigger labels is added: "
                 f"{', '.join(agent.triggers)}.")
     return (f"#{item.number} has trigger label{'s' if len(triggers) > 1 else ''} {', '.join(triggers)}; "
-            "a running launcher picks it up on its next poll. `ub-agent status` shows its progress.")
+            "a running launcher picks it up on its next poll. `ub-agents status` shows its progress.")
 
 
 def run(args):
@@ -247,8 +249,10 @@ def run(args):
         return
     stop = threading.Event()
     interrupt = threading.Event()
-    loop = Loop(config, github, actor, stop, config_path=Path(args.config).resolve(),
-                interrupt_event=interrupt, usage_read_only=args.command == "status")
+    loop = Loop(config, github, actor, stop,
+                config_path=config.root / DEFAULT_CONFIG if args.default_config else args.config,
+                default_config=args.default_config, interrupt_event=interrupt,
+                usage_read_only=args.command == "status")
     if args.command == "status":
         now = timestamp()
         rows = status_rows(loop, now)
@@ -288,7 +292,7 @@ def run(args):
     for _, error in repository_checks(config):
         if error is not None:
             raise error
-    local = config.root / ".ub-agent"
+    local = config.root / ".ub-agents"
     local.mkdir(mode=0o700, exist_ok=True)
     def stop_now(*_):
         interrupt.set()
@@ -310,12 +314,22 @@ def main(argv=None):
     with ExitStack() as stack:
         try:
             args = parser().parse_args(argv)
+            args.default_config = args.config is None
             if args.command == "launch":
-                stack.enter_context(launch_output(Path(args.config).resolve().parent))
+                stack.enter_context(launch_output(Path(args.config or DEFAULT_CONFIG).resolve().parent))
+            args.config = (Path(args.config or DEFAULT_CONFIG).resolve()
+                           if args.command in {"init", "report"} else resolve_config_path(args.config))
             return run(args) or 0
         except KeyboardInterrupt:
             print("Stopped; supervised execution terminated", file=sys.stderr)
             return 130
         except (AgentError, OSError) as exc:
-            print(f"ub-agent: {exc}", file=sys.stderr)
+            print(f"ub-agents: {exc}", file=sys.stderr)
             return 1
+
+
+def legacy_main(argv=None):
+    """One-release command alias; preserve the CLI's stdout and exit status."""
+    print("ub-agent is deprecated; use ub-agents instead. This alias remains for one release.",
+          file=sys.stderr)
+    return main(argv)
