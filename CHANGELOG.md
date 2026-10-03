@@ -13,6 +13,8 @@ notes are copied from that section.
   resets. Limit failures retry without attempts or backoff; alternatives remain
   eligible and paused-only items wait. Local pause state appears in `status` and
   `doctor`; `status --json` now returns `assignments` and `runtime_pauses`.
+  Launchers remove their state on exit and prune abandoned local state at startup;
+  process start times prevent recycled PIDs from showing stale pauses.
   Codex runs use `--json` and their fresh session's usage records, and `check`
   rejects Codex `--ephemeral` arguments (#85).
 

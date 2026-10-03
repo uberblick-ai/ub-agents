@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import signal
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -15,9 +16,10 @@ import uuid
 from ub_agents.cli import main
 from ub_agents.config import Runtime
 from ub_agents.execution import supervise
-from ub_agents.loop import Loop
+from ub_agents.errors import AgentError, LostOwnership
+from ub_agents.loop import Loop, _GracefulStop
 from ub_agents.records import attempts, iso, seconds
-from ub_agents.runtime_usage import RuntimeUsage, local_pauses
+from ub_agents.runtime_usage import RuntimeUsage, local_pauses, process_started
 from ub_agents.usage_output import UsageOutput
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
@@ -131,8 +133,85 @@ class RuntimeUsageTests(unittest.TestCase):
         self.usage.path.write_text(json.dumps(good))
         with patch("ub_agents.runtime_usage.os.kill", side_effect=ProcessLookupError):
             self.assertEqual(local_pauses(self.root, self.now), [])
+        self.assertEqual(json.loads(self.usage.path.read_text()), good)
         self.usage.path.write_text("broken json")
         self.assertEqual(local_pauses(self.root, self.now), [])
+
+    def test_close_removes_own_state_and_temporary_file_only(self):
+        self.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        other = RuntimeUsage(self.root, lambda: self.now, self.lines.append)
+        other.record("codex", "primary", 90, self.now + 200, 18000)
+        before = other.path.read_bytes()
+        temporary = self.usage.path.with_suffix(".tmp")
+        temporary.write_text("incomplete write")
+        self.usage.close()
+        self.usage.close()
+        self.assertFalse(self.usage.path.exists())
+        self.assertFalse(temporary.exists())
+        self.assertEqual(other.path.read_bytes(), before)
+        self.assertEqual([row["cli"] for row in local_pauses(self.root, self.now)], ["codex"])
+
+    def test_startup_prunes_dead_launchers_but_preserves_live_and_foreign_state(self):
+        self.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        good = json.loads(self.usage.path.read_text())
+        dead_pid = os.getpid() + 1000000
+        dead = self.usage.path.with_name(f"{uuid.uuid4().hex}.json")
+        dead.write_text(json.dumps(good | {"launcher": dead.stem, "pid": dead_pid}))
+        legacy = self.usage.path.with_name(f"{uuid.uuid4().hex}.json")
+        legacy_state = good | {"launcher": legacy.stem, "pid": dead_pid}
+        legacy_state.pop("process_started")
+        legacy.write_text(json.dumps(legacy_state))
+        foreign = self.usage.path.with_name(f"{uuid.uuid4().hex}.json")
+        foreign.write_text(json.dumps(good | {"launcher": foreign.stem, "pid": dead_pid,
+                                              "host": "another-host"}))
+        before = self.usage.path.read_bytes(), foreign.read_bytes()
+
+        def probe(pid, sig):
+            self.assertEqual(sig, 0)
+            if pid == dead_pid:
+                raise ProcessLookupError
+
+        with patch("ub_agents.runtime_usage.os.kill", side_effect=probe):
+            RuntimeUsage(self.root, lambda: self.now, self.lines.append).reset()
+        self.assertFalse(dead.exists())
+        self.assertFalse(legacy.exists())
+        self.assertEqual((self.usage.path.read_bytes(), foreign.read_bytes()), before)
+
+    def test_recycled_pid_is_ignored_read_only_and_pruned_on_startup(self):
+        self.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        before = self.usage.path.read_bytes()
+        with patch("ub_agents.runtime_usage.process_started", return_value="a later process"):
+            self.assertEqual(local_pauses(self.root, self.now), [])
+            self.assertEqual(self.usage.path.read_bytes(), before)
+            RuntimeUsage(self.root, lambda: self.now, self.lines.append).reset()
+        self.assertFalse(self.usage.path.exists())
+
+    def test_unavailable_inspection_never_prunes_potentially_live_state(self):
+        self.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        before = self.usage.path.read_bytes()
+        for target, value in (("process_started", {"return_value": None}),
+                              ("os.kill", {"side_effect": PermissionError})):
+            with self.subTest(target=target), patch(f"ub_agents.runtime_usage.{target}", **value):
+                self.assertEqual(local_pauses(self.root, self.now), [])
+                RuntimeUsage(self.root, lambda: self.now, self.lines.append).reset()
+                self.assertEqual(self.usage.path.read_bytes(), before)
+
+    def test_process_start_probe_distinguishes_exit_from_inspection_failure(self):
+        for code, output, error, expected in (
+                (0, "S+ Sat Oct  3 12:00:00 2026\n", "", "Sat Oct 3 12:00:00 2026"),
+                (0, "Z Sat Oct  3 12:00:00 2026\n", "", ""),
+                (1, "", "", ""), (1, "", "Operation not permitted", None),
+                (0, "malformed", "", None)):
+            with self.subTest(code=code, output=output, error=error), \
+                    patch("ub_agents.runtime_usage.subprocess.run", return_value=
+                          subprocess.CompletedProcess([], code, output, error)) as probe:
+                self.assertEqual(process_started(123), expected)
+                self.assertEqual(probe.call_args.args[0], ["ps", "-p", "123", "-o", "stat=,lstart="])
+                self.assertEqual(probe.call_args.kwargs["env"]["LC_ALL"], "C")
+                self.assertEqual(probe.call_args.kwargs["env"]["TZ"], "UTC")
+        for error in (OSError("not permitted"), subprocess.TimeoutExpired("ps", 5)):
+            with self.subTest(error=error), patch("ub_agents.runtime_usage.subprocess.run", side_effect=error):
+                self.assertIsNone(process_started(123))
 
 
 class UsageOutputTests(unittest.TestCase):
@@ -388,6 +467,33 @@ class UsageLoopTests(unittest.TestCase):
         self.assertEqual(starts, [self.start, self.start + 160, self.start + 260])
         self.assertFalse(any("Skipped GitHub poll" in line for line in self.lines))
 
+    def test_launch_exit_removes_state_for_once_stop_and_errors(self):
+        other = RuntimeUsage(self.root, lambda: self.now, self.lines.append)
+        other.record("codex", "primary", 90, self.now + 200, 18000)
+        before = other.path.read_bytes()
+        for ending in ("once", "stop", _GracefulStop(), KeyboardInterrupt(),
+                       AgentError("poll failed"), LostOwnership("lost claim"), RuntimeError("unexpected")):
+            with self.subTest(ending=ending):
+                self.loop.stop_event.clear()
+
+                def tick():
+                    self.loop.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+                    self.assertTrue(self.loop.usage.path.exists())
+                    if isinstance(ending, BaseException):
+                        raise ending
+                    if ending == "stop":
+                        self.loop.stop_event.set()
+                    return True
+
+                with patch.object(self.loop, "tick", side_effect=tick):
+                    if isinstance(ending, BaseException) and not isinstance(ending, _GracefulStop):
+                        with self.assertRaises(type(ending)):
+                            self.loop.launch(once=True)
+                    else:
+                        self.loop.launch(once=ending == "once")
+                self.assertEqual(list(self.loop.usage.path.parent.glob("*.json")), [other.path])
+                self.assertEqual(other.path.read_bytes(), before)
+
     def test_status_json_and_text_show_pauses_even_with_empty_queue(self):
         self.loop.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
         github = FakeGitHub()
@@ -431,3 +537,4 @@ class UsageLoopTests(unittest.TestCase):
                     self.assertEqual(main(["--config", str(self.root / "ub-agent.yaml"), "launch"]),
                                      0 if sig == signal.SIGTERM else 130)
                 self.assertEqual(signal.getsignal(sig), handler)
+                self.assertEqual(list((self.root / ".ub-agent" / "runtime-usage").glob("*.json")), [])

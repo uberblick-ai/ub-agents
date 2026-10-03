@@ -819,6 +819,12 @@ class Loop:
         self._poll_complete = True
 
     def launch(self, once=False):
+        try:
+            return self._launch(once)
+        finally:
+            self.usage.close()
+
+    def _launch(self, once):
         self.usage.reset()
         self.github.discovery = not once
         if self.coordinator.actor is None:

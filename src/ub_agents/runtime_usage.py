@@ -5,6 +5,7 @@ import math
 import os
 from pathlib import Path
 import socket
+import subprocess
 import uuid
 
 from .records import iso, seconds, timestamp
@@ -59,6 +60,42 @@ def pause_rows(state, now):
     return rows
 
 
+def process_started(pid):
+    """Return a stable process start, empty for an exited process, or unknown."""
+    try:
+        result = subprocess.run(["ps", "-p", str(pid), "-o", "stat=,lstart="],
+                                text=True, capture_output=True, timeout=5,
+                                env=os.environ | {"LC_ALL": "C", "TZ": "UTC"})
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode == 1 and not result.stdout.strip() and not result.stderr.strip():
+        return ""
+    fields = result.stdout.split()
+    if result.returncode or len(fields) != 6:
+        return None
+    return "" if "Z" in fields[0] else " ".join(fields[1:])
+
+
+def launcher_alive(state):
+    """Unknown inspection must never authorize removal of another launcher's file."""
+    pid = state.get("pid")
+    if type(pid) is not int or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)  # Liveness probe only; never signal another launcher.
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return None
+    started = process_started(pid)
+    if started == "":
+        return False
+    recorded = state.get("process_started")
+    if started is None or not isinstance(recorded, str) or not recorded:
+        return None
+    return started == recorded
+
+
 def local_pauses(root, now=None):
     """Read all live launchers on this host without rewriting their files."""
     now = timestamp() if now is None else now
@@ -68,10 +105,12 @@ def local_pauses(root, now=None):
             state = json.loads(path.read_text())
             if (state.get("version") != 1 or state.get("host") != socket.gethostname()
                     or not isinstance(state.get("launcher"), str)
+                    or state["launcher"] != path.stem
                     or type(state.get("pid")) is not int or state["pid"] <= 0
                     or not isinstance(state.get("pauses"), dict)):
                 continue
-            os.kill(state["pid"], 0)  # Liveness probe only; never signal another launcher.
+            if launcher_alive(state) is not True:
+                continue
             rows.extend(pause_rows(state, now))
         except (OSError, ValueError, TypeError, AttributeError, OverflowError):
             continue
@@ -85,19 +124,38 @@ class RuntimeUsage:
         self.path = self.root / ".ub-agent" / "runtime-usage" / f"{self.launcher}.json"
         self.readings, self.pauses = {}, {}
         self._write_warning = False
+        self._process_started = None
 
     def reset(self):
         # Each new launch starts empty. Other live launchers own their own files.
         self.readings.clear()
         self.pauses.clear()
-        self.path.unlink(missing_ok=True)
+        self.close()
+        for path in self.path.parent.glob("*.json"):
+            try:
+                state = json.loads(path.read_text())
+                if state.get("host") == socket.gethostname() and launcher_alive(state) is False:
+                    path.unlink(missing_ok=True)
+            except (OSError, ValueError, TypeError, AttributeError, OverflowError):
+                continue
+
+    def close(self):
+        """Remove only this launcher's published state and incomplete write."""
+        for path in (self.path, self.path.with_suffix(".tmp")):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                self.output(f"Cannot remove runtime usage state: {exc}")
 
     def state(self):
         return {"version": 1, "launcher": self.launcher, "pid": os.getpid(),
-                "host": socket.gethostname(), "readings": self.readings, "pauses": self.pauses}
+                "host": socket.gethostname(), "process_started": self._process_started,
+                "readings": self.readings, "pauses": self.pauses}
 
     def save(self):
         try:
+            if self._process_started is None:
+                self._process_started = process_started(os.getpid())
             self.path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.path.with_suffix(".tmp")
             temporary.write_text(json.dumps(self.state()))

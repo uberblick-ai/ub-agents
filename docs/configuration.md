@@ -503,7 +503,10 @@ publishes its unexpired readings and pauses atomically in its own
 unexpired pauses of live launchers on this host without changing those files;
 a pause does not fail `doctor`. Launchers schedule from their own readings.
 Restarting a launcher starts with no pauses, providing an override when usage is
-lifted early; state from a stopped launcher is ignored.
+lifted early. A launcher removes its own state when it exits and prunes abandoned
+state from this host at startup. Process start times distinguish live launchers
+from recycled PIDs; state from stopped launchers is ignored. Other hosts' state
+and state whose owner cannot be inspected are preserved.
 
 `status --json` returns an object with `assignments` (the assignment rows) and
 `runtime_pauses` (entries with `cli`, `reason`, UTC `ends_at`, and `launcher`).
