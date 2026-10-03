@@ -30,6 +30,18 @@ agents:
       - "Bash(ub-agent *)"
       - "Bash(python3 *)"
       - "Bash(.venv/bin/*)"
+      # Shell helpers for inspecting issue context (preparer), code/check output (reviewer),
+      # and merge evidence (integrator), including plain pipelines such as `… | tail`.
+      # Arguments are unrestricted; these permissions do not enforce read-only access.
+      # Shell expansion can still be denied: see each role's publication guidance.
+      - "Bash(cat *)"
+      - "Bash(grep *)"
+      - "Bash(ls *)"
+      - "Bash(wc *)"
+      - "Bash(sort *)"
+      - "Bash(head *)"
+      - "Bash(tail *)"
+      - "Bash(jq *)"
 
   implementer:
     runtime: "codex:gpt-6.1-sol:xhigh"
