@@ -407,7 +407,7 @@ request may already have written the transition start marker.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim is recoverable only after the lease expires, so projects with long runs may prefer shorter per-agent timeouts. |
+| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim normally waits for expiry; `ub-agent recover` can finish a reported outcome early on its host. Projects with long runs may prefer shorter per-agent timeouts. |
 | `max-attempts` | 5 | Consecutive failures per item and agent before pickup stops. |
 | `retry-backoff-seconds` | 60 | First failure retry delay; doubles with consecutive failures and restarts after success or reset. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
@@ -528,7 +528,31 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 - `ub-agent launch [--once]` runs the loop in the foreground.
 - `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
+- `ub-agent recover --number N --agent NAME --reason TEXT` finishes the latest lease's
+  reported outcome on the launcher's host, including before expiry. The lease must
+  belong to the authenticated GitHub actor, record this hostname and a process group
+  with no live members, and have an outcome within its validity window that no
+  supervisor verdict superseded. The reason attests that the launcher has stopped
+  and is recorded on the recovery claim with its author. It prints acceptance and
+  label changes or rejection and its reason. Failed eligibility checks refuse without
+  writing, name the check and lease expiry, and exit nonzero. See [Recovery](coordination.md#recovery).
 - `ub-agent status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+  A live lease's summary names its actor, host, claim time, runtime and lease end,
+  including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
+  the current UTC day. Only leases on this host have their recorded process group
+  inspected: live members display `running` and the path to `process.log`; an
+  exited group explains launcher completion or recovery after lease expiry. If
+  that owning run reported an outcome, the reason also points to
+  `ub-agent recover --number N --agent NAME --reason TEXT` for recovery now; the
+  command's eligibility checks still apply. Other reasons distinguish a starting
+  run, a claim without a host, another host, outcome recovery and an unknown
+  process state with its inspection error. Inspection failures leave `status`
+  successful. It makes no additional GitHub requests, recovers or releases nothing,
+  and preserves the text for rows without a live lease, including shared-branch ownership.
+  JSON adds `process` (`running`, `exited`, `starting`, `claiming`, `other-host`,
+  `recovery` or `unknown`) and `process_reason`, both `null` without a live lease.
+  Existing JSON fields retain their values: `state` stays `owned` for a confirmed
+  running owner, and `reason` retains the ownership explanation.
   Each agent's `reported:` (JSON `outcome`) describes that agent's live lease's run,
   or its latest lease's run when it has no live lease. Recovery leases show the
   original run's report. If that run has not reported, `reported:` is omitted and
@@ -538,5 +562,8 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
-  an item once you have fixed the cause.
+  an item once you have fixed the cause. It prints the reset record's link and a
+  second line explaining closure, stop labels to remove, trigger labels to add,
+  or pickup by a running launcher on its next poll. Labels stay unchanged; use
+  `ub-agent status` for progress and other pickup gates.
 - `--config PATH` selects a different configuration file.

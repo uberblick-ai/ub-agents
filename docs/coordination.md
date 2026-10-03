@@ -26,6 +26,11 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   clears its failure block and backoff, preserving history. Approval parking still
   requires maintainer approval. It refuses a live lease
   and never revokes someone else's run. It does not restore workflow labels.
+  Its two output lines link the reset record and explain the next step from the
+  item's current state and labels: closed first, then present stop labels, then
+  missing triggers, otherwise pickup by a running launcher on its next poll.
+  If stop labels are present and triggers are missing, both need attention.
+  Use `ub-agent status` for progress and other pickup gates.
 
 | How a run ends | Count | Afterwards |
 |---|---|---|
@@ -385,8 +390,9 @@ lost, no comment protocol can make that verdict durable.
 
 ## Recovery
 
-An unexpired lease always excludes pickup. Expiry permits a new fresh run, never
-conversation resumption. Durable attempts and backoff survive restarts.
+An unexpired lease excludes pickup until release or an operator recovery claim
+supersedes it. Expiry permits a new fresh run, never conversation resumption.
+Durable attempts and backoff survive restarts.
 
 At startup, launcher and `status` discovery read repository issue comments updated
 within the longest configured agent lease plus seven days. The full lease includes
@@ -431,6 +437,30 @@ independent role uses the missing-source fallback on a newer head.
 An unstarted transition is validated in full, and a durably rejected outcome is
 never applied later. Replay treats removing an absent label or adding a present one
 as a no-op; a label in both lists ends up added.
+
+After checking on the launcher's host that the launcher has stopped, an operator
+can run `ub-agent recover --number N --agent NAME --reason TEXT` to perform the
+same outcome-only recovery before expiry. The latest lease for that item and agent
+must belong to the current GitHub actor, record this machine's hostname as `host`,
+and record a `process_group` with no live members, using the same process inspection
+as `cleanup`. It must have a reported outcome within its validity window and no
+supervisor verdict that superseded the report. Unconfirmed cleanup still refuses.
+Failed checks write nothing, exit nonzero, and print the failed check and lease
+expiry. Accepted outcomes print their label changes; rejected or invalid outcomes
+print their rejection reason and finish with the same verdict and attempt effect
+as expiry recovery.
+
+The reason attests that the launcher has stopped; the command checks the agent's
+process group and does not try to prove launcher termination. The recovery lease
+records `recovery_reason`, with the GitHub comment author identifying the actor.
+Any non-withdrawn recovery claim naming the original lease revokes its ownership,
+so a surviving original supervisor makes no further coordination writes. Recovery
+contenders, including expiry recovery racing the command, elect the lowest live
+comment id as usual. A stopped recovery can itself be recovered after its bounded
+claim expires, without starting an agent or restoring the original lease's ownership.
+No remote-host recovery, force clearing, process signalling or recovery without a
+report is provided. Stop all project launchers and upgrade them together before
+using this command: earlier launchers do not recognize early ownership revocation.
 
 Transitions create no cross-item reservations: removals from the assignment precede
 additions to the destination, so a crash between them leaves both items idle until

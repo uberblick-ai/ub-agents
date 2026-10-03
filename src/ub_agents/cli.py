@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import sys
 import threading
 import uuid
@@ -21,6 +22,7 @@ from .loop import Loop, _GracefulStop
 from .launch_log import launch_output
 from .labels import provision_labels
 from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
+from .status import lease_summary, process_details
 
 
 def parser():
@@ -50,6 +52,10 @@ def parser():
     retry.add_argument("--number", type=int, required=True)
     retry.add_argument("--agent", required=True)
     retry.add_argument("--reason", required=True)
+    recover = commands.add_parser("recover", help="Recover a stopped local launcher's reported outcome before expiry")
+    recover.add_argument("--number", type=int, required=True)
+    recover.add_argument("--agent", required=True)
+    recover.add_argument("--reason", required=True, help="Attest that the launcher has stopped")
     approve = commands.add_parser("approve", help="Approve current issue or PR input as a maintainer")
     approve.add_argument("--number", type=int, required=True)
     return result
@@ -127,13 +133,21 @@ def report_run(args):
     print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
 
 
-def status_rows(loop):
+def status_rows(loop, now=None):
+    now = timestamp() if now is None else now
+    host = socket.gethostname()
+    processes = {}
     rows = []
     for plan in loop.plans():
         history = plan.history
-        active = live_leases(history, timestamp())
+        active = live_leases(history, now)
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None
+        process, process_reason = None, None
+        if lease:
+            if lease["id"] not in processes:
+                processes[lease["id"]] = process_details(lease, history, now, host)
+            process, process_reason = processes[lease["id"]]
         source = next((r for r in active if r["agent"] == plan.agent.name), None) or latest
         if source and source.get("mode") == "recovery":
             source = lease_by_id(history, source.get("recovered_lease_id"))
@@ -148,8 +162,29 @@ def status_rows(loop):
                      "candidate_sha": plan.item.head,
                      "result": latest.get("result") if latest else None,
                      "lease": lease,
+                     "process": process, "process_reason": process_reason,
                      "outcome": outcomes[-1] if outcomes else None})
     return rows
+
+
+def retry_next_step(item, agent, stop_labels):
+    if item.state == "closed":
+        return f"#{item.number} is closed."
+    stops = [label for label in stop_labels if label in item.labels]
+    triggers = [label for label in agent.triggers if label in item.labels]
+    if stops:
+        plural = len(stops) > 1
+        message = (f"#{item.number} has stop label{'s' if plural else ''} {', '.join(stops)}; "
+                   f"it stays parked until {'the labels are' if plural else 'the label is'} removed.")
+        if not triggers:
+            message += (f" One of {agent.name}'s trigger labels must also be added: "
+                        f"{', '.join(agent.triggers)}.")
+        return message
+    if not triggers:
+        return (f"#{item.number} won't run until one of {agent.name}'s trigger labels is added: "
+                f"{', '.join(agent.triggers)}.")
+    return (f"#{item.number} has trigger label{'s' if len(triggers) > 1 else ''} {', '.join(triggers)}; "
+            "a running launcher picks it up on its next poll. `ub-agent status` shows its progress.")
 
 
 def run(args):
@@ -179,6 +214,10 @@ def run(args):
         print(f"Approval posted: {created['html_url']}")
         return
     coordinator = Coordinator(github, actor)
+    if args.command == "recover":
+        from .recovery import recover_run
+        recover_run(config, github, actor, args.number, args.agent, args.reason)
+        return
     if args.command == "cleanup":
         from .cleanup import Cleaner
         for _, error in repository_checks(config):
@@ -187,7 +226,8 @@ def run(args):
         Cleaner(config, github, actor).clean(apply=args.apply)
         return
     if args.command == "retry":
-        if args.agent not in {agent.name for agent in config.agents}:
+        agent = next((agent for agent in config.agents if agent.name == args.agent), None)
+        if agent is None:
             raise AgentError("Unknown configured agent")
         if not args.reason.strip() or args.number < 1:
             raise AgentError("retry requires a positive item number and a reason")
@@ -200,21 +240,23 @@ def run(args):
                   "assignment": item.number, "assignment_sha": item.head, "created": iso(timestamp()), "summary": args.reason}
         created = records([github.create_comment(item.number, body(record))])[0]
         coordinator.notices.resumed(item.number)
-        print(json.dumps({"agent": args.agent, "number": item.number, "url": created["url"]}))
+        print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
+        print(retry_next_step(item, agent, config.stop_labels))
         return
     stop = threading.Event()
     interrupt = threading.Event()
     loop = Loop(config, github, actor, stop, config_path=Path(args.config).resolve(),
                 interrupt_event=interrupt)
     if args.command == "status":
-        rows = status_rows(loop)
+        now = timestamp()
+        rows = status_rows(loop, now)
         if args.json:
             print(json.dumps(rows, indent=2))
         elif not rows:
             print("No configured triggers match open GitHub work")
         else:
             for row in rows:
-                owner = (f" · @{row['lease']['actor']} until {row['lease']['expires']}"
+                owner = (f" · {lease_summary(row['lease'], now)}"
                          if row["lease"] else "")
                 outcome = ""
                 if row["outcome"]:
@@ -227,8 +269,9 @@ def run(args):
                     priority += f" (inherited from #{row['priority_inherited_from']})"
                 elif row["priority_from_issue"] is not None:
                     priority += f" (from closed issue #{row['priority_from_issue']})"
-                print(f"#{row['number']} {row['agent']}: {row['state']} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
-                print(f"  {row['reason']}")
+                state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
+                print(f"#{row['number']} {row['agent']}: {state} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
+                print(f"  {row['process_reason'] or row['reason']}")
         return
     for _, error in repository_checks(config):
         if error is not None:

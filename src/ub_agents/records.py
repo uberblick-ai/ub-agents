@@ -199,6 +199,14 @@ def validate(record):
             raise ValueError("invalid process group")
         if "cleanup_hook_error" in record and not isinstance(record["cleanup_hook_error"], str):
             raise ValueError("invalid cleanup hook diagnostic")
+        if record.get("mode") == "recovery":
+            if (not positive_int(record.get("recovered_lease_id"))
+                    or not isinstance(record.get("recovered_run"), str) or not record["recovered_run"]):
+                raise ValueError("invalid recovered lease identity")
+        if "recovery_reason" in record:
+            if (record.get("mode") != "recovery" or not isinstance(record["recovery_reason"], str)
+                    or not record["recovery_reason"].strip()):
+                raise ValueError("invalid operator recovery reason")
         if "outcomes" in record:
             declarations = record["outcomes"]
             if (not isinstance(declarations, dict) or not declarations
@@ -247,7 +255,17 @@ def payload(record):
 
 
 def live_leases(history, now):
+    # A recovery claim permanently revokes its source, even before expiry. The
+    # recoverers still elect the lowest live comment id using the usual rules.
+    sources = {r["id"]: r for r in history if r["kind"] == "lease"}
+    superseded = {source["id"] for recovery in history
+                  if recovery["kind"] == "lease" and recovery.get("mode") == "recovery"
+                  and recovery["state"] != "withdrawn"
+                  if (source := sources.get(recovery.get("recovered_lease_id"))) is not None
+                  and recovery.get("recovered_run") == source["run"]
+                  and all(recovery[k] == source[k] for k in ("assignment", "agent", "actor"))}
     return [r for r in history if r["kind"] == "lease"
+            and r["id"] not in superseded
             and r["state"] in {"claiming", "running"} and seconds(r["expires"]) > now]
 
 
@@ -269,7 +287,8 @@ def attempt_effect(history, lease, now):
     if lease["state"] == "released":
         return "failure"  # A missing final classification is unsafe.
     outcomes = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == lease["id"]
-                and same_run(r, lease) and seconds(r["created"]) <= seconds(lease["expires"])]
+                and same_run(r, lease)
+                and seconds(lease["created"]) <= seconds(r["created"]) <= seconds(lease["expires"])]
     if (len(outcomes) == 1 and outcomes[0]["status"] == "success"
             and outcomes[0]["accepted"] and not outcomes[0].get("rejected")):
         return "reset"

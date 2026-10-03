@@ -213,14 +213,14 @@ class Coordinator:
                 or any(r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
                        and r.get("recovered_lease_id") == source["id"] for r in history))
 
-    def pending_completion(self, history, agent, now):
+    def pending_completion(self, history, agent, now, allow_live=False):
         latest = [r for r in latest_leases(history).values() if r["agent"] == agent]
         if not latest:
             return None
         lease = latest[-1]
         if lease.get("result") and lease.get("attempt_effect") in {"failure", "unchanged"}:
             return None  # A supervised verdict already superseded any early report.
-        if lease["state"] not in {"running", "claiming"} or seconds(lease["expires"]) > now:
+        if lease["state"] not in {"running", "claiming"} or (not allow_live and seconds(lease["expires"]) > now):
             return None
         source_id = lease.get("recovered_lease_id", lease["id"])
         source = lease_by_id(history, source_id)
@@ -229,7 +229,8 @@ class Coordinator:
         if source.get("result") and source.get("attempt_effect") in {"failure", "unchanged"}:
             return None
         matches = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == source_id
-                   and same_run(r, source) and seconds(r["created"]) <= seconds(source["expires"])]
+                   and same_run(r, source)
+                   and seconds(source["created"]) <= seconds(r["created"]) <= seconds(source["expires"])]
         if len(matches) > 1:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
         return matches[0] if matches else None
@@ -258,7 +259,8 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None):
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
+              recovery_check=None, recovery_reason=None):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -266,9 +268,16 @@ class Coordinator:
                 (current.state != "open" or not current.labels.intersection(plan.agent.triggers))):
             return None
         history = self.history(current.number)
-        fresh = self.plan(current, plan.agent, stop_labels, history)
-        if fresh.state != ("recover" if recovery else "ready") or (not recovery and fresh.runtime != plan.runtime):
-            return None
+        if recovery:
+            outcome = (recovery_check(history) if recovery_check is not None else
+                       self.pending_completion(history, plan.agent.name, self.clock()))
+            if outcome is None or any(r["id"] != outcome["lease_id"]
+                                      for r in live_leases(history, self.clock())):
+                return None
+        else:
+            fresh = self.plan(current, plan.agent, stop_labels, history)
+            if fresh.state != "ready" or fresh.runtime != plan.runtime:
+                return None
         if self.queue.milestones == "gate" and not recovery and current.kind == "issue":
             active_milestone = self.github.active_milestone()
             if active_milestone is not None and current.milestone != active_milestone:
@@ -296,11 +305,11 @@ class Coordinator:
                        if changes["remove"] else list(changes["add"]))
                 for name, changes in plan.agent.outcomes.items()}
         if recovery:
-            outcome = self.pending_completion(history, plan.agent.name, now)
-            if outcome is None:
-                return None
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
+            if recovery_reason is not None:
+                record |= {"recovery_reason": recovery_reason,
+                           "summary": f"Operator recovery by @{self.actor}: {recovery_reason}"}
         if before_write is not None:
             before_write()
         created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]

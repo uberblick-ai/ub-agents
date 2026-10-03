@@ -13,6 +13,37 @@ notes are copied from that section.
   changes. Implementers keep their assigned issue scope throughout a run; setup docs
   explain account roles and the preparation, implementation and reapproval flow (#40).
 
+## 0.1.9 — 2026-10-03
+
+**Upgrading:** no configuration edits are required. Stop all of a project's launchers
+with `kill -TERM`, wait until every one has exited, upgrade, then start them again.
+Launchers from 0.1.5 through 0.1.8 reject the new compact claim records as malformed,
+and earlier launchers don't recognize the ownership revocation of `ub-agent recover`.
+Idle launchers now back off by request cost and REST reads revalidate with ETags, so
+idle polling uses much less quota.
+
+### Added
+
+- `ub-agent recover --number N --agent NAME --reason TEXT` completes a stopped local
+  launcher's reported outcome before lease expiry after checking actor, hostname,
+  process-group termination and report eligibility. Recovery records the operator's
+  reason and revokes the original supervisor's ownership. **Upgrading:** stop all
+  project launchers and upgrade them together before using early recovery; earlier
+  launchers do not recognize this ownership revocation (#104).
+
+### Changed
+
+- `ub-agent status` shows who claimed live leases, their host and runtime, compact
+  UTC claim and expiry times, and time remaining. Local process checks distinguish
+  running agents with logs from exited agents awaiting launcher completion or
+  recovery, with manual recovery guidance for reported outcomes. Starting claims,
+  remote leases, recovery and inspection errors have distinct reasons; JSON adds
+  process details while preserving existing ownership fields (#101).
+
+- `ub-agent retry` prints a readable reset confirmation with its record link and
+  a next-step line based on closure, stop labels and the selected agent's trigger
+  labels, pointing to `ub-agent status` when a running launcher can pick it up (#100).
+
 - Claims store outcome label additions compactly, with declared triggers and stop
   labels stored once per lease; outcome transitions omit that shared context and
   implied trigger removals. Upgraded launchers still read and recover 0.1.5 records.
@@ -33,6 +64,7 @@ notes are copied from that section.
   an account's quota. Low quota doubles the gap up to reset, ignoring expired
   quota observations, with a one-hour cap; work resumes normal pacing, and idle
   messages print only on state changes (#83).
+
 - GitHub REST reads revalidate in-memory responses with ETags. Unchanged reads
   confirmed by `304 Not Modified` preserve fresh ownership checks without using
   REST quota or extending the idle polling budget; writes and GraphQL remain
