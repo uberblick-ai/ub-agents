@@ -467,3 +467,5 @@ class Coordinator:
         latest = latest_leases(history).get((lease["assignment"], lease["agent"]))
         if latest is None or latest["id"] != lease["id"] or fingerprint(latest) != fingerprint(lease):
             raise LostOwnership("Recovery lease changed while reading its outcome")
+        if any(r["id"] != lease["id"] for r in live_leases(history, self.clock())):
+            raise LostOwnership("Another live lease on this item requires waiting")

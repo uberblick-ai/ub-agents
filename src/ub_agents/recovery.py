@@ -189,7 +189,6 @@ def apply(loop, number, agent, entry_point="cli", before_write=None):
         return decision
     co = loop.coordinator
     target, source = decision.lease, decision.source
-    item = co.github.item(number)
     now = co.clock()
     claim = {"kind": "lease", "mode": "recovery", "run": uuid.uuid4().hex,
              "agent": agent.name, "actor": co.actor, "assignment": number,
@@ -205,6 +204,7 @@ def apply(loop, number, agent, entry_point="cli", before_write=None):
         # must not temporarily hide its durable failure or extend its backoff.
         claim |= {key: target.get(key) for key in ("result", "summary", "attempt_effect", "retry_after", "unreported")}
     try:
+        item = co.github.item(number)
         if before_write is not None:
             before_write()
         # Last read immediately before the claim write, including every branch

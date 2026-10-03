@@ -406,6 +406,17 @@ class EarlyRecoveryTests(unittest.TestCase):
                 self.assertEqual(self.latest()["result"], "success" if change == "added" else "blocked")
                 self.assertEqual(self.loop.coordinator.outcome(source)["accepted"], change == "added")
 
+    def test_apply_read_failure_keeps_claim_and_reports_its_expiry(self):
+        source = self.start()
+        writes = list(self.github.writes)
+        item = self.github.item(1)
+        with patch.object(self.loop.github, "item", side_effect=[item, AgentError("item read failed")]):
+            decision = self.recover()
+        self.assertFalse(decision.applied)
+        self.assertIn("item read failed", decision.reason)
+        self.assertIn(source["expires"], decision.line())
+        self.assertEqual(self.github.writes, writes)
+
     def test_each_write_rechecks_source_and_other_item_or_branch_claims(self):
         for change in ("source-updated", "other-item-claim", "other-branch-claim", "report-rejected"):
             with self.subTest(change=change):
