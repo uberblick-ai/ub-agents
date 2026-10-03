@@ -4,16 +4,24 @@ import json
 import socket
 
 from .errors import LostOwnership
-from .records import declared_transition, lease_by_id, own_comment, records, resolve_transition
+from .records import RECORD_MARKERS, declared_transition, lease_by_id, records, resolve_transition
+from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
 ACTION_MARKERS = (ACTION_MARKER, "<!-- ub-agent:action-needed ")
 
 
 class Notices:
-    def __init__(self, github, actor, output=print):
+    def __init__(self, github, actor, output=print, trusted=None):
         self.github, self.actor, self.output = github, actor, output
+        self.trusted = trusted or LauncherTrust(github)
         self._approval_attempted = set()
+
+    def comments(self, number):
+        trusted = self.trusted.observation()
+        return [c for c in self.github.comments(number)
+                if (c.get("body") or "").startswith(RECORD_MARKERS + ACTION_MARKERS)
+                and trusted(c.get("user"))]
 
     def advisory(self, operation, action):
         try:
@@ -35,26 +43,25 @@ class Notices:
 
     def resumed(self, number):
         def minimize_actions():
-            self.minimize([comment for comment in self.github.comments(number)
-                           if own_comment(comment, self.actor)
-                           and (comment.get("body") or "").startswith(ACTION_MARKERS)])
+            self.minimize([comment for comment in self.comments(number)
+                           if (comment.get("body") or "").startswith(ACTION_MARKERS)])
         self.advisory(f"resume notices on #{number}", minimize_actions)
         self._approval_attempted = {key for key in self._approval_attempted if key[0] != number}
 
     def approval(self, number, check, stops, triggers):
         if not stops:
             return
-        comments = self.github.comments(number)
+        comments = self.comments(number)
         # Claims/resets define a new parking episode even if advisory notice
         # minimization failed. Presentation state must not suppress a later gate.
-        epoch = max((r["id"] for r in records(comments, self.actor)
+        epoch = max((r["id"] for r in records(comments)
                      if r["assignment"] == number and r["kind"] in {"lease", "reset"}), default=0)
         key = (number, check.gate_key, epoch)
         if key in self._approval_attempted:
             return
         marker = f"{ACTION_MARKER}approval-{check.gate_key}-{epoch} -->"
         markers = tuple(f"{m}approval-{check.gate_key}-{epoch} -->" for m in ACTION_MARKERS)
-        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(markers) for c in comments):
+        if any((c.get("body") or "").startswith(markers) for c in comments):
             self._approval_attempted.add(key)
             return
         # Failed writes are advisory and are not retried for this gate in this
@@ -78,8 +85,8 @@ class Notices:
 
     def superseded(self, number, agent, run):
         def minimize_records():
-            comments = self.github.comments(number)
-            history = [r for r in records(comments, self.actor)
+            comments = self.comments(number)
+            history = [r for r in records(comments)
                        if r["agent"] == agent and r["kind"] in {"lease", "outcome"}]
             current = [r["id"] for r in history if r["run"] == run]
             if not current:
@@ -96,7 +103,7 @@ class Notices:
         transition = reported.get("transition", {}) if reported else {}
         if transition and "triggers" not in transition:
             source = lease if reported["lease_id"] == lease["id"] else lease_by_id(
-                records(self.github.comments(reported["assignment"]), self.actor), reported["lease_id"])
+                records(self.comments(reported["assignment"])), reported["lease_id"])
             transition = resolve_transition(transition, declared_transition(source, reported["outcome"]))
         stops = sorted(set(transition.get("add", ())).intersection(transition.get("stop_labels", ())))
         parked = (lease["result"] == "success" and reported
@@ -119,10 +126,10 @@ class Notices:
     def post_action(self, number, lease, outcome, summary, stops, resume_triggers=()):
         marker = f"{ACTION_MARKER}{lease['run']} -->"
         markers = tuple(f"{m}{lease['run']} -->" for m in ACTION_MARKERS)
-        comments = self.github.comments(number)
-        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(markers) for c in comments):
+        comments = self.comments(number)
+        if any((c.get("body") or "").startswith(markers) for c in comments):
             return
-        history = records(comments, self.actor)
+        history = records(comments)
         anchors = [r["id"] for r in history if r["run"] == lease["run"]
                    or (outcome and r["run"] == outcome["run"])]
         if anchors and any(r["kind"] in {"lease", "reset"} and r["id"] > max(anchors) for r in history):

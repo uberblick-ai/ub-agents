@@ -37,6 +37,18 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentError, "outcomes must be"):
             self.load(base)
 
+    def test_launchers_requires_a_nonempty_list_of_unique_nonblank_logins(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        self.assertIsNone(self.load(base).launchers)
+        self.assertEqual(self.load(base + "launchers: [bot-a, Alice]\n").launchers, ("bot-a", "Alice"))
+        for value in ("alice", "null", "[]", "{}", "[1]", "[false]", "[null]", "['']", "['   ']",
+                      "[alice, alice]", "[Alice, ALICE]"):
+            with self.subTest(value=value):
+                self.path.write_text(base + f"launchers: {value}\n")
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                self.assertIn("launchers", stderr.getvalue())
+
     def test_direct_command_and_distinct_clock_overrides(self):
         result = self.load('''repository: org/project
 agents:

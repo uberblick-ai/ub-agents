@@ -104,17 +104,29 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(results[0], results[1])
         self.assertEqual(results[0][:4], ({"unrelated"}, {"unrelated", "needs-review"}, True, True))
 
-    def test_refuses_another_actor_even_with_an_older_owned_lease(self):
+    def test_recovers_another_trusted_actor_with_an_older_owned_lease(self):
         lease, _ = self.start(report=False)
         self.co.release(lease, "retry", "Stopped")
         self.github.login = "other-operator"
+        self.github.roles["other-operator"] = "write"
         other = Loop(self.config, self.github, "other-operator", output=lambda *_: None)
         other.coordinator.clock = lambda: self.now
         plan = other.coordinator.plan(self.github.item(1), self.agent, ())
         latest = other.coordinator.claim(plan)
         other.coordinator.update(latest, state="running", host="local-host", process_group=1234)
+        outcome = other.coordinator.report(latest, "success", "Other account completed", handoff=2,
+                                           outcome="handed-off")
         self.github.login = "operator"
-        self.refuse("another actor")
+        self.early()
+        self.assertTrue(other.coordinator.outcome(latest)["accepted"])
+        self.assertEqual(other.coordinator.outcome(latest)["actor"], "other-operator")
+        copied, = self.co.history(2)
+        self.assertEqual((copied["actor"], copied["run"]), ("operator", outcome["run"]))
+        self.assertTrue(self.co.released_success(self.co.history(1), copied))
+        self.assertEqual(live_leases(self.co.history(1), self.now), [])
+        self.assertEqual(attempts(self.co.history(1), self.agent.name, self.now), [])
+        with self.assertRaises(LostOwnership):
+            other.coordinator.assert_owned(latest)
 
     def test_refuses_another_or_missing_host(self):
         lease, _ = self.start()
@@ -261,10 +273,10 @@ class RecoveryTests(unittest.TestCase):
         recovery = payload(source) | {"id": 99, "run": "recoverer", "mode": "recovery",
                                      "recovered_lease_id": source["id"], "recovered_run": source["run"]}
         for changes in ({"state": "withdrawn"}, {"recovered_run": "unrelated"},
-                        {"recovered_lease_id": 999}, {"assignment": 2}, {"agent": "other"},
-                        {"actor": "other-operator"}):
+                        {"recovered_lease_id": 999}, {"assignment": 2}, {"agent": "other"}):
             with self.subTest(changes=changes):
                 self.assertIn(source, live_leases([source, recovery | changes], self.now))
+        self.assertNotIn(source, live_leases([source, recovery | {"actor": "other-operator"}], self.now))
         for state, expires in (("claiming", self.now + 5), ("running", self.now + 5),
                                ("released", self.now - 1), ("claiming", self.now - 1)):
             with self.subTest(state=state, expires=expires):

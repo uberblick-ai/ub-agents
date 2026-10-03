@@ -11,7 +11,8 @@ from .errors import AgentError, GitHubError, LostOwnership, RecordError, Runtime
 from .github import Item
 from .notices import Notices
 from .records import (RECORD_MARKERS, V1_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
-                      own_comment, payload, records, same_run, seconds, timestamp)
+                      payload, records, recovers, same_handoff, same_run, seconds, timestamp)
+from .trust import LauncherTrust
 
 
 @dataclass(frozen=True)
@@ -35,20 +36,22 @@ class Plan:
 
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
-                 runtime_paused=None):
+                 runtime_paused=None, launchers=None, role=None):
         self.github = github
         self.actor = actor
+        self.trust = LauncherTrust(github, launchers, role)
+        self.output = output
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
         self.runtime_paused = runtime_paused or (lambda cli: None)
-        self.notices = Notices(github, actor, output)
+        self.notices = Notices(github, actor, output, trusted=self.trust)
 
     def history(self, number):
         comments = self.github.comments(number)
         try:
-            return records(comments, self.actor)
-        except RecordError:
+            return records(comments, trusted=self.trust.observation())
+        except (RecordError, GitHubError):
             raise
         except AgentError as exc:
             raise GitHubError("GET", f"repos/{self.github.repository}/issues/{number}/comments", str(exc)) from exc
@@ -82,13 +85,14 @@ class Coordinator:
 
     def repository_history(self, comments=None, by_item=False):
         groups = {}
+        trusted = self.trust.observation()
         for comment in self.github.repository_comments() if comments is None else comments:
             if not isinstance(comment, dict):
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Unreadable repository comment")
-            if not own_comment(comment, self.actor):
-                continue
             if not isinstance(comment.get("body"), str) or not comment["body"].startswith(RECORD_MARKERS):
+                continue
+            if not trusted(comment.get("user")):
                 continue
             try:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
@@ -101,7 +105,7 @@ class Coordinator:
         history, invalid, histories = [], set(), {}
         for number, comments in groups.items():
             try:
-                histories[number] = records(comments, self.actor)
+                histories[number] = records(comments)
                 history.extend(histories[number])
             except RecordError:
                 invalid.add(number)
@@ -155,6 +159,9 @@ class Coordinator:
                 state, reason = "waiting", str(exc)
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
+        if state in {"ready", "recover"} and self.actor is not None:
+            if untrusted := self.trust.reason(self.actor):
+                state, reason, runtime = "blocked", untrusted, None
         return Plan(item, agent, runtime, state, reason, attempt)
 
     def choose_runtime(self, item, agent, history):
@@ -179,7 +186,7 @@ class Coordinator:
                 source = source[-1]
                 origin = self.history(source["assignment"])
                 lease = lease_by_id(origin, source["lease_id"])
-                if lease and not same_run(source, lease):
+                if lease and not same_handoff(source, lease):
                     raise AgentError("Candidate provenance does not match its source lease")
                 if not self.released_success(origin, source):
                     raise AgentError("Candidate provenance has no successfully released source lease")
@@ -208,7 +215,7 @@ class Coordinator:
         # Expiry alone does not abandon it: recovery must finish the handoff.
         origin = self.history(report["assignment"])
         lease = lease_by_id(origin, report["lease_id"])
-        if lease is None or not same_run(report, lease):
+        if lease is None or not same_handoff(report, lease):
             return False
         if any(r["kind"] == "reset" and r["agent"] == report["agent"] and r["id"] > lease["id"]
                for r in origin):
@@ -222,11 +229,11 @@ class Coordinator:
     @staticmethod
     def released_success(history, outcome):
         source = lease_by_id(history, outcome["lease_id"])
-        if source is None or source.get("cleanup") == "unconfirmed" or not same_run(outcome, source):
+        if source is None or source.get("cleanup") == "unconfirmed" or not same_handoff(outcome, source):
             return False
         return ((source["state"] == "released" and source.get("result") == "success")
                 or any(r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
-                       and r.get("recovered_lease_id") == source["id"] for r in history))
+                       and recovers(r, source) and r.get("cleanup") != "unconfirmed" for r in history))
 
     def pending_completion(self, history, agent, now, allow_live=False):
         latest = [r for r in latest_leases(history).values() if r["agent"] == agent]
@@ -276,6 +283,10 @@ class Coordinator:
 
     def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
               recovery_check=None, recovery_reason=None):
+        reason = self.trust.reason(self.actor)
+        if reason:
+            self.output(f"{reason}; claiming no work")
+            return None
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -351,7 +362,7 @@ class Coordinator:
 
     def update(self, lease, **changes):
         updated = payload(lease) | changes
-        result = records([self.github.update_comment(lease["id"], body(updated))], self.actor)[0]
+        result = records([self.github.update_comment(lease["id"], body(updated))])[0]
         lease.clear()
         lease.update(result)
         return lease
@@ -416,15 +427,14 @@ class Coordinator:
 
     def update_outcome(self, lease, outcome, **changes):
         self.assert_owned(lease)
-        updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))],
-                          self.actor)[0]
+        updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))])[0]
         outcome.clear()
         outcome.update(updated)
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)
         accepted = payload(outcome) | {"accepted": True}
-        updated = records([self.github.update_comment(outcome["id"], body(accepted))], self.actor)[0]
+        updated = records([self.github.update_comment(outcome["id"], body(accepted))])[0]
         outcome.clear()
         outcome.update(updated)
         self.copy_handoff(lease, outcome)
@@ -433,7 +443,7 @@ class Coordinator:
         """Publish or refresh the same provenance record before routing and accepting."""
         if outcome.get("handoff") and outcome["handoff"] != lease["assignment"]:
             copies = [r for r in self.history(outcome["handoff"]) if r["kind"] == "outcome"
-                      and r["lease_id"] == outcome["lease_id"] and same_run(r, outcome)]
+                      and r["lease_id"] == outcome["lease_id"] and same_handoff(r, outcome)]
             self.assert_owned(lease)
             if copies:
                 self.github.update_comment(copies[-1]["id"], body(payload(outcome)))

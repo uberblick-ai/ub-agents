@@ -436,7 +436,7 @@ class CoordinationTests(unittest.TestCase):
 
 
 class TrustTests(unittest.TestCase):
-    """Only the launcher's own, well-formed records carry authority."""
+    """Only trusted accounts' well-formed records carry authority."""
     def setUp(self):
         self.refresh = stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()

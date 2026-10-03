@@ -137,9 +137,9 @@ the assigned item and, for an issue, its handoff PRs. Each entry contains `agent
 item, only outcomes recorded after the receiving agent's latest accepted outcome
 are included; its handoff copy counts as its own outcome. Without an own accepted
 outcome there, all other agents' accepted outcomes are included. Outcomes appear
-once, in comment record order, even when copied to a handoff PR. Only the launcher
-account's coordination records supply this trusted input; other accounts' records
-stay excluded. Revisions must address `feedback` alongside comments and reviews.
+once, in comment record order, even when copied to a handoff PR. Coordination records
+from every trusted launcher account supply this input. Revisions must address
+`feedback` alongside comments and reviews.
 This field does not change approval requirements.
 
 An outside PR head requires a valid pinned approval record, a maintainer approving
@@ -184,16 +184,33 @@ The launcher reads minimization state through GraphQL in batches before sending
 mutations, so later releases and claims skip comments already minimized. REST
 comment reads still supply the coordination records.
 
-Only the authenticated GitHub account's comments supply coordination authority, so
-every launcher for a project must authenticate as the same account; launchers on
-different accounts would not see each other's claims and could run one item twice.
-Markers and records from other comment authors are ignored before parsing, and
+Launchers on different GitHub accounts share the same queue. By default, coordination
+records count when the comment author's current repository role is `write`, `maintain`
+or `admin`. Optional `launchers: [bot-a, alice]` narrows trust to those accounts,
+matched case-insensitively; listed accounts must still have `write` or higher.
+Any account in this trusted set, including humans with write access, can post
+records that count. This adds little authority because those humans can already
+change labels and push.
+
+Role reads for record authors share the existing permission read once per account
+per discovery pass. Coordination reads check only authors of marked records;
+unlisted authors are ignored without a role read. Roles are judged at read time,
+even when the item has not changed. Stop an account's launcher before demoting it
+or removing it from `launchers`: revocation excludes all its records, including
+open leases. A launcher claims nothing while its own account is untrusted and
+prints the reason. A failed or unreadable author role read stops the pass rather
+than silently discarding a possible owner; only a definite role below `write`
+excludes that author's records. Untrusted records are ignored before parsing, and
 payload fields cannot grant trust: the actor is always the comment author.
 Agents using the operator's GitHub credentials can write trusted records
 themselves; author filtering is not a security boundary against a compromised
 agent session. Malformed or contradictory trusted records park their item
 visibly without stopping unrelated work. Transport and read failures still stop
 the loop; they never become an empty queue.
+
+**Upgrading:** older launchers trust only their own account. Stop every launcher
+and upgrade them together before mixing accounts. Use the same `launchers` setting
+on every machine so all launchers agree on the trusted set.
 
 ## Human action and launch output
 
@@ -461,7 +478,7 @@ as a no-op; a label in both lists ends up added.
 After checking on the launcher's host that the launcher has stopped, an operator
 can run `ub-agents recover --number N --agent NAME --reason TEXT` to perform the
 same outcome-only recovery before expiry. The latest lease for that item and agent
-must belong to the current GitHub actor, record this machine's hostname as `host`,
+must come from a trusted launcher account, record this machine's hostname as `host`,
 and record a `process_group` with no live members, using the same process inspection
 as `cleanup`. It must have a reported outcome within its validity window and no
 supervisor verdict that superseded the report. Unconfirmed cleanup still refuses.
@@ -475,6 +492,10 @@ process group and does not try to prove launcher termination. The recovery lease
 records `recovery_reason`, with the GitHub comment author identifying the actor.
 Any non-withdrawn recovery claim naming the original lease revokes its ownership,
 so a surviving original supervisor makes no further coordination writes. Recovery
+can be performed by another trusted account and settles the source attempt with
+the same verdict as recovery by the source account. Source outcome comments keep
+their original authors; handoff copies posted by a recoverer name that recoverer.
+Recovery
 contenders, including expiry recovery racing the command, elect the lowest live
 comment id as usual. A stopped recovery can itself be recovered after its bounded
 claim expires, without starting an agent or restoring the original lease's ownership.

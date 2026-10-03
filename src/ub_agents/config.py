@@ -173,6 +173,7 @@ class Config:
     stop_labels: tuple[str, ...]
     queue: Queue = Queue()
     cleanup: CleanupHook | None = None
+    launchers: tuple[str, ...] | None = None
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
@@ -189,8 +190,15 @@ def load_config(path):
         data = yaml.load(path.read_text(), Loader=UniqueLoader)
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
-    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup"},
+    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup", "launchers"},
                    "configuration")
+    launchers = None
+    if "launchers" in data:
+        launchers = argv(data["launchers"], "launchers")
+        if any(login != login.strip() for login in launchers):
+            raise AgentError("launchers logins must not contain surrounding whitespace")
+        if len({login.casefold() for login in launchers}) != len(launchers):
+            raise AgentError("launchers logins must be unique (case-insensitive)")
     cleanup = None
     if "cleanup" in data:
         hook = mapping(data["cleanup"], {"command", "timeout-seconds"}, "cleanup")
@@ -308,7 +316,7 @@ def load_config(path):
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
-    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup)
+    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup, launchers)
 
 
 def argv(value, where, empty=False):

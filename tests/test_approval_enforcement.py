@@ -15,7 +15,7 @@ from ub_agents.errors import AgentError, GitHubError
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import attempts, body, payload, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import AccountGitHub, FakeGitHub, agent, config, issue, pr, stub_refresh
 from tests.test_approvals import at
 
 
@@ -529,6 +529,26 @@ class EnforcementTests(unittest.TestCase):
                 changed['candidate_sha'] = 'd' * 40
             self.github.update_comment(record['id'], body(changed))
         self.assertEqual(self.loop.plans()[0].state, 'parked')
+
+    def test_eligible_head_uses_all_currently_trusted_accounts(self):
+        self.use_pr()
+        self.start(2, 'needs-changes')
+        self.approve()
+        self.github.roles['bob'] = 'write'
+        self.loop = Loop(self.loop.config, AccountGitHub(self.github, 'bob'), 'bob', output=self.output.append)
+        self.execute(lambda c: self.github.change(2, head='b' * 40))
+        self.github.change(2, labels=frozenset({'needs-changes'}))
+        self.assertTrue(check_pr(self.github, 2, {'needs-changes'}, 'operator').allowed)
+        self.assertTrue(check_pr(self.github, 2, {'needs-changes'}, 'operator',
+                                 launchers=('BOB', 'operator')).allowed)
+        self.assertFalse(check_pr(self.github, 2, {'needs-changes'}, 'operator',
+                                  launchers=('operator',)).allowed)
+        self.github.roles['bob'] = 'read'
+        self.assertFalse(check_pr(self.github, 2, {'needs-changes'}, 'operator').allowed)
+        self.github.roles['bob'] = None
+        check = check_pr(self.github, 2, {'needs-changes'}, 'operator')
+        self.assertFalse(check.allowed)
+        self.assertIn('unreadable', check.reason)
 
     def test_fork_push_during_successful_run_cannot_inherit_head_approval(self):
         for repository in ('outsider/project', None):

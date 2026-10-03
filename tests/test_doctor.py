@@ -273,7 +273,7 @@ agents:
         self.assertEqual(self.github.reads, ["user", "repos/org/project", "repos/org/project/labels"])
 
     def test_elevated_launcher_role_warns_without_failing_or_writing(self):
-        for role in ("maintain", "admin", "write", None):
+        for role in ("maintain", "admin", "write", "read", "triage", "none", None):
             with self.subTest(role=role):
                 self.github.roles["operator"] = role
                 result = self.diagnose()
@@ -285,6 +285,38 @@ agents:
                     self.assertIn("approve their own work", check["message"])
                     self.assertIn("write", check["remedy"])
                 self.assertEqual(self.github.writes, [])
+
+    def test_listed_launcher_roles_and_unlisted_authenticated_account_warn(self):
+        self.path.write_text(self.path.read_text() + "launchers: [alice, bob, reader, outside, unknown]\n")
+        self.github.roles.update(alice="write", bob="admin", reader="read", outside="none", unknown=None)
+        with patch.object(self.github, "role", wraps=self.github.role) as roles:
+            result = self.diagnose()
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.one(result, "github-launcher-listed")["status"], "warn")
+        checks = self.checks(result, "github-launcher-account")
+        self.assertEqual([c["status"] for c in checks], ["ok", "ok", "warn", "warn", "warn"])
+        self.assertIn("could not be read", checks[-1]["message"])
+        self.assertEqual(roles.call_count, 6)
+        self.assertEqual(self.github.writes, [])
+        self.path.write_text(self.path.read_text().replace("alice, bob", "OPERATOR, bob"))
+        with patch.object(self.github, "role", wraps=self.github.role) as roles:
+            result = self.diagnose()
+        self.assertFalse(self.checks(result, "github-launcher-listed"))
+        self.assertEqual(sum(c.args[0].casefold() == "operator" for c in roles.call_args_list), 1)
+
+    def test_listed_launcher_role_read_failure_is_a_warning(self):
+        self.path.write_text(self.path.read_text() + "launchers: [operator, alice]\n")
+        original = self.github.role
+        def role(login):
+            if login == "alice":
+                raise AgentError("Cannot read permission")
+            return original(login)
+        with patch.object(self.github, "role", side_effect=role):
+            result = self.diagnose()
+        self.assertTrue(result["ok"])
+        checks = self.checks(result, "github-launcher-account")
+        self.assertEqual(checks[-1]["status"], "warn")
+        self.assertIn("alice", checks[-1]["message"])
 
     def test_actual_github_actor_uses_read_only_api_and_hides_failure_output(self):
         for response in ('{"login":"operator"}', subprocess.CompletedProcess([], 4, 'sk-private', 'ghp-private'),

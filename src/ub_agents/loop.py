@@ -46,7 +46,7 @@ class Loop:
         self.config = config
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
-                                       on_claim=self.github.claimed)
+                                       on_claim=self.github.claimed, launchers=config.launchers)
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
@@ -102,7 +102,8 @@ class Loop:
         triggers = {label for a in self.config.agents if a.kind in {item.kind, "either"}
                     for label in a.triggers}
         check = (check_issue(github, item.number, triggers) if item.kind == "issue" else
-                 check_pr(github, item.number, triggers, self.coordinator.actor))
+                 check_pr(github, item.number, triggers, self.coordinator.actor,
+                          launchers=self.config.launchers))
         if check.snapshot and (check.snapshot["title"], check.snapshot["body"],
                               check.snapshot.get("head")) != (item.title, item.body, item.head):
             return ApprovalCheck(False, "Assignment changed while reading approval input; retry")
@@ -125,10 +126,11 @@ class Loop:
         github = self.discovery if cached else Discovery(self.github)
         lookback = max(agent.lease_seconds for agent in self.config.agents) + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
-        history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
-                                  runtime_paused=self.usage.paused)
+                                  runtime_paused=self.usage.paused, launchers=self.config.launchers,
+                                  role=github.current_role)
+        history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
         latest = latest_leases(history_index)
         unfinished = {r["assignment"] for r in latest.values()
@@ -378,6 +380,8 @@ class Loop:
                 self.github.repository = config.repository
             self.config = config
             self.coordinator.queue = config.queue
+            self.coordinator.trust.launchers = (None if config.launchers is None else
+                                               {login.casefold() for login in config.launchers})
             plan = next((p for p in self.iter_plans() if p.item.number == plan.item.number
                          and p.agent.name == plan.agent.name and p.state == "ready"), None)
             if plan is None:
