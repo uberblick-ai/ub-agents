@@ -45,11 +45,14 @@ class _InvalidReload(AgentError):
 class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print,
                  config_path=None, interrupt_event=None, usage_read_only=False,
-                 default_config=False):
+                 default_config=False, observer=None):
+        self.observer = observer
+        self._observation_warning = False
         self.config = config
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
-                                       on_claim=self.github.claimed, launchers=config.launchers)
+                                       on_claim=self.github.claimed, launchers=config.launchers,
+                                       on_record=lambda record: self._observe("record", record))
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
@@ -70,6 +73,26 @@ class Loop:
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
 
+    def _observe(self, method, *args):
+        if self.observer is not None:
+            try:
+                getattr(self.observer, method)(*args)
+            except _GracefulStop:
+                raise
+            except Exception as exc:
+                if not self._observation_warning:
+                    self._observation_warning = True
+                    if hasattr(self.observer, "warning"):
+                        self.observer.warning(str(exc))
+                    else:
+                        self.output(f"Cannot publish launcher observations: {exc}")
+
+    def _wait(self, event, delay, reason):
+        if self.observer is not None:
+            self._observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
+        event.wait(delay)
+        self._observe("activity", "running assignment" if self.github.lease else "polling")
+
     def wait_rate_limit(self, error, lease=None):
         now = self.coordinator.clock()
         reset = error.reset_at if error.reset_at is not None else now + RATE_LIMIT_FALLBACK_SECONDS
@@ -80,7 +103,7 @@ class Loop:
         # SIGTERM wakes discovery, but an owned run keeps draining. Only Ctrl-C
         # and SIGHUP wake the in-run wait.
         event = self.interrupt_event if lease is not None else self.stop_event
-        event.wait(delay)
+        self._wait(event, delay, "rate-limit reset")
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
         if lease is not None and self.coordinator.clock() >= seconds(lease["expires"]):
@@ -89,6 +112,7 @@ class Loop:
             raise _GracefulStop
 
     def stop_gracefully(self):
+        self._observe("activity", "stopping")
         if self.interrupt_event.is_set():
             # SIGINT/SIGHUP already requested termination. Leave process-group
             # cleanup and durable release to finish without another exception.
@@ -220,10 +244,12 @@ class Loop:
                     blockers = self._open_blockers(item, github)
             for plan in plans:
                 plan = self._gate_plan(plan, active_milestone, blockers)
-                yield replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
+                observed = replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
+                self._observe("plan", observed)
+                yield observed
 
     def _open_blockers(self, item, github):
         if (item.kind != "issue" or item.state != "open" or
@@ -335,6 +361,7 @@ class Loop:
                     len(attempts(history, agent.name, now)) + 1, history=tuple(history))
 
     def tick(self):
+        self._observe("begin_pass")
         self.maintain_runtimes()
         config = self.config
         present = set()
@@ -372,6 +399,7 @@ class Loop:
             if reason and reason != self._launcher_reason:
                 self.output(f"{reason}; claiming no work")
             self._launcher_reason = reason
+        self._observe("complete_pass")
         return False
 
     def tick_item(self, number, agent_name=None):
@@ -442,6 +470,7 @@ class Loop:
         try:
             return self._execute(plan)
         finally:
+            self._observe("clear_assignment")
             self.github.lease = None
 
     def maintain_runtimes(self):
@@ -492,6 +521,7 @@ class Loop:
                         raise error
                 self.github.repository = config.repository
             self.config = config
+            self._observe("configure", config, self.coordinator.actor, path)
             self.coordinator.queue = config.queue
             self.coordinator.trust.launchers = (None if config.launchers is None else
                                                {login.casefold() for login in config.launchers})
@@ -534,6 +564,7 @@ class Loop:
                 self.output(f"#{current.number} {plan.agent.name}: parked — {approval.reason}")
             return approval.allowed
 
+        self._observe("assignment", plan)
         lease = self.coordinator.claim(plan, self.config.stop_labels,
                                        before_write=self._end_poll, authorize=authorize)
         if lease is None:
@@ -628,6 +659,7 @@ class Loop:
                 reservation.started()
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, process_group=pid)
+            self._observe("process", "running", "Supervision recorded a live process")
             self.coordinator.assert_owned(lease)
 
         interrupted = False
@@ -688,6 +720,7 @@ class Loop:
                              **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
             if usage_output:
                 usage_output.poll(final=True)
+            self._observe("process", "exited", "Supervision confirmed execution has ended")
             diagnostic("execution-exited", code=code)
             # No acceptance or release until all attributable execution has ended.
             cleanup_workspace()
@@ -709,6 +742,7 @@ class Loop:
                 result, summary = "success", outcome["summary"]
                 effect = "reset"
         except CleanupError as exc:
+            self._observe("process", "unknown", str(exc))
             preserve_scratch = True
             record_uncertainty(exc)
             raise
@@ -917,6 +951,7 @@ class Loop:
         try:
             return self._recover(plan, recovery_check, recovery_reason)
         finally:
+            self._observe("clear_assignment")
             self.github.lease = None
 
     def _recover(self, plan, recovery_check=None, recovery_reason=None):
@@ -925,6 +960,7 @@ class Loop:
                    self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock()))
         if outcome is None:
             return False
+        self._observe("assignment", plan)
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
                                           before_write=self._end_poll, recovery_check=recovery_check,
                                           recovery_reason=recovery_reason)
@@ -992,6 +1028,7 @@ class Loop:
         try:
             return self._launch(once or number is not None)
         finally:
+            self._observe("close")
             self.usage.close()
             self._launch_number = None
             self._launch_agent = None
@@ -1002,6 +1039,7 @@ class Loop:
         if self.coordinator.actor is None:
             self.coordinator.actor = self.github.actor()
             self.coordinator.notices.actor = self.coordinator.actor
+        self._observe("configure", self.config, self.coordinator.actor, self.config_path)
         failures = 0
         idle_state = None
         while not self.stop_event.is_set():
@@ -1032,7 +1070,8 @@ class Loop:
                               if retryable else "failure is not retryable; retries not exhausted")
                     raise AgentError(f"{detail}; {reason}. Fix the cause and restart ub-agents launch.") from exc
                 self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
-                self.stop_event.wait(self.usage.bound_wait(delay))
+                delay = self.usage.bound_wait(delay)
+                self._wait(self.stop_event, delay, "poll retry or runtime pause")
                 continue
             failures = 0
             if self.interrupt_event.is_set():
@@ -1057,6 +1096,6 @@ class Loop:
                 idle_state = low
             delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
-                self.stop_event.wait(delay)
+                self._wait(self.stop_event, delay, "next poll or runtime pause")
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt

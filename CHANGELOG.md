@@ -6,6 +6,13 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- Every launcher, including `launch --once`, publishes a private, bounded,
+  versioned session snapshot under `.ub-agents/sessions/` for a local view,
+  with reached plans, process state and session outcomes. Publication adds no
+  GitHub reads and cannot hold up execution or shutdown (#113).
+
 ## 0.1.10 — 2026-10-03
 
 **Upgrading:** stop all of a project's launchers, wait until every one has exited,

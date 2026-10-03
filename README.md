@@ -295,8 +295,11 @@ your-project/
 ```
 
 Commit these files with your project and review changes to them like code. Credentials
-stay in each tool's own login. Logs and worktrees live under `.ub-agents/`, which
-`init` adds to `.gitignore`.
+stay in each tool's own login. `.ub-agents/`, which `init` adds to `.gitignore`,
+holds `launch.log`, run logs and scratch under `runs/`, private `worktrees/`,
+launcher usage state under `runtime-usage/`, and bounded local launcher snapshots
+under `sessions/`. The private snapshots contain already observed issue text;
+see [session publication](docs/configuration.md) for their format and lifecycle.
 
 ## When things go wrong
 

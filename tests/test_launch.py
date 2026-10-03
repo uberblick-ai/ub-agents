@@ -42,6 +42,39 @@ class LaunchTests(unittest.TestCase):
             lines.append(text)
         return lines
 
+    def test_once_always_observes_and_status_does_not_create_a_publisher(self):
+        from tests.support import MemoryPublisher
+        publisher = MemoryPublisher()
+        with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.observations.Publisher", return_value=publisher) as factory, \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(main(self.argv + ["--once"]), 0)
+            factory.assert_called_once()
+            self.assertEqual(publisher.snapshots[-1]["latest_pass"]["state"], "complete")
+            self.assertTrue(publisher.snapshots[-1]["ended"])
+            factory.reset_mock()
+            self.assertEqual(main(self.argv[:-1] + ["status"]), 0)
+            factory.assert_not_called()
+
+    def test_signals_during_publisher_startup_keep_launcher_interrupt_semantics(self):
+        for sig, result in ((signal.SIGTERM, 0), (signal.SIGINT, 130), (signal.SIGHUP, 130)):
+            with self.subTest(signal=sig):
+                github = FakeGitHub()
+                def start(*args, **kwargs):
+                    signal.raise_signal(sig)
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch("ub_agents.cli.load_config", return_value=self.config), \
+                        patch("ub_agents.cli.GitHub", return_value=github), \
+                        patch.object(github, "actor") as actor, \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch("ub_agents.observations.Publisher", side_effect=start), \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(main(self.argv + ["--once"]), result)
+                actor.assert_not_called()
+                self.assertNotIn("Cannot publish", stdout.getvalue() + stderr.getvalue())
+
     def test_stdout_stderr_multiline_output_and_second_launch_append(self):
         stdout, stderr = io.StringIO(), io.StringIO()
 

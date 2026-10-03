@@ -32,11 +32,12 @@ class Plan:
     blockers: tuple[str, ...] = ()
     approval_gate: ApprovalCheck | None = None
     history: tuple[dict, ...] = field(default=(), compare=False, repr=False)
+    owner: dict | None = field(default=None, compare=False, repr=False)
 
 
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
-                 runtime_available=None, runtime_paused=None, launchers=None, role=None):
+                 runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role)
@@ -44,9 +45,14 @@ class Coordinator:
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
+        self.on_record = on_record
         self.runtime_available = runtime_available
         self.runtime_paused = runtime_paused or (lambda cli: None)
         self.notices = Notices(github, actor, output, trusted=self.trust)
+
+    def observed(self, record):
+        if self.on_record is not None:
+            self.on_record(record)
 
     def history(self, number):
         comments = self.github.comments(number)
@@ -123,7 +129,10 @@ class Coordinator:
         attempt = len(previous) + 1
         state, reason = "ready", "Trigger matched"
         runtime = None
-        if live_leases(history, now):
+        owner = None
+        owners = live_leases(history, now)
+        if owners:
+            owner = owners[0]
             state, reason = "owned", "An unexpired assignment owns this work item"
         elif self.pending_completion(history, agent.name, now):
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
@@ -163,7 +172,7 @@ class Coordinator:
         if state in {"ready", "recover"} and self.actor is not None:
             if untrusted := self.trust.reason(self.actor):
                 state, reason, runtime = "blocked", untrusted, None
-        return Plan(item, agent, runtime, state, reason, attempt)
+        return Plan(item, agent, runtime, state, reason, attempt, owner=owner)
 
     def choose_runtime(self, item, agent, history):
         if agent.command:
@@ -342,6 +351,7 @@ class Coordinator:
         if before_write is not None:
             before_write()
         created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
+        self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
         contenders = live_leases(self.history(current.number), self.clock())
@@ -368,6 +378,7 @@ class Coordinator:
         result = records([self.github.update_comment(lease["id"], body(updated))])[0]
         lease.clear()
         lease.update(result)
+        self.observed(lease)
         return lease
 
     def assert_owned(self, lease):
@@ -400,6 +411,8 @@ class Coordinator:
                    if r["kind"] == "outcome" and r["lease_id"] == lease["id"] and same_run(r, lease)]
         if len(matches) > 1:
             raise RecordError("Run reported conflicting outcomes")
+        if matches:
+            self.observed(matches[0])
         return matches[0] if matches else None
 
     def report(self, lease, status, summary, handoff=None, outcome=None):
@@ -426,13 +439,16 @@ class Coordinator:
                 declaration = {"add": declaration}
             record |= {"outcome": outcome, "transition": declaration | {"started": False}}
         self.assert_owned(lease)
-        return records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
+        reported = records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
+        self.observed(reported)
+        return reported
 
     def update_outcome(self, lease, outcome, **changes):
         self.assert_owned(lease)
         updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))])[0]
         outcome.clear()
         outcome.update(updated)
+        self.observed(outcome)
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)
@@ -440,6 +456,7 @@ class Coordinator:
         updated = records([self.github.update_comment(outcome["id"], body(accepted))])[0]
         outcome.clear()
         outcome.update(updated)
+        self.observed(outcome)
         self.copy_handoff(lease, outcome)
 
     def copy_handoff(self, lease, outcome):

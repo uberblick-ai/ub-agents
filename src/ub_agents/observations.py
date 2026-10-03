@@ -1,0 +1,331 @@
+"""Bounded launcher observations. Never an input to coordination or recovery."""
+
+import errno
+import json
+import os
+import socket
+import subprocess
+import sys
+import threading
+import uuid
+
+from .records import iso, timestamp
+
+VERSION = 1
+MAX_PLANS = 100
+MAX_OUTCOMES = 20
+MAX_TEXT = 2048
+MAX_BYTES = 64 * 1024
+HEARTBEAT_SECONDS = 5
+STALE_SECONDS = 30
+RETAINED_SESSIONS = 20
+
+
+def unavailable(reason):
+    return {"available": False, "reason": reason}
+
+
+class Publisher:
+    """Nonblocking, atomic datagram mailbox to an expendable filesystem worker.
+
+    Both ends are retained here so a full mailbox can discard pending snapshots
+    before sending the newest one. Messages are complete snapshots, never events.
+    The lifecycle pipe closes on clean exit *and* process death. The worker drains
+    the mailbox and marks the session ended without a launcher-side wait.
+    """
+
+    def __init__(self, root, output=print, command=None):
+        self.output = output
+        self.failed = False
+        self.warning_lock = threading.Lock()
+        self.process = None
+        self.sender = self.receiver = self.life_write = None
+        life_read = error_read = error_write = None
+        listener_started = False
+        try:
+            self.sender, self.receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+            # Darwin's default Unix datagram send buffer is only 2 KiB. Reserve
+            # per-socket space for a complete snapshot on both platforms.
+            self.sender.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, MAX_BYTES * 2)
+            self.receiver.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, MAX_BYTES * 2)
+            self.sender.setblocking(False)
+            self.receiver.setblocking(False)
+            life_read, self.life_write = os.pipe()
+            error_read, error_write = os.pipe()
+            argv = command or [sys.executable, "-m", "ub_agents.observation_worker"]
+            self.process = subprocess.Popen(
+                [*argv, str(root), str(self.receiver.fileno()), str(life_read), str(error_write)],
+                pass_fds=(self.receiver.fileno(), life_read, error_write),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True)
+
+            # Diagnostics and reaping also stay off the execution path.
+            def diagnostic():
+                try:
+                    with os.fdopen(error_read, "rb") as stream:
+                        detail = stream.read(1024).decode("utf-8", errors="replace")
+                    if detail:
+                        self.warning(detail)
+                finally:
+                    code = self.process.wait()
+                    if code:
+                        self.warning(f"Observation worker exited {code}")
+            self.diagnostics = threading.Thread(target=diagnostic, daemon=True)
+            self.diagnostics.start()
+            listener_started = True
+        except BaseException as exc:
+            self.close()
+            if not isinstance(exc, (OSError, RuntimeError)):
+                raise
+            self.warning(str(exc))
+        finally:
+            for descriptor in (life_read, error_write, error_read if not listener_started else None):
+                if descriptor is not None:
+                    os.close(descriptor)
+
+    def warning(self, detail):
+        if not self.warning_lock.acquire(blocking=False):
+            return
+        try:
+            if not self.failed:
+                self.failed = True
+                try:
+                    self.output(f"Cannot publish launcher observations: {' '.join(detail.split())[:512]}")
+                except Exception:
+                    pass
+        finally:
+            self.warning_lock.release()
+
+    def submit(self, data):
+        if self.failed or self.life_write is None:
+            return
+        try:
+            self.sender.send(data)
+        except OSError as exc:
+            if exc.errno not in {errno.EAGAIN, errno.EWOULDBLOCK, errno.ENOBUFS}:
+                self.warning(str(exc))
+                return
+            # A stuck writer cannot grow a backlog or make the producer wait.
+            for _ in range(256):
+                try:
+                    self.receiver.recv(MAX_BYTES + 1)
+                except BlockingIOError:
+                    break
+            try:
+                self.sender.send(data)
+            except OSError as exc:
+                if exc.errno not in {errno.EAGAIN, errno.EWOULDBLOCK, errno.ENOBUFS}:
+                    self.warning(str(exc))
+
+    def close(self):
+        descriptor, self.life_write = self.life_write, None
+        if descriptor is not None:
+            os.close(descriptor)
+        for endpoint in (self.sender, self.receiver):
+            if endpoint is not None:
+                endpoint.close()
+        # Deliberately no wait, join, filesystem operation or worker callback.
+
+
+class Observations:
+    """Pure, bounded state reduction on the launcher thread; publication is optional."""
+
+    def __init__(self, config, actor, config_path, publisher, clock=timestamp):
+        self.publisher, self.clock = publisher, clock
+        self.root = config.root.resolve()
+        self.stop_labels = config.stop_labels
+        self.state = {
+            "version": VERSION, "session": uuid.uuid4().hex, "pid": os.getpid(),
+            "host": socket.gethostname(), "actor": actor,
+            "actor_reason": None if actor else "Authentication has not completed",
+            "repository": config.repository, "config_path": str(config_path) if config_path else None,
+            "config_path_reason": None if config_path else "No configuration path supplied",
+            "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
+            "activity": {"state": "polling"}, "assignment": None, "latest_pass": None,
+            "outcomes": [], "omitted": {"plans": 0, "outcomes": 0},
+            "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
+                       "bytes": MAX_BYTES, "heartbeat_seconds": HEARTBEAT_SECONDS,
+                       "stale_seconds": STALE_SECONDS},
+        }
+        self.source_run = None
+        self.emit()
+
+    @staticmethod
+    def bound(value, shortened):
+        if isinstance(value, str):
+            if len(value) > MAX_TEXT:
+                shortened["fields"] += 1
+                shortened["characters"] += len(value) - MAX_TEXT
+            return value[:MAX_TEXT]
+        if isinstance(value, dict):
+            return {key: Observations.bound(val, shortened) for key, val in value.items()}
+        if isinstance(value, list):
+            return [Observations.bound(val, shortened) for val in value]
+        return value
+
+    @classmethod
+    def bounded(cls, row):
+        shortened = {"fields": 0, "characters": 0}
+        result = cls.bound(row, shortened)
+        result["shortened"] = shortened
+        return result
+
+    def emit(self):
+        shortened = {"fields": 0, "characters": 0}
+        state = self.bound(self.state, shortened)
+        groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"]]
+        for rows in groups:
+            for row in rows:
+                for key in shortened:
+                    shortened[key] += row.get("shortened", {}).get(key, 0)
+        state["shortened"] = shortened
+        while True:
+            data = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            if len(data) <= MAX_BYTES:
+                self.publisher.submit(data)
+                return
+            # Account for row bytes once instead of repeatedly serializing the
+            # entire over-limit snapshot for each dropped row.
+            excess = len(data) - MAX_BYTES + 32
+            rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+            for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
+                while excess > 0 and group:
+                    row = group.pop(index)
+                    excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+                    state["omitted"][key] += 1
+            if excess > 0:
+                raise ValueError("Observation envelope exceeds its size limit")
+
+    def warning(self, detail):
+        self.publisher.warning(detail)
+
+    def configure(self, config, actor, path):
+        self.stop_labels = config.stop_labels
+        self.state.update(repository=config.repository, actor=actor,
+                          config_path_reason=None if path else "No configuration path supplied",
+                          actor_reason=None if actor else "Authentication unavailable",
+                          config_path=str(path) if path else None)
+        self.emit()
+
+    def activity(self, state, until=None, reason=None):
+        self.state["activity"] = {"state": state, "until": until, "reason": reason}
+        self.emit()
+
+    def begin_pass(self):
+        self.state["latest_pass"] = {"started_at": iso(self.clock()), "state": "partial", "rows": []}
+        self.state["omitted"]["plans"] = 0
+        self.activity("polling")
+
+    def complete_pass(self):
+        self.state["latest_pass"]["state"] = "complete"
+        self.emit()
+
+    def plan(self, plan):
+        row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
+               "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
+               "observed_at": iso(self.clock()), "description": (
+                   {"available": True, "text": plan.item.body,
+                    "omitted_characters": max(0, len(plan.item.body) - MAX_TEXT)}
+                   if isinstance(plan.item.body, str) else unavailable("Description was not read")),
+               "owner": None}
+        if plan.owner:
+            row["owner"] = {key: plan.owner.get(key) for key in ("actor", "host", "run")}
+            row["owner"]["host_reason"] = None if plan.owner.get("host") else "Host not recorded"
+        row = self.bounded(row)
+        rows = self.state["latest_pass"]["rows"]
+        existing = next((i for i, r in enumerate(rows)
+                         if (r["item"], r["agent"]) == (row["item"], row["agent"])), None)
+        if existing is not None:
+            rows[existing] = row
+        elif len(rows) < MAX_PLANS:
+            rows.append(row)
+        else:
+            self.state["omitted"]["plans"] += 1
+        for outcome in self.state["outcomes"]:
+            if outcome["target"] == plan.item.number:
+                outcome["human_blocker"] = sorted(plan.item.labels.intersection(self.stop_labels))
+                outcome["blocker_observed_at"] = row["observed_at"]
+        self.emit()
+
+    def assignment(self, plan):
+        self.state["assignment"] = {
+            "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
+            "run": None, "runtime": None, "lease_state": None, "lease_expires": None,
+            "process": "claiming", "process_reason": "No process has been recorded",
+            "process_log": None, "context_path": None,
+            "paths_reason": "No lease has been recorded",
+        }
+        self.source_run = None
+        self.activity("running assignment")
+
+    def record(self, record):
+        assignment = self.state["assignment"]
+        if not assignment or (record["assignment"], record["agent"]) != (assignment["item"], assignment["agent"]):
+            return
+        if record["kind"] == "lease":
+            if assignment["run"] not in {None, record["run"]}:
+                return
+            self.source_run = record.get("recovered_run")
+            assignment.update(run=record["run"], runtime=record["runtime"],
+                              lease_state=record["state"], lease_expires=record["expires"])
+            if record.get("mode") == "recovery":
+                assignment.update(process="recovery", process_reason="Recovery starts no agent process",
+                                  paths_reason="This recovery has no process log or context")
+            else:
+                if record["state"] == "released" and assignment["process"] in {"starting", "running"}:
+                    assignment.update(process="exited", process_reason="Supervisor released after execution ended")
+                directory = self.root / ".ub-agents" / "runs" / record["run"]
+                assignment.update(process_log=str(directory / "process.log"),
+                                  context_path=str(directory / "context.json"), paths_reason=None)
+                if record["state"] == "running" and assignment["process"] == "claiming":
+                    assignment.update(process="starting", process_reason="No live process has been recorded")
+            if record.get("result"):
+                assignment.update(result=record["result"], summary=record.get("summary", "")[:MAX_TEXT])
+            for outcome in self.state["outcomes"]:
+                if outcome["run"] == (self.source_run or record["run"]):
+                    if record.get("result"):
+                        outcome.update(result=record["result"], summary=record.get("summary", "")[:MAX_TEXT])
+        elif record["kind"] == "outcome" and record["run"] == (self.source_run or assignment["run"]):
+            finalized = bool(record.get("accepted") and record.get("transition_complete"))
+            acceptance = ("rejected" if record.get("rejected") else "finalized" if finalized else
+                          "accepted" if record.get("accepted") else "unaccepted")
+            row = {"item": record["assignment"], "agent": record["agent"], "run": record["run"],
+                   "result": assignment.get("result", record["status"]),
+                   "summary": assignment.get("summary", record["summary"]),
+                   "report_result": record["status"],
+                   "time": record["created"], "observed_at": iso(self.clock()),
+                   "acceptance": acceptance, "rejection": record.get("rejected"),
+                   "completed": finalized, "transition_complete": bool(record.get("transition_complete")),
+                   "recovered": self.source_run is not None,
+                   "target": record.get("handoff") or record["assignment"],
+                   "human_blocker": (sorted(set(record.get("transition", {}).get("add", ()))
+                                            .intersection(self.stop_labels)) if finalized else None),
+                   "blocker_reason": None if finalized else "Transition is not finalized",
+                   "blocker_observed_at": iso(self.clock()) if finalized else None}
+            row = self.bounded(row)
+            outcomes = self.state["outcomes"]
+            existing = next((i for i, r in enumerate(outcomes) if r["run"] == record["run"]), None)
+            if existing is not None:
+                outcomes[existing] = row
+            else:
+                outcomes.append(row)
+                if len(outcomes) > MAX_OUTCOMES:
+                    outcomes.pop(0)
+                    self.state["omitted"]["outcomes"] += 1
+        self.emit()
+
+    def process(self, state, reason):
+        if self.state["assignment"]:
+            self.state["assignment"].update(process=state, process_reason=reason[:MAX_TEXT])
+            self.emit()
+
+    def clear_assignment(self):
+        self.state["assignment"] = None
+        if self.state["activity"]["state"] != "stopping":
+            self.state["activity"] = {"state": "polling"}
+        self.emit()
+
+    def close(self):
+        self.state["ended"] = True
+        self.activity("stopping")
+        self.publisher.close()

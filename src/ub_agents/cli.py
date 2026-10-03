@@ -306,13 +306,29 @@ def run(args):
     handlers = {sig: signal.signal(sig, stop_now)
                 for sig in (signal.SIGINT, signal.SIGHUP)}
     handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: loop.stop_gracefully())
+    from .observations import Observations, Publisher
+    publisher = None
     try:
+        try:
+            publisher = Publisher(config.root, output=loop.output)
+            loop._before_claim()
+            loop.observer = Observations(config, actor, loop.config_path, publisher,
+                                         clock=loop.coordinator.clock)
+        except _GracefulStop:
+            raise
+        except Exception as exc:
+            if publisher is not None:
+                publisher.warning(str(exc))
+            else:
+                loop.output(f"Cannot publish launcher observations: {exc}")
         if args.number is not None:
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
         loop.launch(once=args.once)
     except _GracefulStop:
         return
     finally:
+        if publisher is not None:
+            publisher.close()
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
 

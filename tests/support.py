@@ -43,11 +43,45 @@ def write_legacy_records(github):
 def isolate_runtime_state(test):
     """Keep launcher lock and health files out of the developer's state directory."""
     from unittest.mock import patch
+    isolate_observations(test)
     state = tempfile.TemporaryDirectory()
     test.addCleanup(state.cleanup)
     environment = patch.dict(os.environ, {"XDG_STATE_HOME": state.name})
     test.addCleanup(environment.stop)
     environment.start()
+
+
+def observation_writer_command(body):
+    """Run a controlled failing or stalled writer in the real isolated helper."""
+    script = ("import os,sys,socket,time\nfrom pathlib import Path\n"
+              "from ub_agents.observation_worker import run\n"
+              "root,fd,life,errors=sys.argv[1:]\n"
+              "def writer(directory,state):\n"
+              "    (Path(root)/'writer-entered').touch()\n" + body + "\n"
+              "run(root,socket.socket(fileno=int(fd)),int(life),int(errors),writer=writer)\n")
+    return [sys.executable, "-c", script]
+
+
+class MemoryPublisher:
+    """Keep CLI unit tests deterministic; publisher isolation has its own suite."""
+    def __init__(self, *args, **kwargs):
+        self.snapshots = []
+
+    def submit(self, data):
+        self.snapshots.append(json.loads(data))
+
+    def close(self):
+        pass
+
+    def warning(self, detail):
+        pass
+
+
+def isolate_observations(test):
+    from unittest.mock import patch
+    mock = patch("ub_agents.observations.Publisher", MemoryPublisher)
+    test.addCleanup(mock.stop)
+    mock.start()
 
 
 def stub_refresh(test):
