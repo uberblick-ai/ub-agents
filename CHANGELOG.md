@@ -12,7 +12,7 @@ notes are copied from that section.
 
 ### Removed
 
-- Remove `ub-agents recover`; launchers on any host recover expired claims automatically within 30 minutes of the last renewal (#131).
+- Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
 
 ## 0.1.10 — 2026-10-03
 

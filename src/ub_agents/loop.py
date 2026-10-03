@@ -91,7 +91,7 @@ class Loop:
         while remaining > 0:
             now = self.coordinator.clock()
             try:
-                expiry = self.coordinator.deadline(lease) if lease is not None else None
+                expiry = self.coordinator.deadline(lease)
             except LostOwnership as exc:
                 raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
             remaining = min(remaining, until - now)
@@ -99,22 +99,17 @@ class Loop:
                 break
             # Renewal runs independently. Wake at least once a minute so an
             # extended expiry or known ownership loss changes this wait's bound.
-            wait = min(60, remaining) if expiry is None else min(60, remaining, expiry - now)
+            wait = min(60, remaining, expiry - now)
             event.wait(wait)
             remaining -= wait
             if self.interrupt_event.is_set():
                 raise KeyboardInterrupt
-            if lease is None and self.stop_event.is_set():
-                raise _GracefulStop
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
-        if lease is not None:
-            try:
-                self.coordinator.deadline(lease)
-            except LostOwnership as exc:
-                raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
-        if lease is None and self.stop_event.is_set():
-            raise _GracefulStop
+        try:
+            self.coordinator.deadline(lease)
+        except LostOwnership as exc:
+            raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
 
     def stop_gracefully(self):
         if self.interrupt_event.is_set():

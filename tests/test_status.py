@@ -11,7 +11,7 @@ from ub_agents.cli import main
 from ub_agents.errors import CleanupError
 from ub_agents.loop import Loop
 from ub_agents.records import iso, seconds
-from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, PollGitHub, agent, config, edit_lease, issue, pr
 
 
 class StatusTests(unittest.TestCase):
@@ -49,8 +49,8 @@ class StatusTests(unittest.TestCase):
 
     def local_lease(self, **changes):
         lease = self.claim()
-        self.loop.coordinator.update(lease, host="local-host", process_group=1234,
-                                     log_dir="/runs/current", **changes)
+        edit_lease(self.github, lease, host="local-host", process_group=1234,
+                   log_dir="/runs/current", **changes)
         return lease
 
     def test_running_lease_summary_and_backward_compatible_json(self):
@@ -213,9 +213,7 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn("reported:", plain)
         # Model an already released remote record; an expired local supervisor
         # is no longer allowed to write it.
-        from ub_agents.records import body, payload
-        self.github.update_comment(later["id"], body(payload(later) | {
-            "state": "released", "result": "retry", "attempt_effect": "failure", "expires": iso(self.now)}))
+        edit_lease(self.github, later, state="released", result="retry", attempt_effect="failure", expires=iso(self.now))
         rows, plain = self.status()
         self.assertEqual(rows[0]["result"], "retry")
         self.assertIsNone(rows[0]["outcome"])

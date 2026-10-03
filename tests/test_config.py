@@ -64,7 +64,7 @@ cleanup:
   timeout-seconds: 120
 ''')
         agent = result.agents[0]
-        # The lease covers the run, a fifteen-minute grace and the cleanup hook.
+        # Execution and cleanup timeouts do not change the fixed lease.
         self.assertEqual((agent.lease_seconds, agent.timeout_seconds), (1800, 14400))
         self.assertEqual(agent.max_attempts, 7)
         # Relative executables resolve against the configuration's directory.

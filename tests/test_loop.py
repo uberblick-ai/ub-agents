@@ -12,7 +12,7 @@ from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, timestamp
-from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, edit_lease, issue, pr
 
 
 class LoopTests(unittest.TestCase):
@@ -898,7 +898,7 @@ class RecoveryTests(unittest.TestCase):
         github = FakeGitHub(issue())
         loop = self.loop(github)
         lease = loop.coordinator.claim(loop.plans()[0])
-        loop.coordinator.update(lease, state="running", started=True, expires=iso(timestamp() - 1))
+        edit_lease(github, lease, state="running", started=True, expires=iso(timestamp() - 1))
 
         def execute(*args, **kwargs):
             latest = loop.coordinator.history(1)[-1]

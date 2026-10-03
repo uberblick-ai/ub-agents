@@ -70,6 +70,13 @@ def agent(root, **overrides):
     return Agent(**(defaults | overrides))
 
 
+def edit_lease(github, lease, **changes):
+    """Set up remote lease history, including crashed/expired supervisors."""
+    result = records([github.update_comment(lease["id"], body(payload(lease) | changes))])[0]
+    lease.clear()
+    lease.update(result)
+
+
 def config(root, *agents, queue=Queue()):
     return Config(Path(root), "org/project", agents or (agent(root),), 1, ("needs-human",),
                   queue=queue)

@@ -51,6 +51,7 @@ class Coordinator:
         # Renewal and the supervising launcher's state edits share one writer.
         # Never hold this lock over a rate-limit wait.
         self._lease_lock = threading.RLock()
+        self._lease_revision = 0
         self._lost = {}
 
     def history(self, number):
@@ -370,6 +371,11 @@ class Coordinator:
             updated = payload(lease) | changes
             if changes.get("state") in {"released", "withdrawn"}:
                 updated["expires"] = iso(self.clock())
+            elif updated["state"] in {"claiming", "running"}:
+                updated["expires"] = iso(max(seconds(lease["expires"]), seconds(updated["expires"])))
+            # Even a failed write may have reached GitHub. A renewal read that
+            # overlapped it cannot supply a safe payload for a later PATCH.
+            self._lease_revision += 1
             result = records([self.github.update_comment(lease["id"], body(updated))])[0]
             lease.clear()
             lease.update(result)
@@ -381,8 +387,11 @@ class Coordinator:
             expiry = seconds(lease["expires"])
             if lease["id"] in self._lost:
                 raise LostOwnership(self._lost[lease["id"]])
-            if lease["state"] not in {"claiming", "running"} or self.clock() >= expiry:
-                raise LostOwnership("Local lease deadline expired or lease finished")
+            if lease["state"] not in {"claiming", "running"}:
+                raise LostOwnership("Lease was released or withdrawn")
+            if self.clock() >= expiry:
+                self._lost[lease["id"]] = "Local lease deadline expired"
+                raise LostOwnership(self._lost[lease["id"]])
             return expiry
 
     def _owned(self, lease, history):
@@ -415,24 +424,31 @@ class Coordinator:
             # and timestamp precision, then check again after the ownership read.
             if self.clock() + REQUEST_TIMEOUT_SECONDS + 1 >= seconds(lease["expires"]):
                 return False
-            try:
-                trusted = LauncherTrust(github, self.trust.launchers).observation()
-                history = records(github.comments(lease["assignment"]), trusted=trusted)
+            revision = self._lease_revision
+        try:
+            # Pagination/role reads may outlast the lease. Keep deadlines and
+            # local state edits available while those bounded requests finish.
+            trusted = LauncherTrust(github, self.trust.launchers).observation()
+            history = records(github.comments(lease["assignment"]), trusted=trusted)
+            with self._lease_lock:
+                self.deadline(lease)
+                if revision != self._lease_revision:
+                    return False
                 current = self._owned(lease, history)
                 now = self.clock()
                 if now + REQUEST_TIMEOUT_SECONDS + 1 >= seconds(lease["expires"]):
                     return False
                 updated = payload(current) | {"expires": iso(max(seconds(current["expires"]), now + LEASE_SECONDS))}
                 result = records([github.update_comment(lease["id"], body(updated))])[0]
-            except LostOwnership:
-                raise
-            except AgentError as exc:
-                self.output(f"Lease renewal failed; retry at the next interval: {exc}")
-                return False
-            # Only expiry belongs to renewal. Workspace preparation may have a
-            # branch staged locally while a Git command is still in progress.
-            lease["expires"] = result["expires"]
-            return True
+                # Only expiry belongs to renewal. Workspace preparation may have
+                # a branch staged locally while a Git command is in progress.
+                lease["expires"] = result["expires"]
+                return True
+        except LostOwnership:
+            raise
+        except AgentError as exc:
+            self.output(f"Lease renewal failed; retry at the next interval: {exc}")
+            return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
                 max_attempts=None):

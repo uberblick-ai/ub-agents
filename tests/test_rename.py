@@ -20,7 +20,7 @@ from ub_agents.errors import LostOwnership, RecordError
 from ub_agents.loop import Loop
 from ub_agents.notices import Notices
 from ub_agents.records import MARKER, iso, records, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, agent, config, edit_lease, issue, pr
 from tests.test_approval_enforcement import feedback
 
 
@@ -210,7 +210,7 @@ class DurableRenameTests(unittest.TestCase):
         old_record_names(self.github)
         self.github.change(2, branch=branch)
         self.assertEqual(self.co.plan(self.github.item(2), self.worker, ()).state, 'owned')
-        self.co.update(lease, cleanup='unconfirmed', expires=iso(self.now - 1))
+        edit_lease(self.github, lease, cleanup='unconfirmed', expires=iso(self.now - 1))
         self.assertEqual(self.co.plan(self.github.item(2), self.worker, ()).state, 'blocked')
 
     def test_old_approval_and_system_comments_keep_pr_gate_and_snapshot(self):

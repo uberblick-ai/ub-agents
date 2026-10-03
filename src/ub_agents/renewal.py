@@ -4,6 +4,7 @@ import threading
 
 from .config import LEASE_RENEW_SECONDS
 from .errors import LostOwnership
+from .records import seconds
 
 
 class LeaseRenewal:
@@ -17,7 +18,7 @@ class LeaseRenewal:
 
     def claimed(self, lease):
         self.lease = lease
-        self.next_renewal = self.coordinator.clock() + LEASE_RENEW_SECONDS
+        self.next_renewal = seconds(lease["created"]) + LEASE_RENEW_SECONDS
         self.thread = threading.Thread(target=self._run, name="lease-renewal")
         self.thread.start()
 

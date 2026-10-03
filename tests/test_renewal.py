@@ -27,7 +27,7 @@ class RenewalTests(unittest.TestCase):
         stub_refresh(self)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.now = 1000
         self.github = PollGitHub(issue())
         self.role = agent(self.root, lease_seconds=LEASE_SECONDS, timeout_seconds=7200)
@@ -203,6 +203,8 @@ class RenewalTests(unittest.TestCase):
                 else:
                     self.assertFalse(self.co.renew(lease, self.github))
                 write.assert_not_called()
+        self.setUp()
+        lease = self.claim()
         self.now = 2700
         comments = self.github.comments
         def slow_read(number):
@@ -231,26 +233,25 @@ class RenewalTests(unittest.TestCase):
                 self.setUp()
                 lease = self.claim()
                 self.now += 600
-                read_started, allow_read = threading.Event(), threading.Event()
-                comments = self.github.comments
-                def paused_read(number):
-                    snapshot = comments(number)
-                    read_started.set()
-                    self.assertTrue(allow_read.wait(5))
-                    return snapshot
+                write_started, allow_write = threading.Event(), threading.Event()
+                update = self.github.update_comment
+                def paused_write(*args):
+                    write_started.set()
+                    self.assertTrue(allow_write.wait(5))
+                    return update(*args)
                 errors = []
                 def renew():
                     try:
                         self.co.renew(lease, self.github)
                     except Exception as exc:
                         errors.append(exc)
-                with patch.object(self.github, "comments", side_effect=paused_read):
+                with patch.object(self.github, "update_comment", side_effect=paused_write):
                     worker = threading.Thread(target=renew)
                     worker.start()
-                    self.assertTrue(read_started.wait(5))
+                    self.assertTrue(write_started.wait(5))
                     edit = threading.Thread(target=lambda: self.co.update(lease, **change))
                     edit.start()
-                    allow_read.set()
+                    allow_write.set()
                     worker.join(5)
                     edit.join(5)
                 self.assertFalse(worker.is_alive())
@@ -272,6 +273,59 @@ class RenewalTests(unittest.TestCase):
                     for key, value in change.items():
                         self.assertEqual(self.co.history(1)[0][key], value)
 
+    def test_an_edit_during_a_renewal_read_cannot_be_overwritten(self):
+        for changes in ({"state": "withdrawn"}, {"state": "released", "result": "blocked"},
+                        {"cleanup": "unconfirmed"}, {"state": "running", "started": True}):
+            with self.subTest(changes=changes):
+                self.setUp()
+                lease = self.claim()
+                self.now += 600
+                comments = self.github.comments
+                def edit_during_read(number):
+                    snapshot = comments(number)
+                    self.co.update(lease, **changes)
+                    return snapshot
+                with patch.object(self.github, "comments", side_effect=edit_during_read):
+                    if changes.get("state") in {"released", "withdrawn"}:
+                        with self.assertRaises(LostOwnership):
+                            self.co.renew(lease, self.github)
+                    else:
+                        self.assertFalse(self.co.renew(lease, self.github))
+                stored = self.co.history(1)[0]
+                self.assertEqual(payload(stored), payload(lease))
+                self.assertEqual(len(self.github.writes), 2)  # claim and state edit only
+
+    def test_slow_renewal_read_does_not_block_local_expiry_checks(self):
+        lease = self.claim()
+        self.now += 600
+        read_started, finish_read = threading.Event(), threading.Event()
+        errors = []
+        comments = self.github.comments
+        def slow_read(number):
+            snapshot = comments(number)
+            read_started.set()
+            self.assertTrue(finish_read.wait(5))
+            return snapshot
+        def renew():
+            try:
+                self.co.renew(lease, self.github)
+            except LostOwnership as exc:
+                errors.append(exc)
+        with patch.object(self.github, "comments", side_effect=slow_read), patch.object(self.github, "update_comment") as write:
+            worker = threading.Thread(target=renew)
+            worker.start()
+            try:
+                self.assertTrue(read_started.wait(5))
+                self.now = 2800
+                with self.assertRaises(LostOwnership):
+                    self.co.deadline(lease)
+            finally:
+                finish_read.set()
+                worker.join(5)
+            write.assert_not_called()
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(errors), 1)
+
     def test_pending_branch_and_stale_ownership_read_do_not_roll_back_renewal(self):
         lease = self.claim()
         old_history = self.co.history(1)
@@ -281,6 +335,7 @@ class RenewalTests(unittest.TestCase):
         with patch.object(self.co, "history", return_value=old_history):
             self.co.assert_owned(lease)
         self.co.update(lease, branch=lease["branch"])
+        self.co.update(lease, expires=old_history[0]["expires"])
         stored = self.co.history(1)[0]
         self.assertEqual((stored["expires"], stored["branch"]), (iso(3400), "ub-agents/worker/1/staged"))
 
