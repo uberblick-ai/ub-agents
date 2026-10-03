@@ -73,7 +73,7 @@ class Session:
 def load_session(path):
     try:
         data = read_json(path)
-        if data.get('version') != 1:
+        if type(data.get('version')) is not int or data['version'] != 1:
             raise ValueError('Missing or unsupported snapshot version')
         for key in ('assignment', 'latest_pass', 'activity', 'omitted'):
             if data.get(key) is not None and not isinstance(data[key], dict):
@@ -82,6 +82,24 @@ def load_session(path):
             raise ValueError('Invalid outcomes')
         if mapping(data.get('latest_pass')).get('rows') is not None and not isinstance(data['latest_pass']['rows'], list):
             raise ValueError('Invalid pass rows')
+        groups = [data.get('outcomes', []), mapping(data.get('latest_pass')).get('rows', [])]
+        if data.get('assignment'):
+            groups.append([data['assignment']])
+        for group in groups:
+            for row in group:
+                if not isinstance(row, dict):
+                    raise ValueError('Invalid row')
+                if 'item' in row and (type(row['item']) is not int or row['item'] < 1):
+                    raise ValueError('Invalid item number')
+                for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary'):
+                    if row.get(field) is not None and not isinstance(row[field], str):
+                        raise ValueError(f'Invalid row {field}')
+                for field in ('owner', 'description'):
+                    if row.get(field) is not None and not isinstance(row[field], dict):
+                        raise ValueError(f'Invalid row {field}')
+                blockers = row.get('human_blocker')
+                if blockers is not None and (not isinstance(blockers, list) or not all(isinstance(b, str) for b in blockers)):
+                    raise ValueError('Invalid human blockers')
         return Session(path, data)
     except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
         return Session(path, {}, text(str(exc)))
@@ -130,7 +148,7 @@ class WorkRow:
     context: Path | None = None
 
     def label(self):
-        return f'#{self.item} {self.agent} · {self.state}\n{text(self.reason, "")} '
+        return f'#{text(str(self.item))} {self.state} · {self.agent}'
 
 
 def own_run(root, value):
@@ -169,7 +187,7 @@ def work_rows(session, root):
                  text(row.get('result')) + ' · ' + text(row.get('acceptance')))
         result.append(WorkRow('outcome:' + text(row.get('run'), str(index)), 'Recent outcomes', row.get('item', '?'),
                               text(row.get('agent')), state, text(row.get('summary')), row, row.get('run'),
-                              'unknown', run / 'process.log' if run else None, run / 'context.json' if run else None))
+                              runtime_type(row.get('runtime')), run / 'process.log' if run else None, run / 'context.json' if run else None))
     return result
 
 

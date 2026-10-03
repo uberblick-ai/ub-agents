@@ -37,6 +37,7 @@ def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
                   'owner': {'actor': 'other-launcher', 'host': 'other-host', 'run': 'foreign-run'},
                   'process_log': str(log)}]},
              'outcomes': [{'item': 10, 'agent': 'preparer', 'run': 'previous-run', 'completed': True,
+                           'runtime': 'claude:synthetic-model:high',
                            'acceptance': 'finalized', 'result': 'prepared', 'summary': 'Waiting for decision',
                            'human_blocker': ['needs-human'], 'time': '2026-10-04T00:00:00Z'}]}
     path.write_text(json.dumps(state))
@@ -82,6 +83,11 @@ class ViewDataTests(unittest.TestCase):
                       {'version': 1, 'latest_pass': {'rows': 5}}, {'version': 1, 'published_at': 3}):
             self.path.write_text(json.dumps(value))
             self.assertIn(load_session(self.path).state(), ('stale', 'malformed'))
+        for value in ({'version': True}, {'version': 1, 'outcomes': [3]},
+                      {'version': 1, 'assignment': {'item': 'bad'}},
+                      {'version': 1, 'latest_pass': {'rows': [{'owner': []}]}}):
+            self.path.write_text(json.dumps(value))
+            self.assertEqual(load_session(self.path).state(), 'malformed')
         self.assertEqual(Session(self.path, dict(self.state, ended=True)).state(), 'ended')
         old = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
         self.assertEqual(Session(self.path, dict(self.state, published_at=old)).state(), 'stale')
@@ -161,6 +167,7 @@ class ViewLogTests(unittest.TestCase):
     def test_tiny_record_pages_preserve_paging_progress_and_mark_boundary(self):
         self.log.write_bytes(b'a\n' * 50000)
         reader = ViewReader(self.log, 'command')
+        self.assertLess(reader.update().unread_bytes, 2048)
         self.drain(reader)
         page = reader.older(reader.page().start, reader.resets)
         self.assertIn('Entry limit boundary', page.notice)

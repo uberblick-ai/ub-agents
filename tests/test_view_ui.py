@@ -35,6 +35,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         with patch('subprocess.Popen', side_effect=AssertionError('view invoked a process')):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
+                self.assertIn('Supervisor observed running', app.reason_nodes[app.selected].label.plain)
                 output = app.query_one('#output', LogPane)
                 await pilot.press('f', 'home', 'pagedown')
                 await pilot.pause()
@@ -102,6 +103,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('f')
             self.assertIn('event 09000', app.reading.page.refs[-1].value.text)
             self.assertNotIn('event 00599', app.reading.page.refs[-1].value.text)
+            await pilot.press('p')
+            await pilot.pause()
+            self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
             await pilot.press('q')
         app.worker.thread.join(2)
 

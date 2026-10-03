@@ -21,7 +21,7 @@ MAX_RENDER_LINES = 400
 
 
 class RawAccess(ModalScreen):
-    BINDINGS = [Binding('escape,q,p', 'dismiss', 'Close', priority=True)]
+    BINDINGS = [Binding('escape,p', 'dismiss', 'Close', priority=True)]
     DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; }'
 
     def __init__(self, message):
@@ -196,7 +196,7 @@ class View(App):
         super().__init__()
         self.worker = worker or LocalWorker(root, session_path)
         self.session = None
-        self.rows, self.nodes, self.groups = {}, {}, {}
+        self.rows, self.nodes, self.reason_nodes, self.groups = {}, {}, {}, {}
         self.selected = None
         self.readings = {}
         self.token = 0
@@ -262,15 +262,19 @@ class View(App):
         for key in tuple(self.nodes):
             if key not in incoming:
                 self.nodes.pop(key).remove()
+                self.reason_nodes.pop(key, None)
         for row in incoming.values():
-            group = self.groups.get(row.group)
+            group_key = 'Latest pass' if row.group.startswith('Latest pass') else row.group
+            group = self.groups.get(group_key)
             if group is None:
-                group = self.groups[row.group] = tree.root.add(row.group, expand=True)
+                group = self.groups[group_key] = tree.root.add(row.group, expand=True)
             label = Text(row.label())
             if row.key in self.nodes:
                 self.nodes[row.key].set_label(label)
+                self.reason_nodes[row.key].set_label(Text(row.reason))
             else:
-                self.nodes[row.key] = group.add_leaf(label, data=row.key)
+                self.nodes[row.key] = group.add(label, data=row.key, expand=True)
+                self.reason_nodes[row.key] = self.nodes[row.key].add_leaf(Text(row.reason), data=row.key)
         self.rows = incoming
         tree.root.expand()
         if self.selected is None and incoming:
@@ -280,7 +284,9 @@ class View(App):
         latest = mapping(self.session.data.get('latest_pass'))
         for name, node in self.groups.items():
             if name.startswith('Latest pass'):
-                node.set_label('Latest pass (' + text(latest.get('state'), 'partial') + ')')
+                omitted = mapping(self.session.data.get('omitted')).get('plans', 0)
+                node.set_label('Latest pass (' + text(latest.get('state'), 'partial') +
+                               (f'; omitted {omitted}' if omitted else '') + ')')
 
     def on_tree_node_selected(self, event):
         if event.node.data in self.rows:
