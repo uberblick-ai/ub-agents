@@ -161,6 +161,8 @@ class GitHub:
         self.repository = repository
         self.prefix = f"repos/{repository}"
         self.quota_headers = {}
+        self.resource_quotas = {}
+        self.rest_requests = 0
         self.rate_limited = False
         self._comment_cache = {}
         self._comment_since = None
@@ -182,6 +184,8 @@ class GitHub:
                    "-H", "Accept: application/vnd.github+json", "--include", endpoint]
         if data is not None:
             command += ["--input", "-"]
+        if endpoint != "graphql":
+            self.rest_requests += 1
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -205,6 +209,9 @@ class GitHub:
         # GraphQL has its own quota; doctor reports the REST account quota.
         if endpoint != "graphql" and "x-ratelimit-remaining" in headers:
             self.quota_headers = headers
+        resource = headers.get("x-ratelimit-resource")
+        if resource in {"core", "graphql"}:
+            self.resource_quotas[resource] = headers
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"

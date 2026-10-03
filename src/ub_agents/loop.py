@@ -17,6 +17,7 @@ from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, Recor
 from .execution import Workspace, command_for, repository_checks, supervise
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
+from .polling import idle_interval
 from .hooks import run_hook
 from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
 from .refresh import refresh_checkout, refresh_instructions
@@ -771,10 +772,12 @@ class Loop:
             self.coordinator.actor = self.github.actor()
             self.coordinator.notices.actor = self.coordinator.actor
         failures = 0
+        idle_state = None
         while not self.stop_event.is_set():
             self.github.lease = None
             self._poll_complete = False
             started = monotonic()
+            requests_before = self.github.rest_requests
             try:
                 worked = self.tick()
             except _GracefulStop:
@@ -806,9 +809,20 @@ class Loop:
                 return
             if once:
                 return
-            if not worked:
-                self.output("Waiting for eligible GitHub work")
-            delay = max(0, self.config.poll_seconds - (monotonic() - started))
+            elapsed = monotonic() - started
+            interval = self.config.poll_seconds
+            if worked:
+                idle_state = None
+            else:
+                requests = self.github.rest_requests - requests_before
+                interval, low = idle_interval(requests, interval,
+                                              self.github.resource_quotas,
+                                              self.coordinator.clock(), elapsed)
+                if idle_state != low:
+                    self.output(f"No eligible work; next poll in {max(0, interval - elapsed) / 60:g} min "
+                                f"({requests} requests last poll)")
+                idle_state = low
+            delay = max(0, interval - elapsed)
             if delay:
                 self.stop_event.wait(delay)
         if self.interrupt_event.is_set():

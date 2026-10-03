@@ -73,7 +73,7 @@ class PollingTests(unittest.TestCase):
                 execute.assert_called_once()
                 waits.assert_called_once()
                 self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), 1)
-                self.assertNotIn("Waiting for eligible GitHub work", self.lines)
+                self.assertNotIn("No eligible work; next poll in 0.0166667 min (0 requests last poll)", self.lines)
 
     def test_failed_reads_through_claim_revalidation_never_write(self):
         cases = [("observe", [], Queue()), ("repository_comments", [], Queue()),
@@ -130,7 +130,7 @@ class PollingTests(unittest.TestCase):
         with patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         self.assertEqual(delays, [5, 10, self.config.poll_seconds, 5])
-        self.assertEqual(self.lines.count("Waiting for eligible GitHub work"), 1)
+        self.assertEqual(self.lines.count("No eligible work; next poll in 0.0166667 min (0 requests last poll)"), 1)
 
     def test_completed_work_poll_resets_failure_count(self):
         failure = self.http_error()
