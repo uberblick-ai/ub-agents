@@ -33,7 +33,7 @@ agents:
       # Shell helpers for inspecting issue context (preparer), code/check output (reviewer),
       # and merge evidence (integrator), including plain pipelines such as `… | tail`.
       # Arguments are unrestricted; these permissions do not enforce read-only access.
-      # Command substitution can still be denied: see each role's publication guidance.
+      # Shell expansion can still be denied: see each role's publication guidance.
       - "Bash(cat *)"
       - "Bash(grep *)"
       - "Bash(ls *)"
