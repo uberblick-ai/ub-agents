@@ -1,0 +1,3 @@
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"file_path": "READ_ME.txt"}}]}}
+{"type": "assistant", "message": {"content": [{"type": "text", "text": "Token: `SPIKE97_OBSERVER_OK`\n\nI read READ_ME.txt in the current directory and made no other changes."}]}}
+{"type": "result", "result": "SPIKE97_OBSERVER_OK", "is_error": false}

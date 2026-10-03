@@ -1,0 +1,73 @@
+{
+  "lifecycle": {
+    "close_view_worker_keeps_running": true,
+    "natural_exit_code": 0,
+    "owned_group_empty_after_supervise": true
+  },
+  "logs": {
+    "format_cases": {
+      "claude": {
+        "partial": true,
+        "long_raw_bytes_preserved": 40078,
+        "long_records_fragmented": true,
+        "unknown_and_error_visible": true
+      },
+      "codex": {
+        "partial": true,
+        "long_raw_bytes_preserved": 40074,
+        "long_records_fragmented": true,
+        "unknown_and_error_visible": true
+      }
+    },
+    "partial_visible_before_newline": true,
+    "runtime_time_separate_from_first_fragment_capture": true,
+    "historical_capture": null,
+    "buffer_entries": 200,
+    "discarded": 826,
+    "pending_bytes": 0,
+    "max_text_chars": 8
+  },
+  "ui": {
+    "terminal_sizes": [
+      [
+        110,
+        32
+      ],
+      [
+        72,
+        24
+      ]
+    ],
+    "navigation_with_growth": true,
+    "paused_scroll_stable": true,
+    "follow_returns_to_end": true,
+    "quota_refresh_and_navigation_requests": 0,
+    "runtime_output_workflow_writes": 0,
+    "log_widget_max_lines": 400,
+    "remote_log_allowed": false
+  },
+  "refresh_audit": {
+    "fixture": "45 open items, 30 triggered, three shared commenters",
+    "gh_calls_per_status_refresh": [
+      125,
+      125
+    ],
+    "gh_calls_cached_planner_pass": [
+      125,
+      2
+    ],
+    "rest_total": 287,
+    "all_call_methods": {
+      "GET": 287,
+      "POST": 90
+    },
+    "redraw_calls": 0,
+    "network_requests": 0,
+    "transport": "recording runner; real GitHub request construction"
+  },
+  "validation": {
+    "tests": 5,
+    "failures": 0,
+    "errors": 0
+  }
+}
