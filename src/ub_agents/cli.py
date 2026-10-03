@@ -62,7 +62,7 @@ def parser():
         command.add_argument("number", type=int, nargs="?", help="Issue or PR number")
         command.add_argument("--number", dest="legacy_number", type=int, help=argparse.SUPPRESS)
     for command in (init, check, doctor, launch, status, cleanup, retry, recover, approve):
-        command.add_argument("--config", dest="command_config",
+        command.add_argument("--config", dest="command_config", metavar="CONFIG",
                              help="Project configuration (default: ub-agents.yaml)")
     return result
 

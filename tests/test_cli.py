@@ -46,6 +46,19 @@ class ArgumentTests(unittest.TestCase):
                     self.assertEqual(args.config, self.path)
                     self.assertFalse(args.default_config)
 
+    def test_config_help_uses_the_same_metavar_in_both_positions(self):
+        for command in ((), *self.commands):
+            with self.subTest(command=command):
+                self.stdout.seek(0)
+                self.stdout.truncate()
+                with self.assertRaises(SystemExit) as caught:
+                    main([*command, "--help"])
+                self.assertEqual(caught.exception.code, 0)
+                self.assertIn("--config CONFIG", self.stdout.getvalue())
+                self.assertNotIn("COMMAND_CONFIG", self.stdout.getvalue())
+        self.run.assert_not_called()
+        self.load.assert_not_called()
+
     def test_config_in_both_positions_is_a_usage_error(self):
         for command in self.commands:
             with self.subTest(command=command):
