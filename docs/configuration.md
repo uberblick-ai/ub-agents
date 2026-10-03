@@ -42,9 +42,10 @@ truncated or rotated. Use `tail -f .ub-agents/launch.log` to follow the loop fro
 another terminal. See [Stopping and restarting](../README.md#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
-Every `launch` session, including `--once`, also publishes a local JSON snapshot
-at `.ub-agents/sessions/<session-id>.json` in the control checkout. Publication is
-always on, has no configuration key, and makes no additional GitHub requests.
+Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
+publishes a local JSON snapshot at `.ub-agents/sessions/<session-id>.json` in the
+control checkout. Publication is always on, has no configuration key, and makes
+no additional GitHub requests.
 `status`, `recover` and embedded loops without an observer keep their existing
 behavior. Snapshots contain issue titles and descriptions already read by the
 launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
@@ -81,8 +82,9 @@ Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
 `running` state alone is insufficient. Report acceptance is `unaccepted`,
 `rejected`, `accepted` (transition not yet complete), or `finalized` (accepted and
 transition complete). `completed` can be true while `human_blocker` lists stop
-labels such as `needs-human`. Blockers carry their last observation time and are
-updated when a later pass reaches that target. Missing values are `null` with
+labels such as `needs-human`. Finalized outcomes' blockers carry their last
+observation time and are updated when a later pass reaches that target;
+unfinalized reports have no applicable blocker yet. Missing values are `null` with
 reasons where known; unavailable descriptions explicitly say why.
 
 Snapshots hold at most 100 latest-pass rows and 20 recent outcomes. Each text

@@ -52,7 +52,7 @@ class Publisher:
             self.receiver.setblocking(False)
             life_read, self.life_write = os.pipe()
             error_read, error_write = os.pipe()
-            argv = command or [sys.executable, "-m", "ub_agents.observation_worker"]
+            argv = command or [sys.executable, "-P", "-m", "ub_agents.observation_worker"]
             self.process = subprocess.Popen(
                 [*argv, str(root), str(self.receiver.fileno()), str(life_read), str(error_write), str(self.sender.fileno())],
                 pass_fds=(self.receiver.fileno(), life_read, error_write, self.sender.fileno()),
@@ -245,7 +245,7 @@ class Observations:
         else:
             self.state["omitted"]["plans"] += 1
         for outcome in self.state["outcomes"]:
-            if outcome["target"] == plan.item.number:
+            if outcome["target"] == plan.item.number and outcome["completed"]:
                 outcome["human_blocker"] = sorted(plan.item.labels.intersection(self.stop_labels))
                 outcome["blocker_observed_at"] = row["observed_at"]
         self.emit()

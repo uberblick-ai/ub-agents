@@ -291,7 +291,13 @@ class Loop:
                   and self.config.queue.milestones == "gate" else None)
         blockers = self._open_blockers(item, github)
         plans = self._item_plans(item, coordinator.clock(), github, coordinator, agents)
-        return item, (self._gate_plan(plan, active, blockers) for plan in plans)
+
+        def observed_plans():
+            for plan in plans:
+                plan = self._gate_plan(plan, active, blockers)
+                self._observe("plan", plan)
+                yield plan
+        return item, observed_plans()
 
     def _item_plans(self, item, now, github, coordinator, agents=None):
         agents = self.config.agents if agents is None else agents
@@ -403,6 +409,7 @@ class Loop:
         return False
 
     def tick_item(self, number, agent_name=None):
+        self._observe("begin_pass")
         self.maintain_runtimes()
         item, plans = self.item_plans(number, agent_name)
         shown = False
@@ -439,6 +446,7 @@ class Loop:
                 if not agents:
                     reason = f"Agent {agent_name} is no longer configured"
             self.output(f"#{number}: {reason}")
+        self._observe("complete_pass")
         return False
 
     def park_approval(self, plan):
@@ -1028,10 +1036,12 @@ class Loop:
         try:
             return self._launch(once or number is not None)
         finally:
-            self._observe("close")
-            self.usage.close()
-            self._launch_number = None
-            self._launch_agent = None
+            try:
+                self._observe("close")
+            finally:
+                self.usage.close()
+                self._launch_number = None
+                self._launch_agent = None
 
     def _launch(self, once):
         self.usage.reset()

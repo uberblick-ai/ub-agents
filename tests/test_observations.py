@@ -1,4 +1,5 @@
 from copy import deepcopy
+from contextlib import chdir
 from dataclasses import replace
 import json
 import os
@@ -15,11 +16,11 @@ from unittest.mock import patch
 
 from ub_agents.coordination import Plan
 from ub_agents.errors import GitHubError
-from ub_agents.loop import Loop
+from ub_agents.loop import Loop, _GracefulStop
 from ub_agents.observations import (HEARTBEAT_SECONDS, MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    MAX_TEXT, RETAINED_SESSIONS, STALE_SECONDS,
                                    Observations, Publisher)
-from ub_agents.observation_worker import prune, stale
+from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
 from ub_agents.runtime_usage import process_started
 from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, observation_writer_command, stub_refresh
@@ -80,6 +81,72 @@ class ObservationTests(unittest.TestCase):
         self.assertNotIn("/private/other/logs", json.dumps(self.memory.snapshots))
         self.assertEqual(self.memory.snapshots[-1]["latest_pass"]["state"], "complete")
         self.assertIsNone(self.memory.snapshots[-1]["assignment"])
+
+    def test_targeted_launch_preserves_request_order_writes_and_outcomes(self):
+        results = []
+        for observed in (False, True):
+            github = PollGitHub(issue(1), issue(2), issue(3))
+            loop = self.loop(github, observed)
+            loop.coordinator.clock = lambda: 1800000000
+            with patch("ub_agents.coordination.uuid.uuid4") as uuid:
+                uuid.return_value.hex = "same-run"
+                def finish(*args, **kwargs):
+                    lease = next(r for r in loop.coordinator.history(2) if r["kind"] == "lease")
+                    loop.coordinator.report(lease, "success", "Finished", outcome="done")
+                    return 0
+                with patch("ub_agents.loop.supervise", side_effect=finish):
+                    self.assertEqual(loop.launch(number=2, agent_name="worker"), 0)
+            results.append((github.reads[:], github.writes[:], deepcopy(github.items),
+                            records([c for comments in github.store.values() for c in comments])))
+        self.assertEqual(results[0], results[1])
+        state = self.memory.snapshots[-1]
+        self.assertEqual([r["item"] for r in state["latest_pass"]["rows"]], [2])
+        self.assertEqual(state["latest_pass"]["state"], "partial")
+        self.assertEqual(state["outcomes"][0]["acceptance"], "finalized")
+        self.assertTrue(state["ended"])
+
+    def test_targeted_refusal_completes_observed_pass_without_an_assignment(self):
+        github = PollGitHub(issue(labels=("ready", "needs-human")))
+        loop = self.loop(github)
+        self.assertEqual(loop.launch(number=1), 1)
+        state = self.memory.snapshots[-1]
+        self.assertEqual(state["latest_pass"]["state"], "complete")
+        self.assertEqual([r["item"] for r in state["latest_pass"]["rows"]], [1])
+        self.assertIsNone(state["assignment"])
+        self.assertTrue(state["ended"])
+
+    def test_interrupt_during_observer_close_still_closes_usage(self):
+        for error in (KeyboardInterrupt, _GracefulStop):
+            with self.subTest(error=error):
+                loop = self.loop(PollGitHub())
+                with patch.object(loop, "_launch"), \
+                        patch.object(self.observer, "close", side_effect=error), \
+                        patch.object(loop.usage, "close") as close, \
+                        self.assertRaises(error):
+                    loop.launch(number=1, agent_name="worker")
+                close.assert_called_once()
+                self.assertIsNone(loop._launch_number)
+                self.assertIsNone(loop._launch_agent)
+
+    def test_unfinalized_reports_do_not_gain_blockers_from_later_plans(self):
+        plan = Plan(issue(labels=("ready", "needs-human")), self.cfg.agents[0], None,
+                    "parked", "Stop label", 1)
+        self.observer.begin_pass()
+        self.observer.assignment(plan)
+        self.observer.record({"kind": "lease", "assignment": 1, "agent": "worker", "run": "run",
+                              "runtime": "direct", "state": "running", "expires": iso(timestamp())})
+        for fields, acceptance in (({}, "unaccepted"), ({"accepted": True}, "accepted"),
+                                   ({"rejected": "Paused"}, "rejected")):
+            with self.subTest(acceptance=acceptance):
+                self.observer.record({"kind": "outcome", "assignment": 1, "agent": "worker", "run": "run",
+                                      "created": iso(timestamp()), "status": "success", "summary": "Done",
+                                      **fields})
+                self.observer.plan(plan)
+                row = self.memory.snapshots[-1]["outcomes"][0]
+                self.assertEqual(row["acceptance"], acceptance)
+                self.assertIsNone(row["human_blocker"])
+                self.assertIsNone(row["blocker_observed_at"])
+                self.assertEqual(row["blocker_reason"], "Transition is not finalized")
 
     def test_claim_start_process_exit_report_and_human_blocker_are_distinct(self):
         self.cfg = replace(self.cfg, agents=(replace(self.cfg.agents[0], outcomes={
@@ -247,6 +314,34 @@ class PublisherTests(unittest.TestCase):
         self.wait_for(lambda: self.read(observers[1].state["session"])["ended"])
         self.assertEqual(list((self.root / ".ub-agents" / "sessions").glob("*.tmp")), [])
         self.assertEqual(self.lines, [])
+
+    def test_worker_ignores_checkout_modules_that_shadow_standard_library(self):
+        (self.root / "json.py").write_text("raise RuntimeError('checkout module imported')\n")
+        with chdir(self.root):
+            observer = Observations(config(self.root), "operator", None, self.publisher())
+        self.wait_for(lambda: self.read(observer.state["session"]))
+        observer.close()
+        self.wait_for(lambda: self.read(observer.state["session"])["ended"])
+        self.assertEqual(self.lines, [])
+
+    def test_non_object_session_json_does_not_stop_publication_or_pruning(self):
+        directory = self.root / ".ub-agents" / "sessions"
+        directory.mkdir(parents=True)
+        now = timestamp()
+        values = ([], "text", None, 7, True)
+        for number in range(RETAINED_SESSIONS + 10):
+            path = directory / f"malformed-{number}.json"
+            path.write_text(json.dumps(values[number % len(values)]))
+            os.utime(path, (now - STALE_SECONDS - 1, now - STALE_SECONDS - 1))
+        fresh = directory / "fresh.json"
+        fresh.write_text("[]")
+        state = {"session": "own-session", "host": socket.gethostname(), "pid": os.getpid(),
+                 "ended": False, "version": 1}
+        write_snapshot(directory, state)
+        self.assertEqual(len(list(directory.glob("malformed-*.json"))), RETAINED_SESSIONS)
+        self.assertTrue(fresh.exists())
+        write_snapshot(directory, state | {"ended": True})
+        self.assertTrue(self.read(state["session"])["ended"])
 
     def test_publishes_near_size_limit_and_worker_start_failure_is_nonfatal(self):
         observer = Observations(config(self.root), "operator", None, self.publisher())

@@ -299,6 +299,11 @@ class TargetedLaunchTests(unittest.TestCase):
         lease, outcome = self.coordinator().history(11)
         self.assertEqual((lease["state"], lease["result"], outcome["accepted"]),
                          ("released", "success", True))
+        snapshot = self.loop.observer.publisher.snapshots[-1]
+        self.assertEqual([row["item"] for row in snapshot["latest_pass"]["rows"]], [11])
+        self.assertEqual(snapshot["latest_pass"]["state"], "partial")
+        self.assertEqual(snapshot["outcomes"][0]["acceptance"], "finalized")
+        self.assertTrue(snapshot["ended"])
         self.assert_scoped()
 
     def test_explicit_once_is_accepted_with_number(self):
@@ -440,6 +445,9 @@ class TargetedLaunchTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 run.assert_called_once()
                 self.assertEqual(self.coordinator().history(11)[0]["agent"], expected)
+                snapshot = self.loop.observer.publisher.snapshots[-1]
+                self.assertEqual([row["agent"] for row in snapshot["latest_pass"]["rows"]], [expected])
+                self.assertTrue(snapshot["ended"])
                 self.assert_scoped()
 
     def test_default_skips_ineligible_agent_and_named_agent_evaluates_only_it(self):

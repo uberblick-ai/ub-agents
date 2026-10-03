@@ -51,7 +51,8 @@ def prune(directory, own, now, host):
                     data = stream.read(MAX_BYTES + 1)
                 try:
                     state = json.loads(data) if len(data) <= MAX_BYTES else {}
-                    old = stale(state, now, host)
+                    if isinstance(state, dict):
+                        old = stale(state, now, host)
                 except (ValueError, TypeError, KeyError, OverflowError):
                     pass
             if old:
