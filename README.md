@@ -102,6 +102,7 @@ Review the [coordination contract](docs/coordination.md) and
 |---|---|
 | `ub-agents status` | Show matching work, lease details, whether local agents are running, and what they reported |
 | `ub-agents launch --once` | Run at most one assignment, then exit |
+| `ub-agents launch N [--agent NAME]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
 | `ub-agents cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
 | `ub-agents recover --number N --agent NAME --reason TEXT` | Recover a stopped local launcher's reported outcome before its lease expires |
 | `ub-agents retry` | Let stopped work run again, with a recorded reason |
