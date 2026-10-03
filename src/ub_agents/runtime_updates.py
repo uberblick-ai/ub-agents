@@ -37,7 +37,7 @@ class Reservation:
 def state_directory():
     configured = os.environ.get("XDG_STATE_HOME", "")
     base = Path(configured) if configured and Path(configured).is_absolute() else Path.home() / ".local/state"
-    return base / "ub-agent/runtime-updates"
+    return base / "ub-agents/runtime-updates"
 
 
 @contextmanager

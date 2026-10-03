@@ -33,7 +33,7 @@ class LoopTests(unittest.TestCase):
         self.assertIn("Ending your turn ends the run", prompt)
         self.assertIn("Run checks in the foreground or wait for every background job to finish "
                       "before ending your turn", prompt)
-        self.assertIn("End the run with ub-agent report", prompt)
+        self.assertIn("End the run with ub-agents report", prompt)
         self.assertIn("reviews, review comments and feedback", prompt)
         self.assertIn("address it when revising the work", prompt)
 
@@ -66,7 +66,8 @@ class LoopTests(unittest.TestCase):
                 github.login = "operator"
 
                 def execute(command, cwd, env, *args, **kwargs):
-                    context = json.loads(Path(env["UB_AGENT_CONTEXT"]).read_text())
+                    self.assertFalse(any(key.startswith("UB_AGENT_") for key in env))
+                    context = json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())
                     self.assertEqual(context["comments"], [])
                     self.assertEqual(context["feedback"], [{
                         "agent": "integrator", "outcome": "changes-requested",
@@ -93,7 +94,7 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(history[0]["result"], "success")
         self.assertTrue(history[1]["accepted"])
         self.assertEqual(self.github.item(1).labels, frozenset())  # the declared transition consumed the trigger
-        self.assertTrue((self.root / ".ub-agent" / "runs" / history[0]["run"] / "events.jsonl").is_file())
+        self.assertTrue((self.root / ".ub-agents" / "runs" / history[0]["run"] / "events.jsonl").is_file())
 
     def test_exit_zero_without_outcome_is_retry_not_completion(self):
         with patch("ub_agents.loop.supervise", return_value=0):
@@ -109,7 +110,7 @@ class LoopTests(unittest.TestCase):
         self.assertIn("Execution exited 1", outcome["summary"])
         self.assertEqual((self.loop.plans()[0].state, self.loop.plans()[0].attempt), ("ready", 2))
         events = [json.loads(line) for line in
-                  (self.root / ".ub-agent" / "runs" / lease["run"] / "events.jsonl").read_text().splitlines()]
+                  (self.root / ".ub-agents" / "runs" / lease["run"] / "events.jsonl").read_text().splitlines()]
         self.assertTrue(any(event["event"] == "execution-exited" and event["code"] == 1 for event in events))
 
     def test_loss_of_ownership_causes_no_release_report_or_acceptance_writes(self):
@@ -191,7 +192,7 @@ class LoopTests(unittest.TestCase):
                 loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
 
                 def execute(command, cwd, env, *args, **kwargs):
-                    context = json.loads(Path(env["UB_AGENT_CONTEXT"]).read_text())
+                    context = json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())
                     self.assertEqual(context["earlier_branches"], ["feature/test"])
                     github.change(2, draft=False)
                     lease = next(r for r in reversed(loop.coordinator.history(1)) if r['kind'] == 'lease')

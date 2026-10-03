@@ -36,7 +36,7 @@ class HookTests(unittest.TestCase):
     def prepare(self, workspace):
         workspace.private.mkdir(parents=True)
         workspace.created = True
-        workspace.lease["branch"] = "ub-agent/worker/1/" + workspace.lease["run"]
+        workspace.lease["branch"] = "ub-agents/worker/1/" + workspace.lease["run"]
         self.workspace = workspace
         return workspace.private
 
@@ -58,7 +58,7 @@ class HookTests(unittest.TestCase):
     def test_hook_success_has_reported_handoff_context_and_removes_tree(self):
         output = self.root / "context.json"
         loop = self.loop("import os; from pathlib import Path; "
-                         f"Path({str(output)!r}).write_text(Path(os.environ['UB_AGENT_CLEANUP_CONTEXT']).read_text())")
+                         f"Path({str(output)!r}).write_text(Path(os.environ['UB_AGENTS_CLEANUP_CONTEXT']).read_text())")
         self.assertTrue(self.execute(loop))
         self.assertEqual(len(self.removed), 1)
         value = json.loads(output.read_text())
@@ -118,7 +118,7 @@ class HookTests(unittest.TestCase):
                 self.assertEqual(lease["result"], "success")
                 self.assertFalse(self.removed)
                 self.assertTrue(self.workspace.created)
-                events = self.root / ".ub-agent" / "runs" / lease["run"] / "events.jsonl"
+                events = self.root / ".ub-agents" / "runs" / lease["run"] / "events.jsonl"
                 self.assertIn("cleanup-hook-verdict-unrecorded", events.read_text())
 
     def test_interrupt_recording_uncertainty_preserves_cleanup_error(self):
@@ -140,7 +140,7 @@ class HookTests(unittest.TestCase):
                 self.assertTrue(self.workspace.created)
                 lease = loop.coordinator.history(1)[0]
                 self.assertEqual(lease["state"], "running")
-                events = self.root / ".ub-agent" / "runs" / lease["run"] / "events.jsonl"
+                events = self.root / ".ub-agents" / "runs" / lease["run"] / "events.jsonl"
                 self.assertIn("cleanup-verdict-unrecorded", events.read_text())
 
     def test_failure_and_timeout_keep_tree_without_affecting_success_or_queue(self):
@@ -158,7 +158,7 @@ class HookTests(unittest.TestCase):
                 self.assertNotIn("cleanup", lease)
                 self.assertFalse(self.removed)
                 self.assertTrue(self.workspace.created)
-                run_dir = self.root / ".ub-agent" / "runs" / lease["run"]
+                run_dir = self.root / ".ub-agents" / "runs" / lease["run"]
                 events = (run_dir / "events.jsonl").read_text()
                 self.assertIn("cleanup-hook-failed", events)
                 group = int(next((run_dir / "cleanup").glob("*/pid")).read_text())
@@ -172,9 +172,13 @@ class HookTests(unittest.TestCase):
 
         def hook(command, cwd, env, directory, timeout, stop_event, expires=None, **kwargs):
             seen.append(expires)
+            self.assertIn("UB_AGENTS_CLEANUP_CONTEXT", env)
+            self.assertNotIn("UB_AGENTS_LEASE_ID", env)
+            self.assertFalse(any(key.startswith("UB_AGENT_") for key in env))
             return 0
 
-        with patch("ub_agents.hooks.supervise", side_effect=hook):
+        with patch("ub_agents.hooks.supervise", side_effect=hook), \
+                patch.dict("os.environ", {"UB_AGENT_LEASE_ID": "old", "UB_AGENTS_LEASE_ID": "new"}):
             self.assertTrue(self.execute(loop))
         self.assertEqual(len(seen), 1)
         self.assertGreater(seen[0], started)  # the live lease's wall-clock deadline
@@ -200,7 +204,7 @@ class HookTests(unittest.TestCase):
         lease, outcome = loop.coordinator.history(1)
         self.assertFalse(outcome["accepted"])
         self.assertEqual(lease["state"], "running")
-        directory = next((self.root / ".ub-agent" / "runs" / lease["run"] / "cleanup").iterdir())
+        directory = next((self.root / ".ub-agents" / "runs" / lease["run"] / "cleanup").iterdir())
         self.assertEqual(group_members(int((directory / "pid").read_text())), [])
         self.assertEqual((directory / "stopped").read_text(), "confirmed\n")
 
@@ -211,7 +215,7 @@ class HookTests(unittest.TestCase):
                 self.removed.clear()
                 output = self.root / f"{mode}.json"
                 loop = self.loop("import os; from pathlib import Path; "
-                                 f"Path({str(output)!r}).write_text(Path(os.environ['UB_AGENT_CLEANUP_CONTEXT']).read_text())")
+                                 f"Path({str(output)!r}).write_text(Path(os.environ['UB_AGENTS_CLEANUP_CONTEXT']).read_text())")
                 def stop(lease):
                     if mode == "timeout":
                         raise AgentError("Execution timed out")
@@ -260,7 +264,7 @@ class HookTests(unittest.TestCase):
                 self.execute(loop)
         self.assertFalse(self.removed)
         self.assertEqual(loop.coordinator.history(1)[0]["cleanup"], "unconfirmed")
-        directory = next((self.root / ".ub-agent" / "runs" / self.workspace.lease["run"] / "cleanup").iterdir())
+        directory = next((self.root / ".ub-agents" / "runs" / self.workspace.lease["run"] / "cleanup").iterdir())
         self.assertFalse((directory / "stopped").exists())
 
     def test_shared_agent_never_runs_hook(self):
@@ -274,7 +278,7 @@ class HookTests(unittest.TestCase):
             hook.assert_not_called()
 
     def test_configuration_requires_argv_and_bounded_finite_positive_timeout(self):
-        path = self.root / "ub-agent.yaml"
+        path = self.root / "ub-agents.yaml"
         base = "repository: org/project\nagents:\n  task:\n    trigger: ready\n    command: [echo]\n    outcomes: {done: {}}\n"
         path.write_text(base)
         self.assertIsNone(load_config(path).cleanup)
@@ -291,7 +295,7 @@ class HookTests(unittest.TestCase):
 
     def test_relative_hook_uses_operator_script_and_handoff_context(self):
         script = self.root / "cleanup-script"
-        script.write_text("#!/bin/sh\nprintf '%s' operator > \"$UB_AGENT_WORKTREE/operator-ran\"\n")
+        script.write_text("#!/bin/sh\nprintf '%s' operator > \"$UB_AGENTS_WORKTREE/operator-ran\"\n")
         script.chmod(0o755)
         loop = self.loop()
         loop.config = replace(loop.config, cleanup=CleanupHook(("./cleanup-script",), 3))
@@ -303,7 +307,7 @@ class HookTests(unittest.TestCase):
         self.assertTrue(self.execute(loop, reported))
         self.assertEqual((self.workspace.private / "operator-ran").read_text(), "operator")
         lease = loop.coordinator.history(1)[0]
-        context = next((self.root / ".ub-agent" / "runs" / lease["run"] / "cleanup").glob("*/context.json"))
+        context = next((self.root / ".ub-agents" / "runs" / lease["run"] / "cleanup").glob("*/context.json"))
         self.assertEqual(json.loads(context.read_text())["handoff"], 2)
 
     def test_unconfirmed_hook_after_ownership_loss_keeps_local_evidence_without_writes(self):
@@ -317,7 +321,7 @@ class HookTests(unittest.TestCase):
                 self.execute(loop, lose)
         self.assertFalse(self.removed)
         self.assertEqual(self.github.writes, self.last_writes)
-        events = self.root / ".ub-agent" / "runs" / self.workspace.lease["run"] / "events.jsonl"
+        events = self.root / ".ub-agents" / "runs" / self.workspace.lease["run"] / "events.jsonl"
         self.assertIn("cleanup-unconfirmed", events.read_text())
 
     def test_launcher_records_real_agent_process_group_on_lease(self):
@@ -325,6 +329,6 @@ class HookTests(unittest.TestCase):
         loop = self.loop()
         self.assertTrue(loop.tick())
         lease = loop.coordinator.history(1)[0]
-        pid = int((self.root / ".ub-agent" / "runs" / lease["run"] / "pid").read_text())
+        pid = int((self.root / ".ub-agents" / "runs" / lease["run"] / "pid").read_text())
         self.assertEqual(lease["process_group"], pid)
         self.assertEqual(group_members(pid), [])

@@ -10,7 +10,7 @@ from .config import Agent, Queue, Runtime
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .github import Item
 from .notices import Notices
-from .records import (MARKER, LEGACY_MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
+from .records import (RECORD_MARKERS, V1_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       own_comment, payload, records, same_run, seconds, timestamp)
 
 
@@ -89,12 +89,12 @@ class Coordinator:
                                   "Unreadable repository comment")
             if not own_comment(comment, self.actor):
                 continue
-            if not isinstance(comment.get("body"), str) or not comment["body"].startswith((MARKER, LEGACY_MARKER)):
+            if not isinstance(comment.get("body"), str) or not comment["body"].startswith(RECORD_MARKERS):
                 continue
             try:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
             except (KeyError, ValueError, AttributeError, IndexError) as exc:
-                if comment["body"].startswith(LEGACY_MARKER):
+                if comment["body"].startswith(V1_MARKERS):
                     continue
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Coordination comment has no GitHub assignment URL") from exc
@@ -138,9 +138,9 @@ class Coordinator:
             state, reason = "parked", f"Stop label {labels} is present" + (f": {summary}" if summary else "")
         elif finished and finished[-1].get("result") == "blocked":
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
-                                        "inspect outcome and use ub-agent retry")
+                                        "inspect outcome and use ub-agents retry")
         elif attempt > agent.max_attempts:
-            state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agent retry"
+            state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agents retry"
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
             state, reason = "backoff", "Durable retry backoff has not elapsed"
         elif (latest and latest[-1].get("attempt_effect") == "pending" and previous
@@ -264,7 +264,7 @@ class Coordinator:
                                and r["agent"] == agent.name and r.get("branch")})
             related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
         else:
-            match = re.fullmatch(r"ub-agent/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
+            match = re.fullmatch(r"(?:ub-agents|ub-agent)/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
             related = [int(match[1])] if match else []
         now = self.clock()
         for number in related:

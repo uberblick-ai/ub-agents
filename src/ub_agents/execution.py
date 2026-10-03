@@ -62,7 +62,7 @@ class Workspace:
         self.item = item
         self.lease = lease
         self.github = github
-        self.private = self.root / ".ub-agent" / "worktrees" / lease["run"]
+        self.private = self.root / ".ub-agents" / "worktrees" / lease["run"]
         self.created = False
 
     def prepare(self):
@@ -79,7 +79,7 @@ class Workspace:
         else:
             base = self.github.default_branch()
             git(self.root, "fetch", "origin", base)
-            branch = f"ub-agent/{self.agent.name}/{self.item.number}/{self.lease['run']}"
+            branch = f"ub-agents/{self.agent.name}/{self.item.number}/{self.lease['run']}"
             self.lease["branch"] = branch
             git(self.root, "worktree", "add", "-b", branch, str(self.private), "FETCH_HEAD")
         self.created = True

@@ -123,7 +123,7 @@ def refresh_checkout(config, github, agent=None):
         raise
     except (AgentError, OSError, UnicodeError) as exc:
         raise AgentError(f"Control checkout refresh stopped at {root}: {exc}. "
-                         "Fix the operator checkout or instruction file and restart ub-agent launch; "
+                         "Fix the operator checkout or instruction file and restart ub-agents launch; "
                          "no assignment attempt was charged") from exc
 
 

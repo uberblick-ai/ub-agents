@@ -210,7 +210,7 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(copied['accepted'])
         self.assertEqual(copied['candidate_sha'], self.github.item(2).head)
         events = [json.loads(line) for line in
-                  (self.root / '.ub-agent' / 'runs' / lease['run'] / 'events.jsonl').read_text().splitlines()]
+                  (self.root / '.ub-agents' / 'runs' / lease['run'] / 'events.jsonl').read_text().splitlines()]
         self.assertTrue(any(event['event'] == 'execution-exited' and event['code'] == 1 for event in events))
 
     def test_reviewer_pr_outcome_routes_to_next_role(self):
@@ -402,7 +402,7 @@ class TransitionTests(unittest.TestCase):
                     stderr = io.StringIO()
                     with patch('ub_agents.cli.run', side_effect=lambda _: self.execute(interrupt_completion, handoff=2)), \
                             redirect_stderr(stderr):
-                        self.assertEqual(main(['--config', str(self.root / 'ub-agent.yaml'), 'launch']), 130)
+                        self.assertEqual(main(['--config', str(self.root / 'ub-agents.yaml'), 'launch']), 130)
                     self.assertEqual(stderr.getvalue(), 'Stopped; supervised execution terminated\n')
                 lease, outcome = self.loop.coordinator.history(1)
                 self.assertEqual(lease['state'], 'running')
@@ -694,8 +694,8 @@ class TransitionTests(unittest.TestCase):
     def test_report_cli_rejections_and_named_outcome_use_running_lease_snapshot(self):
         plan = self.loop.plans()[0]
         lease = self.loop.coordinator.claim(plan, self.loop.config.stop_labels)
-        env = {'UB_AGENT_REPOSITORY': 'org/project', 'UB_AGENT_ASSIGNMENT': '1',
-               'UB_AGENT_RUN': lease['run'], 'UB_AGENT_LEASE_ID': str(lease['id'])}
+        env = {'UB_AGENTS_REPOSITORY': 'org/project', 'UB_AGENTS_ASSIGNMENT': '1',
+               'UB_AGENTS_RUN': lease['run'], 'UB_AGENTS_LEASE_ID': str(lease['id'])}
         with patch.dict(os.environ, env), patch('ub_agents.cli.GitHub', return_value=self.github), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(['report', '--outcome', 'unknown', '--summary', 'done']), 1)

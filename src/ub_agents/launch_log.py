@@ -38,7 +38,7 @@ class LaunchStream:
 
 @contextmanager
 def launch_output(root):
-    local = root / ".ub-agent"
+    local = root / ".ub-agents"
     local.mkdir(mode=0o700, exist_ok=True)
     with (local / "launch.log").open("a", encoding="utf-8") as log:
         stdout = LaunchStream(sys.stdout, log)

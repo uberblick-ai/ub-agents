@@ -1,7 +1,24 @@
 # Configuration reference
 
-`ub-agent.yaml` sits at the root of the repository the agents work on. Unknown keys are
-errors; `ub-agent check` validates the file.
+`ub-agents.yaml` sits at the root of the repository the agents work on. Unknown keys are
+errors; `ub-agents check` validates the file.
+
+For one release, an implicit default falls back to `ub-agent.yaml` if
+`ub-agents.yaml` is missing, with one rename warning per process. Explicit
+`--config` paths have no fallback. A launcher resolves the default again after
+each checkout refresh, so a committed rename takes effect without losing its
+configuration. `init` always writes `ub-agents.yaml` by default.
+
+When upgrading from `ub-agent`, add `.ub-agents/` to `.gitignore` and keep
+`.ub-agent/` ignored until that directory is deleted. Commit the ignore changes
+to the default branch and pull them into every control checkout before starting
+launchers on the new build. Startup creates `.ub-agents/launch.log` before checkout
+refresh, which refuses untracked files. Restart all of the project's launchers
+together; old launchers cannot read new GitHub markers or branch names. After
+every old launcher has stopped, remove the old worktrees and the whole old state
+directory as described in [Stale artifact cleanup](#stale-artifact-cleanup).
+See the [changelog](../CHANGELOG.md) for the configuration, role allowlist and hook
+updates required by the rename.
 
 ## Top level
 
@@ -16,11 +33,11 @@ errors; `ub-agent check` validates the file.
 | `runtime-updates` | Optional daily maintenance policy for configured Claude Code and Codex runtimes. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
-`ub-agent launch`, including `--once`, appends stdout and stderr to
-`.ub-agent/launch.log` in the control checkout. Every file line starts with a UTC
+`ub-agents launch`, including `--once`, appends stdout and stderr to
+`.ub-agents/launch.log` in the control checkout. Every file line starts with a UTC
 ISO 8601 timestamp; terminal text stays unchanged. Each line is flushed immediately
 to both destinations, including the final stop or error message. The log is never
-truncated or rotated. Use `tail -f .ub-agent/launch.log` to follow the loop from
+truncated or rotated. Use `tail -f .ub-agents/launch.log` to follow the loop from
 another terminal. See [Stopping and restarting](../README.md#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
@@ -102,7 +119,7 @@ repositories, and add busy discovery, execution/write costs and agents' calls.
 GraphQL has a separate point budget; graph-list query cost depends on its
 connections. Long runs reduce discovery frequency.
 
-Continuous `ub-agent launch` retries failed discovery polls for request timeouts,
+Continuous `ub-agents launch` retries failed discovery polls for request timeouts,
 connection failures and HTTP 5xx responses. The fixed backoff starts at **5 seconds**,
 doubles after each consecutive failure and caps at **60 seconds**. The launcher stops
 on the **sixth consecutive failed poll**; a completed poll resets the count, including
@@ -126,7 +143,7 @@ Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)
 and makes no GitHub writes while waiting. Authentication, permission, missing
 repository, malformed response and unclassified failures still stop immediately.
 The error names the request and tells the operator to fix the cause and restart
-`ub-agent launch`.
+`ub-agents launch`.
 
 Each skipped poll for another transient error prints its error and next delay,
 makes no GitHub writes and does not report an empty queue. Discovery includes
@@ -154,7 +171,7 @@ cleanup:
 
 Without `cleanup`, no hook runs. `command` must be a nonempty argv list; no shell
 or substitutions are used. The timeout defaults to 60 seconds and must be finite,
-positive and at most 3600 seconds. `ub-agent check` rejects unknown keys and invalid
+positive and at most 3600 seconds. `ub-agents check` rejects unknown keys and invalid
 values. The command runs with the operator's configuration checkout as its working
 directory, so `./scripts/...` resolves there, even when a candidate changes its own
 configuration or scripts.
@@ -173,14 +190,14 @@ hook, the supervised hook is stopped and the worktree preserved for recovery; th
 not a normal hook failure. Cleanup after ownership has already been lost runs without
 lease writes.
 
-`UB_AGENT_CLEANUP_CONTEXT` points to a JSON file with `repository`, `run`, `agent`,
+`UB_AGENTS_CLEANUP_CONTEXT` points to a JSON file with `repository`, `run`, `agent`,
 `assignment`, `kind` (`issue` or `pr`), `handoff`, `status`, `outcome` (the named
 outcome, if any), `worktree` (absolute path) and `branch`. Unavailable fields are
 `null`. `status` is the released lease's result during later maintenance, otherwise
 the reported status known before removal, or `null`. `handoff` is the PR the run
-handed off to. The hook also gets `UB_AGENT_REPOSITORY`,
-`UB_AGENT_RUN`, `UB_AGENT_AGENT`, `UB_AGENT_ASSIGNMENT`, `UB_AGENT_WORKTREE` and
-`UB_AGENT_BRANCH` (empty when unknown). It gets no reporting lease environment.
+handed off to. The hook also gets `UB_AGENTS_REPOSITORY`,
+`UB_AGENTS_RUN`, `UB_AGENTS_AGENT`, `UB_AGENTS_ASSIGNMENT`, `UB_AGENTS_WORKTREE` and
+`UB_AGENTS_BRANCH` (empty when unknown). It gets no reporting lease environment.
 
 Exit zero permits removal. A nonzero exit, start failure or timeout with confirmed
 termination keeps the worktree and branch, logs `cleanup-hook-failed` in the run's
@@ -198,13 +215,21 @@ safe to retry, because a crash after hook success can leave a worktree to clean 
 
 ## Stale artifact cleanup
 
-`ub-agent cleanup` previews every registered worktree directly under this checkout's
-`.ub-agent/worktrees/<run>` and local branch named `ub-agent/<agent>/<number>/<run>`.
-It reports `would remove` or `kept` with a reason. Unregistered entries under the
+`ub-agents cleanup` previews every registered worktree directly under this checkout's
+`.ub-agents/worktrees/<run>` and local branch named `ub-agents/<agent>/<number>/<run>`.
+It also recognizes the old `ub-agent/<agent>/<number>/<run>` branch prefix with
+the same lease ownership checks. Worktrees under `.ub-agent/` are no longer read.
+After every old launcher has stopped, remove its old worktrees with
+`git worktree remove` (or `git worktree prune` for worktrees already deleted), then
+delete the whole `.ub-agent/` directory, including `runs/` and `launch.log`.
+Removing only the worktrees leaves old logs behind. Keep `.ub-agent/` ignored
+until the whole directory is deleted.
+
+The preview reports `would remove` or `kept` with a reason. Unregistered entries under the
 worktree directory are reported as uncertain and kept. Other tools' worktrees,
 remote branches and run logs are outside its deletion scope.
 
-`ub-agent cleanup --apply` rechecks each eligible artifact before deletion and
+`ub-agents cleanup --apply` rechecks each eligible artifact before deletion and
 reports `removed` or `kept`. Worktrees are considered before branches, so a branch
 can be removed after its worktree. Preview assumes an eligible worktree's hook
 succeeds; apply preserves both artifacts if it fails. Locked worktrees and tracked
@@ -278,7 +303,7 @@ issue; later and unmilestoned work can start when earlier work cannot.
 PR work, owned runs and recovery keep their existing priority order before new
 issue starts. Ordering uses the milestone list and each listed issue's milestone;
 an unreadable milestone list stops selection visibly. In `ignore` mode, planning
-and claiming do not read milestones. `ub-agent check` accepts all three modes.
+and claiming do not read milestones. `ub-agents check` accepts all three modes.
 This repository explicitly sets `order`; existing `gate` configurations remain
 valid. To let later and unmilestoned work start while earlier work cannot, switch
 `gate` to `order`.
@@ -302,14 +327,14 @@ Planning skips link reads only when the issue list's dependency summary reliably
 reports zero total blockers; missing or malformed summaries require a full read.
 The claim-time recheck always reads the selected new issue's blocker links.
 
-`ub-agent init` writes `queue: {milestones: ignore, dependencies: wait}`. Without a
+`ub-agents init` writes `queue: {milestones: ignore, dependencies: wait}`. Without a
 `queue` block, priorities are unconfigured, milestones are ignored and dependency
 waits apply.
 
 Priority is followed by item creation time and then item number; milestone `order`
 adds milestone rank first for new issue starts. See
 [selection order](coordination.md#selection-order) for eligibility and
-PR precedence. `ub-agent status` and `status --json` use the same rank order and
+PR precedence. `ub-agents status` and `status --json` use the same rank order and
 show each item's effective priority (`none` in text, `null` in JSON when no label
 or default applies). In `order` mode, each issue also shows its effective milestone
 next to priority (`none` when unmilestoned), with the source when inherited, such
@@ -361,7 +386,7 @@ outside PRs again. Fork PRs can be reviewed, but agents cannot revise them and
 revision runs remain blocked.
 
 Before each new agent run, the launcher fetches `origin` and fast-forwards the
-control checkout's default branch, then reloads `ub-agent.yaml` and rereads the
+control checkout's default branch, then reloads `ub-agents.yaml` and rereads the
 configured instruction files. It replans the claim with the refreshed agent,
 triggers, runtime and declared outcomes. If that item no longer plans for that
 agent, it is not claimed.
@@ -372,7 +397,7 @@ charges no attempt and does not mark the assignment blocked or retrying. Refresh
 runs only between supervised executions and cleanup hooks, and is skipped for
 durable-outcome recovery. Each run keeps its claimed configuration and prompt text.
 An invalid reloaded configuration stops with a nonzero exit and the same error as
-`ub-agent check`, without charging an assignment attempt.
+`ub-agents check`, without charging an assignment attempt.
 
 The launcher does not reload code. See
 [Stopping and restarting](../README.md#stopping-and-restarting) for signal handling
@@ -404,7 +429,7 @@ allowed). Omitted lists are empty. `check` rejects unknown keys, non-string labe
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
 
-An agent reports `ub-agent report --outcome NAME --summary TEXT [--handoff PR]`.
+An agent reports `ub-agents report --outcome NAME --summary TEXT [--handoff PR]`.
 This reports success; an unknown name is rejected. The prompt lists the declarations
 and directs the agent to leave workflow labels alone. Direct commands follow the same
 contract. The running lease snapshots the declarations; candidate configuration edits
@@ -421,7 +446,7 @@ reports cause no transition.
 Before starting, the runner rereads the assignment: a vanished trigger blocks the
 transition. A stop label on either the assignment or handoff PR pauses it with no
 label changes. The outcome remains unaccepted and is never applied later. After
-unpausing, a person sets the desired workflow labels or uses `ub-agent retry` to
+unpausing, a person sets the desired workflow labels or uses `ub-agents retry` to
 rerun the role. A stop label added after transition start stays in place while the
 recorded transition completes, parking the item for subsequent pickup.
 
@@ -436,7 +461,7 @@ request may already have written the transition start marker.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim normally waits for expiry; `ub-agent recover` can finish a reported outcome early on its host. Projects with long runs may prefer shorter per-agent timeouts. |
+| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim normally waits for expiry; `ub-agents recover` can finish a reported outcome early on its host. Projects with long runs may prefer shorter per-agent timeouts. |
 | `max-attempts` | 5 | Consecutive failures per item and agent before pickup stops. |
 | `retry-backoff-seconds` | 60 | First failure retry delay; doubles with consecutive failures and restarts after success or reset. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
@@ -462,7 +487,7 @@ session's usage records. A redundant `--json` is accepted.
 JSON event stream. Claude runs log the JSON stream of tool calls, tool results and
 the final result, including Claude Code's `permission_denials`. The launcher does
 interpret structured usage metadata; an accepted outcome still comes only from
-`ub-agent report`.
+`ub-agents report`.
 
 ### Runtime usage pauses
 
@@ -500,7 +525,7 @@ these waits normally. `launch --once` still observes just once.
 
 One line announces each CLI pause with its reason and UTC end. Each launcher
 publishes its unexpired readings and pauses atomically in its own
-`.ub-agent/runtime-usage/LAUNCHER_ID.json` file. `status` and `doctor` read the
+`.ub-agents/runtime-usage/LAUNCHER_ID.json` file. `status` and `doctor` read the
 unexpired pauses of live launchers on this host without changing those files;
 a pause does not fail `doctor`. Launchers schedule from their own readings.
 Restarting a launcher starts with no pauses, providing an override when usage is
@@ -603,8 +628,8 @@ before and after versions, result and any failure reason. Local skips print the
 runtime, install method and actionable reason.
 
 The cooldown and runtime health survive restarts in per-user local state at
-`$XDG_STATE_HOME/ub-agent/runtime-updates`, or
-`~/.local/state/ub-agent/runtime-updates` when `XDG_STATE_HOME` is unset, empty or
+`$XDG_STATE_HOME/ub-agents/runtime-updates`, or
+`~/.local/state/ub-agents/runtime-updates` when `XDG_STATE_HOME` is unset, empty or
 relative. Files
 are keyed by the PATH-resolved executable's installation: native version and
 Homebrew version directories share a stable installation identity across
@@ -630,7 +655,7 @@ continues to protect the installation. Descendants that retain an inherited
 descriptor, including detached background processes, defer in-place maintenance
 until they exit or close it.
 All cooperating launchers must use a version with this locking protocol; it
-does not track sessions launched outside ub-agent.
+does not track sessions launched outside ub-agents.
 
 Shutdown (`stop_gracefully`, SIGTERM or SIGINT) stops the updater and records a
 completed check, then exits before claiming. Updater failures produce a launcher
@@ -654,7 +679,7 @@ modes and usually cannot edit files or push. Grant each role what it needs:
 ```yaml
 runtime-args: [--sandbox, danger-full-access]    # codex
 runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
-               --allowedTools, "Bash(git *)", "Bash(gh *)", "Bash(ub-agent *)"]  # claude
+               --allowedTools, "Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)"]  # claude
 ```
 
 `init` includes the matching example, commented out, for every starter agent using
@@ -683,24 +708,28 @@ agents:
     agent-timeout-minutes: 20
 ```
 
-The command records its result with `ub-agent report --outcome investigated --summary
+The command records its result with `ub-agents report --outcome investigated --summary
 TEXT`, exactly like an LLM runtime, and receives the same environment variables:
 
 | Variable | Value |
 |---|---|
-| `UB_AGENT_CONTEXT` | Path to a JSON file describing the assignment |
-| `UB_AGENT_REPOSITORY` | `owner/name` |
-| `UB_AGENT_ASSIGNMENT` | Issue or PR number |
-| `UB_AGENT_RUN` | Run id |
-| `UB_AGENT_LEASE_ID` | The claim's comment id |
-| `UB_AGENT_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
-| `UB_AGENT_BRANCH` | The branch to work on, when known |
+| `UB_AGENTS_CONTEXT` | Path to a JSON file describing the assignment |
+| `UB_AGENTS_REPOSITORY` | `owner/name` |
+| `UB_AGENTS_ASSIGNMENT` | Issue or PR number |
+| `UB_AGENTS_RUN` | Run id |
+| `UB_AGENTS_LEASE_ID` | The claim's comment id |
+| `UB_AGENTS_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
+| `UB_AGENTS_BRANCH` | The branch to work on, when known |
+
+Only `report` falls back to the old `UB_AGENT_*` names when the corresponding
+`UB_AGENTS_*` variable is absent. Execution and cleanup hooks receive only the
+new names; update any hooks and commands that read the supervised environment.
 
 ## Commands
 
-- `ub-agent init [--repository owner/name] [--runtime cli:model:effort]` writes the
-  starter `ub-agent.yaml`, shared `AGENTS.md` and `.agents/` files next to the selected
-  `--config` file, and adds `.ub-agent/` to `.gitignore`. Fill in the shared guidance's
+- `ub-agents init [--repository owner/name] [--runtime cli:model:effort]` writes the
+  starter `ub-agents.yaml`, shared `AGENTS.md` and `.agents/` files next to the selected
+  `--config` file, and adds `.ub-agents/` to `.gitignore`. Fill in the shared guidance's
   project-check placeholders. An existing `AGENTS.md` is kept unchanged and reported;
   any existing configuration or role starter file stops init before any file writes.
   In an interactive terminal, init reads repository labels and explains each missing
@@ -713,8 +742,8 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   It never changes or deletes existing labels or uses `--force`. Local starter files
   are written regardless of the label-creation answer. Each agent includes commented
   permission arguments matching `--runtime`; see [Runtime permissions](#runtime-permissions).
-- `ub-agent check` validates the configuration and instruction files.
-- `ub-agent doctor [--json]` reports remaining GitHub requests and the reset time in
+- `ub-agents check` validates the configuration and instruction files.
+- `ub-agents doctor [--json]` reports remaining GitHub requests and the reset time in
   UTC from real request headers. It warns below 10% remaining and whenever doctor
   itself is rate limited. It checks everything `check` does, plus Python, the platform,
   `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
@@ -731,7 +760,7 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   JSON has `version`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
-- `ub-agent approve --number N` prints the current issue or PR title, body and
+- `ub-agents approve --number N` prints the current issue or PR title, body and
   outside comments; for PRs it also prints the head, outside reviews and review
   comments. It posts one [approval record](approvals.md#approving-current-input),
   pinning a PR head and recording the feedback it clears. It requires the
@@ -739,10 +768,10 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   refuses input changed during display. Running the command expresses approval
   without an interactive confirmation; it changes no labels and does not replace
   the required maintainer start.
-- `ub-agent launch [--once]` runs the loop in the foreground.
-- `ub-agent cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
+- `ub-agents launch [--once]` runs the loop in the foreground.
+- `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
-- `ub-agent recover --number N --agent NAME --reason TEXT` finishes the latest lease's
+- `ub-agents recover --number N --agent NAME --reason TEXT` finishes the latest lease's
   reported outcome on the launcher's host, including before expiry. The lease must
   belong to the authenticated GitHub actor, record this hostname and a process group
   with no live members, and have an outcome within its validity window that no
@@ -750,14 +779,14 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   and is recorded on the recovery claim with its author. It prints acceptance and
   label changes or rejection and its reason. Failed eligibility checks refuse without
   writing, name the check and lease expiry, and exit nonzero. See [Recovery](coordination.md#recovery).
-- `ub-agent status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+- `ub-agents status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
   A live lease's summary names its actor, host, claim time, runtime and lease end,
   including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
   the current UTC day. Only leases on this host have their recorded process group
   inspected: live members display `running` and the path to `process.log`; an
   exited group explains launcher completion or recovery after lease expiry. If
   that owning run reported an outcome, the reason also points to
-  `ub-agent recover --number N --agent NAME --reason TEXT` for recovery now; the
+  `ub-agents recover --number N --agent NAME --reason TEXT` for recovery now; the
   command's eligibility checks still apply. Other reasons distinguish a starting
   run, a claim without a host, another host, outcome recovery and an unknown
   process state with its inspection error. Inspection failures leave `status`
@@ -772,12 +801,12 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   original run's report. If that run has not reported, `reported:` is omitted and
   JSON `outcome` is `null`. The JSON `lease` field shows the item's live owner, even
   when it is another agent.
-- `ub-agent report --outcome NAME --summary TEXT [--handoff PR]` records a declared
+- `ub-agents report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
-- `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
+- `ub-agents retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
   an item once you have fixed the cause. It prints the reset record's link and a
   second line explaining closure, stop labels to remove, trigger labels to add,
   or pickup by a running launcher on its next poll. Labels stay unchanged; use
-  `ub-agent status` for progress and other pickup gates.
+  `ub-agents status` for progress and other pickup gates.
 - `--config PATH` selects a different configuration file.

@@ -790,7 +790,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                         patch("ub_agents.cli.Loop", side_effect=create_loop), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.root / "ub-agent.yaml"), "launch", "--once"]), expected)
+                    self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), expected)
                 self.assertEqual(github.writes, [])
                 state = manager.read(manager.paths(installation("codex", self.which))[2])
                 self.assertEqual(state["checked"], self.now)
@@ -924,7 +924,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         for configured in ("", "relative", str(self.root / "xdg-state")):
             with self.subTest(configured=configured), patch.dict(os.environ, {"XDG_STATE_HOME": configured}):
                 base = Path(configured) if configured and Path(configured).is_absolute() else self.home / ".local/state"
-                self.assertEqual(state_directory(), base / "ub-agent/runtime-updates")
+                self.assertEqual(state_directory(), base / "ub-agents/runtime-updates")
 
     def test_orphan_updater_retains_guard_until_it_finishes(self):
         self.executable(self.bin / "codex")

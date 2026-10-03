@@ -197,7 +197,7 @@ class NoticeTests(unittest.TestCase):
         comment = notices[0]["body"]
         for expected in ("**Action needed**", outcome["summary"], "a" * 40, "APPROVED", "SUCCESS",
                          lease["url"], outcome["url"],
-                         'ub-agent retry --number 2 --agent worker --reason "Human resolved the blocker"'):
+                         'ub-agents retry --number 2 --agent worker --reason "Human resolved the blocker"'):
             self.assertIn(expected, comment)
         self.assertEqual(records(notices, "operator"), [])
         self.assertEqual(len(self.co.history(2)), 2)
@@ -228,7 +228,7 @@ class NoticeTests(unittest.TestCase):
         for expected in ("**Action needed**", "Maintainer must merge", "a" * 40, "APPROVED", "SUCCESS",
                          "Remove the stop label(s) `needs-human`", "`ready`", "`needs-changes`"):
             self.assertIn(expected, notice["body"])
-        self.assertNotIn("ub-agent retry", notice["body"])
+        self.assertNotIn("ub-agents retry", notice["body"])
         self.assertEqual(loop.plans()[0].state, "parked")  # visible after all triggers were removed
         before = deepcopy(github.writes)
         loop.tick()
@@ -376,8 +376,8 @@ class NoticeTests(unittest.TestCase):
                     self.now = seconds(lease["retry_after"])
                 notice = notices[0]["body"]
                 for expected in (f"Execution exited {code}", "Attempt limit exhausted", "max-attempts: 3",
-                                 "launcher-host", str(self.root / ".ub-agent" / "runs" / lease["run"]),
-                                 lease["url"], outcome["url"], "ub-agent retry --number 1 --agent worker"):
+                                 "launcher-host", str(self.root / ".ub-agents" / "runs" / lease["run"]),
+                                 lease["url"], outcome["url"], "ub-agents retry --number 1 --agent worker"):
                     self.assertIn(expected, notice)
                 before = deepcopy(github.writes)
                 self.output.clear()

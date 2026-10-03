@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
-from ub_agents.config import Runtime, load_config
+from ub_agents.config import Runtime, load_config, resolve_config_path
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
@@ -28,9 +28,9 @@ class RefreshTests(unittest.TestCase):
         self.origin, self.upstream, self.root = [base / p for p in ("origin.git", "upstream", "control")]
         git(base, "init", "--bare", "-b", "main", str(self.origin))
         git(base, "clone", str(self.origin), str(self.upstream))
-        (self.upstream / ".gitignore").write_text(".ub-agent/\nignored\n")
+        (self.upstream / ".gitignore").write_text(".ub-agents/\nignored\n")
         (self.upstream / "role.md").write_text("First operator policy\n")
-        (self.upstream / "ub-agent.yaml").write_text("repository: org/project\nagents:\n  worker:\n"
+        (self.upstream / "ub-agents.yaml").write_text("repository: org/project\nagents:\n  worker:\n"
                                                     "    runtime: codex:model:high\n"
                                                     "    trigger: ready\n    instructions: role.md\n"
                                                     "    outcomes: {done: {}}\n")
@@ -56,7 +56,7 @@ class RefreshTests(unittest.TestCase):
         files = {}
         for path in self.root.rglob("*"):
             relative = path.relative_to(self.root)
-            if relative.parts[0] in {".git", ".ub-agent"}:
+            if relative.parts[0] in {".git", ".ub-agents"}:
                 continue
             if path.is_symlink():
                 files[str(relative)] = ("link", str(path.readlink()))
@@ -90,7 +90,7 @@ class RefreshTests(unittest.TestCase):
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             if callback:
                 callback(cwd, prompt)
-            number = int(env["UB_AGENT_ASSIGNMENT"])
+            number = int(env["UB_AGENTS_ASSIGNMENT"])
             lease = self.loop.coordinator.history(number)[0]
             self.loop.coordinator.report(lease, "success", "Synthetic run finished", outcome="done")
             return 0
@@ -132,9 +132,28 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(self.snapshot()[:3], before[:3])
 
     def enable_reload(self):
-        path = self.root / "ub-agent.yaml"
+        path = self.root / "ub-agents.yaml"
         self.loop.config = load_config(path)
         self.loop.config_path = path
+
+    def test_default_config_reload_survives_committed_rename(self):
+        git(self.upstream, "mv", "ub-agents.yaml", "ub-agent.yaml")
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        git(self.root, "pull", "--ff-only")
+        with patch("ub_agents.config._warned_legacy_config", False), redirect_stderr(io.StringIO()) as warning:
+            self.loop.config = load_config(resolve_config_path(root=self.root))
+            self.loop.config_path = self.root / "ub-agents.yaml"
+            self.loop.default_config = True
+            self.execute()
+            git(self.upstream, "mv", "ub-agent.yaml", "ub-agents.yaml")
+            (self.upstream / "role.md").write_text("Policy after config rename\n")
+            self.commit(self.upstream)
+            git(self.upstream, "push", "origin", "main")
+            self.execute(lambda cwd, prompt: self.assertIn("Policy after config rename", prompt))
+        self.assertEqual(len(warning.getvalue().splitlines()), 1)
+        self.assertTrue((self.root / "ub-agents.yaml").exists())
+        self.assertFalse((self.root / "ub-agent.yaml").exists())
 
     def test_sigterm_during_fast_forward_finishes_refresh_without_claiming(self):
         for reload in (False, True):
@@ -203,12 +222,12 @@ class RefreshTests(unittest.TestCase):
         calls = []
 
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
-            number = int(env["UB_AGENT_ASSIGNMENT"])
+            number = int(env["UB_AGENTS_ASSIGNMENT"])
             calls.append(number)
             if number == 1:
                 self.assertIn("First operator policy", prompt)
                 self.assertIn("model", command)
-                path = self.upstream / "ub-agent.yaml"
+                path = self.upstream / "ub-agents.yaml"
                 path.write_text(path.read_text().replace("codex:model:high", "claude:next:low")
                                 .replace("trigger: ready", "trigger: needs-changes")
                                 .replace("instructions: role.md", "instructions: next.md")
@@ -253,7 +272,7 @@ class RefreshTests(unittest.TestCase):
                 self.github.change(3, labels=frozenset({"ready", "paused"}))
                 self.github.milestones = [{"number": 1, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
                 self.github.items[4] = issue(4, labels=(), milestone=1)
-                path = self.upstream / "ub-agent.yaml"
+                path = self.upstream / "ub-agents.yaml"
                 path.write_text(edit(path.read_text()))
                 self.commit(self.upstream)
                 git(self.upstream, "push", "origin", "main")
@@ -269,7 +288,7 @@ class RefreshTests(unittest.TestCase):
         self.github.milestones = [{"number": n, "state": "open", "created_at": f"2026-01-{n:02}T00:00:00Z"}
                                   for n in (10, 20)]
         self.github.items[4] = issue(4, labels=(), milestone=10)
-        path = self.upstream / "ub-agent.yaml"
+        path = self.upstream / "ub-agents.yaml"
         path.write_text(path.read_text() + "queue: {milestones: order}\n")
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
@@ -279,7 +298,7 @@ class RefreshTests(unittest.TestCase):
 
     def test_reloaded_repository_is_checked_against_origin_before_claim(self):
         self.enable_reload()
-        path = self.upstream / "ub-agent.yaml"
+        path = self.upstream / "ub-agents.yaml"
         path.write_text(path.read_text().replace("org/project", "org/other"))
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
@@ -291,11 +310,11 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
 
     def test_invalid_reloaded_config_exits_with_check_error_without_charging_attempt(self):
-        (self.upstream / "ub-agent.yaml").write_text("invalid: configuration\n")
+        (self.upstream / "ub-agents.yaml").write_text("invalid: configuration\n")
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
         launch_error, check_error = io.StringIO(), io.StringIO()
-        args = ["--config", str(self.root / "ub-agent.yaml")]
+        args = ["--config", str(self.root / "ub-agents.yaml")]
         with patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
@@ -310,7 +329,7 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
 
     def test_ignored_local_instructions_remain_valid_after_refresh(self):
-        local = self.root / ".ub-agent" / "local-role.md"
+        local = self.root / ".ub-agents" / "local-role.md"
         local.parent.mkdir()
         local.write_text("Local ignored operator policy")
         self.worker = replace(self.worker, instructions=local)
@@ -409,7 +428,7 @@ class RefreshTests(unittest.TestCase):
                     self.assertIs(raised.exception, failure)
                 else:
                     self.assertIn("failure is not retryable; retries not exhausted", str(raised.exception))
-                    self.assertIn("Fix the cause and restart ub-agent launch", str(raised.exception))
+                    self.assertIn("Fix the cause and restart ub-agents launch", str(raised.exception))
                 self.assertEqual(self.snapshot(), before)
                 self.assertEqual(self.github.writes, [])
 
@@ -522,7 +541,7 @@ class RefreshTests(unittest.TestCase):
         git(self.root, "pull", "--ff-only")
         self.worker = replace(self.worker, instructions=self.root / "alias.md")
         self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lambda *_: None)
-        path = self.root / "ub-agent.yaml"
+        path = self.root / "ub-agents.yaml"
         path.write_text(path.read_text().replace("role.md", "alias.md"))
         loaded = load_config(path)
         self.assertEqual(loaded.agents[0].instructions, self.root / "alias.md")
@@ -642,7 +661,7 @@ class RefreshTests(unittest.TestCase):
         (self.root / "role.md").write_bytes(b"\xff")
         error = io.StringIO()
         with redirect_stderr(error):
-            self.assertEqual(main(["--config", str(self.root / "ub-agent.yaml"), "check"]), 1)
+            self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "check"]), 1)
         self.assertIn("instructions is unreadable", error.getvalue())
 
     def test_cli_refresh_failure_exits_nonzero_without_claiming(self):

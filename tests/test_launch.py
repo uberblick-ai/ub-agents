@@ -23,8 +23,8 @@ class LaunchTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.argv = ["--config", str(self.root / "ub-agent.yaml"), "launch"]
-        self.log = self.root / ".ub-agent" / "launch.log"
+        self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
+        self.log = self.root / ".ub-agents" / "launch.log"
         self.config = config(self.root)
 
     def log_lines(self):
@@ -64,8 +64,8 @@ class LaunchTests(unittest.TestCase):
         with patch("ub_agents.cli.load_config", side_effect=AgentError("Invalid configuration")), \
                 redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 1)
-        self.assertEqual(stderr.getvalue(), "ub-agent: Invalid configuration\n")
-        self.assertEqual(self.log_lines(), ["ub-agent: Invalid configuration"])
+        self.assertEqual(stderr.getvalue(), "ub-agents: Invalid configuration\n")
+        self.assertEqual(self.log_lines(), ["ub-agents: Invalid configuration"])
 
     def test_continuous_launch_logs_wait_and_final_stop(self):
         stdout, stderr = io.StringIO(), io.StringIO()

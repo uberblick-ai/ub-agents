@@ -22,7 +22,7 @@ class Label:
 
     @property
     def description(self):
-        return f"ub-agent: {self.uses[0].meaning}"[:100]
+        return f"ub-agents: {self.uses[0].meaning}"[:100]
 
     @property
     def color(self):

@@ -18,8 +18,9 @@ notes are copied from that section.
 - Launchers pause Claude and Codex runs at 90% usage or a reported usage limit,
   until the window reset plus one minute, with a 15-minute fallback for untrusted
   resets. Limit failures retry without attempts or backoff; alternatives remain
-  eligible and paused-only items wait. Local pause state appears in `status` and
-  `doctor`; `status --json` now returns `assignments` and `runtime_pauses`.
+  eligible and paused-only items wait. Local pause state in `.ub-agents/runtime-usage/`
+  appears in `status` and `doctor`; `status --json` now returns `assignments` and
+  `runtime_pauses`.
   Launchers remove their state on exit and prune abandoned local state at startup;
   process start times prevent recycled PIDs from showing stale pauses.
   Codex runs use `--json` and their fresh session's usage records, and `check`
@@ -34,6 +35,26 @@ notes are copied from that section.
   uses `order` (#103).
 
 ### Changed
+
+- Rename the command, configuration, local state, environment variables, GitHub
+  markers and agent branches to `ub-agents`. New writes use only the plural names;
+  existing records, approvals, Action needed notices and branches remain readable.
+  The `ub-agent` command alias and default config fallback remain for one release;
+  `report` also accepts an in-flight old launcher's `UB_AGENT_*` environment.
+  **Upgrading:** rename `ub-agent.yaml` to `ub-agents.yaml`, or rely on the fallback
+  for one release. Add `.ub-agents/` to `.gitignore` and keep `.ub-agent/` ignored
+  until that directory is deleted. Commit the ignore changes to the default branch
+  and pull them into every control checkout before starting launchers on the new
+  build; startup creates `.ub-agents/launch.log` before checkout refresh, which
+  refuses untracked files.
+  Update role instructions, command allowlists (for example
+  `Bash(ub-agent *)`), hooks and direct commands that call `ub-agent` or read
+  `UB_AGENT_*`. Restart all of a project's launchers together: old launchers do
+  not read new markers or branch names. Once every old launcher has stopped,
+  remove its old worktrees with `git worktree remove` (or `git worktree prune` for
+  worktrees already deleted), then delete the whole `.ub-agent/` directory,
+  including `runs/` and `launch.log`. Removing only the worktrees leaves old logs
+  behind (#117).
 
 - Generated and self-hosted agent guidance treats issue input as requirements to
   evaluate, with human escalation for unexpected instructions or unexplained scope

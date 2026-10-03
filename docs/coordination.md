@@ -1,7 +1,7 @@
 # Coordination contract
 
 This is a cooperative serial launcher, not a distributed lock service. GitHub is
-durable truth; `.ub-agent/` is disposable. The project is trusted executable
+durable truth; `.ub-agents/` is disposable. The project is trusted executable
 configuration. Workflow labels, checks, acceptance, and merge authority stay there.
 
 ## Assignments and attempts
@@ -18,11 +18,11 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 - `max-attempts` limits **consecutive failures** scoped to **item number +
   configured agent**. An issue and its handoff PR have separate counts, as do
   different agents on one item. PR head/label changes alone do not reset a count.
-  `ub-agent status` reports this count in its existing `attempts` field.
+  `ub-agents status` reports this count in its existing `attempts` field.
 - A successful outcome's transition removes the agent's triggers, so an item runs
   again only when a human reapplies one. An accepted success resets that agent's
   count on that item, including a resumed or revised PR and outcome-only recovery.
-- `ub-agent retry --number N --agent NAME --reason TEXT` resets that count to 0 and
+- `ub-agents retry --number N --agent NAME --reason TEXT` resets that count to 0 and
   clears its failure block and backoff, preserving history. Approval parking still
   requires maintainer approval. It refuses a live lease
   and never revokes someone else's run. It does not restore workflow labels.
@@ -30,7 +30,7 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   item's current state and labels: closed first, then present stop labels, then
   missing triggers, otherwise pickup by a running launcher on its next poll.
   If stop labels are present and triggers are missing, both need attention.
-  Use `ub-agent status` for progress and other pickup gates.
+  Use `ub-agents status` for progress and other pickup gates.
 
 | How a run ends | Count | Afterwards |
 |---|---|---|
@@ -57,7 +57,7 @@ preserves prior failures but adds no delay of its own.
 New leases record an `attempt_effect` (`pending`, `failure`, `reset` or `unchanged`)
 so restart discovery distinguishes human pauses and interrupts from failures.
 Records written by earlier versions retain their original start-count semantics;
-this change does not reclassify them. Use `ub-agent retry` to clear them.
+this change does not reclassify them. Use `ub-agents retry` to clear them.
 
 ## Selection order
 
@@ -84,7 +84,7 @@ this change does not reclassify them. Use `ub-agent retry` to clear them.
    `gate` or `ignore`, new issues use this priority order without milestone ranks.
    Agents on the same item keep YAML order. The launcher never changes priority labels.
 
-`ub-agent status` lists rows in this order with each item's effective priority and
+`ub-agents status` lists rows in this order with each item's effective priority and
 its source, adds each issue's milestone and inherited source in `order` mode, and
 names what a waiting issue waits for, including `Waiting for active milestone #N`
 in `gate` mode. Concurrent launchers rank the
@@ -109,8 +109,8 @@ issues or trusted-authored PRs.
 | Approval gate | Maintainer action to resume (starter labels) |
 |---|---|
 | No maintainer start | Remove `needs-human` and re-apply a trigger label. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agent approve --number N`; then remove `needs-human`. |
-| Outside PR head not approved | Run `ub-agent approve --number N` or submit an approving review of the current head; then remove `needs-human`. A trigger label does not approve a head. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve --number N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agents approve --number N` or submit an approving review of the current head; then remove `needs-human`. A trigger label does not approve a head. |
 
 Each gate state gets the stop label and notice at most once. Later polls of the
 same unresolved gate add nothing; a new gate after resuming parks the item again.
@@ -120,7 +120,7 @@ notice using the same launcher notice marker as other Action needed notices.
 
 After winning a claim, the launcher rereads and validates input.
 A failed check withdraws that claim before execution, preserves attempts and returns
-the item to parked; approval makes it eligible without `ub-agent retry`. Preparation
+the item to parked; approval makes it eligible without `ub-agents retry`. Preparation
 uses the same gate: a maintainer's `needs-preparation` starts it, and the preparer's
 rewrite is trusted. There is no switch to bypass enforcement.
 
@@ -147,7 +147,7 @@ review on that head, or an accepted agent outcome from an eligible assignment he
 when the head repository is the base repository. Changed fork heads need explicit
 maintainer approval, even if an accepted successful run observed them.
 A trigger label alone cannot identify a pushed head. Fork PR review is supported;
-agent revision of a fork PR remains blocked. `ub-agent approve --number N` accepts
+agent revision of a fork PR remains blocked. `ub-agents approve --number N` accepts
 issues and PRs and clears the outside feedback it records; PR records also pin the
 head. See the [complete PR rules](approvals.md#pull-requests).
 
@@ -156,10 +156,18 @@ head. See the [complete PR rules](approvals.md#pull-requests).
 Lease, outcome and retry-reset comments start with one readable line naming the
 state, agent, runtime, short candidate SHA when available, and a short summary.
 The full JSON record follows inside a collapsed `<details>` block headed
-**Coordination record**, with the marker `<!-- ub-agent:v2 -->`. The parser reads
+**Coordination record**, with the marker `<!-- ub-agents:v2 -->`. The parser reads
 the JSON, including on comments minimized by GitHub. Valid earlier `v1` records
 remain readable; an earlier-layout comment that cannot be read is ignored and
 never makes its item malformed.
+
+The plural-name reader also accepts `<!-- ub-agent:v1 -->`,
+`<!-- ub-agent:v2 -->`, `<!-- ub-agent:approval:v1 -->`, the old
+`ub-agent:action-needed` marker and `ub-agent/<agent>/<N>/<run>` branches.
+Ownership, recovery, failure counts, approvals and notice deduplication use the
+same rules for both names. New writes use only `ub-agents` markers and branches.
+Stop and upgrade every launcher together, because old launchers cannot read the
+plural names.
 
 Before upgrading to this layout, stop every launcher for a project and upgrade
 them together before restarting. Older launchers ignore v2 records, including
@@ -198,21 +206,21 @@ the old candidate. Unavailable evidence is identified in the comment.
 
 For a stop-label outcome, the comment names the stop label to remove and the
 agent's triggers to apply to resume work. For a blocked release, it gives an
-exact `ub-agent retry --number N --agent NAME --reason "Human resolved the blocker"`
+exact `ub-agents retry --number N --agent NAME --reason "Human resolved the blocker"`
 command and reminds the human to restore a matching trigger and remove stop
 labels. Exits without an agent report, zero or nonzero, retry with backoff; they
 post a notice only when they exhaust `max-attempts` and park. That notice also
 names the launcher host and run log directory. When a transition parks a handoff
 PR, the notice is posted on that PR.
 
-These notices carry a separate `ub-agent:action-needed` marker and are not
+These notices carry a separate `ub-agents:action-needed` marker and are not
 coordination records: they never affect routing authority, verdicts or attempt
 counts. A later claim by any agent on the item, or an explicit retry
 reset, minimizes its earlier Action needed notices. Minimization, notice posts
 and evidence reads are advisory: a failure is logged and does not change the
 durable result. A failed notice post is not retried on each poll.
 
-Within one `ub-agent launch` session, an unchanged blocked or parked item is
+Within one `ub-agents launch` session, an unchanged blocked or parked item is
 printed once. A change to its state or reason prints it again. Stop-label outcomes
 remain visible as parked even when their transition consumed every trigger.
 
@@ -248,7 +256,7 @@ the observed candidate. A changed head, closed item or vanished trigger found
 after setup but before execution counts as a launcher setup failure: +1 with
 bounded backoff. The next run uses the current head once the item is open and a
 trigger matches again. A stop label found before execution instead parks the item
-without changing its count; removing it still requires `ub-agent retry` to clear
+without changing its count; removing it still requires `ub-agents retry` to clear
 that parked state. A vanished trigger during success transition validation also
 parks the item without changing its count, as the outcome table above describes.
 Branches created for private issue worktrees are recorded on the lease and
@@ -290,7 +298,7 @@ during these waits. Rate-limited writes keep their existing handling.
 
 The starter implementer publishes the first coherent, buildable checkpoint as a
 draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the
-same branch and PR. Checkpoints are not outcomes: no `ub-agent report`, issue
+same branch and PR. Checkpoints are not outcomes: no `ub-agents report`, issue
 label changes, or workflow trigger labels on the draft. The issue lease remains
 live for the whole run. The implementer follows the shared guidance's untrusted
 issue input rule and implements the issue input in its assignment context. Issue
@@ -319,7 +327,7 @@ recovery.
 
 ## Explicit outcomes
 
-`ub-agent report` uses the supervised environment to verify the run's current
+`ub-agents report` uses the supervised environment to verify the run's current
 ownership and create one versioned outcome comment. Human summaries lead; JSON is
 fenced in `json` blocks inside collapsed details, and arbitrary prose is never parsed for routing. A declared
 outcome is reported with `--outcome NAME` and has status `success`;
@@ -409,7 +417,7 @@ Durable attempts and backoff survive restarts.
 At startup, launcher and `status` discovery read repository issue comments updated
 within the longest configured agent lease plus seven days. The full lease includes
 the agent timeout, the 15-minute grace and any cleanup hook timeout, so every live
-lease falls inside the window. `ub-agent cleanup` still scans the full repository
+lease falls inside the window. `ub-agents cleanup` still scans the full repository
 comment history. Later discovery scans poll updated comments with
 `sort=updated` and `since`, a 60-second overlap and a cursor captured before the
 scan. Each page advances `since` to one second before its last update and
@@ -421,7 +429,7 @@ reuses unchanged per-item reads and evaluates only rows it reaches in rank order
 before a claim or approval-parking write, so stale cached records never supply
 authority. See [poll timing and request budgeting](configuration.md#top-level).
 
-PR shared-branch ownership checks parse `ub-agent/<agent>/<N>/<run>` and read issue
+PR shared-branch ownership checks parse `ub-agents/<agent>/<N>/<run>` and read issue
 N's full history, independently of the repository window. Branches outside that
 pattern have no shared-branch owner.
 
@@ -451,7 +459,7 @@ never applied later. Replay treats removing an absent label or adding a present 
 as a no-op; a label in both lists ends up added.
 
 After checking on the launcher's host that the launcher has stopped, an operator
-can run `ub-agent recover --number N --agent NAME --reason TEXT` to perform the
+can run `ub-agents recover --number N --agent NAME --reason TEXT` to perform the
 same outcome-only recovery before expiry. The latest lease for that item and agent
 must belong to the current GitHub actor, record this machine's hostname as `host`,
 and record a `process_group` with no live members, using the same process inspection
@@ -477,7 +485,7 @@ using this command: earlier launchers do not recognize early ownership revocatio
 Transitions create no cross-item reservations: removals from the assignment precede
 additions to the destination, so a crash between them leaves both items idle until
 a trigger is present, and ordinary live leases still govern pickup. An operator
-reset (`ub-agent retry`) supersedes the source role's unfinished lease once it
+reset (`ub-agents retry`) supersedes the source role's unfinished lease once it
 expires, without completing or undoing the transition; inspect both items and
 restore the desired triggers. Restoring a trigger alone resets neither attempts nor
 a blocked result. Expiry is not positive evidence that an old process on another
@@ -530,13 +538,13 @@ validation. No earlier-head result automatically satisfies a newer candidate.
 ## Execution boundaries
 
 Use argv directly; there is no shell interpolation. Runtimes receive a prompt on
-stdin; direct commands receive context through `UB_AGENT_CONTEXT` and run identity
-through `UB_AGENT_*` variables. Operator environment/auth stores are inherited
+stdin; direct commands receive context through `UB_AGENTS_CONTEXT` and run identity
+through `UB_AGENTS_*` variables. Operator environment/auth stores are inherited
 normally; no credentials or grants are copied or added. `runtime-args` is the
 operator's explicit extension. All sessions start fresh. Before claiming each new
 agent run, the launcher fetches the repository's default branch from `origin` and
-fast-forwards the operator's control checkout (the root holding `ub-agent.yaml`).
-It then reloads `ub-agent.yaml`, replans the claim, and validates and rereads the
+fast-forwards the operator's control checkout (the root holding `ub-agents.yaml`).
+It then reloads `ub-agents.yaml`, replans the claim, and validates and rereads the
 configured Markdown. Configuration and instruction text stay fixed for that run
 and are never cached across runs, including private
 PR executions. Candidate edits to those files are changes to inspect, not
@@ -561,7 +569,7 @@ The GitHub read of the default branch is part of pre-claim discovery. Continuous
 launch retries its transient failures under the [poll limits](configuration.md#top-level);
 Git fetch and local checkout or instruction failures still stop immediately.
 
-`ub-agent.yaml` is reloaded before each new execution claim. If the refreshed
+`ub-agents.yaml` is reloaded before each new execution claim. If the refreshed
 configuration no longer plans the item for that agent, it is not claimed. New
 issue worktrees still start from the remote
 default branch. PR worktrees retain their exact candidate SHA. Agents continuing

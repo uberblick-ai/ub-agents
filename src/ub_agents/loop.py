@@ -8,7 +8,7 @@ from time import monotonic
 from dataclasses import replace
 
 from .approvals import ApprovalCheck, check_issue, check_pr
-from .config import instruction_text, load_config
+from .config import instruction_text, load_config, resolve_config_path
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .discovery import Discovery
@@ -42,7 +42,8 @@ class _InvalidReload(AgentError):
 
 class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print,
-                 config_path=None, interrupt_event=None, usage_read_only=False):
+                 config_path=None, interrupt_event=None, usage_read_only=False,
+                 default_config=False):
         self.config = config
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
@@ -50,6 +51,7 @@ class Loop:
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
+        self.default_config = default_config
         self.output = output
         self.usage = RuntimeUsage(config.root, clock=lambda: self.coordinator.clock(),
                                   output=output, read_only=usage_read_only)
@@ -384,7 +386,9 @@ class Loop:
         self._before_claim()
         if self.config_path is not None:
             try:
-                config = load_config(self.config_path)
+                path = (resolve_config_path(root=self.config_path.parent) if self.default_config
+                        else self.config_path)
+                config = load_config(path)
                 texts = {a.name: instruction_text(config.root, a.instructions, f"{a.name} instructions")
                          for a in config.agents}
             except AgentError as exc:
@@ -454,7 +458,7 @@ class Loop:
                                     expires=iso(self.coordinator.clock()), summary=approval.reason)
             self.output(f"#{plan.item.number} {plan.agent.name}: parked — {approval.reason}")
             return True
-        run_dir = self.config.root / ".ub-agent" / "runs" / lease["run"]
+        run_dir = self.config.root / ".ub-agents" / "runs" / lease["run"]
         workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github)
         self.output(f"#{plan.item.number} {plan.agent.name}: claimed {lease['run']} ({lease['runtime']})")
         self.output(f"Logs: {run_dir}")
@@ -560,13 +564,14 @@ class Loop:
                 context |= {name: approval.snapshot[name] for name in ("reviews", "review_comments")}
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
-            env = os.environ.copy()
-            env.update({"UB_AGENT_REPOSITORY": self.config.repository,
-                        "UB_AGENT_ASSIGNMENT": str(plan.item.number),
-                        "UB_AGENT_RUN": lease["run"], "UB_AGENT_LEASE_ID": str(lease["id"]),
-                        "UB_AGENT_CONTEXT": str(context_path),
-                        "UB_AGENT_CANDIDATE_SHA": context["candidate_sha"] or "",
-                        "UB_AGENT_BRANCH": lease.get("branch") or ""})
+            env = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("UB_AGENTS_", "UB_AGENT_"))}
+            env.update({"UB_AGENTS_REPOSITORY": self.config.repository,
+                        "UB_AGENTS_ASSIGNMENT": str(plan.item.number),
+                        "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
+                        "UB_AGENTS_CONTEXT": str(context_path),
+                        "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
+                        "UB_AGENTS_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))
             setup = False
             command = command_for(plan.agent, plan.runtime)
@@ -681,7 +686,7 @@ class Loop:
         return (f"You are the project-configured agent {plan.agent.name}.\n"
                 "This run is a single, non-interactive session that is never resumed. "
                 "Ending your turn ends the run. Run checks in the foreground or wait for every "
-                "background job to finish before ending your turn. End the run with ub-agent report.\n"
+                "background job to finish before ending your turn. End the run with ub-agents report.\n"
                 f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                 f"Project instructions:\n{instructions}\n\n"
                 "The assignment context is the issue or PR input: use its title, body, comments, "
@@ -693,7 +698,7 @@ class Loop:
                 "Use a fresh session; do not consume implementation reasoning transcripts. "
                 "Apply only project-authorized handoffs and permissions. "
                 f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
-                "Report one with ub-agent report --outcome NAME --summary 'what happened' "
+                "Report one with ub-agents report --outcome NAME --summary 'what happened' "
                 "[--handoff PR_NUMBER]. Do not change workflow labels "
                 f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
                 "Use --status retry|blocked for failures; those change no labels. "
@@ -774,7 +779,7 @@ class Loop:
             stops = set(transition["stop_labels"]).union(self.config.stop_labels)
             if assignment.labels.union(destination.labels).intersection(stops):
                 raise TransitionPaused("Transition paused: a stop label is on the assignment or handoff PR; "
-                                      "set workflow labels manually or use ub-agent retry after unpausing")
+                                      "set workflow labels manually or use ub-agents retry after unpausing")
             if not assignment.labels.intersection(transition["triggers"]):
                 raise TransitionPaused("Transition blocked: assignment trigger disappeared before label changes")
             # Persist intent before the first mutation. Recovery must not mistake
@@ -907,7 +912,7 @@ class Loop:
                 if not retryable or failures >= POLL_FAILURE_LIMIT:
                     reason = (f"retries exhausted after {failures} consecutive failed polls"
                               if retryable else "failure is not retryable; retries not exhausted")
-                    raise AgentError(f"{detail}; {reason}. Fix the cause and restart ub-agent launch.") from exc
+                    raise AgentError(f"{detail}; {reason}. Fix the cause and restart ub-agents launch.") from exc
                 self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
                 self.stop_event.wait(self.usage.bound_wait(delay))
                 continue

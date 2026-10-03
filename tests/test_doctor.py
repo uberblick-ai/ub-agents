@@ -24,7 +24,7 @@ class DoctorTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
-        self.path = self.root / "ub-agent.yaml"
+        self.path = self.root / "ub-agents.yaml"
         self.path.write_text('''repository: org/project
 agents:
   worker:
@@ -318,7 +318,7 @@ agents:
                 for id in ("python", "platform", "git", "gh", "github-auth", "process-inspection"):
                     self.assertEqual(self.one(result, id)["status"], "ok")
         self.path.unlink()
-        self.assertIn("ub-agent init", self.one(self.diagnose(), "config")["remedy"])
+        self.assertIn("ub-agents init", self.one(self.diagnose(), "config")["remedy"])
 
     def test_instruction_read_failure(self):
         original = Path.read_text
@@ -355,7 +355,7 @@ agents:
         self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "skip")
 
     def test_local_state_symlink_and_ignore(self):
-        local = self.root / ".ub-agent"
+        local = self.root / ".ub-agents"
         self.assertIn("created at launch", self.one(self.diagnose(), "local-state")["message"])
         self.assertFalse(local.exists())
         self.assertEqual(self.one(self.diagnose(access=lambda *_: False), "local-state")["status"], "fail")
@@ -368,7 +368,7 @@ agents:
         local.unlink()
         local.write_text("not a directory")
         self.assertEqual(self.one(self.diagnose(), "local-state")["status"], "fail")
-        self.runner.responses[("git", "-C", str(self.root), "check-ignore", "-q", ".ub-agent/")] = subprocess.CompletedProcess([], 1, '', '')
+        self.runner.responses[("git", "-C", str(self.root), "check-ignore", "-q", ".ub-agents/")] = subprocess.CompletedProcess([], 1, '', '')
         self.assertEqual(self.one(self.diagnose(), "local-state-ignored")["status"], "fail")
 
     def test_different_runtime_no_alternative_and_partial_coverage(self):
@@ -420,9 +420,9 @@ agents:
         self.assertNotIn("sk-", output)
         self.assertEqual(self.github.writes, [])
         self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob("*")))
-        self.assertFalse((self.root / ".ub-agent").exists())
+        self.assertFalse((self.root / ".ub-agents").exists())
         allowed = {("rev-parse", "--show-toplevel"), ("remote", "get-url", "origin"),
-                   ("check-ignore", "-q", ".ub-agent/")}
+                   ("check-ignore", "-q", ".ub-agents/")}
         for command, kwargs in self.runner.calls:
             self.assertLessEqual(kwargs["timeout"], 20)
             self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)

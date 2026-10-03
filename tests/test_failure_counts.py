@@ -388,8 +388,8 @@ class FailureCountTests(unittest.TestCase):
 
     def test_log_directory_setup_failure_is_a_durable_retry(self):
         # A file where the run directory belongs makes mkdir fail before execution.
-        (self.root / '.ub-agent').mkdir()
-        (self.root / '.ub-agent' / 'runs').write_text('not a directory')
+        (self.root / '.ub-agents').mkdir()
+        (self.root / '.ub-agents' / 'runs').write_text('not a directory')
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
             self.assertTrue(self.loop.tick())
         self.assertEqual((self.count(), self.plan().state), (1, 'backoff'))
