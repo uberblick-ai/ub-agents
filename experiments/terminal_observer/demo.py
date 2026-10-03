@@ -127,6 +127,8 @@ class View(App):
         return self.selected and self.selected['number'] == 1 and self.observer.log_allowed(self.selected)
 
     def show_log(self):
+        if not self.is_running:
+            return
         output = self.query_one('#output', RichLog)
         if self.query_one(TabbedContent).active != 'log' or output.scrollable_content_region.width <= 0:
             self.seen = -1
@@ -169,6 +171,8 @@ class View(App):
             self.call_after_refresh(self.show_log)
 
     def tick(self):
+        if not self.is_running:
+            return
         if self.replay and self.tail:
             self.replay_index += 1
             i = self.replay_index
@@ -187,7 +191,7 @@ class View(App):
         self.footer_state()
 
     def footer_state(self):
-        if not self.is_mounted:
+        if not self.is_running:
             return
         o = self.observer
         refreshed = datetime.fromtimestamp(o.refreshed, timezone.utc).strftime('%H:%M:%S UTC') if o.refreshed else 'none'

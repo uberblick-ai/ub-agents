@@ -233,6 +233,9 @@ class Evidence(unittest.IsolatedAsyncioTestCase):
                         break
                     await pilot.pause(.05)
                 await pilot.press('q')
+            app.tick()  # A queued timer callback during teardown must be harmless.
+            app.show_log()
+            app.footer_state()
             try:
                 self.assertFalse(stop.is_set())
                 self.assertFalse(task.done())

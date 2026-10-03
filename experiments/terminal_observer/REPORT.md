@@ -95,7 +95,12 @@ and a draft-only `Refs #97` handoff.
 
 Checkpoint: **2026-10-03 08:45:43 UTC**; elapsed active effort
 **19m 9s**, remaining hard-cap budget **220m 51s**.
-Total effort charged for this spike: **about 25 minutes**, conservatively rounded
+Total effort charged for this spike: **about 30 minutes**, conservatively rounded
 up to include final checks, push, PR/issue updates and the installed-launcher report.
-No earlier-run effort exists; at most **215 minutes** remain after this charge.
+No earlier-run effort exists; at most **210 minutes** remain after this charge.
 No further spike work is planned.
+
+Final checkpoint: **2026-10-03 08:49:46 UTC**; elapsed **23m 12s**,
+remaining **216m 48s**. Final validation also exercises harmless late timer
+callbacks after view teardown. Total conservative effort charge including handoff:
+**30 minutes**, with **210 minutes** left under the cumulative cap.
