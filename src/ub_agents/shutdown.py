@@ -22,7 +22,8 @@ def _sysctl(name):
 def host_identity():
     if sys.platform.startswith("linux"):
         return {"machine": Path("/etc/machine-id").read_text().strip(),
-                "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip()}
+                "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+                "pid_namespace": os.readlink("/proc/self/ns/pid")}
     if sys.platform == "darwin":
         result = subprocess.run(["ioreg", "-r", "-d", "1", "-c", "IOPlatformExpertDevice", "-a"],
                                 capture_output=True, timeout=5, check=True)
@@ -66,7 +67,8 @@ def identity_fields():
 
 
 def valid_host(value):
-    return (isinstance(value, dict) and set(value) == {"machine", "boot"}
+    return (isinstance(value, dict) and {"machine", "boot"} <= set(value)
+            and set(value) <= {"machine", "boot", "pid_namespace"}
             and all(isinstance(v, str) and v.strip() for v in value.values()))
 
 
@@ -95,6 +97,8 @@ def read_file(path):
 def diagnostics_confirmed(config, lease):
     directory = run_directory(config, lease)
     events = directory / "events.jsonl"
+    if events.resolve() != events:
+        raise AgentError("Run diagnostics file redirects")
     if events.exists():
         for line in read_file(events).splitlines():
             event = json.loads(line)
@@ -109,6 +113,8 @@ def diagnostics_confirmed(config, lease):
 def agent_group_stopped(config, lease):
     # Read both records: a crash between Popen and the GitHub update must fail closed.
     pid_file = run_directory(config, lease) / "pid"
+    if pid_file.resolve() != pid_file:
+        raise AgentError("Agent process record redirects")
     groups = set()
     if pid_file.exists():
         groups.add(int(read_file(pid_file)))
@@ -133,6 +139,8 @@ def hook_groups_stopped(config, lease):
         if read_file(directory / "stopped") != "confirmed\n":
             raise AgentError("Cleanup hook has no confirmed stop")
         pid_file = directory / "pid"
+        if pid_file.resolve() != pid_file:
+            raise AgentError("Hook process record redirects")
         if pid_file.exists():
             group = int(read_file(pid_file))
             if group < 1 or group_members(group):

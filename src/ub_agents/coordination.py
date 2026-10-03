@@ -356,6 +356,9 @@ class Coordinator:
             raise LostOwnership("Another live lease or unconfirmed cleanup owns the shared branch")
         # Branch reads must not leave a stale item snapshot authorizing a write.
         history = self.history(item.number)
+        source = lease_by_id(history, lease["supersedes_lease_id"])
+        if source is None or fingerprint(source) != lease["observed_lease"]:
+            raise LostOwnership("Recovered lease was updated, released or replaced")
         current = lease_by_id(history, lease["id"])
         latest = latest_leases(history).get((item.number, lease["agent"]))
         if current is None or latest is None or latest["id"] != lease["id"] or fingerprint(current) != fingerprint(lease):
@@ -382,6 +385,12 @@ class Coordinator:
         try:
             self.notices.advisory("released run comments", lambda:
                                   self.notices.released(lease, reported, summary, parking_outcome, max_attempts))
+        except LostOwnership as exc:
+            if lease.get("supersedes_lease_id") is None:
+                raise
+            # Release already committed. A new owner can stop advisory writes,
+            # but cannot turn the completed recovery into a refusal.
+            self.notices.output(f"Advisory recovered run comments skipped: {exc}")
         finally:
             self.notices.before_write = None
 
@@ -420,6 +429,7 @@ class Coordinator:
 
     def update_outcome(self, lease, outcome, **changes):
         self.assert_owned(lease)
+        self.assert_outcome_snapshot(lease, outcome)
         updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))],
                           self.actor)[0]
         outcome.clear()
@@ -427,6 +437,7 @@ class Coordinator:
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)
+        self.assert_outcome_snapshot(lease, outcome)
         accepted = payload(outcome) | {"accepted": True}
         updated = records([self.github.update_comment(outcome["id"], body(accepted))], self.actor)[0]
         outcome.clear()
@@ -439,7 +450,20 @@ class Coordinator:
             copies = [r for r in self.history(outcome["handoff"]) if r["kind"] == "outcome"
                       and r["lease_id"] == outcome["lease_id"] and same_run(r, outcome)]
             self.assert_owned(lease)
+            self.assert_outcome_snapshot(lease, outcome)
             if copies:
                 self.github.update_comment(copies[-1]["id"], body(payload(outcome)))
             else:
                 self.github.create_comment(outcome["handoff"], body(payload(outcome)))
+
+    def assert_outcome_snapshot(self, lease, outcome):
+        if lease.get("supersedes_lease_id") is None:
+            return
+        history = self.history(lease["assignment"])
+        current = next((r for r in history if r["id"] == outcome["id"]), None)
+        if current is None or fingerprint(current) != fingerprint(outcome):
+            raise LostOwnership("Reported outcome changed during recovery; preserve its current verdict")
+        # The outcome read also rechecks the exact claim immediately before write.
+        latest = latest_leases(history).get((lease["assignment"], lease["agent"]))
+        if latest is None or latest["id"] != lease["id"] or fingerprint(latest) != fingerprint(lease):
+            raise LostOwnership("Recovery lease changed while reading its outcome")

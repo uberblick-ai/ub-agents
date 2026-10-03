@@ -196,7 +196,8 @@ def validate(record):
                     or len(record["observed_lease"]) != 64
                     or not isinstance(record.get("recovery"), dict)
                     or record["recovery"].get("entry_point") not in {"cli", "launcher"}
-                    or record["recovery"].get("actor") != record["actor"]):
+                    or not isinstance(record["recovery"].get("actor"), str)
+                    or record["recovery"]["actor"].casefold() != record["actor"].casefold()):
                 raise ValueError("invalid exact recovery claim")
         if record.get("state") not in LEASE_STATES:
             raise ValueError("invalid lease state")
@@ -267,21 +268,28 @@ def elected_leases(history):
 
     Keep the election after release and expiry. A crashed winner is recovered by
     claiming against that winner, never by resurrecting its original supervisor.
-    A changed source invalidates the whole chain, including its descendants.
+    A changed source invalidates unfinished recovery. A durable release is a
+    permanent tombstone, so a late write can never resurrect the old supervisor.
     """
     selected, superseded = {}, set()
+    by_id = {r["id"]: r for r in history if r["kind"] == "lease"}
     for record in sorted(history, key=lambda r: r["id"]):
         if record["kind"] != "lease" or record["state"] == "withdrawn":
             continue
         target = record.get("supersedes_lease_id")
         if target is not None:
-            source = selected.get(target)
+            completed = record["state"] == "released"
+            source = by_id.get(target) if completed else selected.get(target)
             if (source is None or target in superseded
-                    or fingerprint(source) != record.get("observed_lease")
+                    or (not completed and fingerprint(source) != record.get("observed_lease"))
                     or (source["assignment"], source["agent"], source["actor"]) !=
                        (record["assignment"], record["agent"], record["actor"])):
                 continue
             superseded.add(target)
+            if completed:
+                # A completed descendant also fences its original run if an
+                # older, unfinished ancestor's source was edited afterwards.
+                superseded.add(record["recovered_lease_id"])
         selected[record["id"]] = record
     return [r for key, r in selected.items() if key not in superseded]
 

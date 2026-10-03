@@ -396,7 +396,7 @@ action to eligible unexpired leases.
 Early recovery requires all of the following:
 
 - The lease belongs to the current GitHub actor and matches this machine and boot.
-  Linux records machine-id and boot-id; macOS records the platform UUID and boot
+  Linux records machine-id, boot-id and PID namespace; macOS records the platform UUID and boot
   session UUID. A hostname is only descriptive. Missing or unreadable identities
   disable early recovery without preventing ordinary execution or expiry recovery.
 - The original supervisor PID, recorded with its birth identity, is absent. A

@@ -18,6 +18,7 @@ class Recovery:
     entry_point: str
     lease: dict | None = None
     source: dict | None = None
+    recovery_lease: dict | None = None
     outcome: dict | None = None
     evidence: list[dict] = field(default_factory=list)
     result: str = "refused or waiting"
@@ -40,7 +41,8 @@ class Recovery:
                 self.reason = f"{name}: {exc}"
 
     def line(self):
-        expiry = f"; lease expires {self.lease['expires']}" if self.lease else ""
+        active = self.recovery_lease or self.lease
+        expiry = f"; lease expires {active['expires']}" if active and not self.applied else ""
         return f"#{self.number} {self.agent}: {self.result} — {self.reason}{expiry}"
 
     def render(self, output):
@@ -50,6 +52,11 @@ class Recovery:
             output(f"Lease comment {lease['id']}; run {lease['run']}; attempt {lease['attempt']}; "
                    f"actor @{lease['actor']}; host {lease.get('host', 'unknown')}; "
                    f"identity {lease.get('host_identity', 'legacy/ambiguous')}; expires {lease['expires']}")
+        if self.source and self.lease and self.source["id"] != self.lease["id"]:
+            output(f"Original lease comment {self.source['id']}; run {self.source['run']}")
+        if self.recovery_lease:
+            output(f"Recovery claim comment {self.recovery_lease['id']}; run {self.recovery_lease['run']}; "
+                   f"state {self.recovery_lease['state']}; expires {self.recovery_lease['expires']}")
         if self.outcome:
             outcome = self.outcome
             acceptance = "accepted" if outcome["accepted"] else "unaccepted"
@@ -89,14 +96,6 @@ def inspect(loop, number, agent, entry_point="cli"):
     lease = decision.lease
     if lease is None:
         return decision
-    if lease["state"] == "released" and lease.get("supersedes_lease_id") is not None:
-        recorded = lease.get("recovery", {})
-        if recorded.get("result"):
-            decision.result = recorded["result"]
-            decision.reason = f"Already recovered: {recorded['summary']}"
-            decision.proposed = "Recovery already finished; no writes needed"
-            decision.applied = True
-            return decision
     source = lease_by_id(history, lease.get("recovered_lease_id", lease["id"]))
     decision.source = source
     decision.check("source lease", lambda: _require(source is not None, "Original lease is missing"))
@@ -108,6 +107,14 @@ def inspect(loop, number, agent, entry_point="cli"):
     decision.check("reported outcome", lambda: _require(len(matches) <= 1, "Conflicting reports"))
     decision.check("actor", lambda: _require(lease["actor"].casefold() == co.actor.casefold()
                    and source["actor"].casefold() == co.actor.casefold(), "Lease belongs to another actor"))
+    if lease["state"] == "released" and lease.get("supersedes_lease_id") is not None and decision.eligible:
+        recorded = lease.get("recovery", {})
+        if recorded.get("result"):
+            decision.result = recorded["result"]
+            decision.reason = f"Already recovered: {recorded['summary']}"
+            decision.proposed = "Recovery already finished; no writes needed"
+            decision.applied = True
+            return decision
     decision.check("unfinished lease", lambda: _require(lease["state"] in {"claiming", "running"},
                                                         "Lease already released"))
     decision.check("lease cleanup verdict", lambda: _require(lease.get("cleanup") != "unconfirmed"
@@ -157,7 +164,7 @@ def inspect(loop, number, agent, entry_point="cli"):
         _require(not others, "Another live lease on this item requires waiting")
 
     decision.check("exact claim and branch ownership", exact)
-    if decision.applied or not decision.eligible:
+    if not decision.eligible:
         return decision
     verdict = lease if lease.get("result") in {"retry", "blocked"} else source
     if verdict.get("result") in {"retry", "blocked"} and verdict.get("attempt_effect") in {"failure", "unchanged"}:
@@ -193,6 +200,10 @@ def apply(loop, number, agent, entry_point="cli", before_write=None):
              "supersedes_lease_id": target["id"], "observed_lease": fingerprint(target),
              "recovery": {"entry_point": entry_point, "actor": co.actor, "evidence": decision.evidence,
                           "lease_id": target["id"], "run": target["run"]}, **shutdown.identity_fields()}
+    if target.get("result") in {"retry", "blocked"} and target.get("attempt_effect") in {"failure", "unchanged"}:
+        # Carry a crashed recoverer's verdict in the claim itself. Supersession
+        # must not temporarily hide its durable failure or extend its backoff.
+        claim |= {key: target.get(key) for key in ("result", "summary", "attempt_effect", "retry_after", "unreported")}
     try:
         if before_write is not None:
             before_write()
@@ -203,14 +214,21 @@ def apply(loop, number, agent, entry_point="cli", before_write=None):
             fresh.reason = fresh.reason if not fresh.eligible else "Lease changed before recovery claim"
             fresh.result = "refused or waiting"
             return fresh
+        decision = fresh
+        source = decision.source
+        claim["recovery"]["evidence"] = decision.evidence
         recovery = records([co.github.create_comment(number, body(claim))], co.actor)[0]
+        decision.recovery_lease = recovery
         if co.on_claim is not None:
             co.on_claim(recovery)
         co.assert_owned(recovery)
         # Recovery executes no processes or hooks. Its own evidence allows a
         # later recoverer to prove shutdown, once this supervisor exits.
         shutdown.confirm_cleanup(loop.config, recovery)
-        outcome = decision.outcome
+        outcome = co.outcome(source)
+        if outcome and seconds(outcome["created"]) > seconds(source["expires"]):
+            outcome = None
+        decision.outcome = outcome
         verdict = target if target.get("result") in {"retry", "blocked"} else source
         persisted = verdict.get("result") in {"retry", "blocked"} and verdict.get("attempt_effect") in {"failure", "unchanged"}
         if persisted:

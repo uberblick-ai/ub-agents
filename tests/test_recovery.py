@@ -5,9 +5,12 @@ from dataclasses import replace
 import io
 import json
 from pathlib import Path
+import plistlib
+import subprocess
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from ub_agents.cli import main
@@ -23,7 +26,7 @@ class EarlyRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.agent = agent(self.root, backoff_seconds=10, max_backoff_seconds=100)
         self.config = config(self.root, self.agent)
         self.github = FakeGitHub(issue(), pr(labels=()))
@@ -114,6 +117,32 @@ class EarlyRecoveryTests(unittest.TestCase):
         self.assertEqual(self.github.writes, writes)
         self.assertEqual(self.count(), 1)
         self.assertEqual(self.loop.coordinator.plan(self.github.item(1), self.agent, ()).state, "backoff")
+
+    def test_completed_recovery_permanently_fences_late_original_lease_updates(self):
+        source = self.start()
+        self.assertTrue(self.recover().applied)
+        self.github.update_comment(source["id"], body(payload(source) | {"summary": "Late stale supervisor write"}))
+        self.assertEqual(live_leases(self.history(), self.now), [])
+        with self.assertRaises(LostOwnership):
+            self.loop.coordinator.assert_owned(source)
+        self.assertEqual(self.latest()["state"], "released")
+
+    def test_new_branch_owner_after_release_only_stops_advisory_notices(self):
+        source = self.start("success")
+        branch = f"ub-agent/worker/1/{source['run']}"
+        self.loop.coordinator.update(source, branch=branch)
+        self.github.change(2, branch=branch)
+
+        def notice(*args):
+            other = payload(source) | {"run": "next-role", "agent": "reviewer", "assignment": 2}
+            self.github.create_comment(2, body(other))
+            self.loop.coordinator.notices.before_write()
+
+        with patch.object(self.loop.coordinator.notices, "released", side_effect=notice):
+            decision = self.recover()
+        self.assertTrue(decision.applied, decision.reason)
+        self.assertEqual(decision.result, "recovered completion (accepted)")
+        self.assertEqual(self.latest()["state"], "released")
 
     def test_persisted_supervisor_verdict_overrides_early_reports_and_retains_count_effect(self):
         for report in (None, "success", "blocked"):
@@ -255,16 +284,11 @@ class EarlyRecoveryTests(unittest.TestCase):
         create = self.github.create_comment
 
         def synchronized(number, text):
-            before_create.wait(timeout=5)
+            if '"kind": "lease"' in text:
+                before_create.wait(timeout=5)
             return create(number, text)
 
         with patch.object(self.github, "create_comment", side_effect=synchronized), ThreadPoolExecutor(max_workers=2) as pool:
-            # Only recovery claims synchronize; the winner's outcome must not wait.
-            def claim_only(number, text):
-                if '"kind": "lease"' in text:
-                    return synchronized(number, text)
-                return create(number, text)
-            self.github.create_comment.side_effect = claim_only
             results = list(pool.map(lambda loop: apply(loop, 1, self.agent), loops))
         self.github.claim_barrier = None
         self.assertEqual(sum(result.applied for result in results), 1, [r.reason for r in results])
@@ -322,30 +346,118 @@ class EarlyRecoveryTests(unittest.TestCase):
         self.assertEqual(self.count(), 1)
 
     def test_cli_and_launcher_apply_identical_decisions_and_preview_output(self):
-        for refused in (False, True):
+        for scenario in ("accepted", "refused", "unreported", "interrupt", "timeout", "invalid", "rejected", "stop", "blocked"):
             snapshots = []
             for entry in ("cli", "launcher"):
-                with self.subTest(refused=refused, entry=entry):
+                with self.subTest(scenario=scenario, entry=entry):
                     self.setUp()
-                    self.now = 100000000000  # Keep CLI's real clock inside the lease.
-                    self.start("success")
-                    if refused:
+                    if scenario == "invalid":
+                        self.github.items[1] = pr(1)
+                    source = self.start(None if scenario == "unreported" else "blocked" if scenario == "blocked" else "success")
+                    if scenario == "refused":
                         self.processes[800] = self.supervisor
+                    if scenario in {"interrupt", "timeout"}:
+                        self.loop.coordinator.update(source, result="retry", summary=scenario,
+                                                     attempt_effect="unchanged" if scenario == "interrupt" else "failure")
+                    if scenario == "invalid":
+                        self.github.change(1, head="b" * 40)
+                    if scenario == "rejected":
+                        report = self.loop.coordinator.outcome(source)
+                        self.loop.coordinator.update_outcome(source, report, rejected="Invalid report", attempt_effect="failure")
+                    if scenario == "stop":
+                        self.github.change(1, labels=frozenset({"needs-human"}))
                     if entry == "cli":
                         stream = io.StringIO()
                         with patch("ub_agents.cli.load_config", return_value=self.config), \
                                 patch("ub_agents.cli.GitHub", return_value=self.github), \
+                                patch("ub_agents.cli.Loop", side_effect=lambda *args: self.restart()), \
                                 patch("ub_agents.cli.repository_checks", return_value=[]), redirect_stdout(stream):
                             self.assertEqual(main(["recover", "--number", "1", "--agent", "worker"]), 0)
                             self.assertIn("Lease comment", stream.getvalue())
                             self.assertIn("source supervisor exited", stream.getvalue())
-                            self.assertEqual(main(["recover", "--number", "1", "--agent", "worker", "--apply"]), 1 if refused else 0)
+                            self.assertEqual(main(["recover", "--number", "1", "--agent", "worker", "--apply"]), 1 if scenario == "refused" else 0)
                     else:
-                        self.assertEqual(self.loop.tick(), not refused)
-                        self.assertIn("refused or waiting" if refused else "recovered completion (accepted)", self.lines[-1])
+                        self.assertEqual(self.loop.tick(), scenario != "refused")
+                        output_result = ("refused or waiting" if scenario == "refused" else "recovered completion (accepted)" if scenario == "accepted"
+                                         else "interrupted work released for normal retry" if scenario in {"unreported", "interrupt", "timeout"}
+                                         else "recovered outcome rejected (blocked or parked)")
+                        self.assertIn(output_result, self.lines[-1])
                     latest = self.latest()
-                    snapshots.append((latest["state"], latest.get("result"), latest.get("attempt_effect"), self.count()))
+                    report = self.loop.coordinator.outcome(source)
+                    snapshots.append((latest["state"], latest.get("result"), latest.get("attempt_effect"),
+                                      self.count(), latest.get("retry_after"), report.get("accepted") if report else None))
             self.assertEqual(snapshots[0], snapshots[1])
+
+    def test_apply_rechecks_reports_added_or_rejected_since_preview(self):
+        for change in ("added", "rejected"):
+            with self.subTest(change=change):
+                self.setUp()
+                source = self.start("success" if change == "rejected" else None)
+
+                def amend():
+                    if change == "added":
+                        self.loop.coordinator.report(source, "success", "New report", outcome="done")
+                    else:
+                        report = self.loop.coordinator.outcome(source)
+                        self.loop.coordinator.update_outcome(source, report, rejected="Rejected before apply", attempt_effect="failure")
+
+                result = apply(self.loop, 1, self.agent, before_write=amend)
+                self.assertTrue(result.applied, result.reason)
+                self.assertEqual(self.latest()["result"], "success" if change == "added" else "blocked")
+                self.assertEqual(self.loop.coordinator.outcome(source)["accepted"], change == "added")
+
+    def test_each_write_rechecks_source_and_other_item_or_branch_claims(self):
+        for change in ("source-updated", "other-item-claim", "other-branch-claim", "report-rejected"):
+            with self.subTest(change=change):
+                self.setUp()
+                source = self.start("success")
+                branch = f"ub-agent/worker/1/{source['run']}"
+                self.loop.coordinator.update(source, branch=branch)
+                self.github.change(2, branch=branch)
+                original = self.loop.apply_transition
+
+                def changed_before_transition(recovery, outcome):
+                    if change == "source-updated":
+                        self.loop.coordinator.update(source, summary="Concurrent lease update")
+                    elif change == "report-rejected":
+                        self.github.update_comment(outcome["id"], body(payload(outcome) | {"rejected": "Concurrent rejection"}))
+                    else:
+                        number = 2 if change == "other-branch-claim" else 1
+                        self.github.create_comment(number, body(payload(source) | {"run": "competing-run", "agent": "other",
+                                                                                  "assignment": number}))
+                    return original(recovery, outcome)
+
+                with patch.object(self.loop, "apply_transition", side_effect=changed_before_transition):
+                    result = self.recover()
+                self.assertFalse(result.applied)
+                self.assertFalse(self.loop.coordinator.outcome(source)["accepted"])
+                self.assertFalse(any(write[0] in {"add-labels", "remove-label"} for write in self.github.writes))
+
+    def test_superseding_a_failed_recoverer_never_loses_its_durable_count(self):
+        self.start()
+        with patch.object(self.loop.coordinator, "release", side_effect=AgentError("crash")):
+            self.recover()
+        self.assertEqual(self.count(), 1)
+        with patch("ub_agents.shutdown.confirm_cleanup", side_effect=OSError("next recoverer crashed")):
+            self.assertFalse(self.recover().applied)
+        self.assertEqual(self.count(), 1)
+        self.assertFalse(self.recover().applied)  # No shutdown confirmation for the new claim.
+        self.now = seconds(self.latest()["expires"]) + 1
+        self.assertTrue(self.recover().applied)
+        self.assertEqual(self.count(), 1)
+
+    def test_attempt_limit_parks_unreported_recovery_and_normal_planning_retains_gates(self):
+        self.agent = replace(self.agent, max_attempts=1)
+        self.config = config(self.root, self.agent)
+        self.loop = self.restart()
+        self.start()
+        decision = self.recover()
+        self.assertTrue(decision.applied)
+        self.assertIn("max-attempts exhausted, parked", decision.reason)
+        self.assertEqual(self.count(), 1)
+        self.now += 100
+        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must stay parked")):
+            self.assertFalse(self.loop.tick())
 
     def test_supervisor_writes_durable_cleanup_before_failed_acceptance(self):
         stub_refresh(self)
@@ -362,3 +474,38 @@ class EarlyRecoveryTests(unittest.TestCase):
         lease = self.latest()
         shutdown.cleanup_confirmed(self.config, lease)
         self.assertTrue(inspect(self.loop, 1, self.agent).eligible)
+
+
+class ShutdownIdentityTests(unittest.TestCase):
+    def test_linux_identity_includes_machine_boot_and_pid_namespace(self):
+        with patch("ub_agents.shutdown.sys.platform", "linux"), \
+                patch("ub_agents.shutdown.Path.read_text", side_effect=["machine\n", "boot\n"]), \
+                patch("ub_agents.shutdown.os.readlink", return_value="pid:[123]"):
+            self.assertEqual(shutdown.host_identity(), {"machine": "machine", "boot": "boot", "pid_namespace": "pid:[123]"})
+
+    def test_linux_process_birth_and_absence_are_distinct_from_unreadable_processes(self):
+        # /proc stat's comm may contain spaces and parentheses. Birth is field 22.
+        stat = "12 (a (worker)) S " + " ".join(["0"] * 18 + ["9876"])
+        with patch("ub_agents.shutdown.sys.platform", "linux"):
+            with patch("ub_agents.shutdown.Path.read_text", return_value=stat):
+                self.assertEqual(shutdown.process_identity(12), {"pid": 12, "birth": "9876"})
+            with patch("ub_agents.shutdown.Path.read_text", side_effect=FileNotFoundError):
+                self.assertIsNone(shutdown.process_identity(12))
+            with patch("ub_agents.shutdown.Path.read_text", side_effect=PermissionError):
+                with self.assertRaises(PermissionError):
+                    shutdown.process_identity(12)
+
+    def test_macos_identity_and_process_checks_fail_closed_on_errors(self):
+        hardware = plistlib.dumps([{"IOPlatformUUID": "hardware-uuid"}])
+        with patch("ub_agents.shutdown.sys.platform", "darwin"):
+            with patch("ub_agents.shutdown.subprocess.run", side_effect=[SimpleNamespace(stdout=hardware), SimpleNamespace(stdout="boot-uuid\n")]):
+                self.assertEqual(shutdown.host_identity(), {"machine": "hardware-uuid", "boot": "boot-uuid"})
+            for code, output, error, absent in ((1, "", "", True), (0, "", "", False), (1, "", "permission denied", False)):
+                with self.subTest(code=code, error=error), patch("ub_agents.shutdown.subprocess.run", return_value=SimpleNamespace(returncode=code, stdout=output, stderr=error)):
+                    if absent:
+                        self.assertIsNone(shutdown.process_identity(12))
+                    else:
+                        with self.assertRaises(AgentError):
+                            shutdown.process_identity(12)
+            with patch("ub_agents.shutdown.subprocess.run", side_effect=subprocess.TimeoutExpired("ps", 5)):
+                self.assertEqual(shutdown.identity_fields(), {})
