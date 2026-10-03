@@ -40,7 +40,7 @@ later-edited outside feedback, coordination records, launcher notices and approv
 excluded. The launcher prompt directs agents to use this context as assignment
 input; other GitHub comments are not input, even when project instructions ask
 agents to read comments. Outside edits during execution do not stop that run or
-change its input. Starter instruction changes are tracked in #40.
+change its input.
 
 ## Repository roles
 
