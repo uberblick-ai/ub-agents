@@ -16,10 +16,10 @@ Observe GitHub → match a label → claim the item → run the agent → record
 - **Labels are the queue.** A label such as `ready` or `needs-review` on an issue or PR
   says what should happen next. The agent whose trigger matches picks it up.
   PR work runs first; the [queue settings](docs/configuration.md#queue) optionally
-  rank priorities and gate new issues by milestone. New issues wait for open
-  GitHub blockers by default; blockers inherit priority from open local
-  dependents. PRs inherit priority from the open issues they close. Defaults use
-  FIFO and ignore milestones.
+  order new issues by milestone before priority. New issues wait for open
+  GitHub blockers by default; blockers inherit priority and the earliest milestone
+  from open local dependents. PRs inherit priority from the open issues they close.
+  Defaults use FIFO and ignore milestones.
 - **GitHub is the state.** Claims, attempts and outcomes are comments on the issue or
   PR. A restarted launcher rebuilds everything from GitHub; there is no separate
   database or service.

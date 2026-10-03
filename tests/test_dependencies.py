@@ -191,17 +191,94 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual((plans[1].priority, plans[1].priority_source, plans[1].state),
                          ("priority:urgent", 1100, "parked"))
 
-    def test_dependency_and_milestone_gates_both_apply_to_inherited_priority(self):
+    def test_dependency_wait_still_applies_with_milestone_order_and_inherited_priority(self):
         self.add(issue(1, ("ready", "priority:low"), milestone=20),
                  issue(2, (), milestone=10), issue(21, ("priority:urgent",)))
         self.github.dependencies = {1: [2], 21: [1]}
         self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)}]
-        self.loop = self.make_loop(milestones="gate")
+        self.loop = self.make_loop(milestones="order")
         plan = self.plans()[1]
         self.assertEqual(plan.priority, "priority:urgent")
-        self.assertEqual(plan.reason, "Waiting for active milestone #10; Waiting for blockers #2")
+        self.assertEqual(plan.reason, "Waiting for blockers #2")
         self.github.change(2, state="closed")
         self.assertEqual(self.plans()[1].state, "ready")
+
+    def test_milestone_inheritance_without_priority_includes_transitive_unqueued_dependents(self):
+        self.add(issue(1, ("ready",), iso(300)), issue(2, (), milestone=20),
+                 issue(21, (), milestone=10), issue(4, ("ready",), iso(1), 20))
+        self.github.milestones = [{"number": 20, "state": "open", "created_at": iso(2)},
+                                  {"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.dependencies = {21: [2], 2: [1]}
+        self.loop = Loop(config(self.root, self.worker, queue=Queue(milestones="order")),
+                         self.github, "operator", output=lambda *_: None)
+        plan = self.plans()[1]
+        self.assertEqual((plan.milestone, plan.milestone_source, plan.priority, plan.state),
+                         (10, 21, None, "ready"))
+        self.assertEqual([p.item.number for p in self.loop.plans()], [1, 4])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 1)
+        self.assertIsNotNone(self.loop.coordinator.claim(plan))
+        self.github.change(21, state="closed")
+        plan = self.plans()[1]
+        self.assertEqual((plan.milestone, plan.milestone_source), (20, 2))
+        self.github.change(21, state="open")
+        self.github.change(2, state="closed")
+        self.assertEqual((self.plans()[1].milestone, self.plans()[1].milestone_source), (None, None))
+
+    def test_milestone_and_priority_inheritance_choose_their_own_sources(self):
+        self.add(issue(1, ("ready", "priority:low"), milestone=20),
+                 issue(21, ("priority:low",), milestone=10),
+                 issue(22, ("priority:urgent",), milestone=20),
+                 issue(23, ("priority:normal",), milestone=10))
+        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)},
+                                  {"number": 20, "state": "open", "created_at": iso(2)}]
+        self.github.dependencies = {21: [1], 22: [1], 23: [1]}
+        self.loop = self.make_loop(milestones="order")
+        plan = self.plans()[1]
+        self.assertEqual((plan.milestone, plan.milestone_source, plan.priority, plan.priority_source),
+                         (10, 21, "priority:urgent", 22))
+        self.github.change(1, milestone=10)
+        self.assertEqual((self.plans()[1].milestone, self.plans()[1].milestone_source), (10, None))
+
+    def test_milestone_cycles_share_earliest_reachable_and_ignore_external_and_closed_dependents(self):
+        self.add(issue(1, milestone=20), issue(2, milestone=10),
+                 issue(3), replace(issue(21, (), milestone=5), state="closed"))
+        self.github.milestones = [{"number": n, "state": "open", "created_at": iso(n)}
+                                  for n in (5, 10, 20)]
+        self.github.dependencies = {1: [2], 2: [3], 3: [1], 21: [1]}
+        self.loop = self.make_loop(milestones="order")
+        self.assertEqual([(p.item.number, p.milestone, p.milestone_source, p.state)
+                          for p in self.loop.plans()],
+                         [(1, 10, 2, "parked"), (2, 10, None, "parked"), (3, 10, 2, "parked")])
+        self.github.dependencies[2] = [Dependency("other/project", 3, "open")]
+        self.assertEqual((self.plans()[3].milestone, self.plans()[3].milestone_source), (None, None))
+
+    def test_dependency_ignore_disables_milestone_inheritance(self):
+        self.add(issue(1), issue(21, (), milestone=10))
+        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.dependencies[21] = [1]
+        self.loop = self.make_loop(milestones="order", dependencies="ignore")
+        with patch.object(self.github, "blocked_by", side_effect=AssertionError("ignore must not read")):
+            self.assertEqual((self.plans()[1].milestone, self.plans()[1].milestone_source), (None, None))
+
+    def test_status_text_and_json_name_inherited_milestone(self):
+        self.add(issue(1, ("ready", "priority:low")), issue(21, (), milestone=10))
+        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.dependencies[21] = [1]
+        self.loop = self.make_loop(milestones="order")
+        rows = status_rows(self.loop)
+        self.assertEqual((rows[0]["milestone"], rows[0]["milestone_inherited_from"]), (10, 21))
+        with patch("ub_agents.cli.Loop", return_value=self.loop), \
+                patch("ub_agents.cli.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["status", "--json"]), 0)
+            self.assertEqual(json.loads(output.getvalue()), rows)
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["status"]), 0)
+            self.assertIn("priority priority:normal (inherited from #21) · "
+                          "milestone #10 (inherited from #21)", output.getvalue())
 
     def test_pr_assignments_are_ungated_and_unrelated_issues_do_not_raise_priority(self):
         self.add(pr(2, ("needs-changes", "priority:low")),

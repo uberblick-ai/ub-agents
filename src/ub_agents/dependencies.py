@@ -1,10 +1,10 @@
-"""One observed open-issue graph for dependency gates and priority inheritance."""
+"""One observed open-issue graph for dependency waits and queue inheritance."""
 
 from collections import deque
 
 
 class Dependencies:
-    def __init__(self, github, items, priority):
+    def __init__(self, github, items, priority, milestones=()):
         issues = {i.number: i for i in items if i.kind == "issue" and i.state == "open"}
         self.blockers = {}
         local = {}
@@ -20,11 +20,24 @@ class Dependencies:
                              if b.repository.casefold() == github.repository.casefold()
                              and b.number in issues}
         own = {n: priority.rank(i.labels) for n, i in issues.items()}
+        effective = self._inherit(own, local)
+        self.priorities = {
+            n: (priority.labels[rank] if rank < len(priority.labels) else None,
+                source if rank < own[n] else None)
+            for n, (rank, source) in effective.items()}
+        ranks = {number: rank for rank, number in enumerate(milestones)}
+        own = {n: ranks.get(i.milestone, len(ranks)) for n, i in issues.items()}
+        self.milestones = {
+            n: (milestones[rank], source) if rank < own[n] else (issues[n].milestone, None)
+            for n, (rank, source) in self._inherit(own, local).items()}
+
+    @staticmethod
+    def _inherit(own, local):
         effective = {n: (rank, n) for n, rank in own.items()}
         # Propagate toward blockers. Only improving (rank, source) pairs enter
         # the worklist, so cycles terminate without recursion or depth limits.
-        pending = deque(issues)
-        queued = set(issues)
+        pending = deque(own)
+        queued = set(own)
         while pending:
             dependent = pending.popleft()
             queued.remove(dependent)
@@ -34,7 +47,4 @@ class Dependencies:
                     if blocker not in queued:
                         pending.append(blocker)
                         queued.add(blocker)
-        self.priorities = {
-            n: (priority.labels[rank] if rank < len(priority.labels) else None,
-                source if rank < own[n] else None)
-            for n, (rank, source) in effective.items()}
+        return effective

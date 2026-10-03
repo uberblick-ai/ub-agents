@@ -64,6 +64,7 @@ class StatusTests(unittest.TestCase):
                           if key not in {"process", "process_reason"}}, {
             "number": 1, "kind": "issue", "agent": "worker", "priority": None,
             "priority_inherited_from": None, "priority_from_issue": None, "open_blockers": [],
+            "milestone": None, "milestone_inherited_from": None,
             "state": "owned", "reason": "An unexpired assignment owns this work item", "attempts": 0,
             "runtime": None, "candidate_sha": None, "result": None, "lease": lease, "outcome": None})
         self.assertEqual(row["process"], "running")

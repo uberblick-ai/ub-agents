@@ -2,7 +2,7 @@
 # checks and merge authority are ours to change. Shared guidance is in AGENTS.md.
 repository: uberblick-ai/ub-agents
 queue:
-  milestones: gate
+  milestones: order
   priority:
     labels: [priority:urgent, priority:high, priority:medium, priority:low]
     default: priority:medium

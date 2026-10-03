@@ -394,7 +394,7 @@ class GitHub:
         raw = self.request(endpoint)
         return self.item(number, "pr") if "pull_request" in raw else parse_item(raw, "issue", endpoint)
 
-    def active_milestone(self):
+    def milestone_order(self):
         endpoint = f"{self.prefix}/milestones?state=open&per_page=100"
         data = self.request(endpoint, paginate=True)
         active = []
@@ -409,10 +409,10 @@ class GitHub:
                     active.append((created, raw["number"]))
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("GET", endpoint, "Unreadable GitHub milestone") from exc
-        return min(active)[1] if active else None
+        return tuple(number for _, number in sorted(active))
 
     def dependency_graph(self):
-        """List open issues and their links together for cold priority ranking."""
+        """List open issues and their links together for cold queue ranking."""
         owner, name = self.repository.split("/", 1)
         query = """query($owner:String!, $name:String!, $cursor:String) {
           repository(owner:$owner, name:$name) {

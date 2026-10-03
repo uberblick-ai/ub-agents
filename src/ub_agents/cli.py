@@ -156,6 +156,7 @@ def status_rows(loop, now=None):
         rows.append({"number": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
                      "priority": plan.priority, "priority_inherited_from": plan.priority_source,
                      "priority_from_issue": plan.priority_from_issue,
+                     "milestone": plan.milestone, "milestone_inherited_from": plan.milestone_source,
                      "open_blockers": list(plan.blockers),
                      "state": plan.state, "reason": plan.reason, "attempts": plan.attempt - 1,
                      "runtime": plan.runtime.name if plan.runtime else None,
@@ -269,8 +270,14 @@ def run(args):
                     priority += f" (inherited from #{row['priority_inherited_from']})"
                 elif row["priority_from_issue"] is not None:
                     priority += f" (from closed issue #{row['priority_from_issue']})"
+                milestone = ""
+                if config.queue.milestones == "order" and row["kind"] == "issue":
+                    value = f"#{row['milestone']}" if row["milestone"] is not None else "none"
+                    milestone = f" · milestone {value}"
+                    if row["milestone_inherited_from"] is not None:
+                        milestone += f" (inherited from #{row['milestone_inherited_from']})"
                 state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
-                print(f"#{row['number']} {row['agent']}: {state} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
+                print(f"#{row['number']} {row['agent']}: {state} · priority {priority}{milestone} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['process_reason'] or row['reason']}")
         return
     for _, error in repository_checks(config):

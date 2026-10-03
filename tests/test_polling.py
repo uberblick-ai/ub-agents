@@ -78,8 +78,7 @@ class PollingTests(unittest.TestCase):
     def test_failed_reads_through_claim_revalidation_never_write(self):
         cases = [("observe", [], Queue()), ("repository_comments", [], Queue()),
                  ("comments", [], Queue()), ("comments", [None], Queue()),
-                 ("item", [], Queue()), ("active_milestone", [], Queue(milestones="gate")),
-                 ("active_milestone", [None], Queue(milestones="gate")),
+                 ("item", [], Queue()), ("milestone_order", [], Queue(milestones="order")),
                  ("blocked_by", [], Queue()), ("blocked_by", [None], Queue())]
         for name, earlier, queue in cases:
             with self.subTest(read=name, earlier=len(earlier)):
@@ -366,9 +365,9 @@ class PollingTests(unittest.TestCase):
                    "Accept: application/vnd.github+json", "--include", endpoint)
         runner.responses[command] = '[{"number":1,"created_at":"invalid"}]'
         with self.assertRaises(GitHubError) as raised:
-            GitHub("org/project", runner).active_milestone()
-        self.github.read_results["active_milestone"] = [raised.exception]
-        self.loop.config = replace(self.config, queue=Queue(milestones="gate"))
+            GitHub("org/project", runner).milestone_order()
+        self.github.read_results["milestone_order"] = [raised.exception]
+        self.loop.config = replace(self.config, queue=Queue(milestones="order"))
         with patch.object(self.loop.stop_event, "wait") as waits, \
                 self.assertRaisesRegex(AgentError, "GET repos/org/project/milestones.*Unreadable"):
             self.loop.launch()

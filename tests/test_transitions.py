@@ -329,7 +329,7 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(restarted.coordinator.history(1)[1]['accepted'])
         self.assertEqual(len(attempts(restarted.coordinator.history(1), self.agent.name, self.now)), 0)
 
-    def test_queue_gate_and_priority_preserve_transition_recovery(self):
+    def test_queue_order_and_priority_preserve_transition_recovery(self):
         self.claim_and_report(handoff=2)
         self.github.change(1, milestone=20, labels=self.github.item(1).labels | {'low'})
         self.github.change(2, labels=frozenset({'low'}))
@@ -338,7 +338,7 @@ class TransitionTests(unittest.TestCase):
         self.now += 61
         reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
         restarted = Loop(config(self.root, self.agent, reviewer,
-                                queue=Queue('gate', Priority(('urgent', 'low')))),
+                                queue=Queue('order', Priority(('urgent', 'low')))),
                          self.github, 'operator', output=lambda *_: None)
         restarted.coordinator.clock = lambda: self.now
         plans = restarted.plans()

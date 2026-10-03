@@ -6,6 +6,16 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- `queue.milestones: order` replaces `gate`: new issues rank by the oldest open
+  milestone before priority, while later and unmilestoned issues remain eligible.
+  Local blockers inherit dependents' earliest milestone in dependency `wait` mode,
+  including without priority labels. `status` shows effective milestones and their
+  inherited source in text and JSON; `check` rejects `gate` and names `order`.
+  **Upgrading:** switch `queue.milestones: gate` to `order` before upgrading
+  launchers (#103).
+
 ## 0.1.9 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. Stop all of a project's launchers

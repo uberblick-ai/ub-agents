@@ -179,8 +179,8 @@ def load_config(path):
             raise AgentError("cleanup timeout-seconds must be at most 3600")
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
-    if milestones not in ("gate", "ignore"):
-        raise AgentError("queue milestones must be gate or ignore")
+    if milestones not in ("order", "ignore"):
+        raise AgentError("queue milestones must be order or ignore")
     dependencies = queue.get("dependencies", "wait")
     if dependencies not in ("wait", "ignore"):
         raise AgentError("queue dependencies must be wait or ignore")

@@ -243,15 +243,12 @@ class RefreshTests(unittest.TestCase):
         for edit in (lambda text: text.replace("trigger: ready", "trigger: other"),
                      lambda text: text.replace("worker:", "replacement:"),
                      lambda text: text.replace("runtime: codex:model:high", "kind: pr\n    runtime: codex:model:high"),
-                     lambda text: text + "queue: {milestones: gate}\n",
                      lambda text: text + "stop-labels: [paused]\n"):
             with self.subTest(edit=edit):
                 self.setUp()
                 self.enable_reload()
                 self.github.change(1, labels=frozenset({"ready", "paused"}))
                 self.github.change(3, labels=frozenset({"ready", "paused"}))
-                self.github.milestones = [{"number": 1, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
-                self.github.items[4] = issue(4, labels=(), milestone=1)
                 path = self.upstream / "ub-agent.yaml"
                 path.write_text(edit(path.read_text()))
                 self.commit(self.upstream)
@@ -261,6 +258,20 @@ class RefreshTests(unittest.TestCase):
                     self.assertFalse(self.loop.tick())
                 execution.assert_not_called()
                 self.assertEqual(self.github.writes, [])
+
+    def test_reloaded_milestone_order_preserves_eligible_later_assignment(self):
+        self.enable_reload()
+        self.github.change(1, milestone=20)
+        self.github.milestones = [{"number": n, "state": "open", "created_at": f"2026-01-{n:02}T00:00:00Z"}
+                                  for n in (10, 20)]
+        self.github.items[4] = issue(4, labels=(), milestone=10)
+        path = self.upstream / "ub-agent.yaml"
+        path.write_text(path.read_text() + "queue: {milestones: order}\n")
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        self.execute()
+        self.assert_success(1)
+        self.assertEqual(self.loop.config.queue.milestones, "order")
 
     def test_reloaded_repository_is_checked_against_origin_before_claim(self):
         self.enable_reload()

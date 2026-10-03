@@ -143,13 +143,20 @@ agents:
         for extra in ("", "queue: {}\n", "queue:\n  milestones: ignore\n"):
             with self.subTest(extra=extra):
                 self.assertEqual(self.load(base + extra).queue, Queue())
-        self.assertEqual(self.load(base + "queue:\n  milestones: gate\n").queue, Queue("gate"))
+        self.assertEqual(self.load(base + "queue:\n  milestones: order\n").queue, Queue("order"))
         self.assertEqual(self.load(base + "queue:\n  dependencies: wait\n").queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  dependencies: ignore\n").queue,
                          Queue(dependencies="ignore"))
         extra = "queue:\n  priority:\n    labels: [urgent, normal, low]\n"
         self.assertEqual(self.load(base + extra).queue.priority, Priority(("urgent", "normal", "low")))
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
+
+    def test_check_rejects_removed_milestone_gate_and_names_order(self):
+        self.path.write_text("repository: org/project\nqueue:\n  milestones: gate\nagents:\n"
+                             "  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n")
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+        self.assertIn("milestones must be order or ignore", errors.getvalue())
 
     def test_queue_validation_through_check(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
@@ -178,7 +185,7 @@ agents:
     def test_queue_and_outcomes_can_be_configured_together(self):
         configured = self.load('''repository: org/project
 queue:
-  milestones: gate
+  milestones: order
   priority:
     labels: [urgent, normal]
     default: normal
@@ -189,7 +196,7 @@ agents:
     outcomes:
       handed-off: {add: [needs-review], remove: [old]}
 ''')
-        self.assertEqual(configured.queue, Queue("gate", Priority(("urgent", "normal"), "normal")))
+        self.assertEqual(configured.queue, Queue("order", Priority(("urgent", "normal"), "normal")))
         self.assertEqual(configured.agents[0].outcomes,
                          {"handed-off": {"add": ("needs-review",), "remove": ("old",)}})
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
