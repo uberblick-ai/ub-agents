@@ -1,0 +1,14 @@
+event=— · capture=— (historical) · assistant
+SYNTHETIC_ROW_0150: bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load
+event=— · capture=— (historical) · assistant
+SYNTHETIC_ROW_0151: bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load
+bounded history load bounded history load

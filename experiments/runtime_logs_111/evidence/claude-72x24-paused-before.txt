@@ -1,0 +1,10 @@
+'abcdefghij' * 600 + ' SPIKE111_LONG_END',
+flush=True)
+8       print('SPIKE111_STDERR: owned
+diagnostic, command still succeeds',
+file=sys.stderr, flush=True)
+9       print('SPIKE111_COMMAND_END',
+flush=True)
+10
+event=2026-10-03T12:56:19.139Z ·
+capture=2026-10-03T13:13:37.343+00:00 ·

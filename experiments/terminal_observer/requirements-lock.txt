@@ -1,0 +1,10 @@
+# Spike environment on Python 3.14; UI dependencies only.
+textual==8.2.8
+rich==15.0.0
+markdown-it-py==4.2.0
+mdit-py-plugins==0.6.1
+platformdirs==4.12.2
+Pygments==2.21.0
+typing_extensions==4.16.0
+mdurl==0.1.2
+linkify-it-py==2.2.0

@@ -1,0 +1,14 @@
+capture=2026-10-03T13:13:49.898+00:00 |
+SPIKE111_MESSAGE_END
+capture=2026-10-03T13:13:49.898+00:00 |
+capture=2026-10-03T13:13:49.898+00:00 | Read
+`fixture_output.py` successfully. Its
+execution exited 0, producing 240 rows, a
+6,000-character payload, and a stderr
+diagnostic. `cat missing-owned.txt`
+intentionally failed with exit 1: “No such
+file or directory.” No retries or changes
+were made.
+capture=2026-10-03T13:13:49.898+00:00 |
+tokens used
+capture=2026-10-03T13:13:49.898+00:00 |

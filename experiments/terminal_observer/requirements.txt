@@ -1,0 +1,2 @@
+# Spike only; never a distributed ub-agents dependency.
+textual==8.2.8

@@ -1,0 +1,24 @@
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_176: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_177: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_178: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_179: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_180: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_181: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_182: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_183: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_184: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_185: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_186: owned
+fixture output, café, plain [text]
+capture=2026-10-03T13:13:42.722+00:00 | SPIKE111_ROW_187: owned
+fixture output, café, plain [text]

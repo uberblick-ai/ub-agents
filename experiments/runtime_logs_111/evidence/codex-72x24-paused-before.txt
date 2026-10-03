@@ -1,0 +1,13 @@
+SPIKE111_ROW_191: owned fixture output,
+café, plain [text]
+capture=2026-10-03T13:13:48.500+00:00 |
+SPIKE111_ROW_192: owned fixture output,
+café, plain [text]
+capture=2026-10-03T13:13:48.500+00:00 |
+SPIKE111_ROW_193: owned fixture output,
+café, plain [text]
+capture=2026-10-03T13:13:48.500+00:00 |
+SPIKE111_ROW_194: owned fixture output,
+café, plain [text]
+capture=2026-10-03T13:13:48.500+00:00 |
+SPIKE111_ROW_195: owned fixture output,
