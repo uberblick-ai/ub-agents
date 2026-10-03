@@ -546,5 +546,8 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
 - `ub-agent retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
-  an item once you have fixed the cause.
+  an item once you have fixed the cause. It prints the reset record's link and a
+  second line explaining closure, stop labels to remove, trigger labels to add,
+  or pickup by a running launcher on its next poll. Labels stay unchanged; use
+  `ub-agent status` for progress and other pickup gates.
 - `--config PATH` selects a different configuration file.
