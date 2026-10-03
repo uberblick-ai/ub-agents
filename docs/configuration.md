@@ -31,6 +31,7 @@ updates required by the rename.
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
+| `runtime-updates` | Optional daily maintenance policy for configured Claude Code and Codex runtimes. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
 `ub-agents launch`, including `--once`, appends stdout and stderr to
@@ -573,6 +574,139 @@ and state whose owner cannot be inspected are preserved.
 `status --json` returns an object with `assignments` (the assignment rows) and
 `runtime_pauses` (entries with `cli`, `reason`, UTC `ends_at`, and `launcher`).
 The pause list is present even when no assignments match.
+
+### Daily runtime maintenance
+
+Maintenance is opt-in per project. With no `runtime-updates` key, the launcher
+runs no updaters. Configure each CLI as `auto`, `off` (the default for an
+omitted CLI), or a mapping containing an explicit updater `command` argv:
+
+```yaml
+runtime-updates:
+  claude: auto
+  codex: auto
+  timeout-seconds: 300
+```
+
+For custom installs, an operator can instead supply a targeted command:
+
+```yaml
+runtime-updates:
+  claude: off
+  codex:
+    command: [mise, upgrade, codex]
+  timeout-seconds: 120
+```
+
+Commands run directly, without a shell, with the launcher's environment. Relative
+executable paths resolve against the configuration directory. Operators must
+supply a command that updates only that runtime, preserves its installation
+method and channel, and needs no elevated privileges. `check` rejects unknown
+keys, invalid policies or argv, direct privilege-elevation commands, and timeouts
+outside `0 < timeout-seconds <= 3600`. The default timeout is 300 seconds; version
+probes each have a separate five-second bound.
+
+Only CLIs used by an agent's configured `runtime` alternatives are checked.
+`command:` agents and unused CLIs never invoke an updater. Missing runtimes are
+never installed. Automatic detection supports these installations:
+
+| Runtime / installation | Updater |
+|---|---|
+| Claude native installer | `claude update` |
+| Claude npm global (`@anthropic-ai/claude-code`) | `claude update` |
+| Claude Homebrew cask | `brew upgrade --cask claude-code` or `brew upgrade --cask claude-code@latest`, matching the executable's owning cask |
+| Codex npm global (`@openai/codex`) | `npm install -g @openai/codex@latest`, using the npm verified to own that global prefix |
+| Codex Homebrew cask | `brew upgrade --cask codex` |
+| Codex Homebrew formula | `brew upgrade --formula codex` |
+
+Homebrew commands run with dependent upgrades, automatic cleanup, application
+quitting and sudo disabled, and without interactive confirmation. These settings
+apply only to that updater process; see the [Homebrew command reference](https://docs.brew.sh/Manpage#upgrade-options-installed_formulainstalled_cask-).
+
+Native detection recognizes Claude's version directory under
+`~/.local/share/claude/versions`. npm detection requires a global package's
+metadata to identify the executable, and Homebrew detection requires it to live
+in the matching package's `Caskroom` or `Cellar` directory. Unknown installs,
+mise shims, ambiguous npm prerelease channels, missing owning package managers,
+and unwritable package installations are skipped with an instruction to
+configure `runtime-updates.CLI.command` or update manually. apt, dnf and apk
+installs that need root are skipped; no command uses `sudo`, upgrades unrelated
+packages, changes credentials, models or permissions, or switches install methods.
+These automatic-policy skips stay local to the launcher and do not start a
+shared cooldown, so another project's configured command can update the same
+installation. Each launcher remembers its own automatic skip for 24 hours;
+changing the policy to a command takes effect at the next boundary.
+
+Claude's own updater retains its release channel and version bounds and honors
+`DISABLE_UPDATES`. `DISABLE_AUTOUPDATER` only disables Claude's background checks
+and allows this explicit update. For every Claude installation and updater,
+including operator-supplied commands, the launcher checks
+`DISABLE_UPDATES` in its environment, Claude's user `settings.json` (including
+`CLAUDE_CONFIG_DIR`) and system `managed-settings.json` / `managed-settings.d`
+files before invoking the updater. It skips when that policy cannot be read safely.
+These policy skips are local to the launcher: they do not start the shared
+cooldown, so a launcher with updates enabled can still update the installation.
+The cask name preserves the installed stable or latest channel. See
+[Claude's update documentation](https://code.claude.com/docs/en/setup#update-claude-code)
+and the [official Codex update commands](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex#quickstart-using-goals).
+
+Checks run only at unclaimed launcher boundaries before new work, separately
+from instruction refresh. A run that crosses the due time continues undisturbed.
+Usage pauses allow maintenance and health checks to continue; updating or
+repairing a runtime preserves its usage pause until the window expires.
+Every completed installation check (`updated`, `up-to-date` or `failed`,
+including a timeout) starts a shared 24-hour cooldown. An `off`, omitted or
+unsupported automatic policy reports a local skip without writing shared
+maintenance state, except for recovery of previously recorded failed health.
+Active-run or guard contention defers the check without starting that cooldown.
+`launch --once` uses the same boundary.
+Each completed check prints one line with the runtime, install method, available
+before and after versions, result and any failure reason. Local skips print the
+runtime, install method and actionable reason.
+
+The cooldown and runtime health survive restarts in per-user local state at
+`$XDG_STATE_HOME/ub-agents/runtime-updates`, or
+`~/.local/state/ub-agents/runtime-updates` when `XDG_STATE_HOME` is unset, empty or
+relative. Files
+are keyed by the PATH-resolved executable's installation: native version and
+Homebrew version directories share a stable installation identity across
+upgrades; custom launch paths remain stable across symlink changes. All local
+launchers using that installation share its cooldown and kernel file locks,
+including across projects. **Opting out in one project does not stop another
+project's launcher from updating the shared installation.** GitHub is not used
+for maintenance state.
+
+A start reservation holds a shared maintenance guard through process start;
+availability reads share this guard too, so concurrent launchers can reserve
+and start the same runtime. Healthy cooldown reads do not acquire an exclusive
+guard. If availability changes before a claim's reservation, the launcher prints
+`waiting` and retries on a later poll. While an updater holds the guard, other launchers
+cannot start that runtime. npm,
+Homebrew and operator-command updates replace files in place, so they wait until
+all tracked local runs of the installation finish. Claude native updates can
+proceed alongside existing runs because Claude retains versions in use. Run
+locks are inherited by the runtime process; updater processes inherit their
+maintenance locks too. Locks are released when their final holder
+exits; a crashed launcher leaves no stale marker, and its still-running child
+continues to protect the installation. Descendants that retain an inherited
+descriptor, including detached background processes, defer in-place maintenance
+until they exit or close it.
+All cooperating launchers must use a version with this locking protocol; it
+does not track sessions launched outside ub-agents.
+
+Shutdown (`stop_gracefully`, SIGTERM or SIGINT) stops the updater and records a
+completed check, then exits before claiming. Updater failures produce a launcher
+warning and no assignment attempt or GitHub failure. After every completed check,
+including a failure, the launcher re-resolves PATH and runs that next
+executable's `--version`; an updater's exit code alone cannot establish success.
+If the runtime still works, the launcher continues using it. If it fails this
+probe, selection treats it as unavailable and can use an eligible alternative.
+At later unclaimed launch boundaries, an unavailable installation's `--version`
+is rechecked under the maintenance guard, including in projects with updates
+disabled. A successful probe restores availability after a transient failure or
+an operator repair in place. Health recovery preserves the original update
+cooldown; no updater is retried before it expires. `status` only reads shared
+health and does not run a recovery probe. There is no automatic rollback.
 
 ### Runtime permissions
 

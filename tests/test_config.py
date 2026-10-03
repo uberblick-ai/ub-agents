@@ -70,6 +70,45 @@ cleanup:
         # Relative executables resolve against the configuration's directory.
         self.assertEqual(agent.command, (str(self.root.resolve() / "scripts/task.py"), "--fast"))
 
+    def test_runtime_updates_validation_and_check(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        self.assertIsNone(self.load(base).runtime_updates)
+        settings = self.load(base + "runtime-updates:\n  claude: auto\n  codex: off\n  timeout-seconds: 30\n")
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "off"})
+        self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
+        settings = self.load(base + "runtime-updates: {codex: {command: [./update, codex]}}\n")
+        self.assertEqual(settings.runtime_updates.policies["codex"], (str(self.root.resolve() / "update"), "codex"))
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+        for value in ["[]", "null", "{unknown: auto}", "{codex: true}", "{codex: false}",
+                      "{claude: install}", "{codex: [npm, update]}", "{codex: {command: []}}",
+                      "{codex: {command: shell}}", "{codex: {command: [sudo, update]}}",
+                      "{codex: {command: [echo], extra: 1}}", "{timeout-seconds: 0}",
+                      "{timeout-seconds: 3601}", "{timeout-seconds: .nan}",
+                      "{timeout-seconds: true}", "{timeout-seconds: -1}"]:
+            with self.subTest(value=value):
+                self.path.write_text(base + f"runtime-updates: {value}\n")
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+
+    def test_repository_opts_into_daily_runtime_updates(self):
+        settings = load_config(Path(__file__).resolve().parents[1] / "ub-agents.yaml")
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "auto"})
+
+    def test_launchers_and_runtime_updates_can_be_configured_together(self):
+        settings = self.load('''repository: org/project
+launchers: [bot-a, Alice]
+runtime-updates: {codex: auto, timeout-seconds: 30}
+agents:
+  task:
+    command: [echo]
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        self.assertEqual(settings.launchers, ("bot-a", "Alice"))
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "off", "codex": "auto"})
+        self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
+
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n    outcomes: {done: {}}\n"
         for content in [base.replace("[true]", "[echo]") + "    agent-timeout-minutes: .nan\n",

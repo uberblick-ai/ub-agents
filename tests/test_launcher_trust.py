@@ -150,6 +150,26 @@ class LauncherTrustTests(unittest.TestCase):
         loop.config = replace(loop.config, launchers=("ALICE",))
         self.assertEqual(next(loop.iter_plans()).state, "ready")
 
+    def test_trusted_discovery_keeps_runtime_health_filter(self):
+        self.start(self.b)
+        codex, claude = Runtime("codex", "model", "high"), Runtime("claude", "model", "high")
+        worker = replace(self.worker, command=None, runtimes=(codex, claude))
+        loop = self.loop(self.alice, ("ALICE", "BOB"), worker)
+        with patch.object(loop.maintenance, "available", side_effect=lambda cli: cli == "claude"):
+            for cached in (True, False):
+                self.assertEqual(next(loop.iter_plans(cached=cached)).state, "owned")
+            # Excluding the other owner makes work eligible, but runtime health
+            # still rules out the first configured runtime on every pass.
+            loop.config = replace(loop.config, launchers=("ALICE",))
+            for cached in (True, False):
+                plan = next(loop.iter_plans(cached=cached))
+                self.assertEqual((plan.state, plan.runtime), ("ready", claude))
+        with patch.object(loop.maintenance, "available", return_value=False):
+            for cached in (True, False):
+                plan = next(loop.iter_plans(cached=cached))
+                self.assertEqual((plan.state, plan.runtime), ("blocked", None))
+                self.assertIn("usable and available", plan.reason)
+
     def test_unreadable_lease_author_never_allows_a_second_claim(self):
         lease = self.start(self.b)
         loop = self.loop(self.alice)
