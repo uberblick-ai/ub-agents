@@ -35,12 +35,13 @@ class Plan:
 
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
-                 runtime_paused=None):
+                 runtime_available=None, runtime_paused=None):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
+        self.runtime_available = runtime_available
         self.runtime_paused = runtime_paused or (lambda cli: None)
         self.notices = Notices(github, actor, output)
 
@@ -192,7 +193,7 @@ class Coordinator:
                     raise AgentError("No runtime has a different CLI and model from the candidate author")
         paused = {}
         for runtime in eligible:
-            if shutil.which(runtime.cli):
+            if (self.runtime_available or shutil.which)(runtime.cli):
                 pause = self.runtime_paused(runtime.cli)
                 if pause:
                     paused[runtime.cli] = pause
@@ -201,7 +202,9 @@ class Coordinator:
         if paused:
             raise RuntimePaused("Waiting for " + "; ".join(
                 f"{cli}: {pause['reason']}; pause ends {pause['ends_at']}" for cli, pause in paused.items()))
-        raise AgentError("No eligible runtime executable is installed")
+        reason = ("No eligible runtime executable is installed, usable and available"
+                  if self.runtime_available else "No eligible runtime executable is installed")
+        raise AgentError(reason)
 
     def handoff_pending(self, report):
         # A copied marker may lag acceptance or rejection on the source item.

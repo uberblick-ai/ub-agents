@@ -19,11 +19,13 @@ from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import timestamp
-from tests.support import FakeGitHub, PollGitHub, RecordingRunner, agent, config, issue, pr
+from tests.support import (FakeGitHub, PollGitHub, RecordingRunner, agent, config,
+                           isolate_runtime_state, issue, pr)
 
 
 class LaunchTests(unittest.TestCase):
     def setUp(self):
+        isolate_runtime_state(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -196,6 +198,7 @@ with patch('ub_agents.cli.run', side_effect=launch):
 
 class TargetedLaunchTests(unittest.TestCase):
     def setUp(self):
+        isolate_runtime_state(self)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
@@ -428,12 +431,24 @@ class TargetedLaunchTests(unittest.TestCase):
         worker = agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.config = config(self.root, worker)
         pause = {"reason": "usage limit reached", "ends_at": "2026-10-04T00:00:00Z"}
-        with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=True), \
                 patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
         self.assertEqual(stdout, "#11 worker: waiting — Waiting for codex: usage limit reached; "
                                  "pause ends 2026-10-04T00:00:00Z\n")
+        self.assertEqual(self.github.writes, [])
+        run.assert_not_called()
+        self.assert_scoped()
+
+    def test_runtime_unavailability_uses_the_same_gate_as_queue_launch(self):
+        worker = agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),))
+        self.config = config(self.root, worker)
+        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=False):
+            code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: blocked — No eligible runtime executable is installed, "
+                                 "usable and available\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
         self.assert_scoped()

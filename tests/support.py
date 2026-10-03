@@ -1,8 +1,10 @@
 from copy import deepcopy
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import sys
+import tempfile
 import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
@@ -38,9 +40,20 @@ def write_legacy_records(github):
     github.create_comment = legacy_create
 
 
+def isolate_runtime_state(test):
+    """Keep launcher lock and health files out of the developer's state directory."""
+    from unittest.mock import patch
+    state = tempfile.TemporaryDirectory()
+    test.addCleanup(state.cleanup)
+    environment = patch.dict(os.environ, {"XDG_STATE_HOME": state.name})
+    test.addCleanup(environment.stop)
+    environment.start()
+
+
 def stub_refresh(test):
     """Coordination unit tests use synthetic roots; Git refresh has its own suite."""
     from unittest.mock import patch
+    isolate_runtime_state(test)
     mock = patch("ub_agents.loop.refresh_instructions", side_effect=lambda cfg, role, github:
                  instruction_text(cfg.root, role.instructions, f"{role.name} instructions"))
     test.addCleanup(mock.stop)
