@@ -14,7 +14,6 @@ dependencies = ["PyYAML>=6.0,<7"]
 
 [project.scripts]
 ub-agents = "ub_agents.cli:main"
-ub-agent = "ub_agents.cli:legacy_main"
 
 [project.urls]
 Repository = "https://github.com/uberblick-ai/ub-agents"

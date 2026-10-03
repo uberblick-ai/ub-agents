@@ -89,6 +89,39 @@ class NoticeTests(unittest.TestCase):
         broken["body"] = MARKER + "\nunreadable new record"
         self.assertEqual(self.co.repository_history()[1], {1})
 
+    def test_record_versions_preserve_ownership_attempts_and_recovery(self):
+        for version in (1, 2):
+            with self.subTest(version=version):
+                self.github = self.github_for(issue(), pr())
+                self.now = 1000
+                self.co = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
+
+                def convert_records():
+                    if version == 1:
+                        for comment in self.github.store[1]:
+                            if comment['body'].startswith(MARKER):
+                                payload = comment['body'].split('```json\n', 1)[1].split('\n```', 1)[0]
+                                comment['body'] = f'{LEGACY_MARKER}\n\n```json\n{payload}\n```\n'
+
+                failed = self.start()
+                self.co.release(failed, "retry", "First failed attempt")
+                lease = self.start()
+                outcome = self.co.report(lease, "success", "Finished", outcome="done")
+                convert_records()
+                self.assertEqual(self.co.plan(self.github.item(1), self.worker, ()).state, "owned")
+                self.assertIsNone(self.co.claim(self.co.plan(self.github.item(1), self.worker, ())))
+                self.now = seconds(lease["expires"]) + 1
+                plan = self.co.plan(self.github.item(1), self.worker, ())
+                self.assertEqual((plan.state, plan.attempt), ("recover", 2))
+                self.assertEqual(self.co.pending_completion(self.co.history(1), "worker", self.now), outcome)
+                self.assertIsNotNone(self.co.claim(plan, recovery=True))
+                convert_records()
+                with self.assertRaises(LostOwnership):
+                    self.co.assert_owned(lease)
+                history, invalid = self.co.repository_history()
+                self.assertTrue(history)
+                self.assertEqual(invalid, set())
+
     def test_release_minimizes_only_superseded_runs_of_the_same_agent(self):
         first = self.start()
         self.co.report(first, "retry", "Transient failure")

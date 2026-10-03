@@ -9,11 +9,11 @@ import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
-from ub_agents.records import MARKER, RECORD_MARKERS, body, lease_by_id, payload, records
+from ub_agents.records import RECORD_MARKERS, body, lease_by_id, payload, records
 
 
 def write_legacy_records(github):
-    """Simulate 0.1.5 writes for the transition and notice compatibility suites."""
+    """Simulate expanded transition snapshots for the schema compatibility suites."""
     create = github.create_comment
 
     def legacy_create(number, text):
@@ -34,7 +34,7 @@ def write_legacy_records(github):
                 source = lease_by_id(records(github.comments(record["assignment"])), record["lease_id"])
                 record["transition"] = source["outcomes"][record["outcome"]] | {
                     "started": record["transition"]["started"]}
-            text = body(record).replace(MARKER, "<!-- ub-agent:v2 -->", 1)
+            text = body(record)
         return create(number, text)
 
     github.create_comment = legacy_create

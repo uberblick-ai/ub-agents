@@ -705,7 +705,7 @@ class Loop:
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
             env = {key: value for key, value in os.environ.items()
-                   if not key.startswith(("UB_AGENTS_", "UB_AGENT_"))}
+                   if not key.startswith("UB_AGENTS_")}
             env.update({"UB_AGENTS_REPOSITORY": self.config.repository,
                         "UB_AGENTS_ASSIGNMENT": str(plan.item.number),
                         "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),

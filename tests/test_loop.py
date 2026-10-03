@@ -66,7 +66,6 @@ class LoopTests(unittest.TestCase):
                 github.login = "operator"
 
                 def execute(command, cwd, env, *args, **kwargs):
-                    self.assertFalse(any(key.startswith("UB_AGENT_") for key in env))
                     context = json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())
                     self.assertEqual(context["comments"], [])
                     self.assertEqual(context["feedback"], [{

@@ -75,28 +75,6 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(git(self.root, "rev-parse", self.branch), self.head)
         self.assertFalse((self.root / ".ub-agents" / "runs").exists())
 
-    def test_old_branch_and_record_names_keep_cleanup_ownership(self):
-        from tests.test_rename import old_record_names
-        old = self.branch.replace("ub-agents/", "ub-agent/", 1)
-        git(self.path, "branch", "-m", self.branch, old)
-        self.branch = old
-        self.update(branch=old)
-        old_record_names(self.github)
-        self.assertEqual(self.actions()["branch"]["action"], "would remove")
-        self.update(cleanup="unconfirmed")
-        self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
-        self.update(cleanup=None)
-        self.assertEqual(self.actions(True)["branch"]["action"], "removed")
-
-    def test_old_state_worktrees_are_not_cleanup_artifacts(self):
-        old = self.root / ".ub-agent" / "worktrees" / self.lease["run"]
-        old.parent.mkdir(parents=True)
-        git(self.root, "worktree", "move", str(self.path), str(old))
-        artifacts = self.cleaner.inventory()
-        self.assertFalse(any(a.kind == "worktree" for a in artifacts))
-        self.assertEqual(self.actions(True)["branch"]["action"], "kept")
-        self.assertTrue(old.exists())
-
     def test_apply_removes_worktree_and_local_branch_keeps_remote_and_logs(self):
         git(self.root, "update-ref", f"refs/heads/remote-copy", self.head)
         run_dir = self.root / ".ub-agents" / "runs" / self.lease["run"]

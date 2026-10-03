@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import math
 import re
-import sys
 
 import yaml
 
@@ -12,24 +11,14 @@ from .errors import AgentError
 from .github import REPOSITORY
 
 DEFAULT_CONFIG = "ub-agents.yaml"
-_warned_legacy_config = False
 
 
 def resolve_config_path(path=None, *, root=None):
-    """Only an implicit default can fall back, and it is resolved on every reload."""
-    global _warned_legacy_config
+    """Resolve an explicit path or the project default on every reload."""
     if path is not None:
         return Path(path).resolve()
     root = Path.cwd() if root is None else Path(root)
-    preferred = root / DEFAULT_CONFIG
-    legacy = root / "ub-agent.yaml"
-    if not preferred.exists() and legacy.exists():
-        if not _warned_legacy_config:
-            print("ub-agents: ub-agent.yaml has been renamed to ub-agents.yaml; "
-                  "reading the old name for one release. Rename the file.", file=sys.stderr)
-            _warned_legacy_config = True
-        return legacy.resolve()
-    return preferred.resolve()
+    return (root / DEFAULT_CONFIG).resolve()
 
 
 class UniqueLoader(yaml.SafeLoader):

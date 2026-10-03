@@ -115,8 +115,7 @@ def init_project(args):
 
 
 def report_run(args):
-    # A pre-upgrade launcher can finish through either installed command name.
-    env = {key: os.environ.get(f"UB_AGENTS_{key}", os.environ.get(f"UB_AGENT_{key}"))
+    env = {key: os.environ.get(f"UB_AGENTS_{key}")
            for key in ("REPOSITORY", "ASSIGNMENT", "RUN", "LEASE_ID")}
     if any(not value for value in env.values()):
         raise AgentError("report requires the environment of a supervised ub-agents assignment")
@@ -353,10 +352,3 @@ def main(argv=None):
         except (AgentError, OSError) as exc:
             print(f"ub-agents: {exc}", file=sys.stderr)
             return 1
-
-
-def legacy_main(argv=None):
-    """One-release command alias; preserve the CLI's stdout and exit status."""
-    print("ub-agent is deprecated; use ub-agents instead. This alias remains for one release.",
-          file=sys.stderr)
-    return main(argv)
