@@ -127,7 +127,7 @@ class Evidence(unittest.IsolatedAsyncioTestCase):
         for runtime, path in paths.items():
             raw = path.read_bytes()
             tail = Tail(path)
-            while tail.offset < len(raw):
+            while tail.offset < len(raw) or tail.buffer.ready():
                 tail.poll()
                 self.assertLess(len(tail.buffer.pending), MAX_RECORD)
             self.assertEqual(path.read_bytes(), raw)
@@ -182,7 +182,9 @@ class Evidence(unittest.IsolatedAsyncioTestCase):
         for runtime, path in write_fixtures(EVIDENCE).items():
             app = View(Observer(ROOT, log_path=path))
             async with app.run_test(size=(110, 32)) as pilot:
-                await pilot.pause(.4)
+                deadline = time.monotonic() + 4
+                while (not app.tail or app.tail.offset < path.stat().st_size or app.tail.buffer.ready()) and time.monotonic() < deadline:
+                    await pilot.pause(.1)
                 self.assertEqual(app.tail.path, path.resolve())
                 self.assertTrue(any('SPIKE97_OBSERVER_OK' in e.text for e in app.tail.buffer.entries))
                 app.save_screenshot(f'{runtime}-production.svg', path=str(EVIDENCE))

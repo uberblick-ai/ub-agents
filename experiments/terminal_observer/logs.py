@@ -10,6 +10,7 @@ MAX_RECORD = 128 * 1024
 MAX_TEXT = 2048
 MAX_ENTRIES = 200
 READ_BUDGET = 32 * 1024
+MAX_BATCH_ENTRIES = 128
 
 
 def clean(text):
@@ -87,6 +88,8 @@ def decode(raw, capture):
             text = item.get('text') or f'{item.get("type", "item")}: {item.get("command", "")}\n{item.get("aggregated_output", "")}'
         elif kind in {'result', 'error'}:
             text = data.get('result') or data.get('message') or plain
+            if data.get('is_error'):
+                kind += ' [error]'
     except (AttributeError, TypeError, KeyError):
         text = plain
         kind += ' / unfamiliar shape'
@@ -101,6 +104,7 @@ class Buffer:
         self.discarded = 0
         self.total = 0
         self.fragmented = False
+        self.remainder_capture = None
 
     def append(self, entry):
         if len(self.entries) == MAX_ENTRIES:
@@ -112,12 +116,16 @@ class Buffer:
         self.pending = b''
         self.capture = None
         self.fragmented = False
+        self.remainder_capture = None
 
     def feed(self, chunk, capture=None):
         if not self.pending:
             self.capture = capture
         self.pending += chunk
-        while self.pending:
+        following_capture = capture if chunk else self.remainder_capture
+        self.remainder_capture = following_capture
+        processed = 0
+        while self.pending and processed < MAX_BATCH_ENTRIES:
             newline = self.pending.find(b'\n')
             if 0 <= newline < MAX_RECORD:
                 record, self.pending = self.pending[:newline], self.pending[newline + 1:]
@@ -134,10 +142,15 @@ class Buffer:
                 self.fragmented = True
             else:
                 break
-            self.capture = capture
+            self.capture = following_capture
+            processed += 1
+
+    def ready(self):
+        newline = self.pending.find(b'\n')
+        return 0 <= newline < MAX_RECORD or len(self.pending) >= MAX_RECORD
 
     def preview(self):
-        return decode(self.pending, self.capture) if self.pending else None
+        return decode(self.pending, self.capture) if self.pending and not self.ready() else None
 
 
 class Tail:
@@ -158,6 +171,11 @@ class Tail:
         self.buffer = Buffer()
 
     def poll(self):
+        # Drain bounded queued records before reading more bytes. Tiny-line floods
+        # cannot cause tens of thousands of JSON parses in one UI callback.
+        if self.buffer.ready():
+            self.buffer.feed(b'')
+            return
         try:
             stat = self.path.stat()
             file_id = (stat.st_dev, stat.st_ino)

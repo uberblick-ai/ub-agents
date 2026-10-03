@@ -1,0 +1,148 @@
+{
+  "flood": {
+    "source": "headless Textual pilot; synthetic 24000 human lines",
+    "raw_bytes": 2088000,
+    "tick_count": 134,
+    "max_tick_seconds": 0.040577656123787165,
+    "median_tick_seconds": 0.016057966509833932,
+    "max_20ms_heartbeat_gap_seconds": 0.11922034109011292,
+    "multi_key_navigation_and_resize_seconds": 11.960587971843779,
+    "tab_key_dispatch_seconds": [
+      0.12670690612867475,
+      0.019367400091141462,
+      0.008833533152937889
+    ],
+    "measurement_overhead": "tracemalloc + asyncio debug + headless pilot idle waits; not terminal latency",
+    "traced_retained_growth_bytes": 2101793,
+    "traced_peak_bytes": 11177158,
+    "backlog_bytes_at_checkpoint": 820584,
+    "backlog_is_lossless_in_raw_file": true,
+    "paused_scroll_stable_with_append": true,
+    "follow_resumed": true,
+    "sustained_realtime_consumption_above_read_budget": "disproved; bounded lag, raw fallback",
+    "target_terminal_usability": "unverified"
+  },
+  "tiny_lines": {
+    "raw_bytes": 32768,
+    "polls": 256,
+    "maximum_records_per_poll": 128
+  },
+  "codex_current": {
+    "source": "synthetic human text derived from existing production fixture; no CLI probe",
+    "raw_bytes": 42409,
+    "max_record_bytes": 42032,
+    "compact_lines": true,
+    "long_line_shortening_visible": true,
+    "errors_and_ordinary_text_visible": true,
+    "producer_timestamps": "unavailable",
+    "real_current_format_recording": "unverified"
+  },
+  "detail_errors": {
+    "rate_limit_response_requests": 1,
+    "during_cooldown_extra_requests": 0,
+    "ordinary_error_requests": 1,
+    "automatic_retry_requests": 0,
+    "failure_cached_for_bounded_session": true,
+    "session_allowance_requests": 20,
+    "request_after_allowance": 0
+  },
+  "lifecycle": {
+    "source": "owned Python process + actual Loop callbacks and durable fixture transport",
+    "ui_off_on_durable_results": {
+      "False:drain": [
+        "released",
+        "success",
+        true
+      ],
+      "False:interrupt": [
+        "released",
+        "retry",
+        false
+      ],
+      "True:drain": [
+        "released",
+        "success",
+        true
+      ],
+      "True:interrupt": [
+        "released",
+        "retry",
+        false
+      ]
+    },
+    "view_close_leaves_worker_running": true,
+    "owned_groups_empty_after_completion": true,
+    "actual_os_launcher_signals": "unverified in this harness; repository suite covers signals",
+    "attached_foreground_ui": "unverified; not prototyped"
+  },
+  "negative_control": {
+    "navigation_read_defect_calls": 3,
+    "zero_background_call_assertion_rejects_mutation": true
+  },
+  "projection": {
+    "max_observed_rows": 64,
+    "max_recent_runs": 20,
+    "max_observed_details": 64,
+    "max_explicit_detail_reads_cached": 20,
+    "max_detail_chars": 8192,
+    "file_cap_bytes": 2097152,
+    "publisher_pending_snapshots": 1,
+    "coalesced_under_blocked_writer": 99,
+    "max_bounded_observe_callback_seconds": 0.0007706317119300365,
+    "median_bounded_observe_callback_seconds": 0.000299657229334116,
+    "slow_disk_does_not_block_callbacks": true,
+    "publisher_disk_failure_worker_success": true,
+    "tap_callback_failure_worker_success": true
+  },
+  "recordings": {
+    "claude": {
+      "sha256": "3226e9974961faf77567708c43045afc593f2352688f3968b87173f7b6f432d0",
+      "records": 3,
+      "provenance": "curated sanitized first-run real recording; flags in probes.json",
+      "retained_record_shape_matches_current_format": true,
+      "original_flags_match_production": false,
+      "complete_original_stream": false
+    },
+    "codex": {
+      "sha256": "7fe17da444f903c43cd0e766478eeaf7714c43055799474dbc79c1827d8d0372",
+      "records": 4,
+      "provenance": "curated sanitized first-run real recording; flags in probes.json",
+      "retained_record_shape_matches_current_format": false,
+      "original_flags_match_production": false,
+      "complete_original_stream": false
+    }
+  },
+  "local_pty": {
+    "source": "separate OS process, isolated owned PTY, launcher projection, recording transport",
+    "closure_modes": {
+      "q": {
+        "view_exit": 0,
+        "launcher_worker_still_running": true
+      },
+      "ctrl-c": {
+        "view_exit": 0,
+        "launcher_worker_still_running": true
+      }
+    },
+    "additional_worker_transport_calls": 0,
+    "actual_operator_terminal_or_herdr": "unverified"
+  },
+  "single_launcher": {
+    "source": "actual Loop.tick/claim/supervise/finalize/release; recording GitHub; owned Python worker",
+    "ui_off_on_transport_calls": [
+      70,
+      70
+    ],
+    "wire_method_endpoint_order_identical": true,
+    "navigation_startup_timer_tail_resize_extra_worker_calls": 0,
+    "observed_plan_numbers": [
+      1
+    ],
+    "remaining_29_triggered_plans_not_evaluated": true,
+    "explicit_missing_detail_calls": 1,
+    "revisit_loaded_cached_detail_calls": 0,
+    "loading_does_not_block_worker_or_navigation": true,
+    "unaccepted_report_then_accepted_transition_distinguished": true,
+    "production_runtime_integration": "unverified"
+  }
+}

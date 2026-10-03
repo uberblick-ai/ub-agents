@@ -34,7 +34,7 @@ def fixture_loop(root, log_path=None):
     gh = FakeGitHub(*(issue(n) for n in range(1, 7)))
     gh.change(1, title='Local replay (fixture claim)')
     gh.change(2, title='Remote worker (no local log)')
-    gh.change(3, title='Owner decision needed', body='Owner must choose attached view or separate observer before implementation.')
+    gh.change(3, title='Owner decision needed', body='Owner must assess the research artifact before implementation.')
     gh.change(4, title='Eligible work')
     gh.change(5, title='Waiting for dependency')
     gh.change(6, title='Completed step')
@@ -47,8 +47,8 @@ def fixture_loop(root, log_path=None):
                                 host=socket.gethostname() if number != 2 else 'remote.example',
                                 log_dir=str(log_path.resolve().parent) if log_path else '')
         if number == 3:
-            loop.coordinator.report(lease, 'blocked', 'Need owner choice: attached view or separate observer')
-            loop.coordinator.release(lease, 'blocked', 'Need owner choice: attached view or separate observer')
+            loop.coordinator.report(lease, 'blocked', 'Research artifact needs owner assessment')
+            loop.coordinator.release(lease, 'blocked', 'Research artifact needs owner assessment')
             gh.change(3, labels=frozenset({'ready', 'needs-human'}))
         if number == 6:
             report = loop.coordinator.report(lease, 'success', 'Read-only verification completed', outcome='done')

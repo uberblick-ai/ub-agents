@@ -25,7 +25,7 @@ def main():
             for entry in entries[-count:] if count else []:
                 print(entry.display(), flush=True)
             seen = tail.buffer.total
-            if not args.follow and tail.offset >= args.path.stat().st_size:
+            if not args.follow and tail.offset >= args.path.stat().st_size and not tail.buffer.ready():
                 preview = tail.buffer.preview()
                 if preview:
                     print(f'[unfinished record] {preview.text}')
