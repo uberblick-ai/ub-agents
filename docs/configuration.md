@@ -537,6 +537,22 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   label changes or rejection and its reason. Failed eligibility checks refuse without
   writing, name the check and lease expiry, and exit nonzero. See [Recovery](coordination.md#recovery).
 - `ub-agent status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+  A live lease's summary names its actor, host, claim time, runtime and lease end,
+  including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
+  the current UTC day. Only leases on this host have their recorded process group
+  inspected: live members display `running` and the path to `process.log`; an
+  exited group explains launcher completion or recovery after lease expiry. If
+  that owning run reported an outcome, the reason also points to
+  `ub-agent recover --number N --agent NAME --reason TEXT` for recovery now; the
+  command's eligibility checks still apply. Other reasons distinguish a starting
+  run, a claim without a host, another host, outcome recovery and an unknown
+  process state with its inspection error. Inspection failures leave `status`
+  successful. It makes no additional GitHub requests, recovers or releases nothing,
+  and preserves the text for rows without a live lease, including shared-branch ownership.
+  JSON adds `process` (`running`, `exited`, `starting`, `claiming`, `other-host`,
+  `recovery` or `unknown`) and `process_reason`, both `null` without a live lease.
+  Existing JSON fields retain their values: `state` stays `owned` for a confirmed
+  running owner, and `reason` retains the ownership explanation.
   Each agent's `reported:` (JSON `outcome`) describes that agent's live lease's run,
   or its latest lease's run when it has no live lease. Recovery leases show the
   original run's report. If that run has not reported, `reported:` is omitted and

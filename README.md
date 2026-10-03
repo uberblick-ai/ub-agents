@@ -96,7 +96,7 @@ Review the [coordination contract](docs/coordination.md) and
 
 | Command | What it does |
 |---|---|
-| `ub-agent status` | Show matching work, who owns it, and what it reported |
+| `ub-agent status` | Show matching work, lease details, whether local agents are running, and what they reported |
 | `ub-agent launch --once` | Run at most one assignment, then exit |
 | `ub-agent cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
 | `ub-agent recover --number N --agent NAME --reason TEXT` | Recover a stopped local launcher's reported outcome before its lease expires |
