@@ -1,6 +1,7 @@
 """Cooperative leases and durable attempts, deliberately not an atomic lock service."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import re
 import shutil
 import uuid
 
@@ -26,6 +27,7 @@ class Plan:
     priority_from_issue: int | None = None
     blockers: tuple[str, ...] = ()
     approval_gate: ApprovalCheck | None = None
+    history: tuple[dict, ...] = field(default=(), compare=False, repr=False)
 
 
 class Coordinator:
@@ -101,7 +103,7 @@ class Coordinator:
         result = sorted(history, key=lambda record: record["id"]), invalid
         return (*result, histories) if by_item else result
 
-    def plan(self, item, agent, stop_labels, history=None, index=None):
+    def plan(self, item, agent, stop_labels, history=None):
         history = self.history(item.number) if history is None else history
         now = self.clock()
         previous = attempts(history, agent.name, now)
@@ -117,7 +119,7 @@ class Coordinator:
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
         elif latest and latest[-1].get("cleanup") == "unconfirmed":
             state, reason = "blocked", "Previous cleanup was unconfirmed; establish termination before an operator reset"
-        elif (owner := self.shared_branch_owner(item, agent, history, index)) is not None:
+        elif (owner := self.shared_branch_owner(item, agent, history)) is not None:
             if owner.get("cleanup") == "unconfirmed":
                 state, reason = "blocked", (f"Cleanup of #{owner['assignment']}, which shares this item's branch, "
                                             "was unconfirmed; establish termination before an operator reset")
@@ -232,7 +234,7 @@ class Coordinator:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
         return matches[0] if matches else None
 
-    def shared_branch_owner(self, item, agent, history, index=None):
+    def shared_branch_owner(self, item, agent, history):
         """A live lease, or an unconfirmed cleanup, on another item that shares this item's branch.
 
         An issue's earlier run branches may carry an open draft PR that a PR-kind run can
@@ -243,9 +245,8 @@ class Coordinator:
                                and r["agent"] == agent.name and r.get("branch")})
             related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
         else:
-            index = self.repository_history()[0] if index is None else index
-            related = sorted({r["assignment"] for r in index if r["kind"] == "lease"
-                              and r["assignment_sha"] is None and r.get("branch") == item.branch})
+            match = re.fullmatch(r"ub-agent/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
+            related = [int(match[1])] if match else []
         now = self.clock()
         for number in related:
             other = self.history(number)

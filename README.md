@@ -51,7 +51,12 @@ the log is never truncated or rotated. Follow it from another terminal with
 `tail -f .ub-agent/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
-The continuous loop retries transient GitHub discovery failures with bounded waits.
+Empty polls back off according to their REST quota cost, excluding unchanged
+reads confirmed by HTTP 304 and reserving half the common account quota for busy
+work when ten idle launchers share it. Low quota
+adds a wait bounded by the reset. A pass that runs or recovers work returns to
+normal `poll-seconds` pacing. The continuous loop retries transient GitHub
+discovery failures with bounded waits.
 Continuous launch waits out GitHub rate limits without charging poll failures or
 item attempts. Owned runs retry rate-limited reads while the lease permits; writes
 keep their existing handling. `doctor` reports request quota and reset time in UTC,

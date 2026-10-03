@@ -3,6 +3,8 @@
 from copy import deepcopy
 from dataclasses import replace
 
+from .errors import AgentError
+
 
 class Discovery:
     ITEM_READS = {"item", "comments", "timeline", "issue_content", "pr_content",
@@ -12,14 +14,19 @@ class Discovery:
         self.github = github
         self.repository = github.repository
         self.items = {}
+        self.closed_items = set()
         self.comments_index = {}
         self.cache = {}
         self.scope = None
         self.graph_loaded = False
+        self.pass_roles = {}
+        self.pass_errors = {}
 
-    def observe(self):
+    def observe(self, lookback_seconds):
+        self.pass_roles = {}
+        self.pass_errors = {}
         items = {item.number: item for item in self.github.observe(details=False)}
-        comments = self.github.repository_comments()
+        comments = self.github.repository_comments(lookback_seconds=lookback_seconds)
         groups = {}
         for comment in comments:
             # Malformed coordination comments are diagnosed by repository_history.
@@ -37,11 +44,15 @@ class Discovery:
         if self.repository != self.github.repository:
             self.cache.clear()
             self.graph_loaded = False
+            self.closed_items.clear()
+            self.items = {}
             self.repository = self.github.repository
         self.cache = {key: value for key, value in self.cache.items()
                       if not (key[0] in self.ITEM_READS and key[1][0] in changed)
                       and not (key[0] == "role" and key[2] in changed)
                       and not (key[0] == "prs_for_branch" and pr_changed)}
+        self.closed_items.update(self.items.keys() - items.keys())
+        self.closed_items.difference_update(items)
         self.items = items
         self.comments_index = deepcopy(groups)
         return dict(items), comments
@@ -61,23 +72,46 @@ class Discovery:
                     self.cache[("blocked_by", (number,), None)] = deepcopy(graph[number])
             self.graph_loaded = True
 
+    def role(self, login):
+        # Unchanged items retain their own observations between polls (#79).
+        # Only fresh reads share this pass's memo; an older item's cached role
+        # must not supply authority to an item whose inputs changed.
+        if not isinstance(login, str) or not login:
+            return None
+        account = login.casefold()
+        key = ("role", (account,), self.scope)
+        if key not in self.cache:
+            if account not in self.pass_roles:
+                self.pass_roles[account] = self.github.role(login)
+            value = self.pass_roles[account]
+            if value is None:
+                return None  # Share unreadable roles this pass, retry next pass.
+            self.cache[key] = value
+        return self.cache[key]
+
     def __getattr__(self, name):
-        if name not in self.ITEM_READS | {"role", "prs_for_branch"}:
+        if name not in self.ITEM_READS | {"prs_for_branch"}:
             raise AttributeError(name)
 
         def read(*args):
-            key = (name, args, self.scope if name == "role" else None)
+            key = (name, args, None)
+            if key in self.pass_errors:
+                raise self.pass_errors[key]
             if key not in self.cache:
-                # Failed reads are never retained, so later polls can recover.
-                value = getattr(self.github, name)(*args)
-                if name == "role" and value is None:
-                    return None  # An unreadable permission must be retried.
+                # History and approval share failures too, but the next pass
+                # retries them even when list/comment inputs are unchanged.
+                try:
+                    value = getattr(self.github, name)(*args)
+                except AgentError as exc:
+                    self.pass_errors[key] = exc
+                    raise
                 self.cache[key] = deepcopy(value)
             result = deepcopy(self.cache[key])
             if name == "blocked_by":
                 # A local blocker's state is already in the fresh repository list.
                 # Closing it need not reread every dependent's unchanged links.
                 result = [replace(b, state=self.items[b.number].state if b.number in self.items else "closed")
-                          if b.repository.casefold() == self.repository.casefold() else b for b in result]
+                          if b.repository.casefold() == self.repository.casefold()
+                          and (b.number in self.items or b.number in self.closed_items) else b for b in result]
             return result
         return read

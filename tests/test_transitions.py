@@ -8,13 +8,14 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, LostOwnership, RetryableExecutionError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
-from ub_agents.records import attempts, body, iso, payload, timestamp
+from ub_agents.records import attempts, body, iso, payload, seconds, timestamp
 from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
 
 
@@ -468,6 +469,53 @@ class TransitionTests(unittest.TestCase):
         self.new_loop().tick()
         self.assertEqual(self.labels_changed(), previous_writes)
         self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
+
+    def test_windowed_restart_recovers_started_transition_and_old_transition_after_relabel(self):
+        for elapsed, label in ((61, None), (8 * 86400, 'ready'), (8 * 86400, 'needs-human')):
+            with self.subTest(elapsed=elapsed, label=label):
+                self.github = FakeGitHub(issue())
+                self.now = timestamp()
+                self.loop = self.new_loop()
+                with patch.object(self.loop.coordinator, 'accept', side_effect=AgentError('Crash before acceptance')):
+                    with self.assertRaises(LostOwnership):
+                        self.execute()
+                source, outcome = self.loop.coordinator.history(1)
+                self.assertTrue(outcome['transition']['started'])
+                self.assertFalse(outcome['accepted'])
+                self.assertFalse(self.github.item(1).labels.intersection(self.agent.triggers))
+                self.now += elapsed
+                # Use the real repository scan against the fake durable store.
+                # Item reads remain full-history reads, including excluded comments.
+                scanner = GitHub(self.github.repository)
+
+                def request(endpoint, **kwargs):
+                    query = parse_qs(urlsplit(endpoint).query)
+                    cutoff = seconds(query['since'][0])
+                    return sorted((c for c in FakeGitHub.repository_comments(self.github)
+                                   if seconds(c['updated_at']) > cutoff), key=lambda c: c['updated_at'])[:100]
+
+                with patch.object(scanner, 'request', side_effect=request), \
+                        patch.object(self.github, 'repository_comments', side_effect=scanner.repository_comments), \
+                        patch('ub_agents.github.timestamp', side_effect=lambda: self.now):
+                    restarted = self.new_loop()
+                    if label:
+                        self.assertEqual(restarted.plans(), [])  # Status omits old, untriggered records.
+                        writes = list(self.github.writes)
+                        self.assertFalse(restarted.tick())  # Launcher also omits them.
+                        self.assertEqual(self.github.writes, writes)
+                        self.github.change(1, state='closed')
+                        self.assertEqual(self.new_loop().plans(), [])
+                        self.github.change(1, state='open')
+                        self.github.add_labels(1, (label,))
+                        restarted = self.new_loop()
+                    self.assertEqual(restarted.plans()[0].state, 'recover')
+                    with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not reexecute')):
+                        self.assertTrue(restarted.tick())
+                    history = restarted.coordinator.history(1)
+                    self.assertTrue(history[1]['accepted'])
+                    recovered = next(r for r in reversed(history) if r['kind'] == 'lease')
+                    self.assertEqual(recovered['recovered_lease_id'], source['id'])
+                    self.assertEqual((recovered['state'], recovered['result']), ('released', 'success'))
 
     def test_started_handoff_recovers_after_head_or_issue_link_changes(self):
         for stage in ('remove', 'add', 'complete'):
