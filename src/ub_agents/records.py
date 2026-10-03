@@ -20,6 +20,20 @@ def same_run(record, lease):
     return all(record.get(k) == lease.get(k) for k in PROVENANCE)
 
 
+def same_handoff(record, source):
+    # A recovery may copy another account's outcome onto its handoff item.
+    # GitHub keeps the copying account as that comment's author.
+    return all(record.get(k) == source.get(k) for k in PROVENANCE if k != "actor")
+
+
+def recovers(recovery, source):
+    return (recovery["kind"] == "lease" and recovery.get("mode") == "recovery"
+            and recovery["state"] != "withdrawn"
+            and recovery.get("recovered_lease_id") == source["id"]
+            and recovery.get("recovered_run") == source["run"]
+            and all(recovery[k] == source[k] for k in ("assignment", "agent")))
+
+
 def lease_by_id(history, lease_id):
     return next((r for r in history if r["kind"] == "lease" and r["id"] == lease_id), None)
 
@@ -69,13 +83,16 @@ def body(record):
             f"```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n\n</details>\n")
 
 
-def records(comments, actor=None):
-    """Parse coordination records; with an actor, only that account's comments count."""
+def records(comments, actor=None, *, trusted=None):
+    """Parse marked records, checking author trust before parsing their payloads."""
     result = []
     for comment in comments:
         if not isinstance(comment, dict):
             raise AgentError("Unreadable GitHub comment")
         if actor is not None and not own_comment(comment, actor):
+            continue
+        if (isinstance(comment.get("body"), str) and comment["body"].startswith(RECORD_MARKERS)
+                and trusted is not None and not trusted(comment.get("user"))):
             continue
         try:
             text = comment["body"] or ""
@@ -265,8 +282,7 @@ def live_leases(history, now):
                   if recovery["kind"] == "lease" and recovery.get("mode") == "recovery"
                   and recovery["state"] != "withdrawn"
                   if (source := sources.get(recovery.get("recovered_lease_id"))) is not None
-                  and recovery.get("recovered_run") == source["run"]
-                  and all(recovery[k] == source[k] for k in ("assignment", "agent", "actor"))}
+                  and recovers(recovery, source)}
     return [r for r in history if r["kind"] == "lease"
             and r["id"] not in superseded
             and r["state"] in {"claiming", "running"} and seconds(r["expires"]) > now]
@@ -275,10 +291,7 @@ def live_leases(history, now):
 def attempt_effect(history, lease, now):
     """Resolve a new run's verdict, including recovery, without rewriting its lease."""
     recoveries = [r for r in history if r["kind"] == "lease"
-                  and r.get("recovered_lease_id") == lease["id"]
-                  and r.get("recovered_run") == lease["run"]
-                  and (r["assignment"], r["agent"], r["actor"]) ==
-                      (lease["assignment"], lease["agent"], lease["actor"])
+                  and recovers(r, lease)
                   and (r["state"] == "released" or r.get("cleanup") == "unconfirmed"
                        or (r.get("result") and r.get("attempt_effect") in {"failure", "unchanged"}))]
     verdict = recoveries[-1] if recoveries else lease

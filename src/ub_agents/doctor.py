@@ -10,12 +10,14 @@ import subprocess
 import sys
 
 from .config import load_config
+from .approvals import Roles
 from .errors import AgentError
 from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub
 from .labels import configured_labels
 from .records import iso
 from .runtime_usage import local_pauses
+from .trust import WRITERS
 
 
 PERMISSIONS_URL = "https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions"
@@ -131,7 +133,7 @@ class Doctor:
                 login = github.actor()
                 if not isinstance(login, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login):
                     raise AgentError("no login")
-                self.add("github-auth", "ok", f"authenticated as {login}; every launcher for this project must use this account")
+                self.add("github-auth", "ok", f"authenticated as {login}")
             except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
                 login = None
                 self.add("github-auth", "fail", self.github_failure("authentication", exc), "gh auth login")
@@ -140,19 +142,33 @@ class Doctor:
         if config and gh_ready:
             self.repository_access(config, github)
             self.labels(config, github)
+            roles = Roles(github)
             if login:
                 try:
-                    role = github.role(login)
+                    role = roles({"login": login})
                 except AgentError:
                     role = None
                 elevated = role in {"maintain", "admin"}
-                self.add("github-launcher-role", "warn" if elevated else "ok" if role else "warn",
+                self.add("github-launcher-role", "warn" if elevated or role not in WRITERS else "ok",
                          (f"Launcher account {login} has {role}; agents can start and approve their own work"
                           if elevated else f"Launcher account {login} has {role}"
                           if role else "Launcher repository role could not be read"),
                          "Use a dedicated launcher account with the write repository role"
                          if elevated else "Ensure the token can read collaborator permissions" if not role else None,
                          required=False)
+                if config.launchers is not None and login.casefold() not in {v.casefold() for v in config.launchers}:
+                    self.add("github-launcher-listed", "warn", f"Authenticated account {login} is unlisted; it claims no work",
+                             "Use a listed launcher account or add this account to launchers", required=False)
+            for account in config.launchers or ():
+                try:
+                    role = roles({"login": account})
+                except AgentError:
+                    role = None
+                self.add(f"github-launcher-account:{account}", "ok" if role in WRITERS else "warn",
+                         f"Listed launcher account {account} has {role}" if role else
+                         f"Listed launcher account {account}'s repository role could not be read",
+                         "Listed accounts require write or higher and readable collaborator permissions"
+                         if role not in WRITERS else None, required=False)
         else:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
             self.add("github-permissions", "skip", "repository response unavailable")

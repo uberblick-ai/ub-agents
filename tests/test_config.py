@@ -37,6 +37,18 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentError, "outcomes must be"):
             self.load(base)
 
+    def test_launchers_requires_a_nonempty_list_of_unique_nonblank_logins(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        self.assertIsNone(self.load(base).launchers)
+        self.assertEqual(self.load(base + "launchers: [bot-a, Alice]\n").launchers, ("bot-a", "Alice"))
+        for value in ("alice", "null", "[]", "{}", "[1]", "[false]", "[null]", "['']", "['   ']",
+                      "[alice, alice]", "[Alice, ALICE]"):
+            with self.subTest(value=value):
+                self.path.write_text(base + f"launchers: {value}\n")
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                self.assertIn("launchers", stderr.getvalue())
+
     def test_direct_command_and_distinct_clock_overrides(self):
         result = self.load('''repository: org/project
 agents:
@@ -82,6 +94,20 @@ cleanup:
     def test_repository_opts_into_daily_runtime_updates(self):
         settings = load_config(Path(__file__).resolve().parents[1] / "ub-agents.yaml")
         self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "auto"})
+
+    def test_launchers_and_runtime_updates_can_be_configured_together(self):
+        settings = self.load('''repository: org/project
+launchers: [bot-a, Alice]
+runtime-updates: {codex: auto, timeout-seconds: 30}
+agents:
+  task:
+    command: [echo]
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        self.assertEqual(settings.launchers, ("bot-a", "Alice"))
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "off", "codex": "auto"})
+        self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
 
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n    outcomes: {done: {}}\n"

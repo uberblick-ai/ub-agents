@@ -19,7 +19,7 @@ from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import timestamp
-from tests.support import (FakeGitHub, PollGitHub, RecordingRunner, agent, config,
+from tests.support import (AccountGitHub, FakeGitHub, PollGitHub, RecordingRunner, agent, config,
                            isolate_runtime_state, issue, pr)
 
 
@@ -208,9 +208,10 @@ class TargetedLaunchTests(unittest.TestCase):
         self.now = timestamp()
         self.loop = None
 
-    def coordinator(self):
-        return Coordinator(self.github, "operator", clock=lambda: self.now, queue=self.config.queue,
-                           output=lambda *_: None)
+    def coordinator(self, github=None):
+        github = self.github if github is None else github
+        return Coordinator(github, github.actor(), clock=lambda: self.now, queue=self.config.queue,
+                           output=lambda *_: None, launchers=self.config.launchers)
 
     def report_success(self, command, cwd, env, *args, **kwargs):
         co = self.loop.coordinator
@@ -255,7 +256,8 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assertEqual(self.github.items[1].labels, frozenset({"ready", "urgent"}))
 
     def test_eligible_item_runs_once_without_discovering_or_ranking_other_work(self):
-        self.config = config(self.root, queue=Queue(milestones="order", priority=Priority(("urgent",))))
+        self.config = replace(config(self.root, queue=Queue(milestones="order", priority=Priority(("urgent",)))),
+                              launchers=("OPERATOR", "peer"))
         self.github.dependencies[1] = [11]  # Would also cause priority inheritance in a queue pass.
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 0)
@@ -286,6 +288,68 @@ class TargetedLaunchTests(unittest.TestCase):
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)
         self.assert_scoped()
+
+    def test_configured_launchers_honor_peer_ownership_with_status_process_reason(self):
+        self.config = replace(self.config, launchers=("OPERATOR", "PEER"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+        peer.update(lease, state="running", started=True, host="remote-host")
+        writes = self.github.writes[:]
+        self.github.reads.clear()
+        with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
+            code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertIn("#11 worker: owned — claimed by @peer on remote-host", stdout)
+        self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, writes)
+        self.assert_scoped()
+
+    def test_configured_launchers_ignore_unlisted_peer_ownership(self):
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+        peer.update(lease, state="running", started=True)
+        self.config = replace(self.config, launchers=("OPERATOR",))
+        self.github.reads.clear()
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        self.assertIn("#11 worker: claimed", stdout)
+        run.assert_called_once()
+        self.assertEqual(self.coordinator().history(11)[0]["actor"], "operator")
+        self.assert_scoped()
+
+    def test_unreadable_peer_role_refuses_without_claiming(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+        self.github.roles["peer"] = None
+        writes = self.github.writes[:]
+        self.github.reads.clear()
+        code, _, stderr, run = self.launch("11")
+        self.assertEqual(code, 1)
+        self.assertIn("Launcher account @peer's repository role could not be read", stderr)
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, writes)
+        self.assert_scoped()
+
+    def test_untrusted_launcher_refuses_without_claim_or_approval_parking(self):
+        for launchers, role, reason in (
+                (("peer",), "write", "Launcher account @operator is not listed in launchers"),
+                (("operator", "peer"), "read",
+                 "Launcher account @operator has repository role read; write or higher is required")):
+            with self.subTest(launchers=launchers, role=role):
+                self.config = replace(self.config, launchers=launchers)
+                self.github.roles["operator"] = role
+                self.github.timelines[11] = []  # Approval would normally park the item.
+                code, stdout, _, run = self.launch("11")
+                self.assertEqual(code, 1)
+                self.assertEqual(stdout, f"#11 worker: blocked — {reason}\n")
+                self.assertEqual(self.github.writes, [])
+                run.assert_not_called()
+                self.assert_scoped()
 
     def test_stop_label_refuses_with_status_reason_without_writes(self):
         self.github.change(11, labels=frozenset({"ready", "needs-human"}))
@@ -510,6 +574,8 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assert_scoped()
 
     def test_refresh_rechecks_only_target_and_refuses_new_stop_label(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+
         def refresh(*_):
             self.github.change(11, labels=frozenset({"ready", "needs-human"}))
 
@@ -518,6 +584,86 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assertEqual(stdout, "#11 worker: parked — Stop label needs-human is present\n")
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
+        self.assert_scoped()
+
+    def test_refresh_removes_launcher_authority_before_claiming(self):
+        for launchers, role, reason in (
+                (("peer",), "write", "Launcher account @operator is not listed in launchers"),
+                (("operator", "peer"), "read",
+                 "Launcher account @operator has repository role read; write or higher is required")):
+            with self.subTest(launchers=launchers, role=role):
+                self.config = replace(self.config, launchers=("operator", "peer"))
+                self.github.roles["operator"] = "write"
+
+                def refresh(*_):
+                    self.config = replace(self.config, launchers=launchers)
+                    self.github.roles["operator"] = role
+
+                code, stdout, _, run = self.launch("11", refresh=refresh)
+                self.assertEqual(code, 1)
+                self.assertEqual(stdout, f"#11 worker: blocked — {reason}\n")
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assert_scoped()
+
+    def test_refresh_adds_peer_owner_and_refuses_without_queue_reads(self):
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+        peer.update(lease, state="running", started=True, host="remote-host")
+        self.config = replace(self.config, launchers=("operator",))
+        writes = self.github.writes[:]
+        self.github.reads.clear()
+
+        def refresh(*_):
+            self.config = replace(self.config, launchers=("OPERATOR", "PEER"))
+
+        with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
+            code, stdout, _, run = self.launch("11", refresh=refresh)
+        self.assertEqual(code, 1)
+        self.assertIn("#11 worker: owned — claimed by @peer on remote-host", stdout)
+        self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, writes)
+        self.assert_scoped()
+
+    def test_refresh_removes_new_peer_owner_and_claim_uses_refreshed_trust(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        self.github.roles["peer"] = "write"
+
+        def refresh(*_):
+            peer = self.coordinator(AccountGitHub(self.github, "peer"))
+            lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+            peer.update(lease, state="running", started=True)
+            self.config = replace(self.config, launchers=("OPERATOR",))
+
+        code, stdout, _, run = self.launch("11", refresh=refresh)
+        self.assertEqual(code, 0)
+        self.assertIn("#11 worker: claimed", stdout)
+        run.assert_called_once()
+        lease, outcome = self.coordinator().history(11)
+        self.assertEqual((lease["actor"], lease["state"], outcome["accepted"]),
+                         ("operator", "released", True))
+        self.assert_scoped()
+
+    def test_configured_launchers_recover_peer_outcome_without_reexecution(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+        peer.update(lease, state="running", started=True)
+        peer.report(lease, "success", "Peer finished before launcher stopped", outcome="done")
+        self.now += 61
+        self.github.reads.clear()
+        code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        self.assertIn("#11 worker: recovered durable outcome; no execution started", stdout)
+        run.assert_not_called()
+        history = self.coordinator().history(11)
+        self.assertTrue(history[1]["accepted"])
+        recovery = next(r for r in history if r.get("mode") == "recovery")
+        self.assertEqual((recovery["actor"], recovery["recovered_lease_id"], recovery["state"]),
+                         ("operator", lease["id"], "released"))
         self.assert_scoped()
 
     def test_sigterm_drains_target_and_sigint_terminates_it_with_normal_exit_codes(self):

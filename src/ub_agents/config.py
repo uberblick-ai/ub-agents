@@ -188,6 +188,7 @@ class Config:
     queue: Queue = Queue()
     cleanup: CleanupHook | None = None
     runtime_updates: RuntimeUpdates | None = None
+    launchers: tuple[str, ...] | None = None
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
@@ -205,8 +206,15 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
-                          "runtime-updates"},
+                          "runtime-updates", "launchers"},
                    "configuration")
+    launchers = None
+    if "launchers" in data:
+        launchers = argv(data["launchers"], "launchers")
+        if any(login != login.strip() for login in launchers):
+            raise AgentError("launchers logins must not contain surrounding whitespace")
+        if len({login.casefold() for login in launchers}) != len(launchers):
+            raise AgentError("launchers logins must be unique (case-insensitive)")
     runtime_updates = None
     if "runtime-updates" in data:
         settings = mapping(data["runtime-updates"], {*CLIS, "timeout-seconds"}, "runtime-updates")
@@ -345,7 +353,7 @@ def load_config(path):
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
-                  runtime_updates)
+                  runtime_updates, launchers)
 
 
 def argv(value, where, empty=False):

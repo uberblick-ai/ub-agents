@@ -25,6 +25,7 @@ updates required by the rename.
 | Key | Meaning |
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
+| `launchers` | Optional nonempty list of GitHub logins that narrows coordination trust; every account still needs `write` or higher. |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
@@ -87,8 +88,10 @@ Within either pass, an item's comments supply history and approval input, and
 account across all reached items. These shared reads end with the pass; each
 claim-time approval check reads permissions anew.
 Each launcher retains per-item discovery inputs in memory: history, approval
-inputs and permissions, PR details, and dependency links. Changes in the issue
-list (including `updated_at`) or the incremental repository comment scan invalidate
+inputs and permissions, PR details, and dependency links. Record authors' roles and
+the launcher's own role are checked freshly each pass, including on unchanged items.
+Changes in the issue list (including `updated_at`) or the incremental repository
+comment scan invalidate
 that item's reads. A fresh claim-approval denial also drops the item's cached
 inputs so the next reached pass can plan its gate. Claims and approval parking
 always revalidate with fresh reads;
@@ -98,7 +101,10 @@ pages to preserve inheritance without one REST request per queued issue.
 
 For a rough request budget, an unchanged warm pass sends one request per page of
 open issues/PRs, plus the incremental repository comment scan (usually one page),
-and an optional milestone list. List pages hold up to 100 rows; a full REST page
+an optional milestone list, and one permission read per distinct listed record
+author (all marked-record authors when `launchers` is omitted). Checking a ready
+launcher's own account can add one permission read if it was not already read.
+List pages hold up to 100 rows; a full REST page
 also needs a request to check for a following page. A cold pass or changed item adds
 roughly 3–7 reads for each candidate actually reached, plus one permission read per
 distinct account across those candidates, with extra pages for long histories.
@@ -160,6 +166,35 @@ to finish durable completion. See
 [Stopping and restarting](../README.md#stopping-and-restarting) for signals during
 owned-run waits. Rate-limited writes retain their existing handling and are not
 replayed by this retry mechanism.
+
+## Launcher accounts
+
+By default, coordination records from any account with current `write`, `maintain`
+or `admin` repository access count. Launchers can use their engineers' own `gh`
+logins and share a queue. Optional `launchers` narrows trust to a nonempty list:
+
+```yaml
+launchers: [bot-a, alice]
+```
+
+Logins match case-insensitively. `check` rejects a value that is not a list, is
+empty, contains non-string or blank logins, or repeats a login (including with
+different case). Listed accounts still need `write` or higher. Unlisted authors
+are ignored without a role read for coordination. Any trusted account, including
+humans, can post coordination records; they can already change labels and push,
+so this adds little authority. The record's actor is always the comment author.
+
+Use the same list on every machine. Roles are checked at read time; demotion or
+removal from the list revokes all that account's records, including open leases.
+Stop that account's launcher first. A failed author role read stops the pass;
+only a definite role below `write` excludes a record. A launcher whose own account
+is below `write` or unlisted claims nothing and prints the reason. `doctor` warns
+about each listed account below `write` or with an unreadable role, and about an
+unlisted authenticated account.
+
+**Upgrading:** older launchers trust only their own account. Stop all launchers
+and upgrade them together before mixing accounts. Omitting `launchers` requires
+no configuration change for an existing single-account setup with write access.
 
 ## Project cleanup hook
 
@@ -236,8 +271,10 @@ succeeds; apply preserves both artifacts if it fails. Locked worktrees and track
 changes or untracked files that are not ignored keep a worktree. Launcher release
 retains its existing removal behavior and always keeps local branches.
 
-Every artifact needs an unambiguous GitHub run lease owned by the authenticated
-actor. A released lease is eligible; an expired lease requires a recorded process
+Every artifact needs an unambiguous GitHub run lease from a trusted account with
+this machine's recorded hostname. Leases from another host or with no recorded
+host are refused, even if posted by the authenticated account. A released lease
+is eligible; an expired lease requires a recorded process
 group and confirmed absence of its members. Older leases without that record stay
 uncertain. Live leases, unreadable state, redirected paths, unconfirmed cleanup and
 outcomes awaiting recovery keep artifacts. A later run that continued the same
@@ -753,7 +790,10 @@ new names; update any hooks and commands that read the supervised environment.
   Label matching is case-insensitive and an unreadable label list is a required
   failure. The non-required `github-launcher-role` check warns when the launcher
   account has `maintain` or `admin`, because agents could start and approve their
-  own work, or when its role cannot be read. Use a dedicated account with `write`;
+  own work, when its role is below `write`, or when its role cannot be read.
+  It also warns about each listed account without `write` or higher or with an
+  unreadable role, and when the authenticated account is unlisted.
+  Use a dedicated account with `write`;
   see [Issue approvals](approvals.md#repository-roles). Runtime agents without
   `runtime-args` produce a warning linking the permission guidance. Doctor makes no
   writes. It exits 1 when a required check fails; warnings and skips exit 0. The
@@ -772,9 +812,10 @@ new names; update any hooks and commands that read the supervised environment.
 - `ub-agents launch N [--agent NAME]` evaluates only issue or PR N and exits after
   running one assignment or recovering its pending completion. The number implies
   `--once`; an explicit `--once` is also accepted. All normal eligibility gates
-  apply, including approvals, dependencies, milestone gates, ownership, attempts,
-  backoff and runtime availability. Without `--agent`, the first eligible agent in
-  configuration order acts; with it, only that configured agent is evaluated.
+  apply, including launcher trust, approvals, dependencies, milestone gates,
+  ownership, attempts, backoff and runtime availability. Without `--agent`, the
+  first eligible agent in configuration order acts; with it, only that configured
+  agent is evaluated.
   An unknown agent or `--agent` without N is a usage error. If no agent can act,
   it prints each evaluated row's status reason (including live lease and process
   details), or explains missing/closed work and unmatched triggers, and exits
@@ -786,7 +827,7 @@ new names; update any hooks and commands that read the supervised environment.
   removes eligible worktrees and local branches, running the project hook first.
 - `ub-agents recover --number N --agent NAME --reason TEXT` finishes the latest lease's
   reported outcome on the launcher's host, including before expiry. The lease must
-  belong to the authenticated GitHub actor, record this hostname and a process group
+  come from a trusted account, record this hostname and a process group
   with no live members, and have an outcome within its validity window that no
   supervisor verdict superseded. The reason attests that the launcher has stopped
   and is recorded on the recovery claim with its author. It prints acceptance and
