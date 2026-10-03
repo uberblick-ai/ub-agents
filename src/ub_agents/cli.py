@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import sys
 import threading
 import uuid
@@ -21,6 +22,7 @@ from .loop import Loop, _GracefulStop
 from .launch_log import launch_output
 from .labels import provision_labels
 from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
+from .status import lease_summary, process_details
 
 
 def parser():
@@ -131,13 +133,21 @@ def report_run(args):
     print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
 
 
-def status_rows(loop):
+def status_rows(loop, now=None):
+    now = timestamp() if now is None else now
+    host = socket.gethostname()
+    processes = {}
     rows = []
     for plan in loop.plans():
         history = plan.history
-        active = live_leases(history, timestamp())
+        active = live_leases(history, now)
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None
+        process, process_reason = None, None
+        if lease:
+            if lease["id"] not in processes:
+                processes[lease["id"]] = process_details(lease, history, now, host)
+            process, process_reason = processes[lease["id"]]
         source = next((r for r in active if r["agent"] == plan.agent.name), None) or latest
         if source and source.get("mode") == "recovery":
             source = lease_by_id(history, source.get("recovered_lease_id"))
@@ -152,6 +162,7 @@ def status_rows(loop):
                      "candidate_sha": plan.item.head,
                      "result": latest.get("result") if latest else None,
                      "lease": lease,
+                     "process": process, "process_reason": process_reason,
                      "outcome": outcomes[-1] if outcomes else None})
     return rows
 
@@ -237,14 +248,15 @@ def run(args):
     loop = Loop(config, github, actor, stop, config_path=Path(args.config).resolve(),
                 interrupt_event=interrupt)
     if args.command == "status":
-        rows = status_rows(loop)
+        now = timestamp()
+        rows = status_rows(loop, now)
         if args.json:
             print(json.dumps(rows, indent=2))
         elif not rows:
             print("No configured triggers match open GitHub work")
         else:
             for row in rows:
-                owner = (f" · @{row['lease']['actor']} until {row['lease']['expires']}"
+                owner = (f" · {lease_summary(row['lease'], now)}"
                          if row["lease"] else "")
                 outcome = ""
                 if row["outcome"]:
@@ -257,8 +269,9 @@ def run(args):
                     priority += f" (inherited from #{row['priority_inherited_from']})"
                 elif row["priority_from_issue"] is not None:
                     priority += f" (from closed issue #{row['priority_from_issue']})"
-                print(f"#{row['number']} {row['agent']}: {row['state']} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
-                print(f"  {row['reason']}")
+                state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
+                print(f"#{row['number']} {row['agent']}: {state} · priority {priority} · attempts {row['attempts']}{owner}{verdict}{outcome}")
+                print(f"  {row['process_reason'] or row['reason']}")
         return
     for _, error in repository_checks(config):
         if error is not None:

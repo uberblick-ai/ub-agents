@@ -17,6 +17,13 @@ notes are copied from that section.
 
 ### Changed
 
+- `ub-agent status` shows who claimed live leases, their host and runtime, compact
+  UTC claim and expiry times, and time remaining. Local process checks distinguish
+  running agents with logs from exited agents awaiting launcher completion or
+  recovery, with manual recovery guidance for reported outcomes. Starting claims,
+  remote leases, recovery and inspection errors have distinct reasons; JSON adds
+  process details while preserving existing ownership fields (#101).
+
 - `ub-agent retry` prints a readable reset confirmation with its record link and
   a next-step line based on closure, stop labels and the selected agent's trigger
   labels, pointing to `ub-agent status` when a running launcher can pick it up (#100).
