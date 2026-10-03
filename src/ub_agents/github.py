@@ -161,6 +161,8 @@ class GitHub:
         self.repository = repository
         self.prefix = f"repos/{repository}"
         self.quota_headers = {}
+        self.resource_quotas = {}
+        self.rest_requests = 0
         self.rate_limited = False
         self._comment_cache = {}
         self._comment_since = None
@@ -182,6 +184,8 @@ class GitHub:
                    "-H", "Accept: application/vnd.github+json", "--include", endpoint]
         if data is not None:
             command += ["--input", "-"]
+        if endpoint != "graphql":
+            self.rest_requests += 1
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -205,6 +209,9 @@ class GitHub:
         # GraphQL has its own quota; doctor reports the REST account quota.
         if endpoint != "graphql" and "x-ratelimit-remaining" in headers:
             self.quota_headers = headers
+        resource = headers.get("x-ratelimit-resource")
+        if resource in {"core", "graphql"}:
+            self.resource_quotas[resource] = headers
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
@@ -478,12 +485,15 @@ class GitHub:
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("POST", "graphql", "Unreadable PR reviews") from exc
 
-    def repository_comments(self):
-        # Recovery must not depend on a trigger still being present or an item
-        # still being open. Rebuild from GitHub on startup, then read edits/new
-        # comments incrementally. Capture the cursor BEFORE scanning, with overlap.
-        cursor = iso(int(timestamp()) - 60)
+    def repository_comments(self, lookback_seconds=None):
+        # Bound discovery's first scan; cleanup leaves lookback unset for a full
+        # history. Later scans read edits/new comments incrementally. Capture the
+        # cursor BEFORE scanning, with overlap.
+        now = timestamp()
+        cursor = iso(int(now) - 60)
         since, comments = self._comment_since, {}
+        if since is None and lookback_seconds is not None:
+            since = iso(now - lookback_seconds)
         while True:
             query = {"sort": "updated", "direction": "asc", "per_page": 100}
             if since is not None:

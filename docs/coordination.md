@@ -336,8 +336,11 @@ lost, no comment protocol can make that verdict durable.
 An unexpired lease always excludes pickup. Expiry permits a new fresh run, never
 conversation resumption. Durable attempts and backoff survive restarts.
 
-Discovery reads every repository issue comment at startup, including records on
-closed items and items whose trigger was removed, then polls updated comments with
+At startup, launcher and `status` discovery read repository issue comments updated
+within the longest configured agent lease plus seven days. The full lease includes
+the agent timeout, the 15-minute grace and any cleanup hook timeout, so every live
+lease falls inside the window. `ub-agent cleanup` still scans the full repository
+comment history. Later discovery scans poll updated comments with
 `sort=updated` and `since`, a 60-second overlap and a cursor captured before the
 scan. Each page advances `since` to one second before its last update and
 deduplicates by comment id, because page offsets skip rows when comments move. A
@@ -348,10 +351,21 @@ reuses unchanged per-item reads and evaluates only rows it reaches in rank order
 before a claim or approval-parking write, so stale cached records never supply
 authority. See [poll timing and request budgeting](configuration.md#top-level).
 
-Discovery follows the latest non-withdrawn lease after the last reset for each
-item and agent. A released retry or blocked result, or an expired run without an
-outcome, stays visible as blocked on closed or unlabelled items; a missing trigger
-never authorizes reexecution. A later accepted success supersedes older crashed
+PR shared-branch ownership checks parse `ub-agent/<agent>/<N>/<run>` and read issue
+N's full history, independently of the repository window. Branches outside that
+pattern have no shared-branch owner.
+
+Within the discovered history, the queue follows the latest non-withdrawn lease
+after the last reset for each item and agent. A released retry or blocked result,
+or an expired run without an outcome, stays visible as blocked on closed or
+unlabelled items; a missing trigger never authorizes reexecution. After a restart,
+older records on closed or untriggered items fall outside discovery and no longer
+appear in `status` or the launcher queue.
+Re-applying a trigger or stop label surfaces an open item again; item evaluation
+reads its full history and can still recover it. The remaining loss case is a crash
+after a started transition removed its triggers but before outcome acceptance,
+with no launcher running for the whole seven days. Re-apply a trigger or stop label
+to recover that outcome. A later accepted success supersedes older crashed
 runs and resets the consecutive failure count. Failed scans stop visibly.
 
 An expired, unfinished lease whose outcome was reported within its validity window

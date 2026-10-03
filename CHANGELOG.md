@@ -13,6 +13,20 @@ notes are copied from that section.
   `status` also batches dependency reads for priority ranking. Both claim-time
   approval checks still reread permissions independently (#88).
 
+- `status` exits with an error on retryable comment-read failures instead of
+  displaying a partially unreadable row (#88).
+
+- Empty discovery passes back off by their REST request cost under a fixed
+  250 requests/hour budget per launcher, assuming ten idle launchers share half
+  an account's quota. Low quota doubles the gap up to reset, ignoring expired
+  quota observations, with a one-hour cap; work resumes normal pacing, and idle
+  messages print only on state changes (#83).
+
+- Launcher and `status` startup scans read repository comments from the longest
+  configured lease plus seven days, then continue incrementally. PR shared-branch
+  ownership reads the issue named in the branch directly; `cleanup` keeps its full
+  scan. Re-apply a trigger or stop label to surface older unfinished outcomes (#87).
+
 ## 0.1.8 — 2026-10-03
 
 **Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,

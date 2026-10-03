@@ -22,11 +22,11 @@ class Discovery:
         self.pass_roles = {}
         self.pass_errors = {}
 
-    def observe(self):
+    def observe(self, lookback_seconds):
         self.pass_roles = {}
         self.pass_errors = {}
         items = {item.number: item for item in self.github.observe(details=False)}
-        comments = self.github.repository_comments()
+        comments = self.github.repository_comments(lookback_seconds=lookback_seconds)
         groups = {}
         for comment in comments:
             # Malformed coordination comments are diagnosed by repository_history.

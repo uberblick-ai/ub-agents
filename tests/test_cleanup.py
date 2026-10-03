@@ -7,12 +7,14 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from ub_agents.cleanup import Cleaner
 from ub_agents.config import CleanupHook
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError
 from ub_agents.execution import git, stop_group
+from ub_agents.github import GitHub
 from ub_agents.records import iso, timestamp
 from tests.support import FakeGitHub, config, issue, pr
 
@@ -43,6 +45,16 @@ class CleanupTests(unittest.TestCase):
     def commit(self, path):
         git(path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
             "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
+
+    def test_cleanup_scans_repository_comments_without_startup_window(self):
+        github = GitHub("org/project")
+        cleaner = Cleaner(self.config, github, "operator", output=lambda *_: None)
+        with patch.object(github, "request", return_value=[]) as request:
+            cleaner.clean()
+        scans = [parse_qs(urlsplit(c.args[0]).query) for c in request.call_args_list
+                 if urlsplit(c.args[0]).path.endswith("/issues/comments")]
+        self.assertTrue(scans)
+        self.assertNotIn("since", scans[0])
 
     def actions(self, apply=False):
         return {row["kind"]: row for row in self.cleaner.clean(apply)}

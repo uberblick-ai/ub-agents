@@ -17,6 +17,7 @@ from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, Recor
 from .execution import Workspace, command_for, repository_checks, supervise
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
+from .polling import idle_interval
 from .hooks import run_hook
 from .records import attempts, backoff, iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
 from .refresh import refresh_checkout, refresh_instructions
@@ -24,6 +25,7 @@ from .refresh import refresh_checkout, refresh_instructions
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
 POLL_FAILURE_LIMIT = 6
+COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
 
 
 class _GracefulStop(Exception):
@@ -111,7 +113,8 @@ class Loop:
 
     def iter_plans(self, cached=True):
         github = self.discovery if cached else Discovery(self.github)
-        items, comments = github.observe()
+        lookback = max(agent.lease_seconds for agent in self.config.agents) + COMMENT_RECOVERY_SECONDS
+        items, comments = github.observe(lookback)
         history_index, invalid, histories = self.coordinator.repository_history(comments, by_item=True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output)
@@ -175,7 +178,7 @@ class Loop:
             github.scope = item.number
             if item.kind == "pr":
                 item = github.item(item.number, "pr")
-            plans = self._item_plans(item, history_index, now, github, coordinator)
+            plans = self._item_plans(item, now, github, coordinator)
             blockers = ()
             if item.kind == "issue" and item.state == "open" and self.config.queue.dependencies == "wait":
                 if dependencies:
@@ -197,7 +200,7 @@ class Loop:
                 yield replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers)
 
-    def _item_plans(self, item, history_index, now, github, coordinator):
+    def _item_plans(self, item, now, github, coordinator):
         matched = [a for a in self.config.agents if item.labels.intersection(a.triggers)
                    and a.kind in {"either", item.kind} and item.state == "open"]
         approval = None
@@ -238,7 +241,7 @@ class Loop:
                 continue
             if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
                                                 and seconds(record["expires"]) > now)):
-                plan = coordinator.plan(item, agent, self.config.stop_labels, history, history_index)
+                plan = coordinator.plan(item, agent, self.config.stop_labels, history)
                 if plan.state in {"ready", "blocked", "backoff"} and agent in matched:
                     if approval is None:
                         approval = self.input_check(item, github)
@@ -769,10 +772,12 @@ class Loop:
             self.coordinator.actor = self.github.actor()
             self.coordinator.notices.actor = self.coordinator.actor
         failures = 0
+        idle_state = None
         while not self.stop_event.is_set():
             self.github.lease = None
             self._poll_complete = False
             started = monotonic()
+            requests_before = self.github.rest_requests
             try:
                 worked = self.tick()
             except _GracefulStop:
@@ -804,9 +809,20 @@ class Loop:
                 return
             if once:
                 return
-            if not worked:
-                self.output("Waiting for eligible GitHub work")
-            delay = max(0, self.config.poll_seconds - (monotonic() - started))
+            elapsed = monotonic() - started
+            interval = self.config.poll_seconds
+            if worked:
+                idle_state = None
+            else:
+                requests = self.github.rest_requests - requests_before
+                interval, low = idle_interval(requests, interval,
+                                              self.github.resource_quotas,
+                                              self.coordinator.clock(), elapsed)
+                if idle_state != low:
+                    self.output(f"No eligible work; next poll in {max(0, interval - elapsed) / 60:g} min "
+                                f"({requests} requests last poll)")
+                idle_state = low
+            delay = max(0, interval - elapsed)
             if delay:
                 self.stop_event.wait(delay)
         if self.interrupt_event.is_set():
