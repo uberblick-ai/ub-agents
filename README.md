@@ -297,6 +297,9 @@ the count to 0 and clears the failure block and backoff. It prints the reset rec
 link, then explains whether the item is closed, needs stop labels removed or a
 trigger label added, or can be picked up by a running launcher on its next poll.
 It leaves labels unchanged; `ub-agent status` shows progress and other pickup gates.
+Claude and Codex usage limits pause new runs on that CLI until reset, without
+charging item attempts. Runtime alternatives and other CLIs keep working;
+`status` and `doctor` show local pauses. See [runtime usage pauses](docs/configuration.md#runtime-usage-pauses).
 The issue and handoff PR keep separate counts; `ub-agent status` shows the
 consecutive failure count in `attempts`.
 A success counts only after the launcher has checked the result on GitHub; an exit

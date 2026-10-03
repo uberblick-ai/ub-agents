@@ -83,6 +83,22 @@ agents:
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
 
+    def test_runtime_pause_is_visible_read_only_and_does_not_fail_doctor(self):
+        from ub_agents.records import iso, timestamp
+        from ub_agents.runtime_usage import RuntimeUsage
+        now = timestamp()
+        usage = RuntimeUsage(self.root, lambda: now, output=lambda *_: None)
+        usage.record("codex", "primary", 90, now + 300, 18000)
+        before = usage.path.read_bytes()
+        result = self.diagnose()
+        check = self.one(result, "runtime-pause")
+        self.assertEqual((check["status"], check["required"]), ("ok", False))
+        self.assertIn(f"codex paused: primary usage 90%; pause ends {iso(now + 360)}", check["message"])
+        self.assertTrue(result["ok"])
+        self.assertIn("codex paused", self.capture(result))
+        self.assertIn("codex paused", self.capture(result, True))
+        self.assertEqual(usage.path.read_bytes(), before)
+
     def test_quota_comes_from_real_request_headers_and_warns_below_ten_percent(self):
         github = GitHub('org/project', self.runner)
         prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',

@@ -7,7 +7,7 @@ import uuid
 
 from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime
-from .errors import AgentError, GitHubError, LostOwnership, RecordError
+from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .github import Item
 from .notices import Notices
 from .records import (MARKER, LEGACY_MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
@@ -34,12 +34,14 @@ class Plan:
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None):
+    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
+                 runtime_paused=None):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
+        self.runtime_paused = runtime_paused or (lambda cli: None)
         self.notices = Notices(github, actor, output)
 
     def history(self, number):
@@ -149,6 +151,8 @@ class Coordinator:
                 runtime = self.choose_runtime(item, agent, history)
             except GitHubError:
                 raise  # A failed provenance read invalidates the whole discovery poll.
+            except RuntimePaused as exc:
+                state, reason = "waiting", str(exc)
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
         return Plan(item, agent, runtime, state, reason, attempt)
@@ -186,9 +190,17 @@ class Coordinator:
                 eligible = [r for r in eligible if r.different_from(Runtime(cli, model, effort))]
                 if not eligible:
                     raise AgentError("No runtime has a different CLI and model from the candidate author")
+        paused = {}
         for runtime in eligible:
             if shutil.which(runtime.cli):
+                pause = self.runtime_paused(runtime.cli)
+                if pause:
+                    paused[runtime.cli] = pause
+                    continue
                 return runtime
+        if paused:
+            raise RuntimePaused("Waiting for " + "; ".join(
+                f"{cli}: {pause['reason']}; pause ends {pause['ends_at']}" for cli, pause in paused.items()))
         raise AgentError("No eligible runtime executable is installed")
 
     def handoff_pending(self, report):

@@ -45,7 +45,7 @@ class StatusTests(unittest.TestCase):
             with redirect_stdout(plain):
                 self.assertEqual(main(["status"]), 0)
         self.assertEqual(self.github.writes, writes)
-        return json.loads(structured.getvalue()), plain.getvalue()
+        return json.loads(structured.getvalue())["assignments"], plain.getvalue()
 
     def local_lease(self, **changes):
         lease = self.claim()

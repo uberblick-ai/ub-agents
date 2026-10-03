@@ -15,6 +15,7 @@ from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub
 from .labels import configured_labels
 from .records import iso
+from .runtime_usage import local_pauses
 
 
 PERMISSIONS_URL = "https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions"
@@ -163,6 +164,10 @@ class Doctor:
         if config:
             self.agents(config)
             self.local(config, git_ready)
+            for pause in local_pauses(config.root):
+                self.add(f"runtime-pause:{pause['cli']}:{pause['launcher']}", "ok",
+                         f"{pause['cli']} paused: {pause['reason']}; pause ends {pause['ends_at']}",
+                         required=False)
         else:
             for id in ("commands", "runtimes", "different-runtime-from", "local-state", "local-state-ignored"):
                 self.add(id, "skip", "configuration unavailable")

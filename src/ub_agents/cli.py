@@ -23,6 +23,7 @@ from .launch_log import launch_output
 from .labels import provision_labels
 from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
 from .status import lease_summary, process_details
+from .runtime_usage import local_pauses
 
 
 def parser():
@@ -247,12 +248,13 @@ def run(args):
     stop = threading.Event()
     interrupt = threading.Event()
     loop = Loop(config, github, actor, stop, config_path=Path(args.config).resolve(),
-                interrupt_event=interrupt)
+                interrupt_event=interrupt, usage_read_only=args.command == "status")
     if args.command == "status":
         now = timestamp()
         rows = status_rows(loop, now)
+        pauses = local_pauses(config.root, now)
         if args.json:
-            print(json.dumps(rows, indent=2))
+            print(json.dumps({"assignments": rows, "runtime_pauses": pauses}, indent=2))
         elif not rows:
             print("No configured triggers match open GitHub work")
         else:
@@ -279,6 +281,9 @@ def run(args):
                 state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
                 print(f"#{row['number']} {row['agent']}: {state} · priority {priority}{milestone} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['process_reason'] or row['reason']}")
+        if not args.json:
+            for pause in pauses:
+                print(f"{pause['cli']} paused: {pause['reason']}; pause ends {pause['ends_at']}")
         return
     for _, error in repository_checks(config):
         if error is not None:
