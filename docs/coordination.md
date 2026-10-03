@@ -26,6 +26,11 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   clears its failure block and backoff, preserving history. Approval parking still
   requires maintainer approval. It refuses a live lease
   and never revokes someone else's run. It does not restore workflow labels.
+  Its two output lines link the reset record and explain the next step from the
+  item's current state and labels: closed first, then present stop labels, then
+  missing triggers, otherwise pickup by a running launcher on its next poll.
+  If stop labels are present and triggers are missing, both need attention.
+  Use `ub-agent status` for progress and other pickup gates.
 
 | How a run ends | Count | Afterwards |
 |---|---|---|

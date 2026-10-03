@@ -284,8 +284,12 @@ count and park the item. Crashes without a report, timeouts, exits without a rep
 (zero or nonzero), setup failures and agent-reported `retry` increment it and retry
 with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures
 increment it and park the item. `ub-agent retry` resets
-the count to 0 and clears the parked state. The issue and handoff PR keep separate
-counts; `ub-agent status` shows the consecutive failure count in `attempts`.
+the count to 0 and clears the failure block and backoff. It prints the reset record's
+link, then explains whether the item is closed, needs stop labels removed or a
+trigger label added, or can be picked up by a running launcher on its next poll.
+It leaves labels unchanged; `ub-agent status` shows progress and other pickup gates.
+The issue and handoff PR keep separate counts; `ub-agent status` shows the
+consecutive failure count in `attempts`.
 A success counts only after the launcher has checked the result on GitHub; an exit
 code alone never does.
 A report followed by a nonzero exit is validated and applied normally after

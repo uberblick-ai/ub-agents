@@ -17,6 +17,10 @@ notes are copied from that section.
 
 ### Changed
 
+- `ub-agent retry` prints a readable reset confirmation with its record link and
+  a next-step line based on closure, stop labels and the selected agent's trigger
+  labels, pointing to `ub-agent status` when a running launcher can pick it up (#100).
+
 - Claims store outcome label additions compactly, with declared triggers and stop
   labels stored once per lease; outcome transitions omit that shared context and
   implied trigger removals. Upgraded launchers still read and recover 0.1.5 records.

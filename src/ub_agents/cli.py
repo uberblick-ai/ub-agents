@@ -156,6 +156,26 @@ def status_rows(loop):
     return rows
 
 
+def retry_next_step(item, agent, stop_labels):
+    if item.state == "closed":
+        return f"#{item.number} is closed."
+    stops = [label for label in stop_labels if label in item.labels]
+    triggers = [label for label in agent.triggers if label in item.labels]
+    if stops:
+        plural = len(stops) > 1
+        message = (f"#{item.number} has stop label{'s' if plural else ''} {', '.join(stops)}; "
+                   f"it stays parked until {'the labels are' if plural else 'the label is'} removed.")
+        if not triggers:
+            message += (f" One of {agent.name}'s trigger labels must also be added: "
+                        f"{', '.join(agent.triggers)}.")
+        return message
+    if not triggers:
+        return (f"#{item.number} won't run until one of {agent.name}'s trigger labels is added: "
+                f"{', '.join(agent.triggers)}.")
+    return (f"#{item.number} has trigger label{'s' if len(triggers) > 1 else ''} {', '.join(triggers)}; "
+            "a running launcher picks it up on its next poll. `ub-agent status` shows its progress.")
+
+
 def run(args):
     if args.command == "init":
         init_project(args)
@@ -195,7 +215,8 @@ def run(args):
         Cleaner(config, github, actor).clean(apply=args.apply)
         return
     if args.command == "retry":
-        if args.agent not in {agent.name for agent in config.agents}:
+        agent = next((agent for agent in config.agents if agent.name == args.agent), None)
+        if agent is None:
             raise AgentError("Unknown configured agent")
         if not args.reason.strip() or args.number < 1:
             raise AgentError("retry requires a positive item number and a reason")
@@ -208,7 +229,8 @@ def run(args):
                   "assignment": item.number, "assignment_sha": item.head, "created": iso(timestamp()), "summary": args.reason}
         created = records([github.create_comment(item.number, body(record))])[0]
         coordinator.notices.resumed(item.number)
-        print(json.dumps({"agent": args.agent, "number": item.number, "url": created["url"]}))
+        print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
+        print(retry_next_step(item, agent, config.stop_labels))
         return
     stop = threading.Event()
     interrupt = threading.Event()
