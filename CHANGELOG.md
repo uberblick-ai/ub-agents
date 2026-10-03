@@ -13,6 +13,8 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 
 ### Added
 
+- A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).
+
 - Every launcher, including `launch --once`, publishes a private, bounded,
   versioned session snapshot under `.ub-agents/sessions/` for a local view,
   with reached plans, process state and session outcomes. Publication adds no

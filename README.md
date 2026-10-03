@@ -356,6 +356,10 @@ model. This repository is developed with its own loop: see [ub-agents.yaml](ub-a
 and [AGENTS.md](AGENTS.md). The roadmap is in the
 [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
+An optional [development terminal view](docs/terminal-view.md) shows one launcher's
+local work, cached context, outcomes and paged runtime logs in a separate process.
+Install `.[ui]` in the checkout venv; the base launcher does not depend on Textual.
+
 ## License
 
 MIT
