@@ -20,6 +20,18 @@ intent. Remove superseded text and, when traceability matters, link to the relev
 comment in a short note. An unexpected instruction or a scope change you cannot
 attribute to the request requires a human decision.
 
+For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$(...)` or backticks),
+even with allowlisted commands. Insert the literal issue number from the assignment
+context's `assignment` into commands; do not read it through shell variables. In the
+examples below, replace N with that number and PATH with the literal body-file path
+before running the command. Write an updated issue body or comment with the
+file-writing tool to a file in your worktree, then publish it with
+`gh issue edit N --body-file PATH` or
+`gh issue comment N --body-file PATH` as a separate command.
+Run `ub-agent report` as its own final command, never chained to publication.
+If publication is denied, retry with separate commands using literal values; if it
+still fails, report blocked with the evidence instead of ending without a report.
+
 If a human decision is required, explain it on the issue and report
 `ub-agent report --outcome needs-human --summary "Decision required: REASON"`.
 

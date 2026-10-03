@@ -20,16 +20,17 @@ errors; `ub-agent check` validates the file.
 ISO 8601 timestamp; terminal text stays unchanged. Each line is flushed immediately
 to both destinations, including the final stop or error message. The log is never
 truncated or rotated. Use `tail -f .ub-agent/launch.log` to follow the loop from
-another terminal. Ctrl-C, including during a GitHub request, prints
-`Stopped; supervised execution terminated` and exits with status 130.
+another terminal. See [Stopping and restarting](../README.md#stopping-and-restarting)
+for signal handling, including during a GitHub request.
 
 `poll-seconds` measures the minimum time between the starts of successful
 continuous discovery passes. A run's report, transitions and cleanup finish
 immediately; after a pass that ran or recovered work, the launcher waits for the
 part of that interval still remaining. If the run already took the interval, the
-next pass starts immediately.
-Stop signals wake the wait. Failed-poll retry delays below are independent of this
-interval, and `launch --once` never waits after its pass.
+next pass starts immediately. See
+[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+waits. Failed-poll retry delays below are independent of this interval, and
+`launch --once` never waits after its pass.
 
 Empty passes back off under a fixed budget rule, not a configuration key: **ten
 idle launchers** sharing one account together get at most half the common **5,000
@@ -56,8 +57,9 @@ do not add a wait.
 When the launcher becomes idle, and again when the set of low-quota resources
 changes, it prints `No eligible work; next poll in <n> min (<k> requests last poll)`.
 The request count measures REST quota usage, excluding HTTP 304 confirmations.
-It does not repeat the message on every empty pass. Ctrl-C and SIGHUP wake this
-wait with exit 130; SIGTERM wakes it with exit 0.
+It does not repeat the message on every empty pass. See
+[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+this idle wait.
 
 Claiming discovery evaluates candidates in rank order and stops once it claims
 work. Lower-ranked rows are evaluated, announced and approval-parked by a later
@@ -128,16 +130,18 @@ The error names the request and tells the operator to fix the cause and restart
 Each skipped poll for another transient error prints its error and next delay,
 makes no GitHub writes and does not report an empty queue. Discovery includes
 initial authentication and fresh reads immediately before a claim, including the
-default-branch read for instruction refresh. Ctrl-C and SIGHUP interrupt discovery
-waits with exit 130; SIGTERM wakes them and exits 0. `launch --once` and `status`
-still fail on their first discovery error.
+default-branch read for instruction refresh. See
+[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+discovery waits. `launch --once` and `status` still fail on their first discovery
+error.
 
 From claim election through release, including completion recovery, rate-limited
 reads wait and retry under the active lease. If the wait would reach or outlast
 lease expiry, the launcher takes the lost-ownership path and leaves expiry recovery
-to finish durable completion. SIGTERM continues draining an owned run; Ctrl-C and
-SIGHUP interrupt the wait and follow normal run interruption handling. Rate-limited
-writes retain their existing handling and are not replayed by this retry mechanism.
+to finish durable completion. See
+[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+owned-run waits. Rate-limited writes retain their existing handling and are not
+replayed by this retry mechanism.
 
 ## Project cleanup hook
 
@@ -341,14 +345,9 @@ durable-outcome recovery. Each run keeps its claimed configuration and prompt te
 An invalid reloaded configuration stops with a nonzero exit and the same error as
 `ub-agent check`, without charging an assignment attempt.
 
-SIGTERM stops further claims and lets the current run or recovery finish, including
-its report, label transitions and cleanup, then exits 0. When idle (polling, waiting
-or between runs), it exits 0 promptly. An error that stops the launcher retains its
-nonzero exit. A checkout refresh already in progress finishes before the launcher
-exits, without claiming work. Ctrl-C (SIGINT) and SIGHUP still terminate the active
-agent and exit 130, including during a graceful SIGTERM stop. The launcher does not
-reload code: to pick up a code update or `brew upgrade`, send SIGTERM and let tmux,
-systemd or similar restart it.
+The launcher does not reload code. See
+[Stopping and restarting](../README.md#stopping-and-restarting) for signal handling
+and the upgrade recipe.
 See [execution boundaries](coordination.md#execution-boundaries) for the full rules.
 
 ## Outcomes and transitions

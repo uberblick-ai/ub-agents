@@ -7,7 +7,35 @@ import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
-from ub_agents.records import MARKER, records
+from ub_agents.records import MARKER, body, lease_by_id, payload, records
+
+
+def write_legacy_records(github):
+    """Simulate 0.1.5 writes for the transition and notice compatibility suites."""
+    create = github.create_comment
+
+    def legacy_create(number, text):
+        parsed = records([{"id": 1, "body": text, "user": {"login": github.actor()}}])
+        if parsed:
+            record = payload(parsed[0])
+            if record["kind"] == "lease" and "declared_triggers" in record:
+                legacy = {}
+                for name, declaration in record["outcomes"].items():
+                    changes = {"add": declaration} if isinstance(declaration, list) else declaration
+                    legacy[name] = {"add": changes["add"],
+                                    "remove": sorted(set(record["declared_triggers"]).union(changes.get("remove", ()))),
+                                    "triggers": record["declared_triggers"], "stop_labels": record["stop_labels"]}
+                record["outcomes"] = legacy
+                record.pop("declared_triggers")
+                record.pop("stop_labels")
+            elif record["kind"] == "outcome" and "transition" in record:
+                source = lease_by_id(records(github.comments(record["assignment"])), record["lease_id"])
+                record["transition"] = source["outcomes"][record["outcome"]] | {
+                    "started": record["transition"]["started"]}
+            text = body(record)
+        return create(number, text)
+
+    github.create_comment = legacy_create
 
 
 def stub_refresh(test):

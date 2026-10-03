@@ -16,7 +16,7 @@ from ub_agents.errors import AgentError, LostOwnership, RetryableExecutionError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, seconds, timestamp
-from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr, write_legacy_records
 
 
 class TransitionTests(unittest.TestCase):
@@ -72,8 +72,12 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(lease['result'], 'success')
         self.assertEqual(outcome['outcome'], 'handed-off')
         self.assertTrue(outcome['accepted'])
-        self.assertEqual(outcome['transition']['remove'], ['needs-changes', 'old', 'ready'])
-        self.assertTrue(self.loop.coordinator.history(2)[0]['accepted'])
+        self.assertEqual(self.loop.validate_report(outcome)['remove'], ['needs-changes', 'old', 'ready'])
+        copied, = self.loop.coordinator.history(2)
+        self.assertTrue(copied['accepted'])
+        self.assertTrue(copied['transition_complete'])
+        self.assertEqual(copied['transition'], outcome['transition'])
+        self.assertEqual(self.loop.validate_report(copied), self.loop.validate_report(outcome))
         self.assertEqual(self.labels_changed(), [('remove-label', 1, 'needs-changes'),
                                                 ('remove-label', 1, 'old'), ('remove-label', 1, 'ready'),
                                                 ('add-labels', 2, ('needs-review',))])
@@ -103,6 +107,10 @@ class TransitionTests(unittest.TestCase):
             copied, = self.loop.coordinator.history(2)
             self.assertTrue(copied['transition']['started'])
             self.assertFalse(copied['accepted'])
+            resolved = self.loop.validate_report(copied)
+            self.assertEqual(resolved['remove'], ['needs-changes', 'old', 'ready'])
+            self.assertEqual(resolved['triggers'], ['ready', 'needs-changes'])
+            self.assertEqual(resolved['stop_labels'], ['needs-human'])
             add_labels(number, labels)
         def check_before_accept(lease, outcome):
             plan = self.reviewer_plan(reviewer)
@@ -284,6 +292,21 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(history[1]['accepted'])
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
         self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
+
+    def test_all_declared_triggers_survive_a_single_trigger_claim_and_config_reload(self):
+        self.github.change(1, labels=frozenset({'ready', 'old', 'unrelated'}))
+        lease, _ = self.claim_and_report(handoff=2)
+        self.assertEqual(lease['triggers'], ['ready'])
+        # A different declared trigger replaces the one present at claim time.
+        self.github.change(1, labels=frozenset({'needs-changes', 'old', 'unrelated'}))
+        self.now += 61
+        changed = replace(self.agent, triggers=('different',),
+                          outcomes={'new': {'add': ('wrong',), 'remove': ()}})
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.assertTrue(self.new_loop(changed).tick())
+        self.assertEqual(self.github.item(1).labels, {'unrelated'})
+        self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
+        self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
 
     def test_partial_transition_recovers_even_if_stop_added_after_start(self):
         remove = self.github.remove_label
@@ -610,6 +633,8 @@ class TransitionTests(unittest.TestCase):
 
     def test_invalid_success_records_block_without_labels(self):
         for change in ({'outcome': 'undeclared'}, {'outcome': None, 'transition': None},
+                       {'transition': {'add': ['wrong'], 'started': False}},
+                       {'transition': {'add': ['needs-review'], 'remove': [], 'started': False}},
                        {'transition': {'add': ['wrong'], 'remove': [], 'triggers': ['ready'],
                                        'stop_labels': [], 'started': False}}):
             with self.subTest(change=change):
@@ -712,3 +737,11 @@ class TransitionTests(unittest.TestCase):
         self.assertIn('POST', run.call_args_list[0].args[0])
         self.assertEqual(run.call_args_list[0].kwargs['input'], '{"labels": ["needs-review"]}')
         self.assertIn('repos/org/project/issues/1/labels/workflow%2Fready', run.call_args_list[1].args[0])
+
+
+class LegacyTransitionTests(TransitionTests):
+    """All report, pause and crash scenarios also run against 0.1.5 records."""
+
+    def setUp(self):
+        super().setUp()
+        write_legacy_records(self.github)

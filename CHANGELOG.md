@@ -13,6 +13,13 @@ notes are copied from that section.
   changes. Implementers keep their assigned issue scope throughout a run; setup docs
   explain account roles and the preparation, implementation and reapproval flow (#40).
 
+- Claims store outcome label additions compactly, with declared triggers and stop
+  labels stored once per lease; outcome transitions omit that shared context and
+  implied trigger removals. Upgraded launchers still read and recover 0.1.5 records.
+  **Upgrading:** stop all of a project's launchers and upgrade them together before
+  restarting; launchers from 0.1.5 through 0.1.8 reject compact records as malformed
+  (#63).
+
 - Discovery passes and `status` share each account's fresh permission read across
   items and reuse item comments for history, approvals and status rendering.
   `status` also batches dependency reads for priority ranking. Both claim-time
