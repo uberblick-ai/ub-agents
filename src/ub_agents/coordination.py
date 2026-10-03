@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import shutil
 import uuid
 
+from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime
 from .errors import AgentError, GitHubError, LostOwnership, RecordError
 from .github import Item
@@ -24,14 +25,16 @@ class Plan:
     priority_source: int | None = None
     priority_from_issue: int | None = None
     blockers: tuple[str, ...] = ()
+    approval_gate: ApprovalCheck | None = None
 
 
 class Coordinator:
-    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print):
+    def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None):
         self.github = github
         self.actor = actor
         self.clock = clock
         self.queue = queue
+        self.on_claim = on_claim
         self.notices = Notices(github, actor, output)
 
     def history(self, number):
@@ -43,9 +46,36 @@ class Coordinator:
         except AgentError as exc:
             raise GitHubError("GET", f"repos/{self.github.repository}/issues/{number}/comments", str(exc)) from exc
 
-    def repository_history(self):
+    def feedback(self, item, agent):
+        """Other agents' accepted outcomes since this agent last handled each item."""
+        history = self.history(item.number)
+        histories = [history]
+        if item.kind == "issue":
+            handoffs = sorted({r["handoff"] for r in history if r["kind"] == "outcome"
+                               and r["accepted"] and not r.get("rejected") and r.get("handoff")})
+            histories.extend(self.history(number) for number in handoffs if number != item.number)
+        pending = []
+        for history in histories:
+            accepted = [r for r in history if r["kind"] == "outcome"
+                        and r["accepted"] and not r.get("rejected")]
+            cutoff = max((r["id"] for r in accepted if r["agent"] == agent), default=0)
+            pending.extend(r for r in accepted if r["id"] > cutoff and r["agent"] != agent)
+        seen, feedback = set(), []
+        for record in sorted(pending, key=lambda r: r["id"]):
+            # A handoff copy has a different comment ID but belongs to the same run.
+            key = (record["assignment"], record["agent"], record["run"], record["lease_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            feedback.append({"agent": record["agent"],
+                             "outcome": record.get("outcome", record["status"]),
+                             "summary": record["summary"], "candidate_sha": record["candidate_sha"],
+                             "created": record["created"]})
+        return feedback
+
+    def repository_history(self, comments=None, by_item=False):
         groups = {}
-        for comment in self.github.repository_comments():
+        for comment in self.github.repository_comments() if comments is None else comments:
             if not isinstance(comment, dict):
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Unreadable repository comment")
@@ -61,13 +91,15 @@ class Coordinator:
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Coordination comment has no GitHub assignment URL") from exc
             groups.setdefault(number, []).append(comment)
-        history, invalid = [], set()
+        history, invalid, histories = [], set(), {}
         for number, comments in groups.items():
             try:
-                history.extend(records(comments, self.actor))
+                histories[number] = records(comments, self.actor)
+                history.extend(histories[number])
             except RecordError:
                 invalid.add(number)
-        return sorted(history, key=lambda record: record["id"]), invalid
+        result = sorted(history, key=lambda record: record["id"]), invalid
+        return (*result, histories) if by_item else result
 
     def plan(self, item, agent, stop_labels, history=None, index=None):
         history = self.history(item.number) if history is None else history
@@ -225,7 +257,7 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False, before_write=None):
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -242,6 +274,8 @@ class Coordinator:
                 return None
         if (self.queue.dependencies == "wait" and not recovery and current.kind == "issue"
                 and any(b.state == "open" for b in self.github.blocked_by(current.number))):
+            return None
+        if authorize is not None and not authorize(current):
             return None
         now = self.clock()
         record = {"kind": "lease", "run": uuid.uuid4().hex,
@@ -269,6 +303,8 @@ class Coordinator:
         if before_write is not None:
             before_write()
         created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
+        if self.on_claim is not None:
+            self.on_claim(created)
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.

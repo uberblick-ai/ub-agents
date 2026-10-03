@@ -10,7 +10,7 @@ errors; `ub-agent check` validates the file.
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
-| `poll-seconds` | How often an idle loop checks GitHub (default 30). |
+| `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `queue` | Priority ranking, dependency waits and an optional milestone gate (defaults to FIFO, waiting for blockers, with milestones ignored). |
@@ -23,6 +23,45 @@ truncated or rotated. Use `tail -f .ub-agent/launch.log` to follow the loop from
 another terminal. Ctrl-C, including during a GitHub request, prints
 `Stopped; supervised execution terminated` and exits with status 130.
 
+`poll-seconds` measures the minimum time between the starts of successful
+continuous discovery passes. A run's report, transitions and cleanup finish
+immediately; the launcher then waits only for the part of that interval still
+remaining. If the run already took the interval, the next pass starts immediately.
+Stop signals wake the wait. Failed-poll retry delays below are independent of this
+interval, and `launch --once` never waits after its pass.
+
+Claiming discovery evaluates candidates in rank order and stops once it claims
+work. Lower-ranked rows are evaluated, announced and approval-parked by a later
+pass that reaches them. `status` evaluates every row and remains read-only.
+Each launcher retains per-item discovery inputs in memory: history, approval
+inputs and permissions, PR details, and dependency links. Changes in the issue
+list (including `updated_at`) or the incremental repository comment scan invalidate
+that item's reads. A fresh claim-approval denial also drops the item's cached
+inputs so the next reached pass can plan its gate. Claims and approval parking
+always revalidate with fresh reads;
+cached input never authorizes a claim or a write. Restarting a launcher drops its
+cache. With configured priorities, cold discovery lists the dependency graph in
+pages to preserve inheritance without one REST request per queued issue.
+
+For a rough request budget, an unchanged warm pass costs one request per page of
+open issues/PRs, plus the incremental repository comment scan (usually one page),
+and an optional milestone list. List pages hold up to 100 rows; a full REST page
+also needs a request to check for a following page. A cold pass or changed item adds
+roughly 5–10 reads for each candidate actually reached, with extra pages for long
+histories and additional authors' permission checks. Configured priorities add a
+paginated dependency-graph list on cold discovery; very large dependency lists may
+need extra pages. Fresh claim/recovery reads, approval-parking writes, execution
+heartbeats and completion add their own requests. `status` pays for every row.
+
+For interval `P` seconds and average discovery cost `R`, budget up to
+`R × 3600 / P` requests per loop per hour, then add execution/write costs. For
+example, a two-request unchanged pass at 30 seconds is about 240 requests/hour;
+five loops sharing one account use about 1,200 before execution. Sum all loops
+using the account, including loops on other repositories, and leave headroom
+within GitHub's account limit (commonly 5,000 REST requests/hour). GraphQL has a
+separate point budget; graph-list query cost depends on its connections. Long
+runs reduce the number of discovery passes per hour.
+
 Continuous `ub-agent launch` retries failed discovery polls for request timeouts,
 connection failures and HTTP 5xx responses. The fixed backoff starts at **5 seconds**,
 doubles after each consecutive failure and caps at **60 seconds**. The launcher stops
@@ -30,20 +69,38 @@ on the **sixth consecutive failed poll**; a completed poll resets the count, inc
 one that finds no work. These values are not configuration keys and are independent
 of agent execution retries under `limits`.
 
-A rate limit counts toward the same failure limit and waits until its explicit
-reset instead of using backoff: `Retry-After` seconds, or `X-RateLimit-Reset` when
-`X-RateLimit-Remaining` is zero. A missing, unreadable or more than 60 seconds away
-reset stops the loop. Authentication, permission, missing repository, malformed
-response and unclassified failures also stop it immediately. The error names the
-request and tells the operator to fix the cause and restart `ub-agent launch`.
+A **403 or 429** is a rate limit when the response has `X-RateLimit-Remaining: 0`,
+`Retry-After`, or GitHub's "API rate limit exceeded" or "secondary rate limit"
+message. Headers on real requests are authoritative; the launcher does not use
+`GET /rate_limit`. Primary limits wait until `X-RateLimit-Reset` plus **5 seconds**
+of margin. Secondary limits wait for `Retry-After` seconds. Missing or unreadable
+wait metadata falls back to **one minute**. Each wait is capped at **one hour**;
+afterward the read is retried, and another rate limit starts another wait.
 
-Each skipped poll prints its error and next delay, makes no GitHub writes and does
-not report an empty queue. Discovery includes fresh reads immediately before a
-claim, including the default-branch read for instruction refresh; the lease comment
-write ends that poll, and failures from that write onward
-retain their existing handling. Ctrl-C and SIGHUP interrupt retry waits with exit
-130; SIGTERM wakes retry waits and exits 0.
-`launch --once` and `status` still fail on their first error.
+Time spent waiting for a rate limit counts toward the minimum `poll-seconds` gap
+between discovery-pass starts. A completed pass waits only for any gap still left;
+if the wait or run already used that time, the next pass starts immediately.
+
+Rate limits do not count toward the poll failure limit or an item's attempts.
+Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)`
+and makes no GitHub writes while waiting. Authentication, permission, missing
+repository, malformed response and unclassified failures still stop immediately.
+The error names the request and tells the operator to fix the cause and restart
+`ub-agent launch`.
+
+Each skipped poll for another transient error prints its error and next delay,
+makes no GitHub writes and does not report an empty queue. Discovery includes
+initial authentication and fresh reads immediately before a claim, including the
+default-branch read for instruction refresh. Ctrl-C and SIGHUP interrupt discovery
+waits with exit 130; SIGTERM wakes them and exits 0. `launch --once` and `status`
+still fail on their first discovery error.
+
+From claim election through release, including completion recovery, rate-limited
+reads wait and retry under the active lease. If the wait would reach or outlast
+lease expiry, the launcher takes the lost-ownership path and leaves expiry recovery
+to finish durable completion. SIGTERM continues draining an owned run; Ctrl-C and
+SIGHUP interrupt the wait and follow normal run interruption handling. Rate-limited
+writes retain their existing handling and are not replayed by this retry mechanism.
 
 ## Project cleanup hook
 
@@ -407,7 +464,9 @@ TEXT`, exactly like an LLM runtime, and receives the same environment variables:
   are written regardless of the label-creation answer. Each agent includes commented
   permission arguments matching `--runtime`; see [Runtime permissions](#runtime-permissions).
 - `ub-agent check` validates the configuration and instruction files.
-- `ub-agent doctor [--json]` checks everything `check` does, plus Python, the platform,
+- `ub-agent doctor [--json]` reports remaining GitHub requests and the reset time in
+  UTC from real request headers. It warns below 10% remaining and whenever doctor
+  itself is rate limited. It checks everything `check` does, plus Python, the platform,
   `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
   A token that cannot change labels is a required failure, because the launcher
   applies outcome transitions itself. Missing trigger or outcome transition labels

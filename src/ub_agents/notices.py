@@ -3,6 +3,7 @@
 import json
 import socket
 
+from .errors import LostOwnership
 from .records import declared_transition, lease_by_id, own_comment, records, resolve_transition
 
 ACTION_MARKER = "<!-- ub-agent:action-needed "
@@ -11,10 +12,13 @@ ACTION_MARKER = "<!-- ub-agent:action-needed "
 class Notices:
     def __init__(self, github, actor, output=print):
         self.github, self.actor, self.output = github, actor, output
+        self._approval_attempted = set()
 
     def advisory(self, operation, action):
         try:
             return action()
+        except LostOwnership:
+            raise
         except Exception as exc:
             self.output(f"Advisory {operation} failed: {' '.join(str(exc).split())}")
             return None
@@ -34,6 +38,41 @@ class Notices:
                            if own_comment(comment, self.actor)
                            and (comment.get("body") or "").startswith(ACTION_MARKER)])
         self.advisory(f"resume notices on #{number}", minimize_actions)
+        self._approval_attempted = {key for key in self._approval_attempted if key[0] != number}
+
+    def approval(self, number, check, stops, triggers):
+        if not stops:
+            return
+        comments = self.github.comments(number)
+        # Claims/resets define a new parking episode even if advisory notice
+        # minimization failed. Presentation state must not suppress a later gate.
+        epoch = max((r["id"] for r in records(comments, self.actor)
+                     if r["assignment"] == number and r["kind"] in {"lease", "reset"}), default=0)
+        key = (number, check.gate_key, epoch)
+        if key in self._approval_attempted:
+            return
+        marker = f"{ACTION_MARKER}approval-{check.gate_key}-{epoch} -->"
+        if any(own_comment(c, self.actor) and (c.get("body") or "").startswith(marker) for c in comments):
+            self._approval_attempted.add(key)
+            return
+        # Failed writes are advisory and are not retried for this gate in this
+        # session. A successfully posted notice also deduplicates after restart.
+        self._approval_attempted.add(key)
+        labels = ", ".join(f"`{label}`" for label in stops)
+        trigger_text = ", ".join(f"`{label}`" for label in triggers)
+        if check.gate == "start":
+            resume = (f"A maintainer must remove the stop label(s) {labels} and re-apply a trigger label: "
+                      f"{trigger_text}. An approval alone does not start work.")
+        elif check.gate == "head":
+            resume = (f"A maintainer must run `ub-agent approve --number {number}` or submit an approving "
+                      f"review of the current head; then remove the stop label(s) {labels}. "
+                      "Re-applying a trigger label does not approve a head.")
+        else:
+            resume = (f"A maintainer must re-apply a trigger label ({trigger_text}), or run "
+                      f"`ub-agent approve --number {number}`; then remove the stop label(s) {labels}.")
+        self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
+        self.advisory(f"Action needed post on #{number}", lambda: self.github.create_comment(
+            number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n"))
 
     def superseded(self, number, agent, run):
         def minimize_records():

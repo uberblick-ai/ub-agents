@@ -7,8 +7,28 @@ needs a maintainer's review before it becomes input.
 Every issue agent, including preparation, and every PR agent passes the approval
 check at pickup and again after claiming. There is no setting to disable it.
 `launch` and `status` show disallowed input as parked with the reason: missing
-maintainer start, outside changes or unreadable approval history. Pickup makes no
-claim or other write and spends no attempt. A failed post-claim check withdraws the
+maintainer start, outside changes or unreadable approval history. Pickup spends no
+attempt and makes no claim. When a failed approval is the only obstacle on a
+triggered, open item, `launch` adds the configured stop label (`needs-human` in the
+starter) and posts one **Action needed** notice with the reason and resume steps:
+
+| Gate | Maintainer action to resume |
+|---|---|
+| No maintainer start | Remove `needs-human` and re-apply a trigger label. Approval alone does not start work. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agent approve --number N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agent approve --number N` or submit an approving review of the current head; then remove `needs-human`. Re-applying a trigger does not approve a head. |
+
+Use the project's configured stop and trigger labels when they differ from the
+starter. Each unresolved gate gets the label and notice at most once; repeated
+polls add nothing. A new gate after resuming parks the item again. When the item
+is next claimed, the launcher minimizes the notice. Label and notice writes are
+advisory: failures are logged without coordination records, claims or attempt
+changes. Uncleared outside comments on issues and trusted-authored PRs only lose
+input clearance and do not park work. Unreadable approval history and input that
+changes during the read are retried on the next poll without parking writes.
+`ub-agent status` remains read-only.
+
+A failed post-claim check withdraws the
 claim before execution, spends no attempt and needs no `ub-agent retry`; the item
 becomes eligible when its input is approved. Existing live runs and durable-outcome
 recovery finish under their original assignment.
@@ -33,7 +53,9 @@ Trust comes from `role_name` in GitHub's [collaborator permission API](https://d
 | `triage`, `read`, `none`, unknown | Outside: edits need approval; feedback needs clearance. Outside PR feedback also suspends work. |
 
 An unreadable permission or an unrecognized custom role counts as outside. Roles are
-read for each observation, with repeated accounts cached only within that observation.
+reread before claims and approval-parking writes. Unchanged discovery inputs,
+including readable permissions, are cached per item between polls; repeated
+accounts also share one read within an observation.
 There is no approver list or launcher-account setting. Give every launcher the same
 GitHub account with `write`. `doctor` warns when that account has `maintain` or `admin`,
 because agents could start and approve their own work. An unreadable launcher role

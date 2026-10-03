@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator
-from ub_agents.errors import GitHubError
+from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import LEGACY_MARKER, MARKER, attempts, body, iso, records, seconds
@@ -252,6 +252,19 @@ class NoticeTests(unittest.TestCase):
         source = loop.coordinator.history(1)
         for record in source:
             self.assertIn(record["url"], notices[0]["body"])
+
+    def test_stop_notice_reads_propagate_lost_ownership(self):
+        loop, github = self.parked_loop(handoff=2)
+        source = loop.coordinator.history(1)
+        lease = next(r for r in source if r["kind"] == "lease")
+        outcome = next(r for r in source if r["kind"] == "outcome")
+        writes = list(github.writes)
+        with patch.object(github, "comments", side_effect=LostOwnership("Lease expired while waiting")):
+            with self.assertRaisesRegex(LostOwnership, "Lease expired"):
+                loop.coordinator.notices.advisory("released run comments", lambda:
+                    loop.coordinator.notices.released(lease, outcome, outcome["summary"]))
+        self.assertEqual(github.writes, writes)
+        self.assertFalse(any("Advisory" in line for line in self.output))
 
     def test_expiry_recovery_posts_one_notice_for_the_original_stop_outcome(self):
         worker = agent(self.root, kind="pr", outcomes={"human": {"add": ("needs-human",), "remove": ()}})

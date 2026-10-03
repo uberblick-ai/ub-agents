@@ -81,8 +81,27 @@ cooperative observation, not an atomic snapshot.
 
 ## Assignment input
 
-Approval checks at pickup park disallowed items with their reason, without claims,
-writes or attempts. After winning a claim, the launcher rereads and validates input.
+Approval checks at pickup park disallowed items with their reason, without claims
+or attempts. When approval is the only obstacle for an open, triggered item,
+`launch` adds the project's configured stop label (`needs-human` in the starter)
+and posts one **Action needed** notice. `status` stays read-only. Unreadable
+approval history or input that changes during the read is retried on the next
+poll without label or notice writes. Uncleared outside comments do not suspend
+issues or trusted-authored PRs.
+
+| Approval gate | Maintainer action to resume (starter labels) |
+|---|---|
+| No maintainer start | Remove `needs-human` and re-apply a trigger label. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agent approve --number N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agent approve --number N` or submit an approving review of the current head; then remove `needs-human`. A trigger label does not approve a head. |
+
+Each gate state gets the stop label and notice at most once. Later polls of the
+same unresolved gate add nothing; a new gate after resuming parks the item again.
+These writes are advisory: a failure is logged, never writes coordination records
+or changes attempt counts, and cannot cause a claim. A later claim minimizes the
+notice using the same launcher notice marker as other Action needed notices.
+
+After winning a claim, the launcher rereads and validates input.
 A failed check withdraws that claim before execution, preserves attempts and returns
 the item to parked; approval makes it eligible without `ub-agent retry`. Preparation
 uses the same gate: a maintainer's `needs-preparation` starts it, and the preparer's
@@ -90,10 +109,21 @@ rewrite is trusted. There is no switch to bypass enforcement.
 
 Context holds the post-claim title, body and trusted or cleared outside comments.
 PR context adds the assigned head, reviews and review comments. Uncleared and
-later-edited outside feedback, coordination records and approval records are
+later-edited outside feedback, coordination records, launcher notices and approval records are
 excluded. The prompt makes this snapshot the assignment input; other GitHub
 comments are not input. Outside changes during execution do not stop that run,
 replace its context or gate its durable completion and recovery.
+
+Context also includes `feedback`: accepted outcome summaries from other agents on
+the assigned item and, for an issue, its handoff PRs. Each entry contains `agent`,
+`outcome`, `summary`, `candidate_sha` (or null) and `created` (UTC time). On each
+item, only outcomes recorded after the receiving agent's latest accepted outcome
+are included; its handoff copy counts as its own outcome. Without an own accepted
+outcome there, all other agents' accepted outcomes are included. Outcomes appear
+once, in comment record order, even when copied to a handoff PR. Only the launcher
+account's coordination records supply this trusted input; other accounts' records
+stay excluded. Revisions must address `feedback` alongside comments and reviews.
+This field does not change approval requirements.
 
 An outside PR head requires a valid pinned approval record, a maintainer approving
 review on that head, or an accepted agent outcome from an eligible assignment head
@@ -159,7 +189,7 @@ names the launcher host and run log directory. When a transition parks a handoff
 PR, the notice is posted on that PR.
 
 These notices carry a separate `ub-agent:action-needed` marker and are not
-coordination records: they never affect routing, verdicts, labels or attempt
+coordination records: they never affect routing authority, verdicts or attempt
 counts. A later claim by any agent on the item, or an explicit retry
 reset, minimizes its earlier Action needed notices. Minimization, notice posts
 and evidence reads are advisory: a failure is logged and does not change the
@@ -213,9 +243,18 @@ strict consistency, instantaneous loss detection, or write fencing. Other launch
 and runtimes must obey the contract. Clocks must be reasonably synchronized.
 
 Expired leases are never resurrected. Ownership is reread before every durable
-write; a failed ownership read stops the run, and the launcher does not report,
+write; an ownership read that fails after applicable rate-limit waits stops the
+run, and the launcher does not report,
 accept, or release after losing ownership. Between observations, an agent with
 GitHub credentials can still write: comments cannot prevent this.
+
+GitHub rate limits during claim election, ownership checks and completion reads
+(including recovery) wait and retry without treating the limit as changed ownership.
+Waits use real response headers and the [rate-limit rules](configuration.md#top-level).
+A wait that would reach or outlast the active lease expiry instead takes the usual
+lost-ownership path: no further coordination writes, followed by expiry recovery.
+SIGTERM keeps draining the run; Ctrl-C and SIGHUP interrupt waits through the
+existing run interruption path. Rate-limited writes keep their existing handling.
 
 ## Draft checkpoints
 
@@ -294,7 +333,7 @@ configuration edits or a restarted launcher cannot replace the recorded changes.
 Upgraded launchers also read and recover 0.1.5 records, which repeat `triggers`,
 `stop_labels` and the full removal list in every declaration and transition.
 Stop all of a project's launchers and upgrade them together before restarting:
-0.1.5 launchers reject compact records as malformed.
+launchers from 0.1.5 through 0.1.8 reject compact records as malformed.
 
 A report starts `accepted: false`. Once the process group has terminated, the
 launcher rereads GitHub and validates ownership, the exact reported candidate SHA,
@@ -339,9 +378,11 @@ closed items and items whose trigger was removed, then polls updated comments wi
 scan. Each page advances `since` to one second before its last update and
 deduplicates by comment id, because page offsets skip rows when comments move. A
 full page within one second cannot be paginated safely and stops visibly. The cache
-and cursor live in memory, a failed page commits neither, and item comments are
-always reread before planning or claiming, so stale cached records never supply
-authority.
+and cursor live in memory, and a failed page commits neither. Claiming discovery
+reuses unchanged per-item reads and evaluates only rows it reaches in rank order;
+`status` evaluates every row. Item comments and approval inputs are always reread
+before a claim or approval-parking write, so stale cached records never supply
+authority. See [poll timing and request budgeting](configuration.md#top-level).
 
 Discovery follows the latest non-withdrawn lease after the last reset for each
 item and agent. A released retry or blocked result, or an expired run without an

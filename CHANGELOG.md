@@ -8,6 +8,68 @@ notes are copied from that section.
 
 ### Changed
 
+- Claims store outcome label additions compactly, with declared triggers and stop
+  labels stored once per lease; outcome transitions omit that shared context and
+  implied trigger removals. Upgraded launchers still read and recover 0.1.5 records.
+  **Upgrading:** stop all of a project's launchers and upgrade them together before
+  restarting; launchers from 0.1.5 through 0.1.8 reject compact records as malformed
+  (#63).
+
+## 0.1.8 — 2026-10-03
+
+**Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,
+restart. Claiming polls now cost a few requests when nothing changed instead of one
+read per triggered item, and GitHub rate limits pause the launcher until the reset
+instead of stopping it. `poll-seconds` is now the minimum gap between polls, also after
+a run.
+
+### Changed
+
+- `poll-seconds` is the minimum gap between discovery-pass starts, including
+  after runs. Claiming polls evaluate candidates lazily and reuse unchanged
+  per-item discovery reads in memory, while claims and approval parking still
+  revalidate fresh GitHub input. Cold priority ranking lists dependency links
+  in pages instead of reading every issue separately (#79).
+
+### Fixed
+
+- Continuous launch waits out GitHub rate limits without charging poll failures or
+  item attempts. Rate-limited reads from claim through release and recovery retry
+  while the lease permits, with interruptible waits capped at one hour. `doctor`
+  reports request quota and reset time from real response headers and warns below
+  10% remaining or when rate limited itself (#80).
+
+## 0.1.7 — 2026-10-03
+
+**Upgrading:** no configuration edits are required. `kill -TERM` each launcher, upgrade,
+restart. Items held only by the approval gate now get the project's stop label and an
+Action needed comment (#66).
+
+### Changed
+
+- `launch` parks open, triggered items whose only pickup obstacle is missing
+  maintainer approval with the configured stop label and one Action needed notice
+  explaining how to start or reapprove them. Repeated polls leave the same gate
+  alone; the next claim minimizes its notice. Parking writes are advisory and
+  `status` remains read-only (#66).
+
+### Fixed
+
+- Assignment context passes other agents' accepted outcome summaries as trusted
+  `feedback`, so revisions receive routing corrections such as an integrator's
+  changelog request without repeating outcomes already handled by the agent (#77).
+
+## 0.1.6 — 2026-10-02
+
+**Upgrading:** agents now work only on issues and PRs that a maintainer (`maintain` or
+`admin`) started by applying a trigger label. After an outside edit or push, a
+maintainer re-applies the label or runs `ub-agent approve --number N`. Give the launcher
+account `write` only; `doctor` warns if it can start or approve its own work. `check`
+now rejects Claude `runtime-args` that set `--output-format`. Upgrading from 0.1.5
+needs no coordinated stop: `kill -TERM` each launcher, upgrade, restart.
+
+### Changed
+
 - The launcher enforces maintainer starts and outside-input approvals for every
   issue and PR run, including preparation. Failed pickup or post-claim checks park
   work without spending attempts; agent context includes only trusted or cleared
@@ -15,11 +77,6 @@ notes are copied from that section.
   in the base repository inheriting eligibility; changed fork heads need explicit
   maintainer approval. `ub-agent approve` accepts PRs, pins their head and clears
   outside comments, reviews and review comments (#39).
-- Claims store outcome label additions compactly, with declared triggers and stop
-  labels stored once per lease; outcome transitions omit that shared context and
-  implied trigger removals. Upgraded launchers still read and recover 0.1.5 records.
-  **Upgrading:** stop all of a project's launchers and upgrade them together before
-  restarting; 0.1.5 launchers reject compact records as malformed (#63).
 
 ### Fixed
 

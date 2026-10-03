@@ -94,6 +94,8 @@ class FakeGitHub:
         self.content_histories = {}
         self.review_store = {}
         self.review_comment_store = {}
+        self.observed_inputs = {}
+        self.revision = 0
 
     def role(self, login):
         return self.roles.get(login.casefold()) if isinstance(login, str) else None
@@ -130,8 +132,22 @@ class FakeGitHub:
         return [item for item in self.items.values()
                 if item.kind == "pr" and item.branch == branch and (state == "all" or item.state == state)]
 
-    def observe(self):
-        return [item for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
+    def observe(self, details=True):
+        # Fixture changes model GitHub advancing updated_at, even when a test
+        # edits timeline/content/review stores directly between observations.
+        from ub_agents.records import iso, seconds
+        for number, item in list(self.items.items()):
+            inputs = deepcopy((item, FakeGitHub.timeline(self, number), self.content_histories.get(number),
+                               self.review_store.get(number), self.review_comment_store.get(number),
+                               self.dependencies.get(number)))
+            if number in self.observed_inputs and self.observed_inputs[number] != inputs:
+                self.revision += 1
+                self.change(number, updated_at=iso(seconds("2026-01-02T00:00:00Z") + self.revision))
+                inputs = (self.items[number],) + inputs[1:]
+            self.observed_inputs[number] = inputs
+        return [replace(item, head=None, branch=None, draft=False, total_blocked_by=None)
+                if item.kind == "pr" and not details else item
+                for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
 
     def active_milestone(self):
         from ub_agents.records import seconds
@@ -142,6 +158,10 @@ class FakeGitHub:
 
     def item(self, number, kind=None):
         return self.items[number]
+
+    def dependency_graph(self):
+        return {i.number: self.blocked_by(i.number) for i in self.items.values()
+                if i.kind == "issue" and i.state == "open"}
 
     def blocked_by(self, number):
         return [Dependency(self.repository, n, self.items[n].state) if isinstance(n, int) else n
@@ -231,8 +251,28 @@ class PollGitHub(FakeGitHub):
                 raise result
         return getattr(super(), name)(*args)
 
-    def observe(self):
-        return self._read("observe")
+    def observe(self, details=True):
+        items = self._read("observe")
+        return [replace(i, head=None, branch=None, draft=False, total_blocked_by=None)
+                if i.kind == "pr" and not details else i for i in items]
+
+    def role(self, login):
+        return self._read("role", login)
+
+    def timeline(self, number):
+        return self._read("timeline", number)
+
+    def issue_content(self, number):
+        return self._read("issue_content", number)
+
+    def pr_content(self, number):
+        return self._read("pr_content", number)
+
+    def reviews(self, number):
+        return self._read("reviews", number)
+
+    def review_comments(self, number):
+        return self._read("review_comments", number)
 
     def default_branch(self):
         return self._read("default_branch")
@@ -251,6 +291,16 @@ class PollGitHub(FakeGitHub):
 
     def blocked_by(self, number):
         return self._read("blocked_by", number)
+
+    def dependency_graph(self):
+        self.reads.append(("dependency_graph", ()))
+        results = self.read_results.get("dependency_graph", [])
+        if results:
+            result = results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+        return {i.number: super(PollGitHub, self).blocked_by(i.number) for i in self.items.values()
+                if i.kind == "issue" and i.state == "open"}
 
     def prs_for_branch(self, branch, state="open"):
         return self._read("prs_for_branch", branch, state)
@@ -290,6 +340,9 @@ class DoctorGitHub(FakeGitHub):
         self.repository_error = None
         self.label_error = None
         self.label_names = ["ready", "needs-human", "needs-review"]
+        self.quota_headers = {"x-ratelimit-remaining": "5000", "x-ratelimit-limit": "5000",
+                                 "x-ratelimit-reset": "1000"}
+        self.rate_limited = False
         self.metadata = {"full_name": "org/project", "permissions": {"triage": True}}
 
     def actor(self):

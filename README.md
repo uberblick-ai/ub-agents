@@ -56,8 +56,11 @@ the log is never truncated or rotated. Follow it from another terminal with
 including during a GitHub request.
 
 The continuous loop retries transient GitHub discovery failures with bounded waits.
-See [polling and retry limits](docs/configuration.md#top-level) for the fixed delays,
-failure limit and rate-limit behavior. `launch --once` and `status` fail on the first
+Continuous launch waits out GitHub rate limits without charging poll failures or
+item attempts. Owned runs retry rate-limited reads while the lease permits; writes
+keep their existing handling. `doctor` reports request quota and reset time in UTC,
+warning below 10% remaining. See [polling and retry limits](docs/configuration.md#top-level)
+for the waits and failure limit. `launch --once` and `status` fail on the first
 error.
 
 In an interactive terminal, `init` explains the missing workflow labels and offers
@@ -108,6 +111,12 @@ spending an attempt and resumes after approval without `retry`. Agents receive t
 post-claim title, body and trusted or cleared comments; PR context also includes
 the assigned head, reviews and review comments. Other GitHub comments are not input.
 Outside edits during a run do not stop it.
+
+When approval is the only pickup obstacle, `launch` adds the configured stop
+label (`needs-human` in the starter) and posts one **Action needed** notice with
+the steps to start or reapprove work. Follow those steps and remove the stop label
+to resume; the next claim minimizes the notice. Unreadable history is retried
+without parking writes, and `status` stays read-only.
 
 Trusted-authored PRs need no start, and outside feedback cannot stall them.
 Outside-authored PRs need both a maintainer trigger label and an approved head;
