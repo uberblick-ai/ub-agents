@@ -55,8 +55,9 @@ the log is never truncated or rotated. Follow it from another terminal with
 `tail -f .ub-agent/launch.log`. Ctrl-C exits with status 130 and reports a stop,
 including during a GitHub request.
 
-Empty polls back off according to their REST request cost, reserving half the
-common account quota for busy work when ten idle launchers share it. Low quota
+Empty polls back off according to their REST quota cost, excluding unchanged
+reads confirmed by HTTP 304 and reserving half the common account quota for busy
+work when ten idle launchers share it. Low quota
 adds a wait bounded by the reset. A pass that runs or recovers work returns to
 normal `poll-seconds` pacing. The continuous loop retries transient GitHub
 discovery failures with bounded waits.

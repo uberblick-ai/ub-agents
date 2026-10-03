@@ -50,6 +50,7 @@ class FakeGitHub:
 
     def __init__(self, *items):
         self.rest_requests = 0
+        self.quota_requests = 0
         self.resource_quotas = {}
         self.items = {item.number: item for item in items}
         self.milestones = []

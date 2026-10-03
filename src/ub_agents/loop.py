@@ -779,7 +779,7 @@ class Loop:
             self.github.lease = None
             self._poll_complete = False
             started = monotonic()
-            requests_before = self.github.rest_requests
+            requests_before = self.github.quota_requests
             try:
                 worked = self.tick()
             except _GracefulStop:
@@ -816,7 +816,7 @@ class Loop:
             if worked:
                 idle_state = None
             else:
-                requests = self.github.rest_requests - requests_before
+                requests = self.github.quota_requests - requests_before
                 interval, low = idle_interval(requests, interval,
                                               self.github.resource_quotas,
                                               self.coordinator.clock(), elapsed)
