@@ -82,6 +82,8 @@ class Loop:
             # cleanup and durable release to finish without another exception.
             self.stop_event.set()
             return
+        if self._maintaining:
+            self._maintenance_graceful_stop = True
         self.stop_event.set()
         if not self._poll_complete and not self._refreshing_checkout and not self._maintaining:
             # Unwind even a slow discovery subprocess. Once a claim write starts,
@@ -345,6 +347,7 @@ class Loop:
 
     def maintain_runtimes(self):
         self._before_claim()
+        self._maintenance_graceful_stop = False
         self._maintaining = True
         try:
             # Test/embedding callers can replace the loop's stop event.
@@ -352,6 +355,10 @@ class Loop:
             self.maintenance.boundary(self.config)
         finally:
             self._maintaining = False
+        if self._maintenance_graceful_stop and self.interrupt_event is self.stop_event:
+            # Embedding callers can use one shared event. Remember the explicit
+            # graceful request after letting the updater finish its cancellation.
+            raise _GracefulStop
         self._before_claim()
 
     def _execute(self, plan):

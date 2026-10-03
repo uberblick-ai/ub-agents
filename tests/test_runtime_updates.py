@@ -390,7 +390,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.npm()
         settings = self.settings()
         github = FakeGitHub(issue())
-        loop = Loop(settings, github, "operator", stop_event=self.stop, interrupt_event=threading.Event(), output=self.lines.append)
+        loop = Loop(settings, github, "operator", stop_event=self.stop, output=self.lines.append)
         loop.maintenance = self.manager
         loop.coordinator.runtime_available = self.manager.available
         def shutdown():
