@@ -28,6 +28,9 @@ notes are copied from that section.
 
 ### Changed
 
+- The starter implementer template requires rerunning checks for the PR's additions
+  and changes after merging the base branch, including changes without conflicts (#125).
+
 - Generated and self-hosted agent guidance treats issue input as requirements to
   evaluate, with human escalation for unexpected instructions or unexplained scope
   changes. Implementers keep their assigned issue scope throughout a run; setup docs

@@ -23,6 +23,9 @@ starting with `Closes #N`. Push meaningful checkpoints to that same PR. Checkpoi
 not complete the assignment: keep the PR draft and do not report success until
 implementation and all project checks finish.
 
+After merging the base branch into the PR branch, rerun the checks that cover what
+the PR adds or changes, not only the files that conflicted.
+
 Before each push and before marking the PR ready, read PR comments, reviews, and
 inline feedback. Incorporate it or explain why you cannot.
 An unresolved human decision keeps the PR draft and requires a blocked report.
