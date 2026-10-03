@@ -375,6 +375,8 @@ class GitHubTests(unittest.TestCase):
                     response = self.rows[(page - 1) * 100:page * 100]
                 elif path.endswith("/pulls/1"):
                     response = self.rows[0] | {"draft": False, "head": {"sha": "a" * 40, "ref": "candidate"}}
+                elif path.endswith("/permission"):
+                    response = {"role_name": "write"}
                 else:
                     response = []
                 return subprocess.CompletedProcess(command, 0, json.dumps(response), "")
@@ -391,9 +393,10 @@ class GitHubTests(unittest.TestCase):
                     self.assertTrue(loop.tick())
                 list_pages = size // 100 + 1
                 # Cold discovery: issue list + repository comments + one PR's
-                # details and history. Warm discovery: just the two list scans.
-                self.assertEqual(first_count, list_pages + 3)
-                self.assertEqual(len(runner.calls) - first_count, list_pages + 1)
+                # details, history and own role. Warm discovery rechecks the
+                # own role with the two list scans.
+                self.assertEqual(first_count, list_pages + 4)
+                self.assertEqual(len(runner.calls) - first_count, list_pages + 2)
                 self.assertEqual(sum(urlsplit(c[-1]).path.endswith("/pulls/1") for c in runner.calls), 1)
 
     def test_closing_keywords_accept_local_qualified_and_url_references(self):
@@ -608,6 +611,8 @@ agents:
                         if paginate:
                             return super().request(endpoint, method, data, paginate=True)
                         query = parse_qs(urlsplit(endpoint).query)
+                        if urlsplit(endpoint).path.endswith("/permission"):
+                            return {"role_name": "write"}
                         if urlsplit(endpoint).path.endswith("/milestones"):
                             return []
                         if urlsplit(endpoint).path.endswith("/issues/comments"):

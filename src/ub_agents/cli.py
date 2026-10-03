@@ -129,7 +129,7 @@ def report_run(args):
     coordinator = Coordinator(github, github.actor())
     lease = next((r for r in coordinator.history(number) if r["kind"] == "lease"
                   and r["id"] == lease_id and r["run"] == env["RUN"]), None)
-    if lease is None:
+    if lease is None or lease["actor"].casefold() != coordinator.actor.casefold():
         raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")
     record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
                                 outcome=args.outcome)
@@ -217,7 +217,7 @@ def run(args):
         created = approve_issue(github, args.number, actor)
         print(f"Approval posted: {created['html_url']}")
         return
-    coordinator = Coordinator(github, actor)
+    coordinator = Coordinator(github, actor, launchers=config.launchers)
     if args.command == "recover":
         from .recovery import recover_run
         recover_run(config, github, actor, args.number, args.agent, args.reason)

@@ -180,8 +180,10 @@ class StatusTests(unittest.TestCase):
         self.github.reads.clear()
         self.status()
         self.assertEqual(self.github.reads, [
-            ("observe", ()), ("repository_comments", (604860,)), ("blocked_by", (1,)), ("comments", (1,)),
-            ("observe", ()), ("repository_comments", (604860,)), ("blocked_by", (1,)), ("comments", (1,))])
+            ("observe", ()), ("repository_comments", (604860,)), ("role", ("operator",)),
+            ("blocked_by", (1,)), ("comments", (1,)),
+            ("observe", ()), ("repository_comments", (604860,)), ("role", ("operator",)),
+            ("blocked_by", (1,)), ("comments", (1,))])
 
     def test_recovered_success_is_not_a_later_live_runs_report(self):
         source = self.claim()

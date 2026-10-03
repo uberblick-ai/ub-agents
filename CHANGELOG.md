@@ -36,6 +36,16 @@ notes are copied from that section.
 
 ### Changed
 
+- Launchers on different GitHub accounts share one queue. Coordination trusts
+  current `write`, `maintain` and `admin` authors by default; optional `launchers`
+  narrows that set. Unreadable roles stop the pass, and untrusted launchers claim
+  nothing. Approval ancestry, feedback and notices use the same trusted set.
+  Recovery can settle another trusted account's source lease; `cleanup`
+  and `recover` require this machine's recorded host rather than the same account.
+  `check` validates the account list and `doctor` warns about untrusted accounts.
+  **Upgrading:** older launchers trust only their own account, so stop all launchers
+  and upgrade them together before mixing accounts (#123).
+
 - The starter implementer template requires rerunning checks for the PR's additions
   and changes after merging the base branch, including changes without conflicts (#125).
 

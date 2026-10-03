@@ -114,7 +114,7 @@ class FakeGitHub:
         self.revision = 0
 
     def role(self, login):
-        return self.roles.get(login.casefold()) if isinstance(login, str) else None
+        return self.roles.get(login.casefold(), "none") if isinstance(login, str) else None
 
     def timeline(self, number):
         # General coordination fixtures start authorized; trust tests supply explicit histories.
@@ -212,12 +212,13 @@ class FakeGitHub:
         with self.lock:
             return deepcopy([comment for comments in self.store.values() for comment in comments])
 
-    def create_comment(self, number, body):
+    def create_comment(self, number, body, *, login=None):
         from ub_agents.records import iso, timestamp
-        data = records([{"body": body, "id": 0, "user": {"login": self.login}}])[0] if body.startswith(RECORD_MARKERS) else {}
+        login = self.login if login is None else login
+        data = records([{"body": body, "id": 0, "user": {"login": login}}])[0] if body.startswith(RECORD_MARKERS) else {}
         with self.lock:
             created_at = iso(timestamp())
-            comment = {"id": self.next_id, "node_id": f"node-{self.next_id}", "body": body, "user": {"login": self.login},
+            comment = {"id": self.next_id, "node_id": f"node-{self.next_id}", "body": body, "user": {"login": login},
                        "created_at": created_at, "updated_at": created_at,
                        "issue_url": f"https://api.github.com/repos/org/project/issues/{number}",
                        "html_url": f"https://github.com/org/project/issues/{number}#issuecomment-{self.next_id}"}
@@ -241,6 +242,16 @@ class FakeGitHub:
     def unminimized_comments(self, comments):
         return [comment for comment in comments if comment["id"] not in self.minimized_ids]
 
+    def delete_comment(self, comment_id):
+        with self.lock:
+            for comments in self.store.values():
+                for comment in comments:
+                    if comment["id"] == comment_id:
+                        comments.remove(comment)
+                        self.writes.append(("delete", comment_id))
+                        return
+        raise AssertionError(f"Unknown comment {comment_id}")
+
     def minimize_comment(self, comment):
         for comments in self.store.values():
             for stored in comments:
@@ -252,6 +263,21 @@ class FakeGitHub:
 
     def candidate_evidence(self, number, sha):
         return "APPROVED", "SUCCESS"
+
+
+class AccountGitHub:
+    """A separate authenticated client of the same recording durable store."""
+    def __init__(self, github, login):
+        self.github, self.login = github, login
+
+    def __getattr__(self, name):
+        return getattr(self.github, name)
+
+    def actor(self):
+        return self.login
+
+    def create_comment(self, number, body):
+        return self.github.create_comment(number, body, login=self.login)
 
 
 class PollGitHub(FakeGitHub):

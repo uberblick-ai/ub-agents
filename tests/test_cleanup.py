@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -38,7 +39,8 @@ class CleanupTests(unittest.TestCase):
         self.branch = f"ub-agents/worker/1/{self.lease['run']}"
         self.path = self.root / ".ub-agents" / "worktrees" / self.lease["run"]
         git(self.root, "worktree", "add", "-b", self.branch, str(self.path), "HEAD")
-        self.coordinator.update(self.lease, state="running", started=True, branch=self.branch)
+        self.coordinator.update(self.lease, state="running", started=True, branch=self.branch,
+                                host=socket.gethostname())
         self.coordinator.release(self.lease, "retry", "fixture")
         self.cleaner = Cleaner(self.config, self.github, "operator", output=lambda *_: None)
 
@@ -129,6 +131,35 @@ class CleanupTests(unittest.TestCase):
     def test_ignored_files_do_not_make_tree_dirty(self):
         (self.path / "ignored").write_text("ignored")
         self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
+
+    def test_trusted_other_account_on_this_host_is_eligible(self):
+        self.github.roles["other"] = "write"
+        self.github.store[1][0]["user"]["login"] = "other"
+        self.assertEqual(self.actions()["worktree"]["action"], "would remove")
+        self.assertEqual(self.actions(True)["branch"]["action"], "removed")
+
+    def test_released_and_expired_leases_require_this_host(self):
+        for state in ("released", "running"):
+            for host in ("other-host", None):
+                with self.subTest(state=state, host=host):
+                    self.update(state=state, host=host, expires=iso(timestamp() - 60), process_group=1234)
+                    with patch("ub_agents.cleanup.group_members", return_value=[]) as groups:
+                        rows = self.actions(True)
+                    self.assertTrue(all(row["action"] == "kept" for row in rows.values()))
+                    self.assertIn("another host or has no recorded host", rows["worktree"]["reason"])
+                    groups.assert_not_called()
+        self.update(host=socket.gethostname())
+        with patch("ub_agents.cleanup.group_members", return_value=[]):
+            self.assertEqual(self.actions()["worktree"]["action"], "would remove")
+
+    def test_unlisted_writer_and_demoted_account_artifacts_are_kept(self):
+        self.github.roles["other"] = "write"
+        self.github.store[1][0]["user"]["login"] = "other"
+        self.cleaner = Cleaner(replace(self.config, launchers=("operator",)), self.github, "operator", output=lambda _: None)
+        self.assertTrue(all(row["action"] == "kept" for row in self.actions(True).values()))
+        self.cleaner = Cleaner(self.config, self.github, "operator", output=lambda _: None)
+        self.github.roles["other"] = "read"
+        self.assertTrue(all(row["action"] == "kept" for row in self.actions(True).values()))
 
     def test_live_other_actor_missing_and_unconfirmed_leases_are_kept(self):
         for mode in ("live", "actor", "missing", "unconfirmed"):

@@ -36,9 +36,15 @@ Observe GitHub → match a label → claim the item → run the agent → record
 
 You need macOS or Linux, `git`, an authenticated `gh`, and the agent CLIs you want to
 use, such as `codex` or `claude`. Homebrew installs Python and `gh`; checkout installs
-require Python 3.11+. Every launcher for a project must
-authenticate `gh` as the same GitHub account: only that account's coordination
-comments count, so launchers on different accounts would not see each other's claims.
+require Python 3.11+. Launchers may use different GitHub accounts with `write`,
+`maintain` or `admin` repository access and share one queue. By default, records
+from any account with those roles count, including humans with write access.
+These humans can already change labels and push, so posting records adds little
+authority. Optional `launchers: [bot-a, alice]` narrows that set; listed accounts
+still require `write` or higher. See [launcher accounts](docs/configuration.md#launcher-accounts).
+
+**Upgrading for shared accounts:** older launchers trust only their own account.
+Stop all of the project's launchers and upgrade them together before mixing accounts.
 
 ```sh
 brew install uberblick-ai/tap/ub-agents
@@ -342,7 +348,8 @@ are in the [coordination contract](docs/coordination.md).
 
 Private worktrees left by crashed runs and retained local branches can be inspected
 with `ub-agents cleanup` and removed with `ub-agents cleanup --apply`. Removal needs
-an actor-owned, eligible GitHub lease; dirty, locked or uncertain artifacts stay.
+an eligible GitHub lease from a trusted account whose recorded host is this machine;
+another or missing host, dirty trees, locked trees and uncertain artifacts stay.
 Projects can configure a supervised [cleanup hook](docs/configuration.md#project-cleanup-hook)
 for resources associated with each private worktree. Document operator-only recovery
 steps in a project operations document linked from `AGENTS.md`.
