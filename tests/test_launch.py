@@ -71,18 +71,19 @@ class LaunchTests(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
 
         def wait(_):
-            self.assertEqual(self.log_lines(), ["Waiting for eligible GitHub work"])
+            self.assertEqual(self.log_lines(), ["No eligible work; next poll in 0.0166667 min (0 requests last poll)"])
             signal.raise_signal(signal.SIGINT)
 
         with patch("ub_agents.cli.load_config", return_value=self.config), \
                 patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("threading.Event.wait", side_effect=wait), \
+                patch("ub_agents.loop.monotonic", return_value=0), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
-        self.assertEqual(stdout.getvalue(), "Waiting for eligible GitHub work\n")
+        self.assertEqual(stdout.getvalue(), "No eligible work; next poll in 0.0166667 min (0 requests last poll)\n")
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
-        self.assertEqual(self.log_lines(), ["Waiting for eligible GitHub work",
+        self.assertEqual(self.log_lines(), ["No eligible work; next poll in 0.0166667 min (0 requests last poll)",
                                            "Stopped; supervised execution terminated"])
 
     def test_sigint_during_github_request_stops_without_retry_or_error(self):

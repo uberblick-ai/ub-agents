@@ -17,6 +17,48 @@ from tests.support import RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
+    def test_latest_quota_headers_are_retained_per_resource_including_failures(self):
+        runner = RecordingRunner(Path('/synthetic'))
+        github = GitHub('org/project', runner)
+        prefix = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
+                  'Accept: application/vnd.github+json', '--include')
+
+        def response(endpoint, resource, remaining, status=200, etag=None):
+            validator = f'ETag: {etag}\n' if etag is not None else ''
+            runner.responses[prefix + (endpoint,)] = subprocess.CompletedProcess(
+                [], int(status >= 400), f'HTTP/2.0 {status} Response\n'
+                f'X-RateLimit-Resource: {resource}\nX-RateLimit-Remaining: {remaining}\n'
+                f'X-RateLimit-Limit: 5000\nX-RateLimit-Reset: 4600\n{validator}\n{{}}', '')
+
+        response('user', 'core', 4000)
+        github.request('user')
+        response('graphql', 'graphql', 500)
+        github.request('graphql')
+        response('user', 'core', 0, 403)
+        with self.assertRaises(GitHubError):
+            github.request('user')
+        self.assertEqual(github.resource_quotas['core']['x-ratelimit-remaining'], '0')
+        self.assertEqual(github.resource_quotas['graphql']['x-ratelimit-remaining'], '500')
+        self.assertEqual(github.quota_headers, github.resource_quotas['core'])
+        self.assertEqual(github.rest_requests, 2)
+        self.assertEqual(github.quota_requests, 2)
+        response('user', 'core', 5000, etag='"user"')
+        github.request('user')
+        self.assertEqual(github.resource_quotas['core']['x-ratelimit-remaining'], '5000')
+        self.assertEqual(github.resource_quotas['graphql']['x-ratelimit-remaining'], '500')
+        conditional = prefix + ('user', '-H', 'If-None-Match: "user"')
+        runner.responses[conditional] = subprocess.CompletedProcess(
+            [], 1, 'HTTP/2.0 304 Not Modified\nX-RateLimit-Resource: core\n'
+            'X-RateLimit-Remaining: 4999\nX-RateLimit-Limit: 5000\n'
+            'X-RateLimit-Reset: 8200\n\n', 'gh: HTTP 304')
+        self.assertEqual(github.request('user'), {})
+        self.assertEqual(github.resource_quotas['core']['x-ratelimit-remaining'], '4999')
+        self.assertEqual(github.resource_quotas['core']['x-ratelimit-reset'], '8200')
+        self.assertEqual(github.resource_quotas['graphql']['x-ratelimit-remaining'], '500')
+        self.assertEqual(github.quota_headers, github.resource_quotas['core'])
+        self.assertEqual(github.rest_requests, 4)
+        self.assertEqual(github.quota_requests, 3)
+
     def test_rate_limit_classification_uses_real_response_headers_and_messages(self):
         command = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
                    'Accept: application/vnd.github+json', '--include', 'user')

@@ -55,6 +55,7 @@ class ETagTests(unittest.TestCase):
                 self.assertEqual(github.actor(), 'operator')
                 self.assertEqual([validator(c) for c, _ in runner.calls], [None, 'W/"old"', '"old"'])
                 self.assertEqual(github.quota_requests, 1)
+                self.assertEqual(github.rest_requests, 3)
                 self.assertEqual(github.quota_headers['x-ratelimit-remaining'], '4000')
 
     def test_changed_response_replaces_payload_and_next_validator(self):
@@ -73,6 +74,7 @@ class ETagTests(unittest.TestCase):
         self.assertEqual(github.request('resource'), {'fresh': True})
         self.assertEqual([validator(c) for c, _ in runner.calls], [None, None, '"new"'])
         self.assertEqual(github.quota_requests, 1)
+        self.assertEqual(github.rest_requests, 3)
         repeated = SequenceRunner(response(304), response(304))
         with self.assertRaisesRegex(GitHubError, 'after refetch'):
             GitHub('org/project', repeated).request('resource')
@@ -138,6 +140,7 @@ class ETagTests(unittest.TestCase):
         self.assertEqual(github.request('resource'), {})
         self.assertEqual([validator(c) for c, _ in runner.calls], [None] * 9 + ['"read"'])
         self.assertEqual(github.quota_requests, 5)
+        self.assertEqual(github.rest_requests, 6)
 
     def test_missing_etag_clears_entry_and_invalid_or_failed_responses_do_not_replace_it(self):
         runner = SequenceRunner(response(payload={'version': 1}, etag='"one"'),
@@ -170,6 +173,7 @@ class ETagTests(unittest.TestCase):
         with self.assertRaises(GitHubError):
             github.actor()
         self.assertEqual(github.quota_requests, 0)
+        self.assertEqual(github.rest_requests, 1)
 
 
 class CoordinationRunner(RecordingRunner):

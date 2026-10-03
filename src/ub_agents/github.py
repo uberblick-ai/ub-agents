@@ -161,6 +161,9 @@ class GitHub:
         self.repository = repository
         self.prefix = f"repos/{repository}"
         self.quota_headers = {}
+        self.resource_quotas = {}
+        # All attempted REST calls, including revalidations and transport failures.
+        self.rest_requests = 0
         # REST responses that consume quota; GraphQL has a separate budget.
         self.quota_requests = 0
         self.rate_limited = False
@@ -224,6 +227,8 @@ class GitHub:
     def _response(self, command, endpoint, method, data, cached):
         if cached is not None:
             command = command + ["-H", f"If-None-Match: {cached[0]}"]
+        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+            self.rest_requests += 1
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -250,6 +255,9 @@ class GitHub:
                 self.quota_requests += 1
             if "x-ratelimit-remaining" in headers:
                 self.quota_headers = headers
+        resource = headers.get("x-ratelimit-resource")
+        if resource in {"core", "graphql"}:
+            self.resource_quotas[resource] = headers
         # gh exits 1 for a 304 and writes "gh: HTTP 304" to stderr. The
         # server's freshness confirmation takes precedence over that exit code.
         if status == 304:
