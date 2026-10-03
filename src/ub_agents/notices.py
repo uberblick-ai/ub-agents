@@ -23,6 +23,15 @@ class Notices:
                 if (c.get("body") or "").startswith(RECORD_MARKERS + ACTION_MARKERS)
                 and trusted(c.get("user"))]
 
+    def post_once(self, number, text, markers):
+        # As with claims, simultaneous posters elect the lowest comment ID.
+        # A loser removes only the advisory comment it just posted; durable
+        # coordination records are never deleted.
+        created = self.github.create_comment(number, text)
+        matches = [c for c in self.comments(number) if c["body"].startswith(markers)]
+        if matches and min(c["id"] for c in matches) < created["id"]:
+            self.github.delete_comment(created["id"])
+
     def advisory(self, operation, action):
         try:
             return action()
@@ -80,8 +89,8 @@ class Notices:
             resume = (f"A maintainer must re-apply a trigger label ({trigger_text}), or run "
                       f"`ub-agents approve --number {number}`; then remove the stop label(s) {labels}.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
-        self.advisory(f"Action needed post on #{number}", lambda: self.github.create_comment(
-            number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n"))
+        self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
+            number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n", markers))
 
     def superseded(self, number, agent, run):
         def minimize_records():
@@ -163,5 +172,5 @@ class Notices:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
         reason = " ".join(summary.split())
-        self.github.create_comment(number,
-            f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n")
+        self.post_once(number,
+            f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n", markers)

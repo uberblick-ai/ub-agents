@@ -44,9 +44,9 @@ class RetryTests(unittest.TestCase):
                 self.assertEqual(output.splitlines(), [
                     "Reset worker attempts on #97: https://github.com/org/project/issues/97#issuecomment-1",
                     expected])
-                # Preserve the existing history, item and advisory notice reads.
+                # Reset notice cleanup checks the new record author's role.
                 self.assertEqual(self.github.reads, [
-                    ("comments", (97,)), ("item", (97, None)), ("comments", (97,))])
+                    ("comments", (97,)), ("item", (97, None)), ("comments", (97,)), ("role", ("operator",))])
                 self.assertEqual(self.github.writes, [("create", 1)])
                 reset = records(self.github.store[97], "operator")[0]
                 self.assertEqual((reset["kind"], reset["agent"], reset["assignment"],
@@ -108,5 +108,5 @@ class RetryTests(unittest.TestCase):
         result, output, errors = self.retry()
         self.assertEqual((result, output, errors),
                          (1, "", "ub-agents: Cannot reset attempts while an assignment is owned\n"))
-        self.assertEqual(self.github.reads, [("comments", (97,))])
+        self.assertEqual(self.github.reads, [("comments", (97,)), ("role", ("operator",))])
         self.assertEqual(self.github.writes, writes)

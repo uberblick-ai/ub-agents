@@ -236,6 +236,9 @@ counts. A later claim by any agent on the item, or an explicit retry
 reset, minimizes its earlier Action needed notices. Minimization, notice posts
 and evidence reads are advisory: a failure is logged and does not change the
 durable result. A failed notice post is not retried on each poll.
+Notice deduplication considers all trusted authors. Simultaneous posters elect
+the lowest comment ID; each loser removes only its own newly posted advisory
+duplicate, preserving every coordination record. Duplicate removal is advisory too.
 
 Within one `ub-agents launch` session, an unchanged blocked or parked item is
 printed once. A change to its state or reason prints it again. Stop-label outcomes
@@ -491,12 +494,11 @@ The reason attests that the launcher has stopped; the command checks the agent's
 process group and does not try to prove launcher termination. The recovery lease
 records `recovery_reason`, with the GitHub comment author identifying the actor.
 Any non-withdrawn recovery claim naming the original lease revokes its ownership,
-so a surviving original supervisor makes no further coordination writes. Recovery
-can be performed by another trusted account and settles the source attempt with
+so a surviving original supervisor makes no further coordination writes. Another
+trusted account can recover it and settle the source attempt with
 the same verdict as recovery by the source account. Source outcome comments keep
 their original authors; handoff copies posted by a recoverer name that recoverer.
-Recovery
-contenders, including expiry recovery racing the command, elect the lowest live
+Recovery contenders, including expiry recovery racing the command, elect the lowest live
 comment id as usual. A stopped recovery can itself be recovered after its bounded
 claim expires, without starting an agent or restoring the original lease's ownership.
 No remote-host recovery, force clearing, process signalling or recovery without a

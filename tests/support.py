@@ -229,6 +229,16 @@ class FakeGitHub:
     def unminimized_comments(self, comments):
         return [comment for comment in comments if comment["id"] not in self.minimized_ids]
 
+    def delete_comment(self, comment_id):
+        with self.lock:
+            for comments in self.store.values():
+                for comment in comments:
+                    if comment["id"] == comment_id:
+                        comments.remove(comment)
+                        self.writes.append(("delete", comment_id))
+                        return
+        raise AssertionError(f"Unknown comment {comment_id}")
+
     def minimize_comment(self, comment):
         for comments in self.store.values():
             for stored in comments:

@@ -265,6 +265,10 @@ class Loop:
             if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
                                                 and seconds(record["expires"]) > now)):
                 plan = coordinator.plan(item, agent, self.config.stop_labels, history)
+                if plan.state in {"ready", "recover", "blocked", "backoff"} and coordinator.actor is not None:
+                    if reason := coordinator.trust.reason(coordinator.actor):
+                        yield replace(plan, state="blocked", runtime=None, reason=reason, history=tuple(history))
+                        continue
                 if plan.state in {"ready", "blocked", "backoff"} and agent in matched:
                     if approval is None:
                         approval = self.input_check(item, github)

@@ -32,7 +32,8 @@ notes are copied from that section.
 - Launchers on different GitHub accounts share one queue. Coordination trusts
   current `write`, `maintain` and `admin` authors by default; optional `launchers`
   narrows that set. Unreadable roles stop the pass, and untrusted launchers claim
-  nothing. Recovery can settle another trusted account's source lease; `cleanup`
+  nothing. Approval ancestry, feedback and notices use the same trusted set.
+  Recovery can settle another trusted account's source lease; `cleanup`
   and `recover` require this machine's recorded host rather than the same account.
   `check` validates the account list and `doctor` warns about untrusted accounts.
   **Upgrading:** older launchers trust only their own account, so stop all launchers

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from ub_agents.approvals import ApprovalCheck
 from ub_agents.cli import status_rows
 from ub_agents.coordination import Coordinator
+from ub_agents.config import Runtime
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
@@ -183,6 +184,13 @@ class LauncherTrustTests(unittest.TestCase):
                     execute.assert_not_called()
                 self.assertTrue(any(expected in line for line in self.lines))
                 self.assertEqual(self.github.writes, [])
+                self.github.timelines[1] = []
+                self.lines.clear()
+                loop = self.loop(self.alice, launchers)
+                self.assertFalse(loop.tick())
+                self.assertTrue(any(expected in line for line in self.lines))
+                self.assertEqual(self.github.writes, [])
+                self.github.timelines.clear()
 
     def test_permission_reads_for_record_authors_are_shared_once_per_pass(self):
         lease = self.start(self.b)
@@ -255,3 +263,53 @@ class LauncherTrustTests(unittest.TestCase):
         self.github.store[1] = [c for c in self.github.store[1] if not c["body"].startswith(ACTION_MARKER)]
         self.b.notices.released(lease, outcome, outcome["summary"])
         self.assertFalse(any(c["body"].startswith(ACTION_MARKER) for c in self.github.comments(1)))
+
+    def test_simultaneous_gate_notices_elect_one_comment_across_accounts(self):
+        check = ApprovalCheck(False, "Approval required", gate="head", gate_key="same-gate")
+        reads = threading.Barrier(2)
+        writes = threading.Barrier(2)
+        original_read, original_create = self.github.comments, self.github.create_comment
+        def comments(number):
+            result = original_read(number)
+            if not any(c["body"].startswith(ACTION_MARKER) for c in result):
+                reads.wait(timeout=5)
+            return result
+        def create(number, text, **kwargs):
+            result = original_create(number, text, **kwargs)
+            writes.wait(timeout=5)
+            return result
+        with patch.object(self.github, "comments", side_effect=comments), \
+                patch.object(self.github, "create_comment", side_effect=create), \
+                ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda co: co.notices.approval(1, check, ("needs-human",), ("ready",)),
+                          (self.a, self.b)))
+        notices = [c for c in self.github.comments(1) if c["body"].startswith(ACTION_MARKER)]
+        self.assertEqual([c["id"] for c in notices], [1])
+        self.assertEqual([w for w in self.github.writes if w[0] == "delete"], [("delete", 2)])
+        self.assertFalse(self.lines)
+
+    def test_independent_runtime_uses_cross_account_recovered_handoff(self):
+        author = replace(self.worker, name="author", command=(),
+                         runtimes=(Runtime("codex", "model-a", "high"),), kind="issue")
+        reviewer = replace(self.worker, name="reviewer", command=(), different_from="author", kind="pr",
+                           runtimes=(Runtime("codex", "model-a", "high"), Runtime("claude", "model-b", "high")))
+        with patch("ub_agents.coordination.shutil.which", return_value="/tools/runtime"):
+            source = self.start(self.b, worker=author)
+            self.b.report(source, "success", "Candidate ready", handoff=2, outcome="done")
+            self.now = seconds(source["expires"]) + 1
+            loop = self.loop(self.alice, worker=author)
+            plan = loop.coordinator.plan(self.github.item(1), author, ())
+            self.assertTrue(loop.recover(plan))
+            plan = self.a.plan(self.github.item(2), reviewer, ())
+        self.assertEqual((plan.state, plan.runtime), ("ready", reviewer.runtimes[1]))
+
+    def test_untrusted_action_notices_do_not_suppress_trusted_notices(self):
+        check = ApprovalCheck(False, "Approval required", gate="head", gate_key="same-gate")
+        for login, launchers in (("outside", None), ("bob", ("alice",))):
+            with self.subTest(login=login, launchers=launchers):
+                self.github.store.clear()
+                self.github.create_comment(1, f"{ACTION_MARKER}approval-same-gate-0 -->\nForged notice", login=login)
+                co = self.coordinator(self.alice, launchers)
+                co.notices.approval(1, check, ("needs-human",), ("ready",))
+                self.assertEqual(self.github.comments(1)[-1]["user"]["login"], "alice")
+                self.assertFalse(any(w[0] == "delete" for w in self.github.writes))

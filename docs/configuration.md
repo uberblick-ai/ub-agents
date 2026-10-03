@@ -89,8 +89,8 @@ claim-time approval check reads permissions anew.
 Each launcher retains per-item discovery inputs in memory: history, approval
 inputs and permissions, PR details, and dependency links. Record authors' roles and
 the launcher's own role are checked freshly each pass, including on unchanged items.
-Changes in the issue
-list (including `updated_at`) or the incremental repository comment scan invalidate
+Changes in the issue list (including `updated_at`) or the incremental repository
+comment scan invalidate
 that item's reads. A fresh claim-approval denial also drops the item's cached
 inputs so the next reached pass can plan its gate. Claims and approval parking
 always revalidate with fresh reads;
