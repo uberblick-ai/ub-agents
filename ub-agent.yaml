@@ -32,7 +32,7 @@ agents:
       - "Bash(.venv/bin/*)"
 
   implementer:
-    runtime: "codex:gpt-6.1-sol:high"
+    runtime: "codex:gpt-6.1-sol:xhigh"
     trigger: [ready, needs-changes]
     outcomes:
       handed-off: {add: [needs-review]}
