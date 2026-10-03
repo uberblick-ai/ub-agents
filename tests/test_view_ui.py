@@ -156,6 +156,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             await pilot.press('f')
             page = app.reading.page
+            self.state['latest_pass']['state'] = '[/red]'
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.session.data.get('latest_pass', {}).get('state') == '[/red]')
+            self.assertIn('[/red]', app.groups['Latest pass'].label.plain)
             self.path.write_text('{broken')
             await self.ready(app, pilot, lambda: app.session.error is not None)
             self.assertEqual(app.reading.page, page)

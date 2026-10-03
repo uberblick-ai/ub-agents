@@ -266,7 +266,7 @@ class View(App):
             group_key = 'Latest pass' if row.group.startswith('Latest pass') else row.group
             group = self.groups.get(group_key)
             if group is None:
-                group = self.groups[group_key] = tree.root.add(row.group, expand=True)
+                group = self.groups[group_key] = tree.root.add(Text(row.group), expand=True)
             label = Text(row.label())
             if row.key in self.nodes:
                 self.nodes[row.key].set_label(label)
@@ -284,8 +284,8 @@ class View(App):
         for name, node in self.groups.items():
             if name.startswith('Latest pass'):
                 omitted = mapping(self.session.data.get('omitted')).get('plans', 0)
-                node.set_label('Latest pass (' + text(latest.get('state'), 'partial') +
-                               (f'; omitted {omitted}' if omitted else '') + ')')
+                node.set_label(Text('Latest pass (' + text(latest.get('state'), 'partial') +
+                                    (f'; omitted {text(str(omitted))}' if omitted else '') + ')'))
 
     def on_tree_node_selected(self, event):
         if event.node.data in self.rows:
