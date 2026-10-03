@@ -64,17 +64,33 @@ to a maintainer, and says why, when the PR:
 
 ## Changelog
 
-`CHANGELOG.md` records user-facing changes.
+`CHANGELOG.md` and GitHub release notes give users a concise overview of what changed.
+
+- Use a neutral, factual tone. Lead with the user-visible capability or effect,
+  not the implementation. Avoid promotional language and development narration.
+- Aim for one short sentence per bullet, usually 15–30 words, followed by the issue
+  or PR reference. Leave algorithms, internal state, validation details and edge-case
+  inventories in the linked issue or PR; link to documentation for usage details.
+- Keep breaking changes, changed defaults and required operator actions explicit.
+  Put upgrade instructions in one short **Upgrading** note rather than repeating
+  them across bullets. Link to a migration guide for a longer procedure; do not
+  omit essential compatibility warnings or steps just to meet the length target.
+
+For example: "Launchers can run a specific issue or PR while applying the normal
+eligibility checks (#127)."
 
 - The implementer adds an entry under `## Unreleased` in the same PR, in the Added,
   Changed, Removed or Fixed group, ending with the issue or PR number. Internal-only
   changes such as tests, CI or refactors without behavior change need no entry; say
   so in the PR body.
-- The reviewer treats a missing or inaccurate entry as a required correction.
+- The reviewer treats a missing, inaccurate or unnecessarily detailed entry as a
+  required correction.
 - The integrator checks the entry again, together with the candidate's conflicts with
   `main`, and sends the PR back with the `changes-requested` outcome if either fails.
-- A release turns `Unreleased` into the version's section, and the GitHub release notes
-  are copied from it.
+- Before a release, consolidate related entries, remove repetition and check the
+  overview against the changes included in that release. Retain the issue or PR
+  references and all required upgrade information. Then turn `Unreleased` into the
+  version's section and copy that concise section into the GitHub release notes.
 
 ## Changes
 
