@@ -13,6 +13,13 @@ notes are copied from that section.
   agent. It reads only the item's required inputs, skips queue ranking, and explains
   ineligible work with status reasons and a nonzero exit (#127).
 
+- Each run gets a private scratch directory with mode `0700`, exposed as
+  `UB_AGENTS_SCRATCH` and `TMPDIR`. Setup fails visibly if it cannot be created;
+  confirmed process termination removes scratch while preserving run logs.
+  Scratch removal failures retain remaining files and produce a diagnostic without
+  blocking lease release or marking process termination unconfirmed.
+  Agent guidance and runtime-access documentation cover its use (#124).
+
 - Opt-in daily Claude Code and Codex maintenance at unclaimed launcher boundaries,
   with installation detection, targeted updates, shared local cooldowns and locks,
   active-run protection, concurrent start reservations and health recovery
