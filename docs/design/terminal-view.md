@@ -214,7 +214,8 @@ PR the first row is the issue it closes.
 ```text
  ub-agents v0.1.11 · next poll 26s     ↑↓ select ⏎ open 1-3 tabs ? keys q quit
 
-Paused log (pill at the bottom right of the log pane, footer keys switch to log keys):
+Paused log (pill at the bottom right of the log output, above the run status;
+footer keys switch to log keys):
                                                               ⏸ PAUSED · 37 new ↓ · f follow
  ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
 
