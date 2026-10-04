@@ -63,15 +63,19 @@ def description_parser():
 class RawAccess(ModalScreen):
     BINDINGS = [Binding('escape', 'dismiss', 'Close', priority=True)]
     DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; } #raw_status { height: 1; background: $panel; }'
+    footer_keys = 'Esc close ? keys q quit'
 
-    def __init__(self, message):
+    def __init__(self, message=None):
         super().__init__()
         self.message = message
 
     def compose(self):
+        # Read the view's state now: updates that land between the push and
+        # this compose find no widgets to update.
         with VerticalScroll():
-            yield Static(Text(self.message), id='raw_details')
-        yield Static('', id='raw_status', markup=False)
+            yield Static(Text(self.message if self.message is not None else self.app.raw_details()), id='raw_details')
+        yield Static(self.app.footer(self.app.size.width - self.styles.padding.width, self.footer_keys),
+                     id='raw_status', markup=False)
 
     def action_dismiss(self):
         self.dismiss()
@@ -79,6 +83,7 @@ class RawAccess(ModalScreen):
 
 class KeyHelp(RawAccess, inherit_bindings=False):
     BINDINGS = [Binding('escape,question_mark', 'dismiss', 'Close', priority=True)]
+    footer_keys = 'Esc/? close q quit'
 
     def __init__(self):
         super().__init__(
@@ -329,6 +334,7 @@ class View(App):
         self.session = None
         self.rows, self.nodes, self.reason_nodes, self.groups = {}, {}, {}, {}
         self.selected = None
+        self.chosen = False  # a person picked a row; the view stops following the run
         self.readings = {}
         self.token = 0
         self.busy = False
@@ -403,9 +409,13 @@ class View(App):
         cursor_reason = cursor is not None and cursor is self.reason_nodes.get(cursor.data)
         cursor_group = next((name for name, node in self.groups.items() if node is cursor), None)
         incoming = {row.key: row for row in rows}
+        # Until a person picks a row, the view follows the launcher's own run,
+        # which can start after the view first read the snapshot.
+        own = next((key for key in incoming if key.startswith('assignment:')), None)
+        follow = own is not None and not self.chosen and own != self.selected
         # A selected row disappearing in a partial pass is retained as an earlier
-        # observation; updates never replace the selection or steal pane focus.
-        if self.selected in self.rows and self.selected not in incoming:
+        # observation; updates never replace a picked row or steal pane focus.
+        if self.selected in self.rows and self.selected not in incoming and not follow:
             incoming[self.selected] = self.rows[self.selected]
         for key in tuple(self.nodes):
             if key not in incoming:
@@ -454,16 +464,25 @@ class View(App):
         if omitted:
             title.append(f' · omitted {text(str(omitted))}', style='dim')
         tree.root.set_label(title)
-        if self.selected is None and incoming:
+        if follow or self.selected is None and incoming:
             first = next(iter(incoming.values()))
-            self.select(RECENT_ACTIVITY if first.group == 'Recent activity' else first.key)
+            self.select(own if follow else RECENT_ACTIVITY if first.group == 'Recent activity' else first.key,
+                        chosen=False)
             target = self.groups['Recent activity'] if self.selected == RECENT_ACTIVITY else self.nodes[self.selected]
-            self.call_after_refresh(tree.move_cursor, target)
+            self.call_after_refresh(self.move_cursor, target)
         elif cursor:
             target = (self.groups.get(cursor_group) if cursor_group else
                       (self.reason_nodes if cursor_reason else self.nodes).get(cursor.data))
             if target is not None and target is not cursor:
-                self.call_after_refresh(tree.move_cursor, target)
+                self.call_after_refresh(self.move_cursor, target)
+
+    def move_cursor(self, node):
+        tree = self.query_one('#work', Tree)
+        # move_cursor reads the node's line number, which is stale until the
+        # tree rebuilds its lines; on a busy machine that rebuild may not have
+        # happened yet after a refresh, so ask for the lines first.
+        tree.last_line
+        tree.move_cursor(node)
 
     def on_tree_node_selected(self, event):
         if event.node.data == RECENT_ACTIVITY or event.node.data in self.rows:
@@ -481,7 +500,8 @@ class View(App):
                 self.select(RECENT_ACTIVITY)
                 self.query_one('#work', Tree).move_cursor(event.node)
 
-    def select(self, key):
+    def select(self, key, chosen=True):
+        self.chosen = self.chosen or chosen
         if key == self.selected:
             return
         self.selected = key
@@ -646,9 +666,8 @@ class View(App):
         status = self.footer(self.size.width, keys)
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
-            keys = 'Esc/? close q quit' if isinstance(self.screen, KeyHelp) else 'Esc close ? keys q quit'
             for footer in self.screen.query('#raw_status').results(Static):
-                footer.update(self.footer(footer.size.width, keys))
+                footer.update(self.footer(footer.size.width, self.screen.footer_keys))
         pill = self.query_one('#log_state', Static)
         pill.display = bool((page or log) and (not reading.follow or unread or lag))
         parts = ['⏸ PAUSED' if not reading.follow else '↓ BEHIND']
@@ -769,7 +788,7 @@ class View(App):
             return
         row = self.rows.get(self.selected)
         if row and row.log:
-            self.push_screen(RawAccess(self.raw_details()))
+            self.push_screen(RawAccess())
 
     def action_help(self):
         if isinstance(self.screen, KeyHelp):

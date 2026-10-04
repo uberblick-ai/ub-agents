@@ -53,7 +53,8 @@ same local log access as other own runs. Expansion survives refreshes; collapsin
 while an outcome is selected selects the Recent activity row.
 
 Outcome completion and a human blocker are shown separately: a completed step
-can still be blocked. Selection, focus and paused log positions survive refreshes,
+can still be blocked. Until you select a row, the view selects the launcher's own
+run whenever one starts. Selection, focus and paused log positions survive refreshes,
 including when a row moves between sections. A selected row that disappears
 remains an earlier local observation. Claims held by another launcher show their
 owner and have no log access.
@@ -241,7 +242,7 @@ wheel into a clean environment, checks that help and plain launch do not import
 Textual, and resolves the view entrypoint. Local checks:
 
 ```sh
-.venv/bin/python -m unittest discover -v
+.venv/bin/python -m tests
 .venv/bin/ub-agents check
 git diff --check
 ```
