@@ -291,10 +291,153 @@ if __name__ == '__main__':
     unittest.main()
 
 class TerminalRetentionTests(unittest.TestCase):
+    def test_compact_claude_replay_hidden_and_failed_result_toggles_in_real_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root)
+            state['assignment'].update(kind='issue', attempt=2)
+            state['outcomes'].append({'item': 114, 'run': 'earlier-run', 'handoff': 185})
+            path.write_text(json.dumps(state))
+            capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
+            proof = root / 'proof.json'
+            script = '''
+import json, pathlib, sys
+from textual.binding import Binding
+from ub_agents.view_ui import LogPane, View
+class ProofView(View):
+    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
+                Binding('y', 'seek_failure', priority=True)]
+    def action_seek_failure(self):
+        self.reading.follow = False
+        self.reading.anchor = (next(ref.start for ref in self.reading.page.refs
+                                   if ref.value.kind == 'tool ERROR'), 0)
+        self.query_one(LogPane).reflow()
+    def action_checkpoint(self):
+        pane = self.query_one(LogPane)
+        r = self.reading
+        value = {'raw': r.raw, 'anchor': pane.anchor(), 'entries': len(r.page.refs),
+                 'header': self.query_one('#item_header').render().plain,
+                 'run_status': self.query_one('#run_status').render().plain,
+                 'notice': self.query_one('#log_note').render().plain,
+                 'raw_details': self.raw_details(),
+                 'lines': [line.text for line in pane.lines],
+                 'refs': [(ref.start, ref.value.kind) for ref in r.page.refs],
+                 'positions': pane.positions}
+        pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
+'''
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+            modes = termios.tcgetattr(slave)
+            env = dict(os.environ, TERM='xterm-256color')
+            env.pop('NO_COLOR', None)
+            app = subprocess.Popen([sys.executable, '-P', '-c', script, str(root), str(path), str(proof)],
+                                   stdin=slave, stdout=slave, stderr=slave, start_new_session=True, env=env)
+            transcript = bytearray()
+            def drain(seconds=0.2):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.02)[0]:
+                        transcript.extend(os.read(master, 65536))
+            def checkpoint():
+                proof.unlink(missing_ok=True)
+                os.write(master, b'x')
+                deadline = time.monotonic() + 3
+                while not proof.exists() and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                return json.loads(proof.read_text())
+            try:
+                drain(0.8)
+                # Appending after attachment replays every recorded input from
+                # byte zero, preserving capture times as well as producer times.
+                from tests.test_view_data import event
+                with log.open('ab') as stream:
+                    stream.write(capture.read_bytes())
+                    stream.write(b''.join(event(i, 20) for i in range(10)))
+                drain(0.8)
+                formatted = checkpoint()
+                self.assertEqual(formatted['entries'], len(capture.read_bytes().splitlines()) + 10)
+                text = '\n'.join(formatted['lines'])
+                self.assertIn('· thinking', text)
+                self.assertIn('▸ Read <fixture>/fixture_output.py', text)
+                self.assertIn('▸ Bash cat missing-owned.txt', text)
+                self.assertIn('✗ Exit code 1', text)
+                self.assertIn('✓ run finished', text)
+                self.assertNotIn('thinking_tokens', text)
+                self.assertNotIn('producer=', text)
+                self.assertEqual(formatted['header'].splitlines()[:2],
+                                 ['#114 Cached title',
+                                  'implementer · claude synthetic-model high · attempt 2 · ⌥185'])
+                # A runtime's success line does not establish a workflow report.
+                self.assertIn('implementer running · no outcome reported', formatted['run_status'])
+                self.assertTrue(formatted['run_status'].endswith('1 earlier run'))
+                self.assertEqual(formatted['notice'], '')
+                self.assertIn('bytes ', formatted['raw_details'])
+                self.assertIn('Rendered limit 400', formatted['raw_details'])
+                for tab in (b'2', b'3', b'1'):
+                    os.write(master, tab)
+                    drain()
+                    self.assertEqual(checkpoint()['header'], formatted['header'])
+                self.assertEqual(checkpoint()['lines'], formatted['lines'])
+                os.write(master, b'f')
+                drain()
+                os.write(master, b'u')
+                drain()
+                os.write(master, b'\x1b[H')  # Home on a hidden raw record.
+                drain()
+                hidden = checkpoint()
+                self.assertTrue(hidden['raw'])
+                self.assertEqual(hidden['anchor'][0], 0)
+                self.assertIn('task_started', '\n'.join(hidden['lines']))
+                os.write(master, b'u')
+                drain()
+                self.assertEqual(checkpoint()['anchor'], hidden['anchor'])
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                drain()
+                self.assertEqual(checkpoint()['anchor'], hidden['anchor'])
+                os.write(master, b'u')
+                drain()
+                self.assertEqual(checkpoint()['anchor'][0], hidden['anchor'][0])
+                os.write(master, b'uy')  # Format and seek the recorded failure.
+                drain()
+                failed = checkpoint()
+                failed_start = next(start for start, kind in failed['refs'] if kind == 'tool ERROR')
+                self.assertEqual(failed['anchor'][0], failed_start)
+                os.write(master, b'u')
+                drain()
+                raw_failed = checkpoint()
+                self.assertEqual(raw_failed['anchor'][0], failed_start)
+                self.assertIn('No such file', '\n'.join(raw_failed['lines']))
+                os.write(master, b'u')
+                drain()
+                self.assertEqual(checkpoint()['anchor'][0], failed_start)
+                # A standalone observer restores its terminal and leaves its
+                # owned replay file unchanged on quit.
+                before = log.read_bytes()
+                os.write(master, b'q')
+                deadline = time.monotonic() + 3
+                while app.poll() is None and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertEqual(app.wait(timeout=1), 0, bytes(transcript[-1000:]))
+                drain()
+                self.assertEqual(termios.tcgetattr(slave), modes)
+                self.assertIn(b'\x1b[?1049l', transcript)
+                self.assertIn(b'\x1b[?25h', transcript)
+                self.assertEqual(log.read_bytes(), before)
+            finally:
+                if app.poll() is None:
+                    app.terminate()
+                    app.wait(timeout=3)
+                os.close(master)
+                os.close(slave)
+
     def test_captured_log_pause_retention_and_generation_in_real_terminal(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, log, state = fixture(root)
+            state['assignment'].update(kind='issue', attempt=1)
             capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
             log.write_bytes(capture.read_bytes() * 20)
             state['latest_pass']['rows'].extend([
@@ -345,6 +488,9 @@ class ProofView(View):
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
                  'entries': r.log.total_entries if r.log else 0, 'lag': r.log.unread_bytes if r.log else 0,
                  'notice': self.query_one('#log_note').render().plain,
+                 'header': self.query_one('#item_header').render().plain,
+                 'run_status': self.query_one('#run_status').render().plain,
+                 'raw_details': self.raw_details(),
                  'selected': self.selected, 'group': row.group if row else None,
                  'state': row.state if row else None, 'cursor': tree.cursor_node.data,
                  'focus': self.focused.id, 'title': tree.root.label.plain,
@@ -386,6 +532,14 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(initial['eligible'], ['plan:20:worker', 'plan:21:worker'])
                 self.assertIn('partial', initial['title'])
                 self.assertFalse(initial['recent_expanded'])
+                self.assertEqual(initial['header'].splitlines()[:2],
+                                 ['#114 Cached title', 'implementer · claude synthetic-model high · attempt 1'])
+                self.assertIn('implementer running · no outcome reported', initial['run_status'])
+                self.assertNotIn('bytes ', initial['notice'])
+                for tab in (b'2', b'3', b'1'):
+                    os.write(master, tab)
+                    drain()
+                    self.assertEqual(checkpoint()['header'], initial['header'])
                 os.write(master, b'f\x1b[5~')
                 drain(0.2)
                 paused = checkpoint()
@@ -464,6 +618,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 drain(0.2)
                 older = checkpoint()
                 self.assertLess(older['starts'][0], paused['starts'][0])
+                os.write(master, b'p')
+                drain()
+                raw = checkpoint()['raw_details']
+                self.assertIn('bytes ', raw)
+                self.assertIn('evicted ', raw)
+                self.assertIn('skipped ', raw)
+                self.assertIn('shortened ', raw)
+                self.assertIn('Rendered limit 400:', raw)
+                self.assertIn('process.log', raw)
+                self.assertIn(b'Rendered limit 400:', transcript)
+                os.write(master, b'\x1b')
+                drain()
                 os.write(master, b'u')
                 drain(0.2)
                 self.assertTrue(checkpoint()['raw'])

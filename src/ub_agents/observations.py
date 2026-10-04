@@ -9,15 +9,16 @@ import sys
 import threading
 import uuid
 
-from .records import iso, timestamp
+from .records import iso, seconds, timestamp
 from .github import closing_issues
-from .run_history import merge_record, observed_blockers, sort_runs
+from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from . import __version__
 
 VERSION = 1
 MAX_PLANS = 100
 MAX_OUTCOMES = 20
 MAX_TEXT = 2048
+DESCRIPTION_PREVIEW = 256
 MAX_BYTES = 64 * 1024
 HEARTBEAT_SECONDS = 5
 STALE_SECONDS = 30
@@ -176,9 +177,25 @@ class Observations:
         result["shortened"] = shortened
         return result
 
+    @classmethod
+    def bounded_run(cls, row):
+        shortened = {"fields": 0, "characters": 0}
+        cls.bound(display_run(row), shortened)
+        result = cls.bound(row, {"fields": 0, "characters": 0})
+        result["shortened"] = shortened if shortened["fields"] else row.get("shortened", shortened)
+        return result
+
     def emit(self):
         shortened = {"fields": 0, "characters": 0}
-        state = self.bound(self.state, shortened)
+        histories = {}
+        for key, history in self.state["histories"].items():
+            counts = dict(history.get("shortened", {"fields": 0, "characters": 0}))
+            for run in history["runs"]:
+                for name in counts:
+                    counts[name] += run.get("shortened", {}).get(name, 0)
+            histories[key] = history | {"runs": [display_run(run) for run in history["runs"]],
+                                        "shortened": counts}
+        state = self.bound(self.state | {"histories": histories}, shortened)
         groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"],
                   list(state["histories"].values())]
         for rows in groups:
@@ -194,14 +211,36 @@ class Observations:
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
-            # Keep item headers and the newest runs; account for every older run
-            # removed by either the per-item row limit or the shared byte limit.
-            for history in state["histories"].values():
-                while excess > 0 and history["runs"]:
-                    row = history["runs"].pop(0)
-                    excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
-                    history["omitted_runs"] += 1
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+            # Prefer a shorter, still-available description over losing history.
+            # Work on this publication's copy, never the retained launcher state.
+            previews = [row["description"] for row in rows if row.get("description", {}).get("available")
+                        and len(row["description"].get("text", "")) > DESCRIPTION_PREVIEW]
+            for description in sorted(previews, key=lambda d: self.byte_size(d), reverse=True):
+                if excess <= 0:
+                    break
+                before = self.byte_size(description)
+                omitted = len(description["text"]) - DESCRIPTION_PREVIEW
+                description["text"] = description["text"][:DESCRIPTION_PREVIEW]
+                description["omitted_characters"] += omitted
+                state["shortened"]["fields"] += 1
+                state["shortened"]["characters"] += omitted
+                excess -= before - self.byte_size(description)
+            # Omit globally oldest surplus runs, preserving the newest run of
+            # every referenced item, including the current assignment.
+            while excess > 0:
+                candidates = [(key, history) for key, history in state["histories"].items()
+                              if len(history["runs"]) > 1]
+                if not candidates:
+                    break
+                _, history = min(candidates, key=lambda pair: (
+                    seconds(pair[1]["runs"][0]["time"]) if pair[1]["runs"][0].get("time") else 0,
+                    pair[0]))
+                row = history["runs"].pop(0)
+                excess -= self.byte_size(row) + 1
+                history["omitted_runs"] += 1
+            # If even one run per item cannot fit, omit later plans and older
+            # session outcomes together with histories no longer referenced.
             for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
                 while excess > 0 and group:
                     row = group.pop(index)
@@ -211,6 +250,10 @@ class Observations:
                         excess -= len(json.dumps(history, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
             if excess > 0:
                 raise ValueError("Observation envelope exceeds its size limit")
+
+    @staticmethod
+    def byte_size(value):
+        return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
     def warning(self, detail):
         self.publisher.warning(detail)
@@ -257,13 +300,16 @@ class Observations:
                    "closes": closing[0] if closing else None,
                    "filing": ({"author": source.author, "time": source.created_at}
                               if source and source.author and source.created_at else None),
-                   "runs": runs[-MAX_OUTCOMES:], "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
+                   "runs": [self.bounded_run(run) for run in runs[-MAX_OUTCOMES:]],
+                   "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
         observed_blockers(history, plan.item, self.stop_labels)
         return self.bounded(history)
 
     def plan(self, plan, filing=None):
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
+               "runtime": plan.runtime.name if plan.runtime else None,
+               "failures": plan.attempt - 1, "max_attempts": plan.agent.max_attempts,
                "observed_at": iso(self.clock()), "description": (
                    {"available": True, "text": plan.item.body,
                     "omitted_characters": max(0, len(plan.item.body) - MAX_TEXT)}
@@ -294,6 +340,7 @@ class Observations:
         self.state["histories"].setdefault(str(plan.item.number), self.item_history(plan))
         self.state["assignment"] = {
             "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
+            "title": plan.item.title[:MAX_TEXT], "attempt": plan.attempt,
             "run": None, "runtime": None, "lease_state": None, "lease_expires": None,
             "process": "claiming", "process_reason": "No process has been recorded",
             "process_log": None, "context_path": None,
@@ -306,7 +353,7 @@ class Observations:
         history = self.state["histories"].get(str(record["assignment"]))
         if history:
             merge_record(history["runs"], record, self.stop_labels)
-            history["runs"] = [self.bounded(row) for row in history["runs"]]
+            history["runs"] = [self.bounded_run(row) for row in history["runs"]]
             sort_runs(history["runs"])
             while len(history["runs"]) > MAX_OUTCOMES:
                 history["runs"].pop(0)
@@ -320,8 +367,11 @@ class Observations:
             self.source_run = record.get("recovered_run")
             assignment.update(run=record["run"], runtime=record["runtime"],
                               lease_state=record["state"], lease_expires=record["expires"])
+            if record.get("attempt") is not None:
+                assignment["attempt"] = record["attempt"]
             if record.get("mode") == "recovery":
                 assignment.update(process="recovery", process_reason="Recovery starts no agent process",
+                                  recovered_run=self.source_run,
                                   paths_reason="This recovery has no process log or context")
             else:
                 if record["state"] == "released" and assignment["process"] in {"starting", "running"}:
@@ -342,6 +392,8 @@ class Observations:
             acceptance = ("rejected" if record.get("rejected") else "finalized" if finalized else
                           "accepted" if record.get("accepted") else "unaccepted")
             row = {"item": record["assignment"], "agent": record["agent"], "run": record["run"],
+                   "kind": assignment["kind"], "title": assignment["title"],
+                   "handoff": record.get("handoff"),
                    "runtime": record.get("runtime") or assignment.get("runtime"),
                    "result": assignment.get("result", record["status"]),
                    "summary": assignment.get("summary", record["summary"]),

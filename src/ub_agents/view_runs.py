@@ -4,7 +4,6 @@ from datetime import datetime
 import socket
 
 from rich.console import Group
-from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -35,7 +34,7 @@ def relative_time(value, now=None):
     if age < 86400:
         return f'{int(age // 3600)} h ago'
     days = (now.date() - local.date()).days
-    if days == 1:
+    if days <= 1:
         return 'yesterday'
     if days < 7:
         return f'{days} days ago'
@@ -68,7 +67,7 @@ def run_status(row, now):
     return 'running', text(row.get('state'), 'running')
 
 
-def runs_view(row, session, title='', now=None):
+def runs_view(row, session, now=None):
     if row is None:
         return Text('Select an item to see its history.')
     relative_now = now
@@ -79,7 +78,6 @@ def runs_view(row, session, title='', now=None):
     omitted = omitted if type(omitted) is int and omitted > 0 else 0
     filing = mapping(history.get('filing'))
     filed = isinstance(filing.get('author'), str) and bool(filing['author']) and moment(filing.get('time')) is not None
-    header = Text(f'#{row.item} {text(history.get("title") or title, "")}', style='bold', overflow='ellipsis', no_wrap=True)
     details = []
     if history.get('kind') == 'pr' and type(history.get('closes')) is int:
         details.append(f'closes #{history["closes"]}')
@@ -88,7 +86,7 @@ def runs_view(row, session, title='', now=None):
     details.append(f'{len(runs) + omitted} runs')
     subtitle = Text(' · '.join(details), style='dim')
     if not filed and not runs and not omitted:
-        return Group(header, subtitle, Rule(style='dim', characters='┄'), Text('No item history cached.'))
+        return Group(subtitle, Text('No item history cached.'))
     table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style='dim')
     table.add_column('when', width=11, no_wrap=True)
     table.add_column('result', width=6, no_wrap=True)
@@ -113,4 +111,4 @@ def runs_view(row, session, title='', now=None):
             outcome += ' · BLOCKED: ' + ', '.join(text(b) for b in blockers[:10])
         table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary), run_host(run.get('host')), Text(outcome))
     tail = [Text(f'{omitted} earlier runs omitted.', style='dim')] if omitted else []
-    return Group(header, subtitle, Rule(style='dim', characters='┄'), table, *tail)
+    return Group(subtitle, table, *tail)

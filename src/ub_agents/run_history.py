@@ -3,6 +3,13 @@
 from .records import seconds
 
 
+def display_run(row):
+    """Keep reduction identities and precedence metadata out of the snapshot."""
+    return {key: row[key] for key in (
+        "time", "agent", "summary", "host", "outcome", "acceptance", "human_blocker",
+        "result", "state", "expires", "rejection") if key in row}
+
+
 def run_key(row):
     return row.get("assignment"), row.get("agent"), row.get("run")
 

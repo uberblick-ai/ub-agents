@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from ub_agents.view import main
 from ub_agents.view_data import (Description, Session, choose_session, item_context, load_session,
-                                 outcome_text, outcomes_today, read_json, text, work_rows)
+                                 item_header, outcome_text, outcomes_today, read_json, run_status, text, work_rows)
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
 from ub_agents.config import Queue
 from ub_agents.eligibility import AgentMatches, check_start
@@ -76,6 +76,66 @@ class ViewDataTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path, self.log, self.state = fixture(self.root)
+
+    def test_header_assignment_plan_pr_and_missing_fields(self):
+        self.state['assignment'].update(kind='issue', title='Assignment title', attempt=3)
+        self.state['latest_pass']['rows'][1].update(
+            kind='pr', title='Planned PR', failures=2, max_attempts=5, runtime='codex:gpt-6.1-sol:xhigh')
+        self.state['outcomes'].append({'item': 114, 'run': 'handoff', 'handoff': 1235})
+        session = Session(self.path, self.state)
+        work = work_rows(session, self.root)
+        self.assertEqual(item_header(work[0], Description(title='Context title'), session),
+                         ('#114 Context title', 'implementer · claude synthetic-model high · attempt 3 · ⌥1235'))
+        planned = next(row for row in work if row.item == 12)
+        self.assertEqual(item_header(planned, None, session),
+                         ('⌥12 Planned PR', 'reviewer · codex gpt-6.1-sol xhigh · 2/5 failures'))
+        self.state['assignment'] = {'item': 114}
+        session = Session(self.path, self.state)
+        self.assertEqual(item_header(work_rows(session, self.root)[0], None, session),
+                         ('#114 Cached title', '⌥1235'))
+        self.state.pop('histories')
+        self.assertEqual(item_header(work_rows(session, self.root)[0], None, session), ('#114', '⌥1235'))
+        # Older snapshots can still obtain PR identity from local run context.
+        self.assertEqual(item_header(work_rows(session, self.root)[0], Description(title='PR', kind='pr'), session)[0],
+                         '⌥114 PR')
+
+    def test_status_matches_only_selected_run_and_counts_other_same_item_outcomes(self):
+        current = {'item': 114, 'agent': 'implementer', 'run': 'owned-run',
+                   'result': 'success', 'acceptance': 'unaccepted'}
+        self.state['outcomes'].extend([
+            {'item': 114, 'agent': 'preparer', 'run': 'before', 'handoff': 999}, current])
+        session = Session(self.path, self.state)
+        assignment = work_rows(session, self.root)[0]
+        for acceptance in ('unaccepted', 'accepted', 'finalized', 'rejected'):
+            current['acceptance'] = acceptance
+            self.assertEqual(run_status(assignment, session),
+                             (f'implementer running · reported success ({acceptance})', '1 earlier run', True))
+        # A reported outcome can be selected before its process has exited.
+        reported = next(row for row in work_rows(session, self.root) if row.key == 'outcome:owned-run')
+        self.assertTrue(run_status(reported, session)[2])
+        self.state['outcomes'].remove(current)
+        self.assertEqual(run_status(assignment, session),
+                         ('implementer running · no outcome reported', '1 earlier run', True))
+        self.state['assignment'].update(process='recovery', recovered_run='before')
+        recovered = work_rows(session, self.root)[0]
+        self.assertEqual(run_status(recovered, session), ('implementer recovery · outcome reported', '', False))
+        outcome = next(row for row in work_rows(session, self.root) if row.run == 'before')
+        self.assertEqual(run_status(outcome, session), ('preparer exited · outcome reported', '', False))
+        planned = next(row for row in work_rows(session, self.root) if row.item == 12)
+        self.assertEqual(run_status(planned, session), ('reviewer owned · no outcome reported', '', False))
+        self.state['assignment'] = None
+        from dataclasses import replace
+        earlier = replace(assignment, state='earlier observation')
+        self.assertFalse(run_status(earlier, session)[2])
+
+    def test_optional_header_counts_reject_invalid_snapshot_values(self):
+        for field in ('attempt', 'failures', 'max_attempts', 'handoff'):
+            for value in (-1, True, '3'):
+                with self.subTest(field=field, value=value):
+                    self.state['assignment'][field] = value
+                    self.path.write_text(json.dumps(self.state))
+                    self.assertEqual(load_session(self.path).state(), 'malformed')
+            del self.state['assignment'][field]
 
     def test_section_mapping_deduplicates_assignment_and_preserves_planned_order(self):
         plans = [

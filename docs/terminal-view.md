@@ -14,6 +14,8 @@ launcher, produces a one-line error and plain output continues. The view has no
 workflow controls. Only an explicit Issue-tab description request uses the user's
 existing authenticated `gh` access.
 
+The target look for upcoming changes is in [design/terminal-view.md](design/terminal-view.md).
+
 ## Installation
 
 The view is part of every install: `brew install uberblick-ai/tap/ub-agents`, or
@@ -56,17 +58,23 @@ including when a row moves between sections. A selected row that disappears
 remains an earlier local observation. Claims held by another launcher show their
 owner and have no log access.
 
-The right pane has Log, Issue and Runs tabs. Issue first uses the snapshot
-description or that session's run `context.json`. A shortened or empty cached
-description is available and needs no GitHub read.
+The right pane has Log, Issue and Runs tabs. Each starts below the tab bar with
+the same two-line item header and a dashed rule. The bold first line shows `#N`
+for an issue or `⌥N` for a PR, followed by its title. The dim second line joins
+the agent, runtime (`cli model effort`), running assignment's `attempt N` or
+planned work's `F/M failures`, and a session outcome's linked PR (`⌥N`) with
+` · `. Missing values are omitted. Failure counts and the agent's `max-attempts`
+come from the launcher's existing coordination reads, within the snapshot limits.
+Issue first uses the snapshot description or that session's run `context.json`.
+A shortened or empty cached description is available and needs no GitHub read.
 
 Runs shows the **selected item's history**, oldest first, from coordination
-records the launcher has already read, including runs by other launchers. Its
-bold header shows the item reference and title; the dim second line shows
-`closes #N` for a PR with a local closing issue, `filed by LOGIN` when known, and
-the run count. The count includes omitted runs and excludes the filing row.
-For a PR with multiple local closing references, the lowest issue number supplies
-the filing row. A PR without a closing reference has no filing row.
+records the launcher has already read, including runs by other launchers. Below
+the shared header, a dim line shows `closes #N` for a PR with a local closing issue,
+`filed by LOGIN` when known, and the run count. The count includes omitted runs
+and excludes the filing row. For a PR with multiple local closing references,
+the lowest issue number supplies the filing row. A PR without a closing reference
+has no filing row.
 
 The first table row shows who filed the issue and when, with `GitHub` and `filed`
 in the where and outcome columns. On a PR, this is the closing issue's filing,
@@ -87,9 +95,15 @@ other hosts are dim, with their domain removed and long names shortened with
 for handoff copies without a claim; older records without either show `unknown`.
 A claim and its outcome, including handoff copies, count as one run. The snapshot
 retains at most 20 runs per item and stays within its shared 64 KiB limit, with
-a notice counting any earlier runs omitted. An item with no filing or run data
-shows `No item history cached.` Selecting Recent activity itself prompts for
-an item; its expanded rows each show their item's history.
+a notice counting any earlier runs omitted. Under byte pressure, long plan
+descriptions are shortened to 256-character previews before the globally oldest
+runs are omitted. Each item's newest run is retained; if necessary, later plan
+rows and older session outcomes are then omitted with their unreferenced histories.
+The current assignment's history remains. These reductions affect only published
+snapshots; the next snapshot can use the launcher's retained data again.
+An item with no filing or run data shows `No item history cached.` Selecting
+Recent activity itself prompts for an item; its expanded rows each show their
+item's history.
 
 Issue renders only the description body as Markdown, including headings, lists,
 emphasis, inline code and code blocks. Line breaks, including CRLF and lone CR,
@@ -97,9 +111,11 @@ display as real line breaks; tabs are retained. Other control characters stay
 visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
 images and raw HTML display as text; links cannot be opened with the mouse or
 keyboard, and nothing is fetched. The item header, source/age and all notices
-remain plain text. Shortening notices sit outside the Markdown body, including
-when a description is cut inside a code fence. Log and Runs keep their existing
-plain-text projections and newline escaping.
+remain literal text. Issue does not repeat the item reference or title in its
+content. Shortening notices sit outside the Markdown body, including
+when a description is cut inside a code fence. Runs and the raw log projection
+remain literal text with visibly escaped control characters. Claude's formatted
+Log transcript is described below.
 
 | Key | Action |
 | --- | --- |
@@ -110,7 +126,7 @@ plain-text projections and newline escaping.
 | `f` | Toggle follow/pause; resuming loads the latest generation |
 | `h` | Read an older bounded page, down to byte zero |
 | `u` | Toggle formatted/raw projection of the same page |
-| `p` | Show the full raw file path; `Escape` closes it |
+| `p` | Show raw access: full file path, byte range and retention/rendering diagnostics; `Escape` closes it |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
 | `q` | Close only the view; launcher continues with plain output |
 | `Ctrl-C` | Interrupt the launching process with its normal SIGINT handling (exit 130) |
@@ -120,8 +136,67 @@ always visible in the footer, including on Issue and Runs. Pausing freezes the
 page and its position while ingestion continues. Revisiting tabs or selected
 rows restores that page and position. Resizing and raw-mode changes retain the
 entry at the reading position, with a proportional position within wrapped text.
-Claude uses the #112 formatter. Unknown runtimes, including Codex, use a labelled
-plain/raw fallback. Runtime output never establishes a workflow outcome.
+When the anchored record is hidden in formatted mode, the pane shows the next
+visible entry (or the preceding entry at the end of a page). Its original byte
+position remains the anchor until scrolling moves away; `u` restores that raw
+record, including across resizes. A page containing only hidden records is empty
+in formatted mode and still available with `u`.
+Byte ranges, lag, older-page boundaries and render-limit counts include every
+record within the line budget, including records hidden by the formatted projection.
+
+Claude's formatted Log pane shows a compact transcript:
+
+```text
+07:41:18  ▸ Read packages/hub/src/directory.ts
+07:41:40  Both paths rebuild stubs independently.
+          Moving to a shared repairStubs() in schema.
+07:41:41  · thinking
+07:42:11  ▸ Edit packages/schema/src/directory.ts +48 -0
+07:42:30  ▸ Bash pnpm test --filter schema
+07:42:31    ✗ Exit code 1
+07:43:00  ✓ run finished
+```
+
+The time column uses the producer's timezone-aware `timestamp`, converted to local
+`HH:MM:SS`. Missing or invalid producer times use a marked capture time
+(`~07:42:30`); pre-existing bytes without either time use `--:--:--`. The text
+column aligns across these cases. Assistant text is dim and italic; its line
+breaks and wrapped continuations align with the text column. All other C0/C1
+controls, including terminal escape sequences, remain visibly escaped.
+
+Tool calls show `▸`, the name and the main argument: `file_path` for Read, Edit and
+Write, `command` for Bash, and `pattern` for Grep and Glob. Other tools use their
+first string input when available. Long or multiline arguments end with `…` and
+calls fit one display line. Edit adds green `+N` and red `-N` line counts from
+`new_string` and `old_string`; Write adds green `+N` from `content`. Missing fields
+have no count. Call IDs and JSON inputs are available only in raw mode.
+Counts use LF-separated lines; a trailing LF adds no extra line.
+
+Successful tool results add no line. Failed results show one red, indented `✗`
+line with the first error line. When another visible line has intervened, it
+includes the tool name, or `tool:` if the call is outside the retained pairing
+history. Thinking
+blocks show one dim `· thinking` line; unfamiliar blocks show a dim type label and
+the rest of the message still renders. System records, including initialization,
+thinking-token updates and task notifications, and rate-limit events are hidden.
+Other complete JSON records show a dim type/subtype label. A final successful
+result shows `✓ run finished`; a failed result shows a red `✗`, its subtype and
+first error line, without repeating the last assistant message. Runtime errors
+also show a red `✗` line.
+
+Raw mode retains every record, including hidden records. Oversized, split,
+unfinished and non-JSON fragments keep their labelled raw display. Unknown
+runtimes, including Codex, use the labelled plain/raw fallback (#126). Runtime
+output never establishes a workflow outcome.
+
+Log ends with a dashed rule and a one-line status showing the agent and its
+process or plan state, plus `no outcome reported` or the reported result and
+acceptance. A spinner appears while the process runs. Other cached session
+outcomes for the same item appear at the right as `N earlier run(s)`, omitted
+when zero. Header, Log notice and status lines are shortened with `…` to fit the
+pane's width. A highlighted notice above the log appears only for file or
+generation changes, read errors, unfinished records, responses to `h`, or a
+runtime's plain/raw fallback.
 
 Only `g` on Issue starts a GitHub read. Attachment, selection, tabs, redraws,
 resizes and timers make no GitHub calls. One `gh api graphql` request reads only
@@ -145,12 +220,15 @@ After a rate-limit response, Issue shows a global cooldown through the reported
 reset or `Retry-After` time. Loads and retries make no call during it. If GitHub
 provides neither a future reset nor retry time, the cooldown is 60 seconds.
 
-Attachment reads near the tail, with a visible byte range. Ingestion reads at
+Attachment reads near the tail; `p` shows the displayed byte range, eviction,
+skip and shortening counts, and the rendered-line limit and hidden-entry count.
+These diagnostics do not occupy rows above the log. Ingestion reads at
 most 32 KiB and processes at most 128 records per update; a bounded first-read
 selection avoids replaying a tiny-record history before recent output. Retention
 is 200 entries per reader. Older reads inspect at most 32 KiB plus identity
 anchors and decode at most 200 complete records and one fragment. Rendering keeps
-at most 400 wrapped lines, discarding whole older entries with a visible boundary.
+at most 400 wrapped lines, discarding whole older entries with a boundary recorded
+on the `p` screen.
 Press `h` to recover those bytes from disk. A paused page is independent of reader
 and renderer retention. Text is limited by the formatter to 2,048 characters per
 projection, with shortening markers. `u` is also a bounded projection: use `p`
@@ -197,7 +275,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    with correct counts and planned order within Eligible. The current assignment
    appears once. Empty sections are hidden. A partial pass has a dim marker on
    the pane title, which disappears when the pass completes. Confirm follow reaches
-   recent output and cached Issue and per-item Runs tabs are readable. In Runs,
+   recent output and cached Issue and per-item Runs tabs are readable. Check the
+   shared two-line header and dashed rule on every tab, omission of missing values,
+   and the Log status, spinner, reported acceptance and earlier-run count. In Runs,
    check the filing row, local and foreign hosts, in-progress and completed runs,
    acceptance, blockers, and summary shortening at the minimum width. Select
    another item and confirm its history replaces the prior table without a
@@ -211,8 +291,16 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading
    position must remain stable; unread and lag must grow.
-3. Read older pages toward byte zero, switch raw mode and resize. Check the byte
-   range, omission notices and `p` full raw path. Resume follow.
+3. Read older pages toward byte zero, switch raw mode and resize. Open `p` and
+   check the byte range, eviction/skip/shortening counts, rendered-line limit and
+   hidden count, and full raw path. Check that diagnostics stay off the log and
+   that responses to `h` use one highlighted, shortened line. Resume follow.
+   With `tests/fixtures/runtime_logs/claude.log` as the replay source, check the
+   compact timestamps, thinking markers, tool calls, red failed Bash result and
+   final success line. Pause in raw mode on a `system` or `rate_limit_event`
+   record, toggle `u`, resize and toggle back; the same raw record must return.
+   Repeat on the failed tool result, and confirm successful results and system
+   records are visible only in raw mode.
 4. Replace or truncate the replay log. Check generation recovery and refusal of
    older reads from the prior generation.
 5. On Issue, select a row with no local description and press `g`. Confirm loading,

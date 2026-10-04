@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from queue import Empty
+import time
 
 from markdown_it import MarkdownIt
 from rich.segment import Segment
@@ -14,15 +15,32 @@ from textual.geometry import Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.screen import ModalScreen
-from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
+from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
-from .view_data import WORK_GROUPS, context_header, context_text, mapping, outcomes_today, text
+from .view_data import (WORK_GROUPS, context_header, context_text, item_header, mapping,
+                        outcomes_today, run_status, text)
 from .view_github import DescriptionLoads
-from .view_runs import run_status, runs_view
+from .view_runs import run_status as history_status, runs_view
 from .view_worker import LocalWorker, Request
 
 MAX_RENDER_LINES = 400
 RECENT_ACTIVITY = 'recent-activity'
+
+
+def pane_line(value, width, style=''):
+    line = Text(text(value, ''), style=style)
+    line.truncate(max(0, width), overflow='ellipsis')
+    return line
+
+
+class ItemTabs(TabbedContent):
+    """One header below the tab bar, shared even by subsequently added tabs."""
+
+    def compose(self):
+        for widget in super().compose():
+            yield widget
+            if isinstance(widget, Tabs):
+                yield Static('', id='item_header', markup=False)
 
 
 def description_parser():
@@ -52,7 +70,7 @@ class RawAccess(ModalScreen):
 
     def compose(self):
         with VerticalScroll():
-            yield Static(Text(self.message))
+            yield Static(Text(self.message), id='raw_details')
         yield Static('', id='raw_status', markup=False)
 
     def action_dismiss(self):
@@ -70,13 +88,14 @@ class Reading:
     latest: object = None
     log: object = None
     runtime: str = 'unknown'
+    empty_message: str = 'No local log cached for this row.'
 
 
 class LogPane(ScrollView):
     """A fixed retained page, with a logical entry anchor instead of RichLog redraw.
 
-    At most 400 wrapped lines are rendered. Whole hidden entries are accounted for
-    at the boundary, and older paging starts at the first rendered entry's byte.
+    At most 400 wrapped lines are rendered. Accounting and older paging include
+    every entry inside that budget, even when its projection has no lines.
     """
     can_focus = True
 
@@ -88,12 +107,44 @@ class LogPane(ScrollView):
         self.visible_refs = ()
         self.hidden = 0
         self.render_width = 0
+        self.held_anchor = None
+        self.held_y = None
 
     def anchor(self):
         y = int(self.scroll_y)
+        if self.held_anchor is not None and y == self.held_y:
+            return self.held_anchor
         if self.positions and y < len(self.positions):
             return self.positions[y]
         return None
+
+    def _wrap_entry(self, ref, raw, width):
+        value = ref.value
+        rich = Text(value.display(raw), style=self.rich_style)
+        if raw or not value.compact:
+            return rich.wrap(self.app.console, width, overflow='fold')
+        for start, end, style in value.styles:
+            rich.stylize(style, start, end)
+        lines = []
+        for line in rich.split('\n') if rich.plain else ():
+            if any(span.style in ('dim italic', 'italic') for span in line.spans):
+                # Wrapped assistant continuations share the explicit LF indent.
+                column, body = line[:10], line[10:]
+                for index, part in enumerate(body.wrap(self.app.console, width - 10, overflow='fold')):
+                    lines.append((column if index == 0 else Text(' ' * 10, style=self.rich_style)) + part)
+            else:
+                counts = [span.start for span in line.spans if span.style in ('green', 'red')
+                          and line.plain[span.start:span.end].lstrip('+-').isdigit()]
+                if counts:
+                    start = min(counts) - 1
+                    suffix = line[start:]
+                    line = line[:start]
+                    line.truncate(width - suffix.cell_len, overflow='ellipsis')
+                    line += suffix
+                else:
+                    line.truncate(width, overflow='ellipsis')
+                lines.append(line)
+        return lines
 
     def set_reading(self, reading):
         if self.reading is not None and self.app.query_one(TabbedContent).active == 'log':
@@ -109,52 +160,64 @@ class LogPane(ScrollView):
         wrapped = []
         if reading and reading.page:
             for ref in reversed(reading.page.refs):
-                value = ref.value.display(reading.raw)
-                lines = Text(value).wrap(self.app.console, width, overflow='fold')
+                lines = self._wrap_entry(ref, reading.raw, width)
                 if sum(len(part[1]) for part in wrapped) + len(lines) > MAX_RENDER_LINES:
                     break
                 wrapped.append((ref, lines))
         wrapped.reverse()
-        if reading and reading.page and not reading.follow and anchor and not any(ref.start == anchor[0] for ref, _ in wrapped):
+        target = anchor[0] if anchor else None
+        if reading and reading.page and anchor:
+            visible = [ref for ref in reading.page.refs if ref.value.display(reading.raw)]
+            if not any(ref.start == target for ref in visible) and visible:
+                # Keep the logical hidden anchor; display its next visible
+                # neighbor, or the last visible entry at the end of the page.
+                target = next((ref.start for ref in visible if ref.start > target), visible[-1].start)
+        if reading and reading.page and not reading.follow and anchor and not any(ref.start == target for ref, _ in wrapped):
             # Raw text can wrap to more rows than its formatted projection. Keep
             # the anchored entry even when it falls outside the tail line budget.
-            start = next((i for i, ref in enumerate(reading.page.refs) if ref.start == anchor[0]), None)
+            start = next((i for i, ref in enumerate(reading.page.refs) if ref.start == target), None)
             if start is not None:
                 wrapped = []
                 count = 0
                 for ref in reading.page.refs[start:]:
-                    lines = Text(ref.value.display(reading.raw)).wrap(self.app.console, width, overflow='fold')
+                    lines = self._wrap_entry(ref, reading.raw, width)
                     if count + len(lines) > MAX_RENDER_LINES:
                         break
                     count += len(lines)
                     wrapped.append((ref, lines))
-        self.visible_refs = tuple(part[0] for part in wrapped)
-        self.hidden = len(reading.page.refs) - len(wrapped) if reading and reading.page else 0
+        self.visible_refs = tuple(ref for ref, _ in wrapped)
+        self.hidden = len(reading.page.refs) - len(self.visible_refs) if reading and reading.page else 0
         self.lines, self.positions = [], []
         for ref, lines in wrapped:
             for index, line in enumerate(lines):
-                self.lines.append(Strip([Segment(line.plain, self.rich_style)], line.cell_len))
+                self.lines.append(Strip(Segment.apply_style(line.render(self.app.console), self.rich_style), line.cell_len))
                 self.positions.append((ref.start, index / max(1, len(lines))))
         self.virtual_size = Size(width, len(self.lines))
-        self.call_after_refresh(self.restore, reading, anchor)
+        self.call_after_refresh(self.restore, reading, anchor, target)
 
-    def restore(self, reading, anchor):
+    def restore(self, reading, anchor, target):
         if self.reading is not reading:
             return
+        self.held_anchor = self.held_y = None
         if reading and reading.follow:
             self.scroll_end(animate=False, immediate=True)
         elif anchor and self.positions:
-            candidates = [(index, position) for index, position in enumerate(self.positions) if position[0] == anchor[0]]
+            candidates = [(index, position) for index, position in enumerate(self.positions) if position[0] == target]
             if candidates:
                 y = min(candidates, key=lambda item: abs(item[1][1] - anchor[1]))[0]
                 self.scroll_to(y=y, animate=False, immediate=True)
         elif not anchor:
             self.scroll_home(animate=False, immediate=True)
+        if reading and not reading.follow and anchor and (target != anchor[0] or not self.positions):
+            self.held_anchor, self.held_y = anchor, int(self.scroll_y)
         self.refresh()
 
     def render_line(self, y):
         index = y + int(self.scroll_y)
         width = self.size.width
+        if not self.lines and y == 0 and self.reading:
+            value = pane_line(self.reading.empty_message, width)
+            return Strip([Segment(value.plain, self.rich_style)], value.cell_len).crop_extend(0, width, self.rich_style)
         return (self.lines[index].crop_extend(0, width, self.rich_style) if index < len(self.lines)
                 else Strip.blank(width, self.rich_style))
 
@@ -164,6 +227,8 @@ class LogPane(ScrollView):
 
     def watch_scroll_y(self, old, value):
         super().watch_scroll_y(old, value)
+        if self.held_anchor is not None and int(value) != self.held_y:
+            self.held_anchor = self.held_y = None
 
     def save_anchor(self):
         if self.reading:
@@ -195,8 +260,10 @@ class View(App):
     #work { width: 36; border: solid $accent; }
     #panes { width: 1fr; }
     TabPane { padding: 0 1; }
-    #log_note { height: 5; overflow: hidden; }
+    #item_header { height: 3; padding: 0 1; overflow: hidden; }
+    #log_note { height: 1; overflow: hidden; }
     #output { height: 1fr; }
+    #run_status { height: 2; overflow: hidden; }
     #issue_body { padding: 0; }
     #status { height: 2; background: $panel; }
     #keys { height: 1; background: $panel; }
@@ -237,10 +304,11 @@ class View(App):
     def compose(self) -> ComposeResult:
         with Horizontal(id='body'):
             yield Tree('Launcher work', id='work')
-            with TabbedContent(id='panes'):
+            with ItemTabs(id='panes'):
                 with TabPane('Log', id='log'):
-                    yield Static('Reading local session…', id='log_note', markup=False)
+                    yield Static('', id='log_note', markup=False)
                     yield LogPane(id='output')
+                    yield Static('', id='run_status', markup=False)
                 with TabPane('Issue', id='issue'):
                     with VerticalScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
@@ -356,12 +424,14 @@ class View(App):
             first = next(iter(incoming.values()))
             self.select(RECENT_ACTIVITY if first.group == 'Recent activity' else first.key)
             target = self.groups['Recent activity'] if self.selected == RECENT_ACTIVITY else self.nodes[self.selected]
-            self.call_after_refresh(tree.move_cursor, target)
+            tree.get_node_at_line(0)  # Rebuild line indices before moving to a new node.
+            tree.move_cursor(target)
         elif cursor:
             target = (self.groups.get(cursor_group) if cursor_group else
                       (self.reason_nodes if cursor_reason else self.nodes).get(cursor.data))
-            if target is not None and target is not cursor:
-                self.call_after_refresh(tree.move_cursor, target)
+            if target is not None:
+                tree.get_node_at_line(0)
+                tree.move_cursor(target)
 
     def on_tree_node_selected(self, event):
         if event.node.data == RECENT_ACTIVITY or event.node.data in self.rows:
@@ -426,11 +496,10 @@ class View(App):
         history = (mapping(mapping(self.session.data.get('histories')).get(str(row.item))) or
                    mapping(row.data.get('history'))) if row else {}
         now = datetime.now().astimezone()
-        active = any(run_status(run, now)[0] == 'running' for run in history.get('runs', []))
-        title = self.local_description.title if self.local_description else ''
-        signature = (row.key if row else None, repr(history), title, int(now.timestamp() * (5 if active else 1)))
+        active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
+        signature = (row.key if row else None, repr(history), int(now.timestamp() * (5 if active else 1)))
         if signature != self.last_runs:
-            self.query_one('#runs_text', Static).update(runs_view(row, self.session, title))
+            self.query_one('#runs_text', Static).update(runs_view(row, self.session))
             self.last_runs = signature
 
     def description_key(self):
@@ -465,6 +534,31 @@ class View(App):
             self.query_one('#issue_note', Static).update(Text(details + extra))
             self.last_context = value
 
+    def current_description(self):
+        local = self.local_description
+        return local if local and local.available else (self.descriptions.get(self.description_key()) or local)
+
+    def raw_details(self):
+        row = self.rows.get(self.selected)
+        reading = self.reading
+        page, log = reading.page, reading.log
+        output = self.query_one('#output', LogPane)
+        start = output.visible_refs[0].start if output.visible_refs else (page.start if page else 0)
+        end = output.visible_refs[-1].end if output.visible_refs else (page.end if page else 0)
+        details = [f'Full raw file (open with an external pager):\n{text(str(row.log), "")}' if row and row.log else '',
+                   'The u view is a bounded raw projection. The file contains all retained bytes.',
+                   f'bytes {start}–{end}',
+                   f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden; h recovers earlier bytes']
+        if log:
+            details.append(f'evicted {log.evicted_entries}; skipped {log.skipped_bytes}B; shortened {log.shortened_entries}')
+            details.append(f'unfinished {log.pending_bytes}B; file resets {log.resets}')
+            if log.error:
+                details.append('Read error: ' + text(log.error))
+        if reading.notice:
+            details.append(reading.notice)
+        details.extend(('Runtime output is not a workflow outcome.', 'Escape closes this read-only raw-access view.'))
+        return '\n\n'.join(part for part in details if part)
+
     def action_load_description(self):
         if (isinstance(self.screen, RawAccess) or self.query_one(TabbedContent).active != 'issue' or
                 self.local_description is None or self.local_description.available):
@@ -494,27 +588,50 @@ class View(App):
             self.screen.query_one('#raw_status', Static).update(status)
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
-        if not row or not row.log:
-            note = row.reason if row and mapping(row.data.get('owner')) else 'No local log cached for this row.'
-        else:
-            start = output.visible_refs[0].start if output.visible_refs else (page.start if page else 0)
-            end = output.visible_refs[-1].end if output.visible_refs else (page.end if page else 0)
-            runtime = reading.runtime
-            fallback = '' if runtime == 'claude' else f' · {runtime}: plain/raw fallback'
-            changed = 'FILE CHANGED; paused earlier generation; f latest. ' if page and reading.latest and page.generation != reading.latest.generation else ''
-            notice = changed + reading.notice
-            boundary = f'evicted {log.evicted_entries}; skipped {log.skipped_bytes}B; shortened {log.shortened_entries}' if log else ''
-            width = max(20, self.query_one('#output').size.width)
-            def line(value):
-                return value if len(value) <= width else value[:width - 1] + '…'
-            note = (line(f'bytes {start}–{end}{fallback}') + '\n' +
-                    line(notice or 'h older pages to byte zero · p full raw file path') + '\n' +
-                    line(boundary) + '\n' +
-                    line(f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden; p raw access') + '\n' +
-                    line(f'Read error: {log.error}' if log and log.error else
-                         f'Unfinished: {log.pending_bytes}B (raw preview)' if log and log.pending_bytes else
-                         'Runtime output is not a workflow outcome.'))
-        self.query_one('#log_note', Static).update(Text(note))
+        header = self.query_one('#item_header', Static)
+        width = header.content_region.width
+        title, metadata = item_header(row, self.current_description(), self.session)
+        header_text = Text()
+        header_text.append_text(pane_line(title, width, 'bold'))
+        header_text.append('\n').append_text(pane_line(metadata, width, 'dim'))
+        header_text.append('\n' + '┄' * width, style='dim')
+        header.update(header_text)
+        width = output.size.width
+        notices = []
+        if row and row.log:
+            if page and reading.latest and page.generation != reading.latest.generation:
+                notices.append('FILE CHANGED; paused earlier generation; f latest.')
+            elif page and page.generation:
+                notices.append('File replaced or changed generation.')
+            if log and log.error:
+                notices.append('Read error: ' + log.error)
+            if log and log.pending_bytes:
+                notices.append(f'Unfinished: {log.pending_bytes}B (raw preview)')
+            if reading.notice:
+                notices.append(reading.notice)
+            if reading.runtime != 'claude':
+                notices.append(f'{reading.runtime}: plain/raw fallback')
+        note = self.query_one('#log_note', Static)
+        note.display = bool(notices)
+        note.update(pane_line(' · '.join(notices), width, 'bold yellow'))
+        empty_message = (row.reason if row and mapping(row.data.get('owner')) else
+                         'No local log cached for this row.' if not row or not row.log else 'No log output yet.')
+        if reading.empty_message != empty_message:
+            reading.empty_message = empty_message
+            output.refresh()
+        left, right, running = run_status(row, self.session)
+        if running:
+            left = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[int(time.monotonic() * 10) % 10] + ' ' + left
+        right_line = pane_line(right, max(0, width - 1))
+        left_line = pane_line(left, width - right_line.cell_len - (1 if right_line.cell_len else 0))
+        status_line = left_line
+        if right_line.cell_len:
+            status_line.append(' ' * max(1, width - left_line.cell_len - right_line.cell_len)).append_text(right_line)
+        run_note = Text('┄' * width + '\n', style='dim')
+        run_note.append_text(status_line)
+        self.query_one('#run_status', Static).update(run_note)
+        if isinstance(self.screen, RawAccess):
+            self.screen.query_one('#raw_details', Static).update(Text(self.raw_details()))
 
     def action_follow(self):
         if isinstance(self.screen, RawAccess):
@@ -575,9 +692,7 @@ class View(App):
     def action_path(self):
         row = self.rows.get(self.selected)
         if row and row.log:
-            self.push_screen(RawAccess(f'Full raw file (open with an external pager):\n{row.log}\n\n'
-                                      'The u view is a bounded raw projection. The file contains all retained bytes.\n'
-                                      + self.reading.notice + '\n\nEscape closes this read-only path view.'))
+            self.push_screen(RawAccess(self.raw_details()))
 
     def action_page_up(self):
         if isinstance(self.screen, RawAccess):
