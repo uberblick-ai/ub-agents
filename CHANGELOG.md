@@ -6,75 +6,56 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.11 — 2026-10-04
+
 **Upgrading:** stop all of a project's launchers and wait until every one has exited,
-then upgrade them together before restarting: older builds reject configurations
-using `{report_command}`. In Claude `--allowedTools`, replace `Bash(ub-agents *)`
-with `Bash({report_command} report *)` (#198). Remove the trigger label or add a stop
-label on items you want to stay held (#132).
+before upgrading any; upgrade and restart them together. Claims now use renewed
+30-minute leases, newer builds read only v3 coordination records, and older builds
+reject `{report_command}` configurations (#131, #132, #198). Old coordination records
+stop being read, resetting blocked and exhausted state and attempt counts; before
+restarting, remove the trigger label or add a stop label on every item that should
+stay held (#132, #137). In Claude `--allowedTools`, replace `Bash(ub-agents *)` with
+`Bash({report_command} report *)` (#198). Delete leftover `ub-agent/…` branches and
+the `.ub-agent/` directory (#137). Approvals now default off for private and internal
+repositories; set `approvals: on` to retain the previous checks (#134).
 
 ### Added
 
-- Runtime arguments can use `{scratch}` to grant runtimes access to each run's private scratch directory ([configuration](docs/configuration.md#runtime-permissions), #194).
+- Interactive launches open a read-only terminal view of work, context, outcomes and runtime logs; `--no-ui` keeps plain output and `q` closes only the view (#114, #116).
+- Every install, including Homebrew and checkouts, includes the terminal view and its Textual dependency (#116).
+- On request, the view loads a selected item's missing description from GitHub, with cached results and rate-limit cooldowns (#115).
+- Every launcher publishes a private, bounded session snapshot under `.ub-agents/sessions/` for the view, without extra GitHub reads (#113).
+- `ub-agents help [COMMAND]` provides a compact overview and detailed help with usage and examples, available without project configuration (#143).
+- Projects can configure outside-input approvals with `approvals: on` or `off`, defaulting from repository visibility; disabled approvals include only feedback from authors with `write` or higher (#134).
+- Runtime arguments accept `{scratch}` to grant access to each run's private scratch directory; assignment context supplies its absolute path as `scratch` ([configuration](docs/configuration.md#runtime-permissions), #124, #194).
 - Launchers show an update banner with upgrade or restart instructions when a newer release or control-checkout code is available (#183).
 
 ### Changed
 
-- Live terminal work rows show two compact lines with status glyphs, titles, ownership and counts; full reasons stay on the Issue tab (#160).
+- Configuration commands accept `--config` before or after the command; `approve` and `retry` take positional numbers, retaining deprecated `--number` for one release (#130).
+- `retry` defaults to the first configured agent whose kind applies and prints the selected agent before acting (#130).
+- Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
+- Runtime usage pauses start only when a run reports a limit, remain in launcher memory, and appear only in launch output (#135).
+- Coordination reads only v3 records (#132).
 - The Runs tab shows each item's filing and run history across launchers, with relative times, hosts, outcomes and visible omission counts (#179).
-- The assignment context includes the run's scratch path as `scratch`, so agents use it without expanding `UB_AGENTS_SCRATCH` in a shell command, which Claude's permission rules can deny (#124).
-- Coordination reads only v3 records; attempt counts and blocked or exhausted state on items reset once on upgrade (#132).
 - Every terminal-view tab shares an item header; Log shows run status and earlier runs, with byte and retention diagnostics under raw access (#162).
 - The terminal view uses a one-line activity footer, contextual keys and optional log-state pill; `?` lists keys and `p` shows diagnostics (#161).
 - The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
 - Claude logs use compact local timestamps, tool calls, line counts and distinct errors in the terminal view, with raw records available on demand (#163).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items with counts, above a fixed lower half listing recent outcomes (#159, #171).
+- Live terminal work rows show two compact lines with status glyphs, titles, ownership and counts; full reasons stay on the Issue tab (#160).
+
+### Removed
+
+- The `ub-agents recover` command is removed; short leases let launchers recover expired claims automatically on any host (#131).
+- Compatibility with the old `ub-agent` command, configuration, environment, coordination markers and artifacts is removed; only `ub-agents` names remain (#137).
+- The 90% runtime usage pause and shared pause state are removed, along with pause reporting in `status`, `doctor` and `status --json`'s `runtime_pauses` (#135).
 
 ### Fixed
 
 - Agents report through the launcher's own installation regardless of PATH; incompatible record formats direct agents to that command instead of a missing-lease error (#198).
 - Terminal work rows and their cached details stay visible while polling; completed passes remove omitted rows and apply the new planned order (#166).
-- The terminal view shows the launcher's run when it starts after the view opened, until a row is selected, and keeps the tree cursor on a moved row (#189).
-- Opening raw access (`p`) no longer crashes the terminal view when the log updates before the screen draws (#189).
-
-## 0.1.11 — 2026-10-04
-
-**Upgrading:** stop all of a project's launchers and upgrade them together, since
-claims now use renewed 30-minute leases (#131). Before starting them, remove the
-trigger label or add a stop label on open items whose last run was blocked under
-`ub-agent`; those records are now ignored, making triggered items eligible again.
-Delete any leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
-Approvals now default off for private and internal repositories; set
-`approvals: on` to retain the previous checks (#134).
-
-### Added
-
-- Interactive launches open a read-only terminal view of their own session's work, context, outcomes and runtime logs; `--no-ui` keeps plain output and `q` closes only the view (#114, #116).
-- The view is part of every install, from Homebrew or a checkout; ub-agents now depends on Textual (#116).
-- On request, the view loads a selected item's missing description from GitHub, with cached results and rate-limit cooldowns (#115).
-- Every launcher publishes a private, bounded session snapshot under `.ub-agents/sessions/` for the view, without extra GitHub reads (#113).
-- `ub-agents help [COMMAND]` provides a compact overview and detailed help with
-  usage and examples, available without project configuration (#143).
-- Projects can configure outside-input approvals with `approvals: on` or `off`,
-  defaulting from repository visibility; disabled approvals include only feedback
-  from authors with `write` or higher (#134).
-
-### Changed
-
-- Configuration commands accept `--config` before or after the command; `approve`
-  and `retry` take positional numbers, retaining deprecated `--number` for one release (#130).
-- `retry` defaults to the first configured agent whose kind applies and prints
-  the selected agent before acting (#130).
-- Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
-- Runtime usage pauses start only when a run reports a limit, remain in launcher memory,
-  and appear only in launch output (#135).
-
-### Removed
-
-- Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
-- Compatibility with the old `ub-agent` command, configuration, environment,
-  coordination markers and artifacts is removed; only `ub-agents` names remain (#137).
-- The 90% runtime usage pause, shared pause state, and pause output in `status` and
-  `doctor`, including `status --json`'s `runtime_pauses`, are removed (#135).
+- The terminal view follows newly started launcher runs until a row is selected, preserves selection when rows move, and opens raw log access safely during updates (#189).
 
 ## 0.1.10 — 2026-10-03
 
