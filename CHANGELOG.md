@@ -15,6 +15,7 @@ notes are copied from that section.
 
 ### Fixed
 
+- Claude's formatted log skips cut-off first records, shows tool progress as elapsed call time, and aligns exact, capture and unknown timestamps (#192).
 - The terminal view distinguishes PRs with accent-colored ⌥ markers, including Recent activity rows and their linked PR handoffs (#174).
 
 ## 0.1.11 — 2026-10-04

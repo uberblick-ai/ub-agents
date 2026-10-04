@@ -351,7 +351,7 @@ class ViewLogTests(unittest.TestCase):
         self.assertTrue(all(ref.value.text == 'a' for ref in page.refs))
         self.assertLess(page.refs[0].start, reader.page().start)
 
-    def test_long_page_fragments_are_raw_and_marked_never_events(self):
+    def test_cut_off_first_page_fragment_is_skipped_and_keeps_raw_bytes(self):
         data = b'prefix' + event(1, size=PAGE_BYTES * 6)
         self.log.write_bytes(data)
         reader = ViewReader(self.log, 'claude')
@@ -360,7 +360,24 @@ class ViewLogTests(unittest.TestCase):
         self.assertIn('boundary', page.notice)
         self.assertTrue(all('partial raw record' in ref.value.kind for ref in page.refs))
         self.assertLess(page.start, page.end)
-        self.assertEqual(page.refs[0].value.raw, page.refs[0].value.text)
+        fragment = page.refs[0].value
+        self.assertEqual(fragment.text, '          · earlier output skipped · h older')
+        self.assertIn('partial raw record (page end)', fragment.display(raw=True))
+        self.assertNotIn('earlier output skipped', fragment.display(raw=True))
+
+    def test_older_page_skips_cut_off_init_and_folds_latest_tool_progress(self):
+        from tests.test_log_reader import record, progress, result, tool
+        init = json.dumps({'type': 'system', 'subtype': 'init', 'tools': ['private-tool'] * 5000}).encode() + b'\n'
+        page_bytes = init + record(content=[tool()]) + progress(45) + progress(60) + progress(119) + record('user', [result()])
+        self.log.write_bytes(page_bytes + b'padding\n' * 5000)
+        reader = ViewReader(self.log, 'claude')
+        self.drain(reader)
+        page = reader.older(len(page_bytes), reader.resets)
+        self.assertEqual(page.refs[0].value.text, '          · earlier output skipped · h older')
+        self.assertIn('private-tool', page.refs[0].value.display(raw=True))
+        call = next(ref.value for ref in page.refs if ref.value.calls)
+        self.assertTrue(call.text.endswith(' · 1m'))
+        self.assertEqual([ref.value.display() for ref in page.refs[-4:]], ['', '', '', ''])
 
     def test_generation_does_not_mix_and_history_checks_file_before_and_after(self):
         self.log.write_bytes(b'old\n' * 10000)

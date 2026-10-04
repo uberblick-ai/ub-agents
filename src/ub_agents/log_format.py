@@ -1,11 +1,12 @@
 """Internal, display-only Claude projections. No workflow/report authority.
 
 Based on the accepted #111 Claude adapter and standard-library pretty-printer.
-Other runtimes and incomplete/non-JSON fragments deliberately remain raw text.
+Other runtimes and incomplete/non-JSON fragments deliberately remain raw text,
+apart from the compact marker for a cut-off first record.
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import re
@@ -46,6 +47,14 @@ def event_time(value):
 
 
 @dataclass(frozen=True)
+class Call:
+    tool_id: str
+    start: int
+    end: int
+    elapsed: str = ""
+
+
+@dataclass(frozen=True)
 class Entry:
     kind: str
     text: str
@@ -55,6 +64,8 @@ class Entry:
     shortened: bool = False
     compact: bool = False
     styles: tuple = ()
+    calls: tuple[Call, ...] = ()
+    progress: tuple = ()
 
     def display(self, raw=False):
         if self.compact and not raw:
@@ -77,6 +88,12 @@ def raw_entry(raw, capture=None, kind="raw text"):
     return entry(kind, plain, plain, capture)
 
 
+def skipped_entry(raw, capture, kind):
+    original = raw_entry(raw, capture, kind)
+    text = " " * 10 + "· earlier output skipped · h older"
+    return replace(original, text=text, compact=True, styles=((10, len(text), "dim"),))
+
+
 def _identifier(value):
     return isinstance(value, str) and 0 < len(value) <= MAX_TEXT
 
@@ -96,6 +113,7 @@ class Line:
     style: str = ""
     spans: tuple = ()
     continuation: bool = False
+    tool_id: str | None = None
 
 
 def _one_line(value, limit=160):
@@ -115,15 +133,15 @@ def _time_column(event, capture):
     if stamp:
         try:
             local = datetime.fromisoformat(stamp).astimezone().strftime("%H:%M:%S")
-            return (local if event else "~" + local).ljust(9) + " "
+            return (" " if event else "~") + local + " "
         except (ValueError, OverflowError):
             pass
-    return "--:--:--  "
+    return " " * 10
 
 
 def _compact_entry(kind, lines, raw, capture, event):
     prefix = _time_column(event, capture)
-    parts, styles, offset = [], [], 0
+    parts, styles, calls, offset = [], [], [], 0
     for line in lines:
         # Assistant LF survives; every other runtime control stays inert.
         safe = inert(line.text)
@@ -134,8 +152,17 @@ def _compact_entry(kind, lines, raw, capture, event):
             styles.append((offset + len(prefix), offset + len(value), line.style))
         for start, end, style in line.spans:
             styles.append((offset + len(prefix) + start, offset + len(prefix) + end, style))
+        if line.tool_id:
+            calls.append(Call(line.tool_id, offset + len(prefix), offset + len(value)))
         offset += len(value) + 1
     full = "\n".join(parts)
+    text, styles, calls, cut = _bound_compact(full, styles, calls)
+    original = entry(kind, "", raw, capture, event)
+    return Entry(kind, text, original.raw, event, capture,
+                 cut or original.shortened, True, styles, calls)
+
+
+def _bound_compact(full, styles, calls):
     cut = len(full) > MAX_TEXT
     # Keep styles in the retained head and tail of the bounded projection.
     if cut:
@@ -150,9 +177,45 @@ def _compact_entry(kind, lines, raw, capture, event):
                 retained.append((max(start, tail) - tail + head + len(SHORTENED),
                                  end - tail + head + len(SHORTENED), style))
         styles = retained
-    original = entry(kind, "", raw, capture, event)
-    return Entry(kind, shorten(full), original.raw, event, capture,
-                 cut or original.shortened, True, tuple(styles))
+        calls = [call if call.end <= head else replace(
+                     call, start=call.start - tail + head + len(SHORTENED),
+                     end=call.end - tail + head + len(SHORTENED))
+                 for call in calls if call.end <= head or call.start >= tail]
+    return shorten(full), tuple(styles), tuple(calls), cut
+
+
+def with_elapsed(value, tool_id, elapsed):
+    """Replace a retained call's suffix without mutating an older snapshot/page."""
+    for call in reversed(value.calls):
+        if call.tool_id != tool_id:
+            continue
+        start = call.end - len(call.elapsed)
+        suffix = " · " + elapsed
+        full = value.text[:start] + suffix + value.text[call.end:]
+        shift = len(suffix) - len(call.elapsed)
+        styles = [(a, b, style) if b <= start else (a + shift, b + shift, style)
+                  for a, b, style in value.styles if b <= start or a >= call.end]
+        styles.append((start, start + len(suffix), "dim"))
+        calls = [replace(other, end=other.end + shift, elapsed=suffix) if other is call else
+                 replace(other, start=other.start + shift, end=other.end + shift) if other.start >= call.end else other
+                 for other in value.calls]
+        text, styles, calls, cut = _bound_compact(full, styles, calls)
+        value = replace(value, text=text, styles=styles, calls=calls, shortened=value.shortened or cut)
+    return value
+
+
+def _progress(data):
+    if data.get("type") != "tool_progress" or not _identifier(data.get("tool_use_id")):
+        return ()
+    seconds = data.get("elapsed_time_seconds")
+    if type(seconds) not in (int, float) or seconds < 0:
+        return ()
+    try:
+        seconds = int(seconds)
+        elapsed = f"{seconds}s" if seconds < 60 else f"{seconds // 60}m"
+    except (ValueError, OverflowError):
+        return ()
+    return (data["tool_use_id"], elapsed) if len(elapsed) <= 32 else ()
 
 
 class ClaudeFormatter:
@@ -190,8 +253,9 @@ class ClaudeFormatter:
             if len(self.tools) > MAX_TOOLS:
                 self.tools.popitem(last=False)
         self.last_call = last_call
-        return _compact_entry(kind, lines, raw.decode("utf-8", errors="replace"), capture,
-                              event_time(data.get("timestamp")))
+        value = _compact_entry(kind, lines, raw.decode("utf-8", errors="replace"), capture,
+                               event_time(data.get("timestamp")))
+        return replace(value, progress=_progress(data))
 
     @staticmethod
     def _label(data):
@@ -204,7 +268,7 @@ class ClaudeFormatter:
 
     def _project(self, data):
         kind = data.get("type")
-        if kind in ("system", "rate_limit_event"):
+        if kind in ("system", "rate_limit_event", "tool_progress"):
             return kind, [], [], self.last_call
         if kind in ("assistant", "user"):
             message = data.get("message")
@@ -248,7 +312,7 @@ class ClaudeFormatter:
                             start = len(text) + 1
                             text += f" {sign}{_line_count(inputs[field])}"
                             spans.append((start, len(text), style))
-                    parts.append(Line(text, spans=tuple(spans)))
+                    parts.append(Line(text, spans=tuple(spans), tool_id=tool_id))
                     last_call = tool_id
                 elif block_type == "tool_result" and kind == "user":
                     tool_id = block.get("tool_use_id")

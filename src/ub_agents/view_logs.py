@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import os
 import stat
 
-from .log_format import raw_entry
+from .log_format import raw_entry, skipped_entry
 from .log_reader import ANCHOR_BYTES, EntryRef, LogReader, MAX_ENTRIES, READ_BUDGET
 
 PAGE_BYTES = READ_BUDGET
@@ -100,8 +100,10 @@ class ViewReader(LogReader):
             refs = tuple(parser.refs)
             if parser.pending:
                 kind = 'partial raw record (page end); full record in raw file'
+                project = (skipped_entry if self.runtime == 'claude' and parser.raw_kind and
+                           'page boundary' in parser.raw_kind else raw_entry)
                 refs += (EntryRef(parser.record_start, parser.offset, parser.total_entries + 1,
-                                  raw_entry(bytes(parser.pending), None, kind)),)
+                                  project(bytes(parser.pending), None, kind)),)
             after = os.fstat(stream.fileno())
             self._validate(stream, after)
             current = self.path.stat()

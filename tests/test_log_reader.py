@@ -29,6 +29,13 @@ def result(tool_id="a", **extra):
     return {"type": "tool_result", "tool_use_id": tool_id, "content": "hello", **extra}
 
 
+def progress(seconds, tool_id="a", **extra):
+    """Synthetic Claude SDKToolProgressMessage; no recorded progress fixture."""
+    return json.dumps({"type": "tool_progress", "tool_use_id": tool_id, "tool_name": "Bash",
+                       "parent_tool_use_id": None, "elapsed_time_seconds": seconds,
+                       **extra}).encode() + b"\n"
+
+
 class FormattingTests(unittest.TestCase):
     def setUp(self):
         self.formatter = ClaudeFormatter()
@@ -289,7 +296,66 @@ class ReadingTests(unittest.TestCase):
         snapshot = self.drain(reader)
         self.assertIn("partial first raw record", snapshot.entries[0].kind)
         self.assertIsNone(snapshot.entries[0].event)
-        self.assertEqual(snapshot.entries[0].text, snapshot.entries[0].raw)
+        self.assertEqual(snapshot.entries[0].display(), "          · earlier output skipped · h older")
+        self.assertIn('"type": "assistant"', snapshot.entries[0].display(raw=True))
+
+    def test_tail_start_in_large_system_init_skips_fragment_but_preserves_raw_bytes(self):
+        init = json.dumps({"type": "system", "subtype": "init", "tools": ["private-tool"] * 4000}).encode() + b"\n"
+        self.path.write_bytes(init + record())
+        snapshot = self.drain(self.reader())
+        fragment = snapshot.entries[0]
+        self.assertEqual(fragment.text, "          · earlier output skipped · h older")
+        self.assertEqual(fragment.styles, ((10, len(fragment.text), "dim"),))
+        expected = self.path.read_bytes()[-TAIL_BYTES:].split(b"\n", 1)[0]
+        self.assertEqual(fragment.raw, self.reader().formatter.decode(expected).raw)
+        self.assertIn("private-tool", fragment.display(raw=True))
+        self.assertNotIn("private-tool", fragment.display())
+        self.assertEqual(snapshot.entries[-1].kind, "assistant")
+        # Other runtimes retain their existing raw fallback for the same bytes.
+        plain = self.drain(self.reader("codex")).entries[0]
+        self.assertEqual(plain.text, plain.raw)
+
+    def test_progress_updates_call_across_reads_preserves_snapshot_and_finishes(self):
+        reader = self.reader()
+        self.append(record(content=[tool()]))
+        first = reader.update()
+        for seconds, expected in ((0, "0s"), (45.9, "45s"), (59.9, "59s"), (60, "1m"), (119, "1m"), (120, "2m")):
+            self.append(progress(seconds))
+            snapshot = reader.update()
+            call = snapshot.entries[0]
+            self.assertTrue(call.text.endswith(" · " + expected))
+            start, end, style = call.styles[-1]
+            self.assertEqual((call.text[start:end], style), (" · " + expected, "dim"))
+            self.assertEqual(snapshot.entries[-1].display(), "")
+            self.assertIn('"type": "tool_progress"', snapshot.entries[-1].display(raw=True))
+            self.assertEqual(call.display(raw=True), first.entries[0].display(raw=True))
+            self.assertEqual(snapshot.refs[0].value, call)
+        self.assertNotIn(" · ", first.entries[0].text)
+        self.append(record("user", [result(is_error=True, content="Exit code 1")]))
+        finished = reader.update()
+        self.assertTrue(finished.entries[0].text.endswith(" · 2m"))
+        self.assertTrue(finished.entries[-1].text.endswith("  ✗ Exit code 1"))
+        self.assertNotIn("Bash:", finished.entries[-1].text)
+
+    def test_progress_for_missing_or_evicted_call_is_hidden_without_resurrection(self):
+        reader = self.reader()
+        self.append(record(content=[tool()]) + b"".join(record() for _ in range(MAX_ENTRIES)))
+        self.drain(reader)
+        self.append(progress(45) + progress(60, "missing"))
+        snapshot = reader.update()
+        self.assertTrue(all(not entry.calls for entry in snapshot.entries))
+        self.assertEqual([entry.display() for entry in snapshot.entries[-2:]], ["", ""])
+
+    def test_progress_does_not_update_retained_call_from_previous_generation(self):
+        reader = self.reader()
+        self.append(record(content=[tool()]))
+        first = reader.update()
+        replacement = self.path.with_suffix(".next")
+        replacement.write_bytes(progress(45))
+        replacement.replace(self.path)
+        snapshot = reader.update()
+        self.assertEqual(snapshot.entries[0], first.entries[0])
+        self.assertEqual(snapshot.entries[-1].display(), "")
 
     def test_tail_start_on_record_boundary_keeps_complete_record_structured(self):
         data = record()

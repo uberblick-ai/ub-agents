@@ -258,20 +258,24 @@ record within the line budget, including records hidden by the formatted project
 Claude's formatted Log pane shows a compact transcript:
 
 ```text
-07:41:18  ▸ Read packages/hub/src/directory.ts
-07:41:40  Both paths rebuild stubs independently.
+          · earlier output skipped · h older
+ 07:41:18 ▸ Read packages/hub/src/directory.ts
+ 07:41:40 Both paths rebuild stubs independently.
           Moving to a shared repairStubs() in schema.
-07:41:41  · thinking
-07:42:11  ▸ Edit packages/schema/src/directory.ts +48 -0
-07:42:30  ▸ Bash pnpm test --filter schema
-07:42:31    ✗ Exit code 1
-07:43:00  ✓ run finished
+ 07:41:41 · thinking
+ 07:42:11 ▸ Edit packages/schema/src/directory.ts +48 -0
+ 07:42:30 ▸ Bash pnpm test --filter schema · 1m
+ 07:43:31   ✗ Exit code 1
+ 07:43:32 ✓ run finished
 ```
 
 The time column uses the producer's timezone-aware `timestamp`, converted to local
 `HH:MM:SS`. Missing or invalid producer times use a marked capture time
-(`~07:42:30`); pre-existing bytes without either time use `--:--:--`. The text
-column aligns across these cases. Assistant text is dim and italic; its line
+(`~07:42:30`); pre-existing bytes without either time leave the time column blank.
+The fixed nine-column time slot reserves its first place for the capture marker:
+exact times appear as ` 07:42:30`, capture times as `~07:42:30`. One space separates
+this slot from the text, so entry text always starts in column 11, including
+assistant continuations. Assistant text is dim and italic; its line
 breaks and wrapped continuations align with the text column. All other C0/C1
 controls, including terminal escape sequences, remain visibly escaped.
 
@@ -282,6 +286,14 @@ calls fit one display line. Edit adds green `+N` and red `-N` line counts from
 `new_string` and `old_string`; Write adds green `+N` from `content`. Missing fields
 have no count. Call IDs and JSON inputs are available only in raw mode.
 Counts use LF-separated lines; a trailing LF adds no extra line.
+
+`tool_progress` records add no formatted line. For a retained call, its latest
+progress adds a dim elapsed suffix: `· 45s` in whole seconds below a minute,
+then `· 1m` in whole minutes. This value updates as progress arrives and stays
+on the call after it finishes. The elapsed suffix and Edit/Write counts stay
+visible when a long call is shortened to the pane width. Progress for calls
+outside the retained page is hidden. Paused pages keep their displayed values
+until follow resumes.
 
 Successful tool results add no line. Failed results show one red, indented `✗`
 line with the first error line. When another visible line has intervened, it
@@ -295,8 +307,12 @@ result shows `✓ run finished`; a failed result shows a red `✗`, its subtype 
 first error line, without repeating the last assistant message. Runtime errors
 also show a red `✗` line.
 
-Raw mode retains every record, including hidden records. Oversized, split,
-unfinished and non-JSON fragments keep their labelled raw display. Unknown
+At a tail start or an older page's starting byte boundary, a cut-off first
+record shows one dim `· earlier output skipped · h older` line, with none of
+its bytes in formatted mode. `h` reads toward earlier output. Raw mode retains
+that fragment's bytes and every record, including hidden progress records;
+the `p` raw-access screen is unchanged. Other split, oversized, unfinished and
+non-JSON fragments keep their labelled raw display. Unknown
 runtimes, including Codex, use the labelled plain/raw fallback (#126). Runtime
 output never establishes a workflow outcome.
 

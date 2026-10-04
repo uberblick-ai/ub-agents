@@ -8,13 +8,14 @@ discards unfinished bytes, timing and tool pairing, while retaining old entries.
 
 from collections import deque
 import codecs
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import os
 from pathlib import Path
 import stat
 
-from .log_format import ClaudeFormatter, Entry, MAX_RECORD, entry, inert, raw_entry, shorten
+from .log_format import (ClaudeFormatter, Entry, MAX_RECORD, entry, inert, raw_entry,
+                         shorten, skipped_entry, with_elapsed)
 
 MAX_ENTRIES = 200
 READ_BUDGET = 32 * 1024
@@ -65,6 +66,7 @@ class LogReader:
         self.entries = deque(maxlen=MAX_ENTRIES)
         self.refs = deque(maxlen=MAX_ENTRIES)
         self.total_entries = 0
+        self.generation_start = 0
         self.record_start = 0
         self.pending = bytearray()
         self.capture = None
@@ -98,8 +100,18 @@ class LogReader:
         self.capture = self.raw_kind = None
         self.anchor = b""
         self.formatter.reset()
+        self.generation_start = self.total_entries
 
     def _append(self, value, end=None):
+        if value.progress:
+            for index, ref in enumerate(self.refs):
+                if ref.serial <= self.generation_start:
+                    continue
+                updated = with_elapsed(ref.value, *value.progress)
+                if updated is not ref.value:
+                    self.entries[index] = updated
+                    self.refs[index] = replace(ref, value=updated)
+                    self.shortened += updated.shortened and not ref.value.shortened
         if len(self.entries) == MAX_ENTRIES:
             self.evicted += 1
         self.entries.append(value)
@@ -127,7 +139,11 @@ class LogReader:
                 raw = raw[:-len(trailing)]
         if kind:
             self.formatter.last_call = None
-        value = (raw_entry(raw, self.capture, kind) if kind else
+        skipped = self.runtime == "claude" and kind in (
+            "partial first raw record (tail start)",
+            "partial raw record (page boundary); full record in raw file")
+        value = (skipped_entry(raw, self.capture, kind) if skipped else
+                 raw_entry(raw, self.capture, kind) if kind else
                  self.formatter.decode(raw, self.capture) if self.runtime == "claude" else
                  raw_entry(raw, self.capture))
         self._append(value, end)
