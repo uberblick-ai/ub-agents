@@ -52,8 +52,8 @@ class CompactRecordTests(unittest.TestCase):
         self.github.change(1, labels=frozenset({'needs-preparation'}))
         lease = self.claim()
         compact = {key: lease[key] for key in ('outcomes', 'declared_triggers', 'stop_labels')}
-        legacy = {'outcomes': {name: declared_transition(lease, name) for name in lease['outcomes']}}
-        self.assertLess(len(json.dumps(compact)), len(json.dumps(legacy)) / 2)
+        expanded = {'outcomes': {name: declared_transition(lease, name) for name in lease['outcomes']}}
+        self.assertLess(len(json.dumps(compact)), len(json.dumps(expanded)) / 2)
         self.assertLess(len(json.dumps(compact)), 300)
 
     def test_invalid_compact_snapshots_and_transitions_fail_closed(self):

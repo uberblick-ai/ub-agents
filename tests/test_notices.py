@@ -13,21 +13,18 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from ub_agents.records import MARKER, attempts, body, iso, records, seconds
+from ub_agents.records import attempts, body, iso, records, seconds
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class NoticeTests(unittest.TestCase):
-    def github_for(self, *items):
-        return FakeGitHub(*items)
-
     def setUp(self):
         stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.worker = agent(self.root)
-        self.github = self.github_for(issue(), pr())
+        self.github = FakeGitHub(issue(), pr())
         self.output = []
         self.now = 1000
         self.co = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
@@ -194,7 +191,7 @@ class NoticeTests(unittest.TestCase):
     def parked_loop(self, handoff=None):
         worker = agent(self.root, kind="issue" if handoff else "pr",
                        outcomes={"human": {"add": ("needs-human",), "remove": ()}})
-        github = self.github_for(issue(), pr(labels=("ready",)))
+        github = FakeGitHub(issue(), pr(labels=("ready",)))
         loop = Loop(config(self.root, worker), github, "operator", output=self.output.append)
 
         def run(*args, **kwargs):
@@ -334,7 +331,7 @@ class NoticeTests(unittest.TestCase):
     def test_exhausted_exit_without_report_names_host_and_log_directory(self):
         for code in (0, 7):
             with self.subTest(code=code):
-                github = self.github_for(issue())
+                github = FakeGitHub(issue())
                 worker = agent(self.root, kind="issue", backoff_seconds=10, max_backoff_seconds=100)
                 cfg = config(self.root, worker)
                 for attempt in range(1, worker.max_attempts + 1):

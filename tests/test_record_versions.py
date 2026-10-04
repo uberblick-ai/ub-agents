@@ -22,6 +22,13 @@ class RecordVersionTests(unittest.TestCase):
     def claim(self):
         return self.co.claim(self.co.plan(self.github.item(1), self.worker, ()))
 
+    def old_body(self, text, version):
+        marker = f'<!-- ub-agents:v{version} -->'
+        if version == 1:
+            data = text.split('```json\n', 1)[1].split('\n```', 1)[0]
+            return f'{marker}\nOld record\n\n```json\n{data}\n```\n'
+        return text.replace(MARKER, marker, 1)
+
     def test_older_versions_have_no_coordination_authority(self):
         for version in (1, 2):
             for state, result, effect, expires in (
@@ -42,11 +49,11 @@ class RecordVersionTests(unittest.TestCase):
                     marker = f'<!-- ub-agents:v{version} -->'
                     for comments in self.github.store.values():
                         for comment in comments:
-                            comment['body'] = comment['body'].replace(MARKER, marker, 1)
-                    self.github.create_comment(1, body({
+                            comment['body'] = self.old_body(comment['body'], version)
+                    self.github.create_comment(1, self.old_body(body({
                         'kind': 'reset', 'run': 'old-reset', 'agent': 'worker',
                         'runtime': 'operator', 'created': iso(1000), 'assignment': 1,
-                        'summary': 'Old reset'}).replace(MARKER, marker, 1))
+                        'summary': 'Old reset'}), version))
                     # Payload, author and routing metadata are never inspected.
                     self.github.store[1].extend([
                         {'id': 90, 'body': marker + '\nunreadable record'},
@@ -75,7 +82,7 @@ class RecordVersionTests(unittest.TestCase):
                 self.setUp()
                 self.claim()
                 comment = self.github.store[1][0]
-                comment['body'] = comment['body'].replace(MARKER, f'<!-- ub-agents:v{version} -->', 1)
+                comment['body'] = self.old_body(comment['body'], version)
                 check = ApprovalCheck(False, 'Approval required', gate='start', gate_key='gate')
                 self.co.notices.approval(1, check, ('needs-human',), ('ready',))
                 self.assertTrue(self.github.store[1][-1]['body'].startswith(
