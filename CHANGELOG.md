@@ -18,10 +18,18 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
   with reached plans, process state and session outcomes. Publication adds no
   GitHub reads and cannot hold up execution or shutdown (#113).
 
+### Changed
+
+- Runtime usage pauses start only when a run reports a limit, remain in launcher memory,
+  and appear only in launch output (#135).
+
 ### Removed
 
 - Compatibility with the old `ub-agent` command, configuration, environment,
   coordination markers and artifacts is removed; only `ub-agents` names remain (#137).
+
+- The 90% runtime usage pause, shared pause state, and pause output in `status` and
+  `doctor`, including `status --json`'s `runtime_pauses`, are removed (#135).
 
 ## 0.1.10 — 2026-10-03
 

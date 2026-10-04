@@ -18,7 +18,7 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
-from ub_agents.records import timestamp
+from ub_agents.records import iso, seconds, timestamp
 from tests.support import (AccountGitHub, FakeGitHub, PollGitHub, RecordingRunner, agent, config,
                            isolate_runtime_state, issue, pr)
 
@@ -124,6 +124,28 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
         self.assertEqual(self.log_lines(), ["No eligible work; next poll in 0.0166667 min (0 requests last poll)",
                                            "Stopped; supervised execution terminated"])
+
+    def test_runtime_pause_start_and_changed_end_are_logged(self):
+        stdout = io.StringIO()
+        now = seconds("2026-10-04T12:00:00Z")
+
+        def tick(loop):
+            loop.coordinator.clock = lambda: now
+            loop.usage.limit("claude", now + 300)
+            loop.usage.limit("claude", now + 300)
+            loop.usage.limit("claude", now + 100)
+            return True
+
+        with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch.object(Loop, "tick", autospec=True, side_effect=tick), \
+                redirect_stdout(stdout):
+            self.assertEqual(main(self.argv + ["--once"]), 0)
+        lines = [f"claude usage limit reached; pausing claude runs until {iso(now + end)}"
+                 for end in (360, 160)]
+        self.assertEqual(stdout.getvalue().splitlines(), lines)
+        self.assertEqual(self.log_lines(), lines)
 
     def test_sigint_during_github_request_stops_without_retry_or_error(self):
         for once in (False, True):

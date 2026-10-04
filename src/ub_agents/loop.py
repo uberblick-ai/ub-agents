@@ -45,7 +45,7 @@ class _InvalidReload(AgentError):
 
 class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print,
-                 config_path=None, interrupt_event=None, usage_read_only=False,
+                 config_path=None, interrupt_event=None,
                  default_config=False, observer=None):
         self.observer = observer
         self._observation_warning = False
@@ -59,8 +59,7 @@ class Loop:
         self.config_path = config_path
         self.default_config = default_config
         self.output = output
-        self.usage = RuntimeUsage(config.root, clock=lambda: self.coordinator.clock(),
-                                  output=output, read_only=usage_read_only)
+        self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output)
         self.coordinator.runtime_paused = self.usage.paused
         self.discovery = Discovery(self.github)
         self._shown = {}
@@ -797,7 +796,7 @@ class Loop:
                     self.output(f"Scratch removal failed: {exc}")
         if usage_output and usage_output.reached and effect != "reset" and not interrupted:
             result, effect = "retry", "unchanged"
-            summary = self.usage.limit(plan.runtime.cli, usage_output.hint)
+            summary = usage_output.summary
         delay = backoff(plan.agent, lease["attempt"]) if result == "retry" and effect == "failure" else 0
         if result != "success":
             # Persist the supervised verdict before a report/release can crash.
@@ -1047,7 +1046,6 @@ class Loop:
             try:
                 self._observe("close")
             finally:
-                self.usage.close()
                 self._launch_number = None
                 self._launch_agent = None
 

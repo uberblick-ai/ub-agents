@@ -274,8 +274,8 @@ your-project/
 Commit these files with your project and review changes to them like code. Credentials
 stay in each tool's own login. `.ub-agents/`, which `init` adds to `.gitignore`,
 holds `launch.log`, run logs and scratch under `runs/`, private `worktrees/`,
-launcher usage state under `runtime-usage/`, and bounded local launcher snapshots
-under `sessions/`. The private snapshots contain already observed issue text;
+and bounded local launcher snapshots under `sessions/`. The private snapshots
+contain already observed issue text;
 see [session publication](docs/configuration.md) for their format and lifecycle.
 
 ## When things go wrong
@@ -317,9 +317,12 @@ code alone never does.
 A report followed by a nonzero exit is validated and applied normally after
 confirmed cleanup; the launcher logs the exit code.
 
-Claude and Codex usage limits pause new runs on that CLI until reset, without
-charging item attempts. Runtime alternatives and other CLIs keep working;
-`status` and `doctor` show local pauses. See
+When a run reports a Claude or Codex usage limit, its launcher pauses new runs
+on that CLI in memory until reset plus one minute, without charging item attempts.
+An unusable reset uses a 15-minute pause. Other CLIs and their runtime alternatives
+keep working. Each pause start or changed end time prints the CLI and UTC end time
+in launch output and `.ub-agents/launch.log`. Restarting the launcher clears its
+pauses. See
 [runtime usage pauses](docs/configuration.md#runtime-usage-pauses).
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
