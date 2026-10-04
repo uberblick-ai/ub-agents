@@ -61,6 +61,31 @@ and showing each section's row count:
 | Eligible | Ready and recovery plans, in the pass's planned order |
 | Waiting | Dependency and milestone waits, retry backoff and paused-runtime plans |
 
+Each live work row occupies two compact lines. The first shows a status glyph,
+`#N` for an issue or `⌥N` for a pull request from the snapshot's kind, the title
+shortened with `…`, and a short state aligned to the right:
+
+| Row | Glyph | Right-aligned state |
+| --- | --- | --- |
+| This launcher's assignment | `⠹`, or `■` while stopping | Elapsed claim time (`04:12`, `1:04:12`), `claiming` before the claim is known, or `stopping` |
+| Owned by another launcher | `◌` | `owned` |
+| Parked and needing attention | `?` | `parked` |
+| Blocked | `!` | `blocked` |
+| Attempt limit reached | `✗` | `failed F/M` |
+| Eligible | `●` | `next` for the first row in planned order; otherwise `ready` or `recover` |
+| Waiting | `◷` | `backoff` for retry backoff; `waiting` for runtime, dependency or milestone waits |
+
+The second line is indented and joins the agent, owner and count with ` · `.
+The owner is `this launcher` for the assignment, or `@actor on host` for a
+foreign claim. The count is `attempt N` for the assignment, or `F/M failures`
+for plans with at least one failure. Missing parts are omitted. Both lines fit
+the current pane width at 110×32; long second lines end in `…`.
+There is no separate reason leaf: the full reason remains on the Issue tab.
+Arrow keys move by row, and either line can be clicked to select its item.
+Elapsed time uses the item's cached run history and updates while the view is
+open. These rows require no extra GitHub reads or snapshot fields. Priority
+markers are absent because the snapshot has no priority.
+
 Dependency and milestone waits are parked plans whose reasons start with
 `Waiting for blockers …` or `Waiting for active milestone #…`. While a pass is
 incomplete, a dim `partial` marker appears on the `Launcher work` pane title.

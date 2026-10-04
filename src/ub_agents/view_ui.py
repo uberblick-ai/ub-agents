@@ -360,7 +360,7 @@ class View(App):
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
         self.session = None
-        self.rows, self.nodes, self.reason_nodes, self.groups = {}, {}, {}, {}
+        self.rows, self.nodes, self.groups = {}, {}, {}
         self.selected = None
         self.chosen = False  # a person picked a row; the view stops following the run
         self.readings = {}
@@ -440,7 +440,6 @@ class View(App):
         recent = self.query_one(RecentActivity)
         recent.populate(rows, self.session)
         cursor = tree.cursor_node
-        cursor_reason = cursor is not None and cursor is self.reason_nodes.get(cursor.data)
         cursor_group = next((name for name, node in self.groups.items() if node is cursor), None)
         incoming = {row.key: row for row in rows}
         # Until a person picks a row, the view follows the launcher's own run,
@@ -454,7 +453,6 @@ class View(App):
         for key in tuple(self.nodes):
             if key not in incoming:
                 self.nodes.pop(key).remove()
-                self.reason_nodes.pop(key, None)
         previous = None
         for name in WORK_GROUPS[:-1]:
             grouped = [row for row in incoming.values() if row.group == name]
@@ -469,17 +467,13 @@ class View(App):
             group.set_label(Text(f'{name} · {len(grouped)}'))
             for index, row in enumerate(grouped):
                 node = self.nodes.get(row.key)
-                expanded = node.is_expanded if node else True
                 if node is not None and (node.parent is not group or group.children[index] is not node):
                     node.remove()
                     node = None
                 if node is None:
-                    node = self.nodes[row.key] = group.add(Text(row.label()), data=row.key,
-                                                          before=index, expand=expanded)
-                    self.reason_nodes[row.key] = node.add_leaf(Text(row.reason), data=row.key)
+                    node = self.nodes[row.key] = group.add_leaf(Text(row.label()), data=row.key, before=index)
                 else:
                     node.set_label(Text(row.label()))
-                    self.reason_nodes[row.key].set_label(Text(row.reason))
         for name, group in tuple(self.groups.items()):
             if not group.children:
                 group.remove()
@@ -503,8 +497,7 @@ class View(App):
                 recent.cursor = self.selected
                 recent.focus()
         elif cursor:
-            target = (self.groups.get(cursor_group) if cursor_group else
-                      (self.reason_nodes if cursor_reason else self.nodes).get(cursor.data))
+            target = self.groups.get(cursor_group) if cursor_group else self.nodes.get(cursor.data)
             if target is not None and target is not cursor:
                 tree.move_cursor(target)
 

@@ -832,7 +832,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    async def test_cursor_follows_reason_when_tree_changes_before_a_render(self):
+    async def test_cursor_follows_row_when_tree_changes_before_a_render(self):
         self.state['latest_pass']['rows'].append(
             {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'})
         self.path.write_text(json.dumps(self.state))
@@ -842,14 +842,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             key = 'plan:21:worker'
             app.select(key)
             tree = app.query_one('#work', Tree)
-            tree.move_cursor(app.reason_nodes[key])
-            old_reason = tree.cursor_node
+            tree.move_cursor(app.nodes[key])
+            old_node = tree.cursor_node
             changed = [replace(row, group='Waiting', state='parked', reason='Waiting for blockers #31')
                        if row.key == key else row for row in app.rows.values()]
             app.populate(changed)
             # Assert before yielding to Textual's next layout or idle callback.
-            self.assertIsNot(old_reason, app.reason_nodes[key])
-            self.assertIs(tree.cursor_node, app.reason_nodes[key])
+            self.assertIsNot(old_node, app.nodes[key])
+            self.assertIs(tree.cursor_node, app.nodes[key])
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -894,16 +894,16 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
             self.assertEqual(markdown.source, description['text'])
             tree = app.query_one('#work', Tree)
-            app.move_cursor(app.reason_nodes[key])
+            app.move_cursor(app.nodes[key])
             output.focus()
-            self.assertIs(tree.cursor_node, app.reason_nodes[key])
+            self.assertIs(tree.cursor_node, app.nodes[key])
             self.state['latest_pass']['rows'] = [
                 {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31',
                  'description': description}]
             self.path.write_text(json.dumps(self.state))
             # The tree moves its cursor back to the kept node after the next refresh.
             await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting')
-                             and tree.cursor_node is app.reason_nodes[key])
+                             and tree.cursor_node is app.nodes[key])
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
             self.assertEqual(markdown.source, description['text'])
@@ -958,7 +958,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             markdown = app.query_one('#issue_body', Markdown)
             await self.ready(app, pilot, lambda: markdown.source == 'Cached body 21')
             tree = app.query_one('#work', Tree)
-            app.move_cursor(app.reason_nodes[key])
+            app.move_cursor(app.nodes[key])
             output.focus()
             async def publish():
                 snapshot = memory.snapshots[-1]
@@ -966,7 +966,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot, lambda: app.session.data['latest_pass'] == snapshot['latest_pass'])
                 self.assertEqual(app.selected, key)
                 self.assertIs(app.focused, output)
-                self.assertIs(tree.cursor_node, app.reason_nodes[key])
+                self.assertIs(tree.cursor_node, app.nodes[key])
                 self.assertEqual(markdown.source, 'Cached body 21')
                 self.assertEqual(sum(row.group != 'Recent activity' for row in app.rows.values()), len(app.nodes))
                 self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
@@ -1102,6 +1102,98 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.click('#recent', offset=(2, 0))
             self.assertEqual(app.selected, bottom.data)
             self.assertTrue(recent.display)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_live_rows_are_two_clipped_lines_at_110_by_32_and_mouse_selects_either(self):
+        self.state['assignment'].update(kind='issue', title='A long assignment title ' * 5, attempt=1)
+        self.state['latest_pass']['rows'][1].update(kind='pr', title='Foreign work')
+        self.state['latest_pass']['rows'].extend([
+            {'item': 20, 'agent': 'worker', 'kind': 'issue', 'title': 'Blocked work',
+             'state': 'blocked', 'reason': 'Full blocker detail stays on Issue'},
+            {'item': 21, 'agent': 'worker', 'kind': 'issue', 'title': 'Exhausted work',
+             'state': 'blocked', 'reason': 'Attempt limit exhausted; inspect failures',
+             'failures': 3, 'max_attempts': 3},
+            {'item': 22, 'agent': 'worker', 'kind': 'pr', 'title': 'Eligible work', 'state': 'ready'},
+        ])
+        self.path.write_text(json.dumps(self.state))
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one('#work', Tree)
+            tree.get_node_at_line(0)
+            self.assertEqual(tree.virtual_size.height, 1 + 3 + 2 * 5)
+            self.assertFalse(tree.show_horizontal_scrollbar)
+            width = tree.scrollable_content_region.width
+            expected = [('assignment:owned-run', '⠹ #114', '00:00', '  implementer · this launcher'),
+                        ('plan:12:reviewer', '◌ ⌥12', 'owned', '  reviewer · @other-launcher'),
+                        ('plan:20:worker', '! #20', 'blocked', '  worker'),
+                        ('plan:21:worker', '✗ #21', 'failed 3/3', '  worker · 3/3 failures'),
+                        ('plan:22:worker', '● ⌥22', 'next', '  worker')]
+            for key, prefix, status, detail in expected:
+                node = app.nodes[key]
+                self.assertFalse(node.children)
+                self.assertIs(tree.get_node_at_line(node._line + 1), node)
+                first = tree.render_line(node._line - tree.scroll_offset.y)
+                second = tree.render_line(node._line + 1 - tree.scroll_offset.y)
+                self.assertEqual(first.cell_length, width)
+                self.assertEqual(second.cell_length, width)
+                self.assertTrue(first.text.startswith(prefix), first.text)
+                if key.startswith('assignment:'):
+                    self.assertRegex(first.text, r'\d\d:\d\d$')
+                    self.assertIn('…', first.text)
+                    self.assertTrue(second.text.endswith('…'))
+                else:
+                    self.assertTrue(first.text.endswith(status), first.text)
+                self.assertTrue(second.text.startswith(detail), second.text)
+            own, foreign = app.nodes['assignment:owned-run'], app.nodes['plan:12:reviewer']
+            tree.focus()
+            tree.move_cursor(own)
+            await pilot.press('down')
+            self.assertIs(tree.cursor_node, foreign)
+            await pilot.press('up')
+            self.assertIs(tree.cursor_node, own)
+            for offset in (0, 1):
+                await pilot.click('#work', offset=(3, foreign._line + offset - tree.scroll_offset.y))
+                self.assertEqual(app.selected, foreign.data)
+                self.assertIs(tree.cursor_node, foreign)
+            app.select('plan:20:worker')
+            await self.ready(app, pilot, lambda: 'Full blocker detail stays on Issue' in
+                             app.query_one('#issue_text', Static).render().plain)
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_assignment_timer_refreshes_without_a_new_worker_result(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one('#work', Tree)
+            now = datetime.now(timezone.utc)
+            stamp = (now - timedelta(minutes=4, seconds=12)).isoformat()
+            # Hold the current snapshot, as when a filesystem read is slow.
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            app.rows[app.selected] = replace(app.rows[app.selected], data={
+                **app.rows[app.selected].data,
+                'history': {'runs': [{'agent': 'implementer', 'time': stamp}]}})
+            line = app.nodes[app.selected]._line
+            with patch('ub_agents.view_work.datetime') as clock:
+                clock.fromisoformat = datetime.fromisoformat
+                clock.now.return_value = now
+                tree.refresh()
+                await pilot.pause(0.1)
+                self.assertTrue(tree.render_line(line).text.endswith('04:12'))
+                clock.now.return_value = now + timedelta(seconds=1)
+                await pilot.pause(1.1)
+                self.assertTrue(tree.render_line(line).text.endswith('04:13'))
+                app.session.data['activity']['state'] = 'stopping'
+                self.assertTrue(tree.render_line(line).text.startswith('■'))
+                self.assertTrue(tree.render_line(line).text.endswith('stopping'))
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -1282,7 +1374,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         with patch('subprocess.Popen', side_effect=AssertionError('view invoked a process')):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
-                self.assertIn('Supervisor observed running', app.reason_nodes[app.selected].label.plain)
+                self.assertFalse(app.nodes[app.selected].children)
+                self.assertIn('Supervisor observed running', app.rows[app.selected].reason)
                 output = app.query_one('#output', LogPane)
                 for name in ('f', 'home', 'pagedown'):
                     await pilot.press(name)
