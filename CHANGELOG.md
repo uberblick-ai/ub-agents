@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Fixed
+
+- The terminal view shows the launcher's run when it starts after the view opened, until a row is selected, and keeps the tree cursor on a moved row (#189).
+
 ### Changed
 
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
