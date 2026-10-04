@@ -20,7 +20,7 @@ from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
-from ub_agents.view_ui import (KeyHelp, LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY,
+from ub_agents.view_ui import (KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
 
@@ -783,13 +783,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
             self.assertIn('partial', tree.root.label.plain)
             self.assertTrue(any(span.style == 'dim' for span in tree.root.label.spans))
-            self.assertFalse(app.groups['Recent activity'].is_expanded)
+            self.assertIn('Recent activity', app.query_one(RecentActivity).render().plain)
             self.state['latest_pass'] = {'state': 'complete', 'rows': []}
             self.state['outcomes'] = []
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
             self.assertEqual(tree.root.label.plain, 'Launcher work')
+            self.assertEqual(app.query_one(RecentActivity).render().plain, 'Recent activity · 0 today')
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -825,8 +826,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')
             self.assertIn('⌥12 Updated candidate', identity())
-            app.select(RECENT_ACTIVITY)
-            self.assertIn('Select an item', displayed())
             app.select('outcome:previous-run')
             await self.ready(app, pilot, lambda: '#10 Earlier item' in identity())
             self.assertEqual(transport.calls, [])
@@ -969,7 +968,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertIs(app.focused, output)
                 self.assertIs(tree.cursor_node, app.reason_nodes[key])
                 self.assertEqual(markdown.source, 'Cached body 21')
-                self.assertEqual(len(app.rows), len(app.nodes))
+                self.assertEqual(sum(row.group != 'Recent activity' for row in app.rows.values()), len(app.nodes))
                 self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
                 self.assertEqual(app.rows[key].data['history']['runs'][0]['summary'], 'Cached history 21')
                 stream = io.StringIO()
@@ -1002,10 +1001,114 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_recent_split_fixed_with_empty_and_overflowing_live_work(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree, recent = app.query_one('#work', Tree), app.query_one(RecentActivity)
+            for size in ((110, 32), (140, 44)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause()
+                boundary = recent.region.y
+                self.assertLessEqual(abs(tree.size.height - recent.size.height), 1)
+                self.assertEqual(tree.region.bottom, boundary)
+                self.state['latest_pass']['rows'] = [
+                    {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
+                    for n in range(1, 50)]
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
+                                 len(app.groups['Eligible'].children) == 49)
+                tree.scroll_end(animate=False, immediate=True)
+                await pilot.pause()
+                self.assertGreater(tree.scroll_y, 0)
+                self.assertEqual(recent.region.y, boundary)
+                self.assertEqual(recent.scroll_y, 0)
+                self.assertEqual(recent.max_scroll_y, 0)
+                self.state['assignment'] = None
+                self.state['latest_pass'] = {'state': 'complete', 'rows': []}
+                self.state['outcomes'] = []
+                app.select('outcome:previous-run')  # Retain only a right-pane outcome, not live work.
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: not app.groups and not recent.rows)
+                self.assertEqual(recent.region.y, boundary)
+                self.assertEqual(recent.render().plain, 'Recent activity · 0 today')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_recent_whole_rows_dim_selection_and_clipped_selected_outcome(self):
+        self.state['assignment'] = None
+        self.state['latest_pass'] = {'state': 'complete', 'rows': []}
+        old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        self.state['outcomes'] = [dict(self.state['outcomes'][0], run=f'past-{n}', title=f'Outcome {n}',
+                                      time=old, summary=f'Summary {n}') for n in range(20)]
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            recent = app.query_one(RecentActivity)
+            await self.ready(app, pilot, lambda: len(recent.rows) == 20)
+            self.assertEqual(app.selected, 'outcome:past-19')
+            self.assertIs(app.focused, recent)
+            visible = recent.visible_rows
+            self.assertEqual([row.key for row in visible],
+                             [f'outcome:past-{n}' for n in range(19, 19 - len(visible), -1)])
+            rendered = recent.render()
+            lines = rendered.plain.splitlines()
+            self.assertEqual(len(lines), 1 + 2 * len(visible))
+            self.assertLessEqual(len(lines), recent.size.height)
+            self.assertEqual(lines[0], 'Recent activity · 0 today')
+            selected_offset = rendered.plain.index('Outcome 19')
+            dim_offset = rendered.plain.index('Outcome 18')
+            self.assertFalse(rendered.get_style_at_offset(Console(), selected_offset).dim)
+            self.assertTrue(rendered.get_style_at_offset(Console(), dim_offset).dim)
+            recent.cursor = visible[-1].key
+            await pilot.press('enter', '2')
+            selected, focus = app.selected, app.focused
+            self.state['outcomes'] = self.state['outcomes'][1:] + [dict(self.state['outcomes'][-1], run='newest')]
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: recent.rows[0].key == 'outcome:newest')
+            self.assertNotIn(selected, [row.key for row in recent.visible_rows])
+            self.assertEqual(app.selected, selected)
+            self.assertIs(app.focused, focus)
+            await self.ready(app, pilot, lambda: f'Outcome {visible[-1].run.split("-")[-1]}' in
+                             app.query_one('#item_header', Static).render().plain)
+            # Once it also leaves the cache, it remains only in the right pane.
+            self.state['outcomes'] = [dict(self.state['outcomes'][-1], run=f'new-{n}') for n in range(20)]
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.rows[selected].state == 'earlier observation')
+            self.assertEqual(len(recent.rows), 20)
+            self.assertNotIn(selected, [row.key for row in recent.rows])
+            self.assertEqual(app.selected, selected)
+            self.assertIs(app.focused, focus)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_arrows_cross_the_split_without_selecting_the_recent_header(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree, recent = app.query_one('#work', Tree), app.query_one(RecentActivity)
+            tree.focus()
+            tree.get_node_at_line(0)
+            bottom = tree.get_node_at_line(tree.last_line)
+            tree.move_cursor(bottom)
+            await pilot.press('down', 'enter')
+            self.assertIs(app.focused, recent)
+            self.assertEqual(app.selected, 'outcome:previous-run')
+            await pilot.press('up', 'enter')
+            self.assertIs(app.focused, tree)
+            self.assertIs(tree.cursor_node, bottom)
+            self.assertEqual(app.selected, bottom.data)
+            # Clicking the inert header cannot select or collapse it.
+            await pilot.click('#recent', offset=(2, 0))
+            self.assertEqual(app.selected, bottom.data)
+            self.assertTrue(recent.display)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_recent_activity_today_count_enter_refresh_and_paused_outcome_log(self):
         now = datetime.now(timezone.utc)
         self.state['outcomes'][0]['time'] = now.isoformat()
-        self.state['outcomes'].append(dict(self.state['outcomes'][0], run='older-run',
+        self.state['outcomes'].insert(0, dict(self.state['outcomes'][0], run='older-run',
                                            time=(now - timedelta(days=2)).isoformat()))
         self.path.write_text(json.dumps(self.state))
         previous = self.root / '.ub-agents' / 'runs' / 'previous-run'
@@ -1017,20 +1120,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
-            tree = app.query_one('#work', Tree)
-            group = app.groups['Recent activity']
-            self.assertEqual(group.label.plain, 'Recent activity · 1 today')
-            self.assertEqual(len(group.children), 2)
-            self.assertFalse(group.is_expanded)
-            tree.focus()
-            app.move_cursor(group)
-            await self.settled(app, tree)
+            recent = app.query_one(RecentActivity)
+            self.assertEqual(recent.render().plain.splitlines()[0], 'Recent activity · 1 today')
+            self.assertEqual([row.key for row in recent.visible_rows], ['outcome:previous-run', 'outcome:older-run'])
+            recent.focus()
             await pilot.press('enter')
-            await self.settled(app, tree)
-            self.assertTrue(group.is_expanded)
-            self.assertEqual(app.selected, RECENT_ACTIVITY)
             key = 'outcome:previous-run'
-            tree.select_node(app.nodes[key])
+            self.assertEqual(app.selected, key)
             await self.ready(app, pilot)
             markdown = app.query_one('#issue_body', Markdown)
             await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
@@ -1043,30 +1139,19 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             with log.open('ab') as stream:
                 stream.write(event(9000))
             await self.ready(app, pilot, lambda: app.reading.latest != page)
-            self.assertTrue(group.is_expanded)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
-            app.move_cursor(group)
-            await self.settled(app, tree)
-            await pilot.press('enter')
-            await self.settled(app, tree)
-            self.assertFalse(group.is_expanded)
-            self.assertEqual(app.selected, RECENT_ACTIVITY)
-            self.assertEqual(markdown.source, '')
-            self.assertIs(tree.cursor_node, group)
-            await pilot.pause(0.3)
-            self.assertFalse(group.is_expanded)
-            await pilot.press('enter')
-            await self.settled(app, tree)
-            tree.select_node(app.nodes[key])
+            recent.focus()
+            await pilot.press('down', 'enter')
+            self.assertEqual(app.selected, 'outcome:older-run')
+            await pilot.press('up', 'enter')
             await self.ready(app, pilot, lambda: 'Outcome context' in markdown.source)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
-            # Mouse/arrow collapse also selects the header when an outcome is selected.
-            group.collapse()
-            await pilot.pause()
-            self.assertEqual(app.selected, RECENT_ACTIVITY)
-            self.assertIs(tree.cursor_node, group)
+            # Neither Enter nor the tree's expansion keys hide recent rows.
+            await pilot.press('enter', 'left', 'right', 'space')
+            self.assertEqual(app.selected, key)
+            self.assertEqual(len(recent.visible_rows), 2)
             await pilot.press('q')
         app.worker.thread.join(2)
 

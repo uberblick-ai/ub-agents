@@ -28,6 +28,7 @@ stop label on items you want to stay held (#132).
 
 ### Fixed
 
+- Recent activity always fills the terminal Work pane's lower half, with independently scrolling live work and whole outcome rows clipped from the oldest end (#171).
 - Terminal work rows and their cached details stay visible while polling; completed passes remove omitted rows and apply the new planned order (#166).
 - The terminal view shows the launcher's run when it starts after the view opened, until a row is selected, and keeps the tree cursor on a moved row (#189).
 - Opening raw access (`p`) no longer crashes the terminal view when the log updates before the screen draws (#189).

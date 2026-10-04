@@ -61,7 +61,8 @@ action-needed comment that parked it. Its second line names the agent, the state
 Numbers say what they are: `#N` is an issue and `⌥N` is a pull request, in rows,
 item headers and dim detail lines alike. `⌥` is in the accent color.
 
-The lower half is always **Recent activity**: today's outcomes, newest first, with
+The lower half is always **Recent activity**: up to 20 cached session outcomes,
+including older outcomes, newest first, with
 `N today` in its header. Its rows are dimmed; a selected one shows at full
 brightness. It never collapses. Rows that do not fit are cut from the oldest end.
 

@@ -51,7 +51,7 @@ class ProofView(View):
                  'text': banner.banner.get('text'), 'terminal_width': self.size.width,
                  'cells': banner.render().cell_len, 'yellow': str(banner.styles.background),
                  'banner_y': banner.region.y, 'body_y': self.query_one('#body').region.y,
-                 'work_y': self.query_one('#work').region.y,
+                 'work_y': self.query_one('#work_pane').region.y,
                  'header_y': header.region.y, 'header_height': header.size.height,
                  'header': header.render().plain, 'output_y': output.region.y,
                  'footer': footer.render().plain, 'footer_height': footer.size.height,
@@ -663,7 +663,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 import json, pathlib, sys
 from textual.binding import Binding
 from textual.widgets import Static, Tree
-from ub_agents.view_ui import LogPane, View
+from ub_agents.view_ui import LogPane, View, RecentActivity
 class ProofView(View):
     BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
                 Binding('r', 'recent_cursor', priority=True), Binding('s', 'plan_cursor', priority=True),
@@ -673,7 +673,10 @@ class ProofView(View):
         tree.focus()
         tree.move_cursor(node)
     def action_recent_cursor(self):
-        self.cursor(self.groups['Recent activity'])
+        recent = self.query_one(RecentActivity)
+        recent.cursor = recent.visible_rows[0].key
+        recent.focus()
+        recent.refresh()
     def action_plan_cursor(self):
         self.cursor(self.nodes['plan:21:worker'])
     def action_assignment_cursor(self):
@@ -684,6 +687,7 @@ class ProofView(View):
         pane = self.query_one(LogPane)
         r = self.reading
         tree = self.query_one(Tree)
+        recent = self.query_one(RecentActivity)
         row = self.rows.get(self.selected)
         value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation if r.page else None,
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
@@ -708,7 +712,11 @@ class ProofView(View):
                  'focus': self.focused.id if self.focused else None, 'title': tree.root.label.plain,
                  'sections': [node.label.plain for node in tree.root.children],
                  'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
-                 'recent_expanded': 'Recent activity' in self.groups and self.groups['Recent activity'].is_expanded}
+                 'recent': recent.render().plain,
+                 'recent_rows': [row.key for row in recent.visible_rows],
+                 'recent_bounds': [recent.region.y, recent.size.height],
+                 'upper_bounds': [tree.region.y, tree.size.height],
+                 'upper_scroll': tree.scroll_y, 'recent_scroll': recent.scroll_y}
         # Replace atomically: the test polls for this file.
         partial = pathlib.Path(sys.argv[3] + '.partial')
         partial.write_text(json.dumps(value))
@@ -716,6 +724,9 @@ class ProofView(View):
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
             proof = root / 'proof.json'
+            assignment, latest_pass = state['assignment'], state['latest_pass']
+            state.update(assignment=None, latest_pass={'state': 'complete', 'rows': []})
+            path.write_text(json.dumps(state))
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
             modes = termios.tcgetattr(slave)
@@ -759,7 +770,16 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(scrolled['anchor'], scrolled['saved_anchor'])
                 return scrolled
             try:
-                initial = checkpoint(lambda value: len(value['sections']) == 5 and value['anchor'] is not None)
+                newest = checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
+                                    and value['anchor'] is not None)
+                self.assertEqual(newest['sections'], [])
+                self.assertEqual(newest['focus'], 'recent')
+                self.assertEqual(newest['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
+                state.update(assignment=assignment, latest_pass=latest_pass)
+                path.write_text(json.dumps(state))
+                initial = checkpoint(lambda value: len(value['sections']) == 4 and value['anchor'] is not None
+                                     and value['selected'] == 'assignment:owned-run'
+                                     and '#114 Cached title' in value['header'] and not value['pill_visible'])
                 self.assertNotIn(b'FORMATTED', transcript)
                 self.assertNotIn(b'FOLLOW', transcript)
                 self.assertIn('ub-agents v9.8.7 · running assignment', initial['footer'])
@@ -768,11 +788,13 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertFalse(initial['pill_visible'])
                 self.assertEqual(initial['notice'], '')
                 self.assertEqual(initial['sections'], ['Running · 2', 'Needs attention · 3',
-                                                       'Eligible · 2', 'Waiting · 4',
-                                                       'Recent activity · 1 today'])
+                                                       'Eligible · 2', 'Waiting · 4'])
                 self.assertEqual(initial['eligible'], ['plan:20:worker', 'plan:21:worker'])
                 self.assertIn('partial', initial['title'])
-                self.assertFalse(initial['recent_expanded'])
+                self.assertEqual(initial['recent'].splitlines()[0], 'Recent activity · 1 today')
+                self.assertEqual(initial['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
+                self.assertLessEqual(abs(initial['upper_bounds'][1] - initial['recent_bounds'][1]), 1)
+                self.assertEqual(sum(initial['upper_bounds']), initial['recent_bounds'][0])
                 self.assertEqual(initial['header'].splitlines()[:2],
                                  ['#114 Cached title', 'implementer · claude synthetic-model high · attempt 1'])
                 self.assertIn('implementer running · no outcome reported', initial['run_status'])
@@ -860,9 +882,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertIn(diagnostic, raw['modal'])
                 os.write(master, b'\x1b')
                 drain()
-                os.write(master, b'r\r')  # Focus Recent activity, then real Enter.
-                self.assertTrue(checkpoint(lambda value: value['recent_expanded'])['recent_expanded'])
-                os.write(master, b'\x1b[B\r')  # Down to the latest outcome and Enter.
+                os.write(master, b'r\r')  # Focus the newest outcome, then real Enter.
                 self.assertEqual(checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                             and value['anchor'] is not None)['selected'], 'outcome:previous-run')
                 outcome_paused = pause_at_top()
@@ -871,17 +891,14 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     stream.write(b''.join(event(i, size=800) for i in range(600)))
                 outcome_retained = checkpoint(lambda value: value['entries'] - outcome_paused['entries'] > 200)
                 self.assertGreater(outcome_retained['entries'] - outcome_paused['entries'], 200)
-                self.assertTrue(outcome_retained['recent_expanded'])
+                self.assertEqual(outcome_retained['recent_rows'], initial['recent_rows'])
                 self.assertEqual(outcome_retained['starts'], outcome_paused['starts'])
                 self.assertEqual(outcome_retained['anchor'], outcome_paused['anchor'])
-                os.write(master, b'r\r')
-                collapsed = checkpoint(lambda value: not value['recent_expanded'])
-                self.assertEqual(collapsed['selected'], 'recent-activity')
-                self.assertEqual(collapsed['cursor'], 'recent-activity')
-                self.assertFalse(collapsed['recent_expanded'])
-                os.write(master, b'\r')
-                checkpoint(lambda value: value['recent_expanded'])
-                os.write(master, b'\x1b[B\r')
+                os.write(master, b'r\x1b[A\r')  # Up crosses to the last live row.
+                upper = checkpoint(lambda value: value['selected'].startswith('plan:') and value['focus'] == 'work')
+                self.assertGreater(upper['upper_scroll'], 0)
+                self.assertEqual(upper['recent_bounds'], initial['recent_bounds'])
+                os.write(master, b'\x1b[B\r')  # Down crosses back to the newest outcome.
                 revisited = checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                        and value['starts'] == outcome_paused['starts'] and value['anchor'] is not None
                                        and value['anchor'][0] == outcome_paused['anchor'][0]
@@ -889,6 +906,22 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(revisited['starts'], outcome_paused['starts'])
                 self.assertEqual(revisited['anchor'][0], outcome_paused['anchor'][0])
                 self.assertAlmostEqual(revisited['anchor'][1], outcome_paused['anchor'][1], delta=0.05)
+                # New outcomes clip the selected row without changing its pane or paused page.
+                original_outcomes = list(state['outcomes'])
+                state['outcomes'] += [dict(state['outcomes'][-1], run=f'new-{n}', item=40 + n)
+                                      for n in range(18)]
+                path.write_text(json.dumps(state))
+                clipped = checkpoint(lambda value: value['recent_rows'][0] == 'outcome:new-17')
+                self.assertNotIn('outcome:previous-run', clipped['recent_rows'])
+                self.assertEqual(clipped['selected'], 'outcome:previous-run')
+                self.assertEqual(clipped['header'], revisited['header'])
+                self.assertEqual(clipped['starts'], outcome_paused['starts'])
+                self.assertEqual(clipped['anchor'], revisited['anchor'])
+                self.assertEqual(clipped['recent_scroll'], 0)
+                self.assertEqual(len(clipped['recent'].splitlines()), 1 + 2 * len(clipped['recent_rows']))
+                state['outcomes'] = original_outcomes
+                path.write_text(json.dumps(state))
+                checkpoint(lambda value: value['recent_rows'] == initial['recent_rows'])
                 os.write(master, b's\r')
                 drain()
                 plan = checkpoint()
@@ -953,6 +986,35 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 log.write_bytes(capture.read_bytes().splitlines(keepends=True)[0])
                 self.assertGreater(checkpoint(lambda value: value['generation'] > resumed['generation'])['generation'],
                                    resumed['generation'])
+                # Exercise the fixed split in both real terminal sizes, including
+                # an empty upper viewport and zero cached outcomes.
+                os.write(master, b'r\r')
+                checkpoint(lambda value: value['selected'] == 'outcome:previous-run')
+                state['assignment'] = None
+                state['latest_pass'] = {'state': 'complete', 'rows': []}
+                path.write_text(json.dumps(state))
+                empty = checkpoint(lambda value: not value['sections'])
+                self.assertLessEqual(abs(empty['upper_bounds'][1] - empty['recent_bounds'][1]), 1)
+                self.assertEqual(sum(empty['upper_bounds']), empty['recent_bounds'][0])
+                state['outcomes'] = []
+                path.write_text(json.dumps(state))
+                zero = checkpoint(lambda value: value['recent'] == 'Recent activity · 0 today')
+                self.assertEqual(zero['recent_bounds'], empty['recent_bounds'])
+                state['latest_pass']['rows'] = [
+                    {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
+                    for n in range(1, 50)]
+                path.write_text(json.dumps(state))
+                overflow = checkpoint(lambda value: value['sections'] == ['Eligible · 49'])
+                self.assertEqual(overflow['recent_bounds'], empty['recent_bounds'])
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                minimum = checkpoint(lambda value: value['terminal_size'] == [110, 32]
+                                     and value['recent_bounds'] == initial['recent_bounds'])
+                self.assertEqual(minimum['recent_bounds'], initial['recent_bounds'])
+                state['latest_pass']['rows'] = []
+                path.write_text(json.dumps(state))
+                minimum_empty = checkpoint(lambda value: not value['sections'])
+                self.assertEqual(minimum_empty['recent_bounds'], initial['recent_bounds'])
                 os.write(master, b'q')
                 deadline = time.monotonic() + 3
                 while app.poll() is None and time.monotonic() < deadline:
