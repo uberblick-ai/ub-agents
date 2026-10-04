@@ -6,8 +6,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from tests.test_log_reader import FIXTURE, record, result, tool
-from ub_agents.log_format import ClaudeFormatter, MAX_TEXT, SHORTENED
+from tests.test_log_reader import FIXTURE, progress, record, result, tool
+from ub_agents.log_format import ClaudeFormatter, MAX_TEXT, SHORTENED, with_elapsed
 
 
 class CompactClaudeTests(unittest.TestCase):
@@ -39,7 +39,7 @@ class CompactClaudeTests(unittest.TestCase):
         self.assertTrue(error.text.endswith('  ✗ Exit code 1'))
         self.assertEqual(error.styles[-1][2], 'error')
         self.assertNotIn('cat:', error.text)
-        self.assertEqual(entries[-1].text, '--:--:--  ✓ run finished')
+        self.assertEqual(entries[-1].text, '          ✓ run finished')
         self.assertNotIn('assistant:', output)
         self.assertNotIn('id=<', output)
         self.assertNotIn('producer=', output)
@@ -53,9 +53,9 @@ class CompactClaudeTests(unittest.TestCase):
                 producer = self.decode(record(timestamp='2026-10-03T14:00:00+02:00'))
                 captured = self.decode(record(timestamp='bad'), '2026-10-03T12:00:00+00:00')
                 absent = self.decode(record())
-                self.assertEqual(producer.text, '07:00:00  hello café')
+                self.assertEqual(producer.text, ' 07:00:00 hello café')
                 self.assertEqual(captured.text, '~07:00:00 hello café')
-                self.assertEqual(absent.text, '--:--:--  hello café')
+                self.assertEqual(absent.text, '          hello café')
                 self.assertEqual(self.decode(record(), 'bad').text, absent.text)
         finally:
             if prior is None:
@@ -63,6 +63,40 @@ class CompactClaudeTests(unittest.TestCase):
             else:
                 os.environ['TZ'] = prior
             time.tzset()
+
+    def test_progress_is_hidden_even_with_unfamiliar_fields(self):
+        for fields in ({}, {'tool_use_id': None}, {'elapsed_time_seconds': -1},
+                       {'elapsed_time_seconds': True}, {'elapsed_time_seconds': '45'},
+                       {'elapsed_time_seconds': None}):
+            with self.subTest(fields=fields):
+                value = self.decode(progress(45, **fields))
+                self.assertEqual(value.display(), '')
+                self.assertEqual(value.display(raw=True), 'time=unknown (pre-existing bytes) | other\n' +
+                                 progress(45, **fields).decode().replace('\n', r'\n'))
+                if fields:
+                    self.assertEqual(value.progress, ())
+
+    def test_elapsed_updates_multiple_call_lines_and_keeps_bounded_styles(self):
+        value = self.decode(record(content=[{'type': 'text', 'text': 'before'}, tool('a'),
+                                           tool('b', 'Read'), {'type': 'text', 'text': 'after'}]))
+        value = with_elapsed(value, 'b', '1m')
+        value = with_elapsed(value, 'a', '45s')
+        value = with_elapsed(value, 'a', '2m')
+        self.assertEqual(value.text.splitlines(), ['          before', '          ▸ Bash printf hello · 2m',
+                                                 '          ▸ Read · 1m', '          after'])
+        for call in value.calls:
+            self.assertTrue(value.text[call.start:call.end].endswith(call.elapsed))
+        for start, end, _ in value.styles:
+            self.assertTrue(0 <= start < end <= len(value.text))
+        long = self.decode(record(content=[tool(str(i)) for i in range(200)]))
+        for call in long.calls:
+            long = with_elapsed(long, call.tool_id, '45s')
+        self.assertLessEqual(len(long.text), MAX_TEXT)
+        self.assertIn(SHORTENED, long.text)
+        for call in long.calls:
+            self.assertTrue(long.text[call.start:call.end].startswith('▸'))
+        for start, end, _ in long.styles:
+            self.assertTrue(0 <= start < end <= len(long.text))
 
     def test_synthetic_tools_choose_main_argument_without_ids_or_json(self):
         cases = [('Read', {'file_path': 'src/a.py', 'offset': 2}, 'src/a.py'),
@@ -77,7 +111,7 @@ class CompactClaudeTests(unittest.TestCase):
             with self.subTest(name=name, inputs=inputs):
                 block = {**tool(name=name), 'input': inputs}
                 entry = self.decode(record(content=[block]))
-                self.assertEqual(entry.text, '--:--:--  ▸ ' + name + (' ' + argument if argument else ''))
+                self.assertEqual(entry.text, '          ▸ ' + name + (' ' + argument if argument else ''))
                 self.assertNotIn('id=', entry.text)
                 self.assertNotIn('{', entry.text)
 
@@ -90,7 +124,7 @@ class CompactClaudeTests(unittest.TestCase):
                 ('Write', {'content': 'a\rb\vc\fd\x1ce\x1df\x1eg\x85h\u2028i\u2029'}, '+1', ('diff-add',)),
                 ('Write', {}, '', ()), ('Edit', {}, '', ())):
             entry = self.decode(record(content=[{**tool(name=name), 'input': {'file_path': 'a', **inputs}}]))
-            self.assertEqual(entry.text, '--:--:--  ▸ ' + name + ' a' + (' ' + suffix if suffix else ''))
+            self.assertEqual(entry.text, '          ▸ ' + name + ' a' + (' ' + suffix if suffix else ''))
             self.assertEqual(tuple(style for _, _, style in entry.styles), colors)
             for start, end, color in entry.styles:
                 self.assertTrue(entry.text[start:end].startswith('+' if color == 'diff-add' else '-'))
@@ -112,10 +146,10 @@ class CompactClaudeTests(unittest.TestCase):
                                            {'type': 'future_block', 'payload': 'private'},
                                            {'type': 'text', 'text': 'last'}]))
         lines = entry.text.split('\n')
-        self.assertEqual(lines[0], '--:--:--  one')
+        self.assertEqual(lines[0], '          one')
         self.assertEqual(lines[1], ' ' * 10)
         self.assertTrue(lines[2].startswith(' ' * 10 + 'three'))
-        self.assertEqual(lines[3:], ['--:--:--  · thinking', '--:--:--  · future_block', '--:--:--  last'])
+        self.assertEqual(lines[3:], ['          · thinking', '          · future_block', '          last'])
         self.assertNotIn('private', entry.text)
         self.assertNotIn('assistant:', entry.text)
         self.assertFalse(any(ord(char) < 32 and char != '\n' or 127 <= ord(char) <= 159 for char in entry.text))
@@ -128,11 +162,11 @@ class CompactClaudeTests(unittest.TestCase):
         self.decode({'type': 'system', 'subtype': 'task_notification'})
         self.assertEqual(self.decode(record('user', [result()])).text, '')
         direct = self.decode(record('user', [result(is_error=True, content='Exit code 1\nsecond')]))
-        self.assertEqual(direct.text, '--:--:--    ✗ Exit code 1')
+        self.assertEqual(direct.text, '            ✗ Exit code 1')
         self.decode(record(content=[tool()]))
         self.decode(record())
         delayed = self.decode(record('user', [result(is_error=True, content='failed\nsecond')]))
-        self.assertEqual(delayed.text, '--:--:--    ✗ Bash: failed')
+        self.assertEqual(delayed.text, '            ✗ Bash: failed')
         self.formatter.reset()
         unpaired = self.decode(record('user', [result(is_error=True)]))
         self.assertIn('✗ tool: hello', unpaired.text)
@@ -140,14 +174,14 @@ class CompactClaudeTests(unittest.TestCase):
     def test_synthetic_runtime_results_errors_and_unrecognized_record_labels(self):
         failure = self.decode({'type': 'result', 'subtype': 'error_during_execution', 'is_error': True,
                                'result': 'last assistant message', 'errors': ['API failed\nstack', 'another error']})
-        self.assertEqual(failure.text, '--:--:--  ✗ error_during_execution: API failed')
+        self.assertEqual(failure.text, '          ✗ error_during_execution: API failed')
         self.assertEqual(failure.styles[-1][2], 'error')
         for value in ('API failed\nstack', {'message': 'API failed\nstack'}):
             runtime = self.decode({'type': 'error', 'error': value})
-            self.assertEqual(runtime.text, '--:--:--  ✗ API failed')
+            self.assertEqual(runtime.text, '          ✗ API failed')
             self.assertEqual(runtime.styles[-1][2], 'error')
         unknown = self.decode({'type': 'future', 'subtype': 'phase', 'payload': 'private'})
-        self.assertEqual(unknown.text, '--:--:--  · future · phase')
+        self.assertEqual(unknown.text, '          · future · phase')
         self.assertEqual(unknown.styles[-1][2], 'dim')
 
     def test_synthetic_bounds_include_time_indent_and_retained_styles(self):

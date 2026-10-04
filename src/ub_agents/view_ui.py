@@ -188,11 +188,14 @@ class LogPane(ScrollView):
                 for index, part in enumerate(body.wrap(self.app.console, width - 10, overflow='fold')):
                     lines.append((column if index == 0 else Text(' ' * 10, style=self.rich_style)) + part)
             else:
-                counts = [span.start for span in line.spans
-                          if line.plain[span.start:span.end][:1] in ('+', '-')
-                          and line.plain[span.start:span.end][1:].isdigit()]
-                if counts:
-                    start = min(counts) - 1
+                suffixes = [span.start for span in line.spans
+                            if (line.plain[span.start:span.end][:1] in ('+', '-')
+                                and line.plain[span.start:span.end][1:].isdigit())
+                            or line.plain[span.start:span.end].startswith(' · ')]
+                if suffixes:
+                    start = min(suffixes)
+                    if line.plain[start:start + 3] != ' · ':
+                        start -= 1
                     suffix = line[start:]
                     line = line[:start]
                     line.truncate(width - suffix.cell_len, overflow='ellipsis')

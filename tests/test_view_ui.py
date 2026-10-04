@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 from rich.console import Console
 from tests.test_view_data import event, fixture
-from tests.test_log_reader import FIXTURE, record, result, tool
+from tests.test_log_reader import FIXTURE, progress, record, result, tool
 from tests.test_view_github import reply
 from tests.support import MemoryPublisher, RecordingDescriptionTransport, agent, config, issue
 from ub_agents.coordination import Plan
@@ -357,6 +357,63 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.action_history()
             self.assertEqual(app.reading.notice, 'Beginning of file (byte zero).')
             self.assertIsNone(app.pending_history)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_progress_suffix_survives_truncation_and_pause_raw_and_resize(self):
+        self.log.write_bytes(record(content=[{**tool(name='Edit'), 'input': {
+            'file_path': 'long/' * 80, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}]))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            with self.log.open('ab') as stream:
+                stream.write(progress(45))
+            await self.ready(app, pilot, lambda: app.reading.page.refs[0].value.text.endswith(' · 45s'))
+            await self.settled(app, output)
+            self.assertEqual(len(output.lines), 1)
+            self.assertTrue(output.lines[0].text.endswith('… +2 -1 · 45s'))
+            self.assertTrue(any('45s' in segment.text and segment.style.dim for segment in output.lines[0]))
+            await pilot.press('f')
+            paused = app.reading.page
+            with self.log.open('ab') as stream:
+                stream.write(progress(60) + progress(119) + record('user', [result()]))
+            await self.ready(app, pilot, lambda: app.reading.latest.refs[0].value.text.endswith(' · 1m'))
+            self.assertIs(app.reading.page, paused)
+            self.assertTrue(output.lines[0].text.endswith(' · 45s'))
+            await pilot.resize_terminal(120, 36)
+            await self.settled(app, output)
+            self.assertTrue(output.lines[0].text.endswith('… +2 -1 · 45s'))
+            await pilot.press('u')
+            await self.settled(app, output)
+            raw_text = '\n'.join(line.text for line in output.lines)
+            self.assertIn('tool_progress', raw_text)
+            self.assertNotIn(' · 45s', raw_text)
+            await pilot.press('u', 'f')
+            await self.settled(app, output)
+            self.assertTrue(output.lines[0].text.endswith('… +2 -1 · 1m'))
+            self.assertEqual(len(output.lines), 1)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_time_column_and_assistant_wrapped_continuations_align(self):
+        self.log.write_bytes(record(content=[{'type': 'text', 'text': 'exact ' + 'word ' * 30 + '\nnext'}],
+                                    timestamp='2026-10-03T12:00:00Z') + record())
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            with self.log.open('ab') as stream:
+                stream.write(record())
+            await self.ready(app, pilot, lambda: len(app.reading.page.refs) == 3)
+            await self.settled(app, output)
+            lines = [line.text for line in output.lines]
+            self.assertEqual(lines[0][0], ' ')
+            self.assertEqual(lines[0][9:16], ' exact ')
+            self.assertTrue(all(line.startswith(' ' * 10) for line in lines[1:-1]))
+            self.assertEqual(lines[-1][0], '~')
+            self.assertEqual(lines[-1][9:], ' hello café')
+            self.assertIn('          next', lines)
             await pilot.press('q')
         app.worker.thread.join(2)
 
