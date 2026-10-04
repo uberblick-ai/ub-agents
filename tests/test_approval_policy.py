@@ -153,7 +153,7 @@ class ApprovalPolicyTests(unittest.TestCase):
         cfg = replace(self.loop.config, approvals="off")
         with patch("ub_agents.cli.load_config", return_value=cfg), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), redirect_stdout(io.StringIO()):
-            self.assertEqual(main(["approve", "--number", "1"]), 0)
+            self.assertEqual(main(["approve", "1"]), 0)
         self.assertTrue(self.github.store[1][-1]["body"].startswith("<!-- ub-agents:approval:v1 -->"))
 
     def test_off_unreadable_author_lookup_excludes_input_without_parking(self):

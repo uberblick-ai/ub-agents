@@ -110,10 +110,16 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agents launch --once` | Run at most one assignment, then exit |
 | `ub-agents launch N [--agent NAME]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
 | `ub-agents cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
-| `ub-agents retry` | Let stopped work run again, with a recorded reason |
-| `ub-agents approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
+| `ub-agents retry N --reason TEXT [--agent NAME]` | Let stopped work run again, with a recorded reason |
+| `ub-agents approve N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agents check` | Validate the configuration files only |
 | `ub-agents report` | Used by agents to record their outcome |
+
+`--config PATH` works before or after every configuration command; giving it in
+both positions is a usage error. Without `--agent`, `retry` prints and uses the
+first configured agent whose kind applies to the item. Use an explicit agent when
+resetting its attempts. The deprecated `--number N` alias remains available for
+one release, hidden from help.
 
 ## Stopping and restarting
 
@@ -175,7 +181,7 @@ Outside edits during a run do not stop it.
 A maintainer adds `needs-preparation` to start an issue. The preparer adds `ready`,
 and implementation follows without another approval. An outside title or body edit
 parks the issue until a maintainer applies a trigger label again or runs
-`ub-agents approve --number N`. Outside comments are not agent input until a
+`ub-agents approve N`. Outside comments are not agent input until a
 maintainer clears them.
 
 When approval is the only pickup obstacle, `launch` adds the configured stop
@@ -187,7 +193,7 @@ without parking writes, and `status` stays read-only.
 Trusted-authored PRs need no start, and outside feedback cannot stall them.
 Outside-authored PRs need both a maintainer trigger label and an approved head;
 later outside edits or feedback suspend pickup. Maintainers approve current input
-with `ub-agents approve --number N`, including a PR's head and outside feedback.
+with `ub-agents approve N`, including a PR's head and outside feedback.
 A maintainer approving review can approve its head; accepted agent revisions from
 eligible heads in the base repository need no new approval. Every changed fork head
 needs explicit maintainer approval. Fork PRs can be reviewed, but agent revision
@@ -375,6 +381,7 @@ and [AGENTS.md](AGENTS.md). The roadmap is in the
 
 An optional [development terminal view](docs/terminal-view.md) shows one launcher's
 local work, cached context, outcomes and paged runtime logs in a separate process.
+On the Issue tab, `g` can load a missing title/body through `gh` on request.
 Install `.[ui]` in the checkout venv; the base launcher does not depend on Textual.
 
 ## License

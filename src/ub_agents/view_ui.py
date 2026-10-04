@@ -1,6 +1,7 @@
 """Optional Textual two-pane UI. Imported only by the development view entrypoint."""
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from queue import Empty
 
 from rich.segment import Segment
@@ -14,7 +15,8 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Static, TabbedContent, TabPane, Tree
 
-from .view_data import mapping, outcome_text, text
+from .view_data import context_text, mapping, outcome_text, text
+from .view_github import DescriptionLoads
 from .view_worker import LocalWorker, Request
 
 MAX_RENDER_LINES = 400
@@ -167,7 +169,7 @@ class LogPane(ScrollView):
 
 
 class View(App):
-    TITLE = 'ub-agents · one launcher · local read-only view'
+    TITLE = 'ub-agents · one launcher · read-only view'
     CSS = '''
     #body { height: 1fr; }
     #work { width: 36; border: solid $accent; }
@@ -184,6 +186,7 @@ class View(App):
         Binding('u', 'raw', 'Raw', priority=True),
         Binding('h', 'history', 'Older page', priority=True),
         Binding('p', 'path', 'Full raw path', priority=True),
+        Binding('g', 'load_description', 'Load/retry description', priority=True),
         Binding('1', "tab('log')", 'Log', priority=True),
         Binding('2', "tab('issue')", 'Issue', priority=True),
         Binding('3', "tab('runs')", 'Runs', priority=True),
@@ -193,9 +196,11 @@ class View(App):
         Binding('end', 'end', 'Bottom', priority=True),
     ]
 
-    def __init__(self, root, session_path, worker=None):
+    def __init__(self, root, session_path, worker=None, descriptions=None):
         super().__init__()
         self.worker = worker or LocalWorker(root, session_path)
+        self.descriptions = descriptions or DescriptionLoads()
+        self.local_description = None
         self.session = None
         self.rows, self.nodes, self.reason_nodes, self.groups = {}, {}, {}, {}
         self.selected = None
@@ -219,7 +224,7 @@ class View(App):
                     with VerticalScroll():
                         yield Static('No outcomes cached.', id='runs_text', markup=False)
         yield Static('Snapshot freshness unavailable · FOLLOW · FORMATTED', id='status', markup=False)
-        yield Static('f follow/pause · h older · u raw · p path · 1/2/3 tabs · Tab panes · PgUp/PgDn scroll · q quit', id='keys', markup=False)
+        yield Static('f follow/pause · h older · u raw · p path · g load/retry Issue · 1/2/3 tabs · PgUp/PgDn · q quit', id='keys', markup=False)
 
     def on_mount(self):
         self.worker.start()
@@ -227,6 +232,7 @@ class View(App):
         self.tick()
 
     def on_unmount(self):
+        self.descriptions.close()
         self.worker.close()
 
     @property
@@ -234,6 +240,7 @@ class View(App):
         return self.readings.setdefault(self.selected, Reading())
 
     def tick(self):
+        self.descriptions.poll()
         try:
             result = self.worker.results.get_nowait()
         except Empty:
@@ -249,6 +256,7 @@ class View(App):
             if self.worker.request(Request(self.selected, self.token, end, generation)):
                 self.busy = True
                 self.pending_history = None
+        self.update_issue()
         self.update_status()
 
     def populate(self, rows):
@@ -299,6 +307,7 @@ class View(App):
         self.pending_history = None
         self.query_one('#output', LogPane).set_reading(self.reading)
         self.last_context = None
+        self.local_description = None
         self.query_one('#issue_text', Static).update('Reading cached context…')
         self.update_status()
 
@@ -321,13 +330,42 @@ class View(App):
                 self.query_one('#output', LogPane).set_reading(reading)
         if result.error:
             reading.notice = text(result.error)
-        if result.context != self.last_context:
-            self.query_one('#issue_text', Static).update(Text(result.context))
-            self.last_context = result.context
+        self.local_description = result.description
         runs = outcome_text(result.session)
         if runs != self.last_runs:
             self.query_one('#runs_text', Static).update(Text(runs))
             self.last_runs = runs
+
+    def description_key(self):
+        row = self.rows.get(self.selected)
+        return self.descriptions.key(self.session.data.get('repository'), row.item) if self.session and row else None
+
+    def update_issue(self):
+        if self.local_description is None:
+            return
+        key = self.description_key()
+        local = self.local_description
+        description = local if local.available else (self.descriptions.get(key) or local)
+        value = context_text(self.rows.get(self.selected), description)
+        if self.descriptions.pending == key and key is not None:
+            value += '\n\nLoading title/body from GitHub…'
+        elif not description.available:
+            value += '\n\nPress g on Issue to ' + ('retry' if description.error else 'load') + ' title/body from GitHub.'
+        if self.descriptions.clock() < self.descriptions.cooldown:
+            reset = datetime.fromtimestamp(self.descriptions.cooldown, timezone.utc).isoformat()
+            value += f'\nGitHub cooldown until {reset}; no loads or retries before then.'
+        elif self.descriptions.pending is not None and self.descriptions.pending != key:
+            value += '\nAnother description read is pending; no requests are queued.'
+        if value != self.last_context:
+            self.query_one('#issue_text', Static).update(Text(value))
+            self.last_context = value
+
+    def action_load_description(self):
+        if (isinstance(self.screen, RawAccess) or self.query_one(TabbedContent).active != 'issue' or
+                self.local_description is None or self.local_description.available):
+            return
+        self.descriptions.request(self.description_key())
+        self.update_issue()
 
     def update_status(self):
         if not self.is_mounted:
@@ -345,7 +383,7 @@ class View(App):
         errors = (' · malformed: ' + self.session.error) if self.session and self.session.error else ''
         size = ' · minimum 110×32' if self.size.width < 110 or self.size.height < 32 else ''
         status = Text(f'{freshness} · {state} · {mode} · unread {unread} entries · lag {lag}B{size}\n'
-                      f'Local files only · {"reading" if self.busy else "idle"}{errors}')
+                      f'Local files · {"reading" if self.busy else "idle"} · GitHub {"pending" if self.descriptions.pending else "on request"}{errors}')
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
             self.screen.query_one('#raw_status', Static).update(status)

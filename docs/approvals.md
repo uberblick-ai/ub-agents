@@ -54,8 +54,8 @@ starter) and posts one **Action needed** notice with the reason and resume steps
 | Gate | Maintainer action to resume |
 |---|---|
 | No maintainer start | Remove `needs-human` and re-apply a trigger label. Approval alone does not start work. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve --number N`; then remove `needs-human`. |
-| Outside PR head not approved | Run `ub-agents approve --number N` or submit an approving review of the current head; then remove `needs-human`. Re-applying a trigger does not approve a head. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agents approve N` or submit an approving review of the current head; then remove `needs-human`. Re-applying a trigger does not approve a head. |
 
 Use the project's configured stop and trigger labels when they differ from the
 starter. Each unresolved gate gets the label and notice at most once; repeated
@@ -187,7 +187,7 @@ including a head observed by an accepted successful run.
 Run from a project configured with `ub-agents.yaml`:
 
 ```sh
-ub-agents approve --number 123
+ub-agents approve 123
 ```
 
 The command refuses without posting if the authenticated `gh` account is not a

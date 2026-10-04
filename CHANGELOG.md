@@ -18,6 +18,8 @@ Approvals now default off for private and internal repositories; set
 - Projects can configure outside-input approvals with `approvals: on` or `off`,
   defaulting from repository visibility; disabled approvals include only feedback
   from authors with `write` or higher (#134).
+- The terminal view can load a selected item's missing description from GitHub on request, with cached results and rate-limit cooldowns (#115).
+
 - A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).
 
 - Every launcher, including `launch --once`, publishes a private, bounded,
@@ -27,6 +29,10 @@ Approvals now default off for private and internal repositories; set
 
 ### Changed
 
+- Configuration commands accept `--config` before or after the command; `approve`
+  and `retry` take positional numbers, retaining deprecated `--number` for one release (#130).
+- `retry` defaults to the first configured agent whose kind applies and prints
+  the selected agent before acting (#130).
 - Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
 
 ### Removed

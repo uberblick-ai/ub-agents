@@ -22,7 +22,7 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 - A successful outcome's transition removes the agent's triggers, so an item runs
   again only when a human reapplies one. An accepted success resets that agent's
   count on that item, including a resumed or revised PR and outcome-only recovery.
-- `ub-agents retry --number N --agent NAME --reason TEXT` resets that count to 0 and
+- `ub-agents retry N --reason TEXT [--agent NAME]` resets that count to 0 and
   clears its failure block and backoff, preserving history. Approval parking still
   requires maintainer approval. It refuses a live lease
   and never revokes someone else's run. It does not restore workflow labels.
@@ -119,8 +119,8 @@ issues or trusted-authored PRs.
 | Approval gate | Maintainer action to resume (starter labels) |
 |---|---|
 | No maintainer start | Remove `needs-human` and re-apply a trigger label. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve --number N`; then remove `needs-human`. |
-| Outside PR head not approved | Run `ub-agents approve --number N` or submit an approving review of the current head; then remove `needs-human`. A trigger label does not approve a head. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agents approve N` or submit an approving review of the current head; then remove `needs-human`. A trigger label does not approve a head. |
 
 Each gate state gets the stop label and notice at most once. Later polls of the
 same unresolved gate add nothing; a new gate after resuming parks the item again.
@@ -159,7 +159,7 @@ when the head repository is the base repository. Changed fork heads need explici
 maintainer approval, even if an accepted successful run observed them.
 A trigger label alone cannot identify a pushed head. Fork PR review is supported;
 agent revision of a fork PR remains blocked regardless of the approvals setting.
-`ub-agents approve --number N` accepts
+`ub-agents approve N` accepts
 issues and PRs and clears the outside feedback it records; PR records also pin the
 head. Its records have no effect with approvals off. See the [complete PR rules](approvals.md#pull-requests).
 
@@ -227,7 +227,7 @@ the old candidate. Unavailable evidence is identified in the comment.
 
 For a stop-label outcome, the comment names the stop label to remove and the
 agent's triggers to apply to resume work. For a blocked release, it gives an
-exact `ub-agents retry --number N --agent NAME --reason "Human resolved the blocker"`
+exact `ub-agents retry N --agent NAME --reason "Human resolved the blocker"`
 command and reminds the human to restore a matching trigger and remove stop
 labels. Exits without an agent report, zero or nonzero, retry with backoff; they
 post a notice only when they exhaust `max-attempts` and park. That notice also

@@ -12,6 +12,24 @@ from ub_agents.github import Dependency, Item
 from ub_agents.records import RECORD_MARKERS, body, lease_by_id, payload, records
 
 
+class RecordingDescriptionTransport:
+    """Explicit completions, including a request that remains hung until close."""
+    def __init__(self):
+        self.calls = []
+        self.response = None
+        self.closed = False
+
+    def start(self, repository, item):
+        self.calls.append((repository, item))
+
+    def poll(self):
+        response, self.response = self.response, None
+        return response
+
+    def close(self):
+        self.closed = True
+
+
 def write_legacy_records(github):
     """Simulate expanded transition snapshots for the schema compatibility suites."""
     create = github.create_comment
