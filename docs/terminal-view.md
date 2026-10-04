@@ -64,6 +64,11 @@ and showing each section's row count:
 Dependency and milestone waits are parked plans whose reasons start with
 `Waiting for blockers …` or `Waiting for active milestone #…`. While a pass is
 incomplete, a dim `partial` marker appears on the `Launcher work` pane title.
+Rows from the previous pass stay visible, with their cached descriptions and item
+history, until the new pass completes. Each re-planned item and agent updates in
+place, moving sections if its state changes; new rows follow the kept rows in
+their section. Completion removes omitted rows and applies the new planned order
+within Eligible. A selected removed row remains as an earlier observation.
 
 When the session has outcomes, a collapsed **Recent activity · N today** row
 follows the sections. N counts cached session outcomes dated today in the
