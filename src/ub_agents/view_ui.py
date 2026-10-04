@@ -19,8 +19,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
 from .view_data import (WORK_GROUPS, context_header, context_text, item_header, mapping,
-                        outcome_text, outcomes_today, run_status, text)
+                        outcomes_today, run_status, text)
 from .view_github import DescriptionLoads
+from .view_runs import run_status as history_status, runs_view
 from .view_worker import LocalWorker, Request
 
 MAX_RENDER_LINES = 400
@@ -291,6 +292,14 @@ class LogPane(ScrollView):
         self.call_after_refresh(self.save_anchor)
 
 
+class WorkTree(Tree):
+    def move_cursor(self, node, animate=False):
+        # Textual's move_cursor reads node._line before rebuilding invalidated
+        # lines. Resolve the public line lookup first, even between refreshes.
+        self.get_node_at_line(0)
+        super().move_cursor(node, animate=animate)
+
+
 class View(App):
     TITLE = 'ub-agents · one launcher · read-only view'
     CSS = '''
@@ -344,7 +353,7 @@ class View(App):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id='body'):
-            yield Tree('Launcher work', id='work')
+            yield WorkTree('Launcher work', id='work')
             with ItemTabs(id='panes'):
                 with TabPane('Log', id='log'):
                     yield Static('', id='log_note', markup=False)
@@ -358,7 +367,7 @@ class View(App):
                         yield Static('', id='issue_note', markup=False)
                 with TabPane('Runs', id='runs'):
                     with VerticalScroll():
-                        yield Static('No outcomes cached.', id='runs_text', markup=False)
+                        yield Static('Select an item to see its history.', id='runs_text', markup=False)
         yield Static('', id='status', markup=False)
 
     def on_mount(self):
@@ -401,6 +410,7 @@ class View(App):
                 self.busy = True
                 self.pending_history = None
         self.update_issue()
+        self.update_runs()
         self.update_status()
 
     def populate(self, rows):
@@ -469,20 +479,15 @@ class View(App):
             self.select(own if follow else RECENT_ACTIVITY if first.group == 'Recent activity' else first.key,
                         chosen=False)
             target = self.groups['Recent activity'] if self.selected == RECENT_ACTIVITY else self.nodes[self.selected]
-            self.call_after_refresh(self.move_cursor, target)
+            tree.move_cursor(target)
         elif cursor:
             target = (self.groups.get(cursor_group) if cursor_group else
                       (self.reason_nodes if cursor_reason else self.nodes).get(cursor.data))
             if target is not None and target is not cursor:
-                self.call_after_refresh(self.move_cursor, target)
+                tree.move_cursor(target)
 
     def move_cursor(self, node):
-        tree = self.query_one('#work', Tree)
-        # move_cursor reads the node's line number, which is stale until the
-        # tree rebuilds its lines; on a busy machine that rebuild may not have
-        # happened yet after a refresh, so ask for the lines first.
-        tree.last_line
-        tree.move_cursor(node)
+        self.query_one('#work', Tree).move_cursor(node)
 
     def on_tree_node_selected(self, event):
         if event.node.data == RECENT_ACTIVITY or event.node.data in self.rows:
@@ -512,8 +517,10 @@ class View(App):
         self.pending_history = None
         self.query_one('#output', LogPane).set_reading(self.reading)
         self.last_context = None
+        self.last_runs = None
         self.local_description = None
         self.query_one('#issue_text', Static).update('Reading cached context…')
+        self.update_runs()
         self.query_one('#issue_body', Markdown).update('')
         self.query_one('#issue_note', Static).update('')
         self.update_status()
@@ -538,10 +545,19 @@ class View(App):
         if result.error:
             reading.notice = text(result.error)
         self.local_description = result.description
-        runs = outcome_text(result.session)
-        if runs != self.last_runs:
-            self.query_one('#runs_text', Static).update(Text(runs))
-            self.last_runs = runs
+
+    def update_runs(self):
+        if self.session is None:
+            return
+        row = self.rows.get(self.selected)
+        history = (mapping(mapping(self.session.data.get('histories')).get(str(row.item))) or
+                   mapping(row.data.get('history'))) if row else {}
+        now = datetime.now().astimezone()
+        active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
+        signature = (row.key if row else None, repr(history), int(now.timestamp() * (5 if active else 1)))
+        if signature != self.last_runs:
+            self.query_one('#runs_text', Static).update(runs_view(row, self.session))
+            self.last_runs = signature
 
     def description_key(self):
         row = self.rows.get(self.selected)

@@ -62,6 +62,11 @@ class Discovery:
                       if not (key[0] in self.ITEM_READS and key[1][0] == number)
                       and not (key[0] == "role" and key[2] == number)}
 
+    def observed_item(self, number):
+        """An already-read item for display only; never fetch missing data."""
+        return next((value for (name, args, _), value in self.cache.items()
+                     if name == "item" and args[0] == number), self.items.get(number))
+
     def prepare_dependencies(self, items):
         missing = [i.number for i in items if i.kind == "issue" and i.state == "open"
                    and i.total_blocked_by != 0 and ("blocked_by", (i.number,), None) not in self.cache]

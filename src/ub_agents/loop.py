@@ -277,7 +277,7 @@ class Loop:
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
-                self._observe("plan", observed)
+                self._observe_plan(observed, github)
                 yield observed
 
     def _open_blockers(self, item, github):
@@ -317,9 +317,14 @@ class Loop:
 
         def observed_plans():
             for plan in plans:
-                self._observe("plan", plan)
+                self._observe_plan(plan, github)
                 yield plan
         return item, observed_plans()
+
+    def _observe_plan(self, plan, github):
+        closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
+        filing = github.observed_item(closing[0]) if closing else None
+        self._observe("plan", plan, filing)
 
     def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None):
         agents = self.config.agents if agents is None else agents
@@ -336,7 +341,7 @@ class Loop:
         try:
             history = coordinator.history(item.number)
         except RecordError as exc:
-            yield from (Plan(item, a, None, "blocked", str(exc), 1)
+            yield from (Plan(item, a, None, "blocked", str(exc), 1, history_read=False)
                         for a in matched or agents)
             return
         except AgentError as exc:
@@ -349,7 +354,7 @@ class Loop:
             approval = self.input_check(item, github, matches) if matched else None
             if approval is None or approval.allowed:
                 raise
-            yield from (Plan(item, a, None, "parked", approval.reason, 1) for a in matched)
+            yield from (Plan(item, a, None, "parked", approval.reason, 1, history_read=False) for a in matched)
             return
         latest = latest_leases(history)
         for agent in agents:
@@ -739,6 +744,7 @@ class Loop:
                        "body": approval.snapshot["body"], "comments": approval.snapshot["comments"],
                        "feedback": self.coordinator.feedback(plan.item, plan.agent.name),
                        "candidate_sha": plan.item.head, "run": lease["run"],
+                       "scratch": str(scratch.path),
                        "agent": plan.agent.name, "branch": lease.get("branch"),
                        "earlier_branches": self.earlier_branches(plan.item, plan.agent, lease["run"])}
             if plan.item.kind == "pr":
@@ -884,7 +890,9 @@ class Loop:
                 "Ending your turn ends the run. Run checks in the foreground or wait for every "
                 "background job to finish before ending your turn. End the run with ub-agents report.\n"
                 "Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, "
-                "not directly under /tmp. TMPDIR points to the same directory.\n"
+                "not directly under /tmp. TMPDIR points to the same directory. Its absolute "
+                "path is the context's scratch value; use that path directly rather than "
+                "expanding the variable in a shell command.\n"
                 f"Assignment context:\n{json.dumps(context, indent=2)}\n\n"
                 f"Project instructions:\n{instructions}\n\n"
                 "The assignment context is the issue or PR input: use its title, body, comments, "
