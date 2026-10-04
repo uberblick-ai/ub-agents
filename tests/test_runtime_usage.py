@@ -113,7 +113,6 @@ class RuntimeUsageTests(unittest.TestCase):
     def test_local_state_expiry_restart_and_other_launcher_isolation(self):
         self.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
         self.assertEqual(self.usage.path.parent, self.root / ".ub-agents" / "runtime-usage")
-        self.assertFalse((self.root / ".ub-agent").exists())
         other = RuntimeUsage(self.root, lambda: self.now, self.lines.append)
         other.record("codex", "primary", 90, self.now + 200, 18000)
         before = self.usage.path.read_bytes()

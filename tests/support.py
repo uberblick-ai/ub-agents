@@ -9,11 +9,11 @@ import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
-from ub_agents.records import MARKER, RECORD_MARKERS, body, lease_by_id, payload, records
+from ub_agents.records import RECORD_MARKERS, body, lease_by_id, payload, records
 
 
 def write_legacy_records(github):
-    """Simulate 0.1.5 writes for the transition and notice compatibility suites."""
+    """Simulate expanded transition snapshots for the schema compatibility suites."""
     create = github.create_comment
 
     def legacy_create(number, text):
@@ -34,7 +34,7 @@ def write_legacy_records(github):
                 source = lease_by_id(records(github.comments(record["assignment"])), record["lease_id"])
                 record["transition"] = source["outcomes"][record["outcome"]] | {
                     "started": record["transition"]["started"]}
-            text = body(record).replace(MARKER, "<!-- ub-agent:v2 -->", 1)
+            text = body(record)
         return create(number, text)
 
     github.create_comment = legacy_create
@@ -43,11 +43,45 @@ def write_legacy_records(github):
 def isolate_runtime_state(test):
     """Keep launcher lock and health files out of the developer's state directory."""
     from unittest.mock import patch
+    isolate_observations(test)
     state = tempfile.TemporaryDirectory()
     test.addCleanup(state.cleanup)
     environment = patch.dict(os.environ, {"XDG_STATE_HOME": state.name})
     test.addCleanup(environment.stop)
     environment.start()
+
+
+def observation_writer_command(body):
+    """Run a controlled failing or stalled writer in the real isolated helper."""
+    script = ("import os,sys,socket,time\nfrom pathlib import Path\n"
+              "from ub_agents.observation_worker import run\n"
+              "root,fd,life,errors,guard=sys.argv[1:]\n"
+              "def writer(directory,state):\n"
+              "    (Path(root)/'writer-entered').touch()\n" + body + "\n"
+              "run(root,socket.socket(fileno=int(fd)),int(life),int(errors),writer=writer)\n")
+    return [sys.executable, "-c", script]
+
+
+class MemoryPublisher:
+    """Keep CLI unit tests deterministic; publisher isolation has its own suite."""
+    def __init__(self, *args, **kwargs):
+        self.snapshots = []
+
+    def submit(self, data):
+        self.snapshots.append(json.loads(data))
+
+    def close(self):
+        pass
+
+    def warning(self, detail):
+        pass
+
+
+def isolate_observations(test):
+    from unittest.mock import patch
+    mock = patch("ub_agents.observations.Publisher", MemoryPublisher)
+    test.addCleanup(mock.stop)
+    mock.start()
 
 
 def stub_refresh(test):

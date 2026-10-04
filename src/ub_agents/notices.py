@@ -8,7 +8,6 @@ from .records import RECORD_MARKERS, declared_transition, lease_by_id, records, 
 from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
-ACTION_MARKERS = (ACTION_MARKER, "<!-- ub-agent:action-needed ")
 
 
 class Notices:
@@ -20,15 +19,15 @@ class Notices:
     def comments(self, number):
         trusted = self.trusted.observation()
         return [c for c in self.github.comments(number)
-                if (c.get("body") or "").startswith(RECORD_MARKERS + ACTION_MARKERS)
+                if (c.get("body") or "").startswith(RECORD_MARKERS + (ACTION_MARKER,))
                 and trusted(c.get("user"))]
 
-    def post_once(self, number, text, markers):
+    def post_once(self, number, text, marker):
         # As with claims, simultaneous posters elect the lowest comment ID.
         # A loser removes only the advisory comment it just posted; durable
         # coordination records are never deleted.
         created = self.github.create_comment(number, text)
-        matches = [c for c in self.comments(number) if c["body"].startswith(markers)]
+        matches = [c for c in self.comments(number) if c["body"].startswith(marker)]
         if matches and min(c["id"] for c in matches) < created["id"]:
             self.github.delete_comment(created["id"])
 
@@ -53,7 +52,7 @@ class Notices:
     def resumed(self, number):
         def minimize_actions():
             self.minimize([comment for comment in self.comments(number)
-                           if (comment.get("body") or "").startswith(ACTION_MARKERS)])
+                           if (comment.get("body") or "").startswith(ACTION_MARKER)])
         self.advisory(f"resume notices on #{number}", minimize_actions)
         self._approval_attempted = {key for key in self._approval_attempted if key[0] != number}
 
@@ -69,8 +68,7 @@ class Notices:
         if key in self._approval_attempted:
             return
         marker = f"{ACTION_MARKER}approval-{check.gate_key}-{epoch} -->"
-        markers = tuple(f"{m}approval-{check.gate_key}-{epoch} -->" for m in ACTION_MARKERS)
-        if any((c.get("body") or "").startswith(markers) for c in comments):
+        if any((c.get("body") or "").startswith(marker) for c in comments):
             self._approval_attempted.add(key)
             return
         # Failed writes are advisory and are not retried for this gate in this
@@ -90,7 +88,7 @@ class Notices:
                       f"`ub-agents approve --number {number}`; then remove the stop label(s) {labels}.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
         self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
-            number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n", markers))
+            number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n", marker))
 
     def superseded(self, number, agent, run):
         def minimize_records():
@@ -134,9 +132,8 @@ class Notices:
 
     def post_action(self, number, lease, outcome, summary, stops, resume_triggers=()):
         marker = f"{ACTION_MARKER}{lease['run']} -->"
-        markers = tuple(f"{m}{lease['run']} -->" for m in ACTION_MARKERS)
         comments = self.comments(number)
-        if any((c.get("body") or "").startswith(markers) for c in comments):
+        if any((c.get("body") or "").startswith(marker) for c in comments):
             return
         history = records(comments)
         anchors = [r["id"] for r in history if r["run"] == lease["run"]
@@ -173,4 +170,4 @@ class Notices:
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
         reason = " ".join(summary.split())
         self.post_once(number,
-            f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n", markers)
+            f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n", marker)

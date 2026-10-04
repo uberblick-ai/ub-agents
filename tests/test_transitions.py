@@ -706,6 +706,22 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.labels_changed(), [])
         self.assertEqual(self.loop.coordinator.history(1)[1]['outcome'], 'handed-off')
 
+    def test_report_requires_every_supervised_environment_field(self):
+        env = {'UB_AGENTS_REPOSITORY': 'org/project', 'UB_AGENTS_ASSIGNMENT': '1',
+               'UB_AGENTS_RUN': 'test-run', 'UB_AGENTS_LEASE_ID': '1'}
+        for field in env:
+            for value in (None, ''):
+                incomplete = env | {field: value}
+                if value is None:
+                    incomplete.pop(field)
+                with self.subTest(field=field, value=value), patch.dict(os.environ, incomplete, clear=True), \
+                        patch('ub_agents.cli.GitHub') as github, redirect_stdout(io.StringIO()) as output, \
+                        redirect_stderr(io.StringIO()) as error:
+                    self.assertEqual(main(['report', '--outcome', 'handed-off', '--summary', 'done']), 1)
+                    self.assertIn('report requires the environment', error.getvalue())
+                    self.assertEqual(output.getvalue(), '')
+                    github.assert_not_called()
+
     def test_prompt_lists_outcomes_and_forbids_workflow_label_changes(self):
         instructions = self.root / 'instructions.md'
         instructions.write_text('Project acceptance rules')

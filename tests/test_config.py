@@ -1,4 +1,5 @@
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import chdir, redirect_stdout, redirect_stderr
+from importlib.metadata import distribution
 import io
 from pathlib import Path
 import tempfile
@@ -19,6 +20,22 @@ class ConfigTests(unittest.TestCase):
     def load(self, content):
         self.path.write_text(content)
         return load_config(self.path)
+
+    def test_package_exposes_only_the_project_command(self):
+        scripts = {entry.name: entry.value for entry in distribution("ub-agents").entry_points
+                   if entry.group == "console_scripts"}
+        self.assertEqual(scripts, {"ub-agents": "ub_agents.cli:main"})
+
+    def test_default_config_requires_the_named_file_and_explicit_paths_work(self):
+        custom = self.root / "custom.yaml"
+        custom.write_text("repository: org/project\nagents:\n  task:\n    command: [echo]\n"
+                          "    trigger: ready\n    outcomes: {done: {}}\n")
+        with chdir(self.root), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as error:
+            self.assertEqual(main(["check"]), 1)
+            self.assertIn("Cannot read configuration", error.getvalue())
+            self.assertEqual(main(["--config", str(custom), "check"]), 0)
+            custom.rename(self.path)
+            self.assertEqual(main(["check"]), 0)
 
     def test_outcome_configuration_and_check_rejections(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"

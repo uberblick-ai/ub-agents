@@ -161,14 +161,6 @@ the JSON, including on comments minimized by GitHub. Valid earlier `v1` records
 remain readable; an earlier-layout comment that cannot be read is ignored and
 never makes its item malformed.
 
-The plural-name reader also accepts `<!-- ub-agent:v1 -->`,
-`<!-- ub-agent:v2 -->`, `<!-- ub-agent:approval:v1 -->`, the old
-`ub-agent:action-needed` marker and `ub-agent/<agent>/<N>/<run>` branches.
-Ownership, recovery, failure counts, approvals and notice deduplication use the
-same rules for both names. New writes use only `ub-agents` markers and branches.
-Stop and upgrade every launcher together, because old launchers cannot read the
-plural names.
-
 Before upgrading to this layout, stop every launcher for a project and upgrade
 them together before restarting. Older launchers ignore v2 records, including
 live claims and outcomes, so a mixed fleet can claim and run an item that an

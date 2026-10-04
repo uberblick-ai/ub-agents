@@ -6,6 +6,18 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** before starting launchers on this version, remove the trigger label
+or add a stop label on open items whose last run was blocked under `ub-agent`;
+those records are now ignored, making triggered items eligible again. Delete any
+leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
+
+### Added
+
+- Every launcher, including `launch --once`, publishes a private, bounded,
+  versioned session snapshot under `.ub-agents/sessions/` for a local view,
+  with reached plans, process state and session outcomes. Publication adds no
+  GitHub reads and cannot hold up execution or shutdown (#113).
+
 ### Changed
 
 - Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
@@ -17,6 +29,9 @@ notes are copied from that section.
 ### Removed
 
 - Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
+
+- Compatibility with the old `ub-agent` command, configuration, environment,
+  coordination markers and artifacts is removed; only `ub-agents` names remain (#137).
 
 ## 0.1.10 — 2026-10-03
 

@@ -12,7 +12,7 @@ from .execution import git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
 from .records import seconds
 
-BRANCH = re.compile(r"(?:ub-agents|ub-agent)/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
+BRANCH = re.compile(r"ub-agents/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
 RUN = re.compile(r"[A-Za-z0-9_-]+\Z")
 
 
@@ -65,7 +65,7 @@ class Cleaner:
                 if str(path) not in registered:
                     artifacts.append(Artifact("worktree", str(path), path.name))
         for branch in git(self.root, "for-each-ref", "--format=%(refname:short)",
-                          "refs/heads/ub-agents/", "refs/heads/ub-agent/").splitlines():
+                          "refs/heads/ub-agents/").splitlines():
             match = BRANCH.fullmatch(branch)
             if match:
                 artifacts.append(Artifact("branch", branch, match[3]))

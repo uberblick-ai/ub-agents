@@ -1,24 +1,9 @@
 # Configuration reference
 
 `ub-agents.yaml` sits at the root of the repository the agents work on. Unknown keys are
-errors; `ub-agents check` validates the file.
-
-For one release, an implicit default falls back to `ub-agent.yaml` if
-`ub-agents.yaml` is missing, with one rename warning per process. Explicit
-`--config` paths have no fallback. A launcher resolves the default again after
-each checkout refresh, so a committed rename takes effect without losing its
-configuration. `init` always writes `ub-agents.yaml` by default.
-
-When upgrading from `ub-agent`, add `.ub-agents/` to `.gitignore` and keep
-`.ub-agent/` ignored until that directory is deleted. Commit the ignore changes
-to the default branch and pull them into every control checkout before starting
-launchers on the new build. Startup creates `.ub-agents/launch.log` before checkout
-refresh, which refuses untracked files. Restart all of the project's launchers
-together; old launchers cannot read new GitHub markers or branch names. After
-every old launcher has stopped, remove the old worktrees and the whole old state
-directory as described in [Stale artifact cleanup](#stale-artifact-cleanup).
-See the [changelog](../CHANGELOG.md) for the configuration, role allowlist and hook
-updates required by the rename.
+errors; `ub-agents check` validates the file. Commands use this file by default;
+`--config PATH` selects another configuration file. `init` writes the selected file
+or `ub-agents.yaml` by default.
 
 ## Top level
 
@@ -41,6 +26,59 @@ to both destinations, including the final stop or error message. The log is neve
 truncated or rotated. Use `tail -f .ub-agents/launch.log` to follow the loop from
 another terminal. See [Stopping and restarting](../README.md#stopping-and-restarting)
 for signal handling, including during a GitHub request.
+
+Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
+publishes a local JSON snapshot at `.ub-agents/sessions/<session-id>.json` in the
+control checkout. Publication is always on, has no configuration key, and makes
+no additional GitHub requests.
+`status` and embedded loops without an observer keep their existing
+behavior. Snapshots contain issue titles and descriptions already read by the
+launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
+directories have mode `0700`; snapshot and temporary files have mode `0600`.
+
+Each launcher has a separate random session ID. Files are replaced atomically and
+hold the latest coalesced observations, with **format `version: 1`**, rather than
+an event journal. A consumer can enumerate `sessions/*.json` without GitHub access.
+The worker updates `published_at` every five seconds during idle waits and running
+assignments. A session is stale if its launcher PID is gone on the recorded host,
+or publication has stopped for more than 30 seconds. An idle session instead has
+a fresh heartbeat and `activity.state: waiting`, with the wait's `until` time.
+A clean exit publishes `ended: true` and `stopping`. If writing fails or hangs,
+the last snapshot may remain stale; execution and shutdown do not wait for the
+writer. The isolated helper exits within one second of launcher exit if a write
+hangs. Successful publications prune old ended or stale files, retaining at most
+20 other inactive sessions, including abandoned temporary files. Live sessions
+are retained. Consumers should check liveness as well as timestamps because PID
+reuse is possible.
+
+The version 1 envelope contains:
+
+| Field | Contents |
+|---|---|
+| `session`, `pid`, `host`, `actor`, `repository`, `config_path` | Launcher identity and configuration; `started_at` and `published_at` use UTC ISO 8601 times. |
+| `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
+| `assignment` | Current item, kind, agent, run, runtime, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery has no agent log or context. |
+| `latest_pass` | Start time, `partial` or `complete`, and the plans actually reached, including item, kind, title, agent, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
+| `outcomes` | This session's recent reports and recovered outcomes: item, agent, run, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. |
+| `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
+
+Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
+`unknown`. Only a process recorded by supervision is shown as running; a lease's
+`running` state alone is insufficient. Report acceptance is `unaccepted`,
+`rejected`, `accepted` (transition not yet complete), or `finalized` (accepted and
+transition complete). `completed` can be true while `human_blocker` lists stop
+labels such as `needs-human`. Finalized outcomes' blockers carry their last
+observation time and are updated when a later pass reaches that target;
+unfinalized reports have no applicable blocker yet. Missing values are `null` with
+reasons where known; unavailable descriptions explicitly say why.
+
+Snapshots hold at most 100 latest-pass rows and 20 recent outcomes. Each text
+value is limited to 2,048 characters and the entire UTF-8 JSON file to 64 KiB;
+the size bound can omit additional plan rows or older outcomes. Publication uses
+a bounded mailbox and an isolated worker. A slow or failed writer cannot delay
+claims, outcome acceptance, recovery, configuration reload, signal handling or
+launcher exit; failures produce at most one publication diagnostic per session.
+Snapshots are never read for claims, coordination or recovery.
 
 `poll-seconds` measures the minimum time between the starts of successful
 continuous discovery passes. A run's report, transitions and cleanup finish
@@ -253,13 +291,6 @@ safe to retry, because a crash after hook success can leave a worktree to clean 
 
 `ub-agents cleanup` previews every registered worktree directly under this checkout's
 `.ub-agents/worktrees/<run>` and local branch named `ub-agents/<agent>/<number>/<run>`.
-It also recognizes the old `ub-agent/<agent>/<number>/<run>` branch prefix with
-the same lease ownership checks. Worktrees under `.ub-agent/` are no longer read.
-After every old launcher has stopped, remove its old worktrees with
-`git worktree remove` (or `git worktree prune` for worktrees already deleted), then
-delete the whole `.ub-agent/` directory, including `runs/` and `launch.log`.
-Removing only the worktrees leaves old logs behind. Keep `.ub-agent/` ignored
-until the whole directory is deleted.
 
 The preview reports `would remove` or `kept` with a reason. Unregistered entries under the
 worktree directory are reported as uncertain and kept. Other tools' worktrees,
@@ -785,10 +816,6 @@ and a launcher killed before cleanup leaves it behind. If scratch removal fails
 after confirmed termination, the launcher leaves any remaining files, prints the
 error and records a `scratch-removal-failed` event in `events.jsonl`. The run still
 completes and releases its lease; this does not mark process cleanup unconfirmed.
-
-Only `report` falls back to the old `UB_AGENT_*` names when the corresponding
-`UB_AGENTS_*` variable is absent. Execution and cleanup hooks receive only the
-new names; update any hooks and commands that read the supervised environment.
 
 ## Commands
 

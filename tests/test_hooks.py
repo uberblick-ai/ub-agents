@@ -174,11 +174,10 @@ class HookTests(unittest.TestCase):
             seen.append(expires() if callable(expires) else expires)
             self.assertIn("UB_AGENTS_CLEANUP_CONTEXT", env)
             self.assertNotIn("UB_AGENTS_LEASE_ID", env)
-            self.assertFalse(any(key.startswith("UB_AGENT_") for key in env))
             return 0
 
         with patch("ub_agents.hooks.supervise", side_effect=hook), \
-                patch.dict("os.environ", {"UB_AGENT_LEASE_ID": "old", "UB_AGENTS_LEASE_ID": "new"}):
+                patch.dict("os.environ", {"UB_AGENTS_LEASE_ID": "inherited"}):
             self.assertTrue(self.execute(loop))
         self.assertEqual(len(seen), 1)
         self.assertGreater(seen[0], started)  # the live lease's wall-clock deadline

@@ -111,8 +111,7 @@ def init_project(args):
 
 
 def report_run(args):
-    # A pre-upgrade launcher can finish through either installed command name.
-    env = {key: os.environ.get(f"UB_AGENTS_{key}", os.environ.get(f"UB_AGENT_{key}"))
+    env = {key: os.environ.get(f"UB_AGENTS_{key}")
            for key in ("REPOSITORY", "ASSIGNMENT", "RUN", "LEASE_ID")}
     if any(not value for value in env.values()):
         raise AgentError("report requires the environment of a supervised ub-agents assignment")
@@ -298,13 +297,29 @@ def run(args):
     handlers = {sig: signal.signal(sig, stop_now)
                 for sig in (signal.SIGINT, signal.SIGHUP)}
     handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: loop.stop_gracefully())
+    from .observations import Observations, Publisher
+    publisher = None
     try:
+        try:
+            publisher = Publisher(config.root, output=loop.output)
+            loop._before_claim()
+            loop.observer = Observations(config, actor, loop.config_path, publisher,
+                                         clock=loop.coordinator.clock)
+        except _GracefulStop:
+            raise
+        except Exception as exc:
+            if publisher is not None:
+                publisher.warning(str(exc))
+            else:
+                loop.output(f"Cannot publish launcher observations: {exc}")
         if args.number is not None:
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
         loop.launch(once=args.once)
     except _GracefulStop:
         return
     finally:
+        if publisher is not None:
+            publisher.close()
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
 
@@ -329,10 +344,3 @@ def main(argv=None):
         except (AgentError, OSError) as exc:
             print(f"ub-agents: {exc}", file=sys.stderr)
             return 1
-
-
-def legacy_main(argv=None):
-    """One-release command alias; preserve the CLI's stdout and exit status."""
-    print("ub-agent is deprecated; use ub-agents instead. This alias remains for one release.",
-          file=sys.stderr)
-    return main(argv)

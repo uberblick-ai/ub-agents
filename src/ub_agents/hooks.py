@@ -76,7 +76,7 @@ def run_hook(config, lease, worktree, outcome=None, expires=None):
     path = directory / "context.json"
     path.write_text(json.dumps(context, indent=2))
     env = {key: value for key, value in os.environ.items()
-           if not key.startswith(("UB_AGENTS_", "UB_AGENT_"))}
+           if not key.startswith("UB_AGENTS_")}
     env.update({"UB_AGENTS_CLEANUP_CONTEXT": str(path),
                 "UB_AGENTS_REPOSITORY": config.repository,
                 "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_AGENT": lease["agent"],

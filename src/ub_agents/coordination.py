@@ -8,10 +8,11 @@ import uuid
 
 from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime, LEASE_SECONDS
+from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
-from .records import (RECORD_MARKERS, V1_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
+from .records import (LEGACY_MARKER, RECORD_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       payload, records, recovers, same_handoff, same_run, seconds, timestamp)
 from .trust import LauncherTrust
 
@@ -33,11 +34,13 @@ class Plan:
     blockers: tuple[str, ...] = ()
     approval_gate: ApprovalCheck | None = None
     history: tuple[dict, ...] = field(default=(), compare=False, repr=False)
+    owner: dict | None = field(default=None, compare=False, repr=False)
+    matches: AgentMatches | None = field(default=None, compare=False, repr=False)
 
 
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
-                 runtime_available=None, runtime_paused=None, launchers=None, role=None):
+                 runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role)
@@ -45,6 +48,7 @@ class Coordinator:
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
+        self.on_record = on_record
         self.runtime_available = runtime_available
         self.runtime_paused = runtime_paused or (lambda cli: None)
         self.notices = Notices(github, actor, output, trusted=self.trust)
@@ -53,6 +57,10 @@ class Coordinator:
         self._lease_lock = threading.RLock()
         self._lease_revision = 0
         self._lost = {}
+
+    def observed(self, record):
+        if self.on_record is not None:
+            self.on_record(record)
 
     def history(self, number):
         comments = self.github.comments(number)
@@ -104,7 +112,7 @@ class Coordinator:
             try:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
             except (KeyError, ValueError, AttributeError, IndexError) as exc:
-                if comment["body"].startswith(V1_MARKERS):
+                if comment["body"].startswith(LEGACY_MARKER):
                     continue
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Coordination comment has no GitHub assignment URL") from exc
@@ -119,8 +127,10 @@ class Coordinator:
         result = sorted(history, key=lambda record: record["id"]), invalid
         return (*result, histories) if by_item else result
 
-    def plan(self, item, agent, stop_labels, history=None):
+    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):
         history = self.history(item.number) if history is None else history
+        matches = matches or AgentMatches.for_item(item, (agent,))
+        start = start or check_start(item, agent, matches, stop_labels, self.queue)
         now = self.clock()
         previous = attempts(history, agent.name, now)
         latest = [r for r in latest_leases(history).values() if r["agent"] == agent.name]
@@ -129,7 +139,10 @@ class Coordinator:
         attempt = len(previous) + 1
         state, reason = "ready", "Trigger matched"
         runtime = None
-        if live_leases(history, now):
+        owner = None
+        owners = live_leases(history, now)
+        if owners:
+            owner = owners[0]
             state, reason = "owned", "An unexpired assignment owns this work item"
         elif self.pending_completion(history, agent.name, now):
             state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
@@ -141,11 +154,10 @@ class Coordinator:
                                             "was unconfirmed; establish termination before an operator reset")
             else:
                 state, reason = "owned", f"A live run on #{owner['assignment']} owns this item's branch"
-        elif item.labels.intersection(stop_labels):
-            labels = ', '.join(sorted(item.labels.intersection(stop_labels)))
+        elif start.stop_reason:
             outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == agent.name]
             summary = lease_summary(history, latest[-1]) if latest else (outcomes[-1]["summary"] if outcomes else "")
-            state, reason = "parked", f"Stop label {labels} is present" + (f": {summary}" if summary else "")
+            state, reason = "parked", start.stop_reason + (f": {summary}" if summary else "")
         elif finished and finished[-1].get("result") == "blocked":
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
                                         "inspect outcome and use ub-agents retry")
@@ -169,7 +181,7 @@ class Coordinator:
         if state in {"ready", "recover"} and self.actor is not None:
             if untrusted := self.trust.reason(self.actor):
                 state, reason, runtime = "blocked", untrusted, None
-        return Plan(item, agent, runtime, state, reason, attempt)
+        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches)
 
     def choose_runtime(self, item, agent, history):
         if agent.command:
@@ -277,7 +289,7 @@ class Coordinator:
                                and r["agent"] == agent.name and r.get("branch")})
             related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
         else:
-            match = re.fullmatch(r"(?:ub-agents|ub-agent)/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
+            match = re.fullmatch(r"ub-agents/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
             related = [int(match[1])] if match else []
         now = self.clock()
         for number in related:
@@ -298,9 +310,15 @@ class Coordinator:
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
-        if current.head != plan.item.head or (not recovery and
-                (current.state != "open" or not current.labels.intersection(plan.agent.triggers))):
+        if current.head != plan.item.head:
             return None
+        matches = AgentMatches.for_item(current, plan.matches.configured if plan.matches else (plan.agent,))
+        if not recovery:
+            start = check_start(current, plan.agent, matches, stop_labels, self.queue)
+            # Stop labels still reach durable planning: its history reads and
+            # precedence for ownership and pending outcomes must stay intact.
+            if not start.allowed and start.reason != start.stop_reason:
+                return None
         history = self.history(current.number)
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, self.clock())
@@ -308,17 +326,18 @@ class Coordinator:
                                       for r in live_leases(history, self.clock())):
                 return None
         else:
-            fresh = self.plan(current, plan.agent, stop_labels, history)
+            fresh = self.plan(current, plan.agent, stop_labels, history, start=start, matches=matches)
             if fresh.state != "ready" or fresh.runtime != plan.runtime:
                 return None
-        if self.queue.milestones == "gate" and not recovery and current.kind == "issue":
-            active_milestone = self.github.active_milestone()
-            if active_milestone is not None and current.milestone != active_milestone:
+            active = (self.github.active_milestone() if current.kind == "issue"
+                      and self.queue.milestones == "gate" else None)
+            if not check_start(current, plan.agent, matches, stop_labels, self.queue, active).allowed:
                 return None
-        if (self.queue.dependencies == "wait" and not recovery and current.kind == "issue"
-                and any(b.state == "open" for b in self.github.blocked_by(current.number))):
-            return None
-        if authorize is not None and not authorize(current):
+            blockers = (open_blockers(self.github, current) if current.kind == "issue"
+                        and self.queue.dependencies == "wait" else ())
+            if not check_start(current, plan.agent, matches, stop_labels, self.queue, active, blockers).allowed:
+                return None
+        if authorize is not None and not authorize(current, matches):
             return None
         now = self.clock()
         record = {"kind": "lease", "run": uuid.uuid4().hex,
@@ -343,6 +362,7 @@ class Coordinator:
         if before_write is not None:
             before_write()
         created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
+        self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
         contenders = live_leases(self.history(current.number), self.clock())
@@ -379,6 +399,7 @@ class Coordinator:
             result = records([self.github.update_comment(lease["id"], body(updated))])[0]
             lease.clear()
             lease.update(result)
+        self.observed(lease)
         return lease
 
     def deadline(self, lease):
@@ -472,6 +493,8 @@ class Coordinator:
                    if r["kind"] == "outcome" and r["lease_id"] == lease["id"] and same_run(r, lease)]
         if len(matches) > 1:
             raise RecordError("Run reported conflicting outcomes")
+        if matches:
+            self.observed(matches[0])
         return matches[0] if matches else None
 
     def report(self, lease, status, summary, handoff=None, outcome=None):
@@ -498,13 +521,16 @@ class Coordinator:
                 declaration = {"add": declaration}
             record |= {"outcome": outcome, "transition": declaration | {"started": False}}
         self.assert_owned(lease)
-        return records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
+        reported = records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
+        self.observed(reported)
+        return reported
 
     def update_outcome(self, lease, outcome, **changes):
         self.assert_owned(lease)
         updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))])[0]
         outcome.clear()
         outcome.update(updated)
+        self.observed(outcome)
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)
@@ -512,6 +538,7 @@ class Coordinator:
         updated = records([self.github.update_comment(outcome["id"], body(accepted))])[0]
         outcome.clear()
         outcome.update(updated)
+        self.observed(outcome)
         self.copy_handoff(lease, outcome)
 
     def copy_handoff(self, lease, outcome):
