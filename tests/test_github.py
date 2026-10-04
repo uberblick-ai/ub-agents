@@ -554,7 +554,7 @@ class GitHubTests(unittest.TestCase):
         self.assertIsNone(github._comment_since)
         self.assertEqual(github._comment_cache, {})
 
-    def test_launcher_and_status_bound_first_scan_by_longest_full_configured_lease(self):
+    def test_launcher_and_status_bound_first_scan_independently_of_agent_and_hook_timeouts(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ub-agents.yaml"
             path.write_text("""repository: org/project
@@ -587,7 +587,7 @@ agents:
                         list(loop.iter_plans(cached=cached))
                         list(loop.iter_plans(cached=cached))
                     queries = [parse_qs(urlsplit(c.args[0]).query) for c in request.call_args_list]
-                    self.assertEqual(queries[0]["since"], [iso(now - (14400 + 900 + 120 + 7 * 86400))])
+                    self.assertEqual(queries[0]["since"], [iso(now - (1800 + 7 * 86400))])
                     self.assertEqual(queries[1]["since"], [iso(now - 60)])
 
     def test_edit_or_deletion_during_scan_cannot_hide_closed_item_failure(self):

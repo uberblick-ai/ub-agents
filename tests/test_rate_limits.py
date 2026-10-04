@@ -62,9 +62,10 @@ class RunRateLimitTests(unittest.TestCase):
             self.loop.coordinator.assert_owned(lease)
 
         with patch("ub_agents.loop.supervise", side_effect=execute), \
-                patch.object(self.interrupt, "wait") as wait, self.assertRaises(LostOwnership):
+                patch.object(self.interrupt, "wait", side_effect=lambda delay: setattr(self, "now", self.now + delay)) as wait, \
+                self.assertRaises(LostOwnership):
             self.loop.tick()
-        wait.assert_not_called()
+        wait.assert_called_once_with(60)
         self.assertEqual(self.github.writes, self.writes)
         lease, outcome = self.loop.coordinator.history(1)
         self.assertEqual(lease["state"], "running")
@@ -85,7 +86,7 @@ class RunRateLimitTests(unittest.TestCase):
 
         with patch("ub_agents.loop.supervise", side_effect=execute), \
                 patch.object(self.interrupt, "wait", side_effect=wait), \
-                self.assertRaisesRegex(LostOwnership, "expired while waiting"):
+                self.assertRaisesRegex(LostOwnership, "lost while waiting"):
             self.loop.tick()
         self.assertEqual(self.github.writes, self.writes)
 

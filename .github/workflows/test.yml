@@ -19,3 +19,5 @@ jobs:
       - run: python -m unittest discover -v
       - run: ub-agents --version
       - run: ub-agents check
+      - run: python -m pip install -e '.[ui]'
+      - run: python -m unittest discover -v

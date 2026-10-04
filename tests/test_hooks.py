@@ -171,7 +171,7 @@ class HookTests(unittest.TestCase):
         seen = []
 
         def hook(command, cwd, env, directory, timeout, stop_event, expires=None, **kwargs):
-            seen.append(expires)
+            seen.append(expires() if callable(expires) else expires)
             self.assertIn("UB_AGENTS_CLEANUP_CONTEXT", env)
             self.assertNotIn("UB_AGENTS_LEASE_ID", env)
             return 0

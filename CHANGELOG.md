@@ -16,14 +16,22 @@ Approvals now default off for private and internal repositories; set
 ### Added
 
 - Projects can configure outside-input approvals with `approvals: on` or `off`,
-  defaulting from repository visibility; disabled approvals include only feedback from authors with `write` or higher (#134).
+  defaulting from repository visibility; disabled approvals include only feedback
+  from authors with `write` or higher (#134).
+- A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).
 
 - Every launcher, including `launch --once`, publishes a private, bounded,
   versioned session snapshot under `.ub-agents/sessions/` for a local view,
   with reached plans, process state and session outcomes. Publication adds no
   GitHub reads and cannot hold up execution or shutdown (#113).
 
+### Changed
+
+- Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
+
 ### Removed
+
+- Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
 
 - Compatibility with the old `ub-agent` command, configuration, environment,
   coordination markers and artifacts is removed; only `ub-agents` names remain (#137).

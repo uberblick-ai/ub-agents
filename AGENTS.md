@@ -56,11 +56,19 @@ The integrator squash-merges a PR once every owed review and check applies to it
 current head, with `--match-head-commit` set to the assigned SHA. It leaves the merge
 to a maintainer, and says why, when the PR:
 
-- changes the `ub-agents` command-line experience: adds, removes or renames commands
-  or options, or changes what existing commands do or print. A change that the
-  issue the PR closes explicitly asks for is authorized by that issue.
-- changes `README.md` or other public documentation under `docs/`, or needs such a
-  change to stay accurate.
+- changes the `ub-agents` command-line experience without the issue it closes
+  explicitly asking for it: adds, removes or renames commands or options, or changes
+  what existing commands do or print.
+- needs all of a project's launchers stopped and restarted together. That applies to
+  any change a running launcher of the previous build would reject or misread: the
+  coordination record format, agent branch names, the config file, or a config key
+  or value that this repository's `ub-agents.yaml` starts using. Its changelog entry
+  carries an **Upgrading** note that says so.
+- changes this repository's own workflow: `AGENTS.md`, `.agents/`, `ub-agents.yaml`
+  or `.github/`.
+
+Updates to `README.md` and `docs/` that describe what the closing issue asked for
+need no maintainer merge. The reviewer checks that they are accurate.
 
 ## Changelog
 

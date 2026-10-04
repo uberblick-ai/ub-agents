@@ -7,7 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.config import Runtime
 from ub_agents.errors import AgentError, CleanupError, LostOwnership
@@ -61,6 +61,27 @@ class ExecutionTests(unittest.TestCase):
             supervise([sys.executable, "-c", "import time; time.sleep(30)"], self.root, os.environ.copy(),
                       self.root / "run", 3, threading.Event(), expires=time.time() - 1)
         self.assertEqual(group_members(int((self.root / "run" / "pid").read_text())), [])
+
+    def test_supervision_reads_a_renewed_deadline_on_each_wall_clock_check(self):
+        now, expiry, seen = [0], [30], []
+        process = Mock(pid=1234, returncode=0)
+        process.poll.side_effect = [None, None, None, None, 0]
+        event = threading.Event()
+        def wait(_delay):
+            now[0] += 10
+            if now[0] == 20:
+                expiry[0] = 60
+        def deadline():
+            seen.append(expiry[0])
+            return expiry[0]
+        with patch("ub_agents.execution.subprocess.Popen", return_value=process), \
+                patch("ub_agents.execution.stop_group") as cleanup, \
+                patch("ub_agents.execution.time.monotonic", side_effect=lambda: now[0]), \
+                patch("ub_agents.execution.time.time", side_effect=lambda: now[0]), \
+                patch.object(event, "wait", side_effect=wait):
+            self.assertEqual(supervise(["test"], self.root, {}, self.root / "run", 100, event, expires=deadline), 0)
+        self.assertEqual((now[0], seen), (40, [30, 30, 60, 60]))
+        cleanup.assert_called_once_with(process)
 
     def test_interruption_ends_the_process(self):
         stop = threading.Event()

@@ -55,10 +55,6 @@ def parser():
     retry.add_argument("--number", type=int, required=True)
     retry.add_argument("--agent", required=True)
     retry.add_argument("--reason", required=True)
-    recover = commands.add_parser("recover", help="Recover a stopped local launcher's reported outcome before expiry")
-    recover.add_argument("--number", type=int, required=True)
-    recover.add_argument("--agent", required=True)
-    recover.add_argument("--reason", required=True, help="Attest that the launcher has stopped")
     approve = commands.add_parser("approve", help="Approve current issue or PR input as a maintainer")
     approve.add_argument("--number", type=int, required=True)
     return result
@@ -224,10 +220,6 @@ def run(args):
         print(f"Approval posted: {created['html_url']}")
         return
     coordinator = Coordinator(github, actor, launchers=config.launchers)
-    if args.command == "recover":
-        from .recovery import recover_run
-        recover_run(config, github, actor, args.number, args.agent, args.reason)
-        return
     if args.command == "cleanup":
         from .cleanup import Cleaner
         for _, error in repository_checks(config):

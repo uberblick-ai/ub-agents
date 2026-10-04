@@ -252,7 +252,7 @@ remain visible as parked even when their transition consumed every trigger.
 
 | YAML setting | Default | Meaning |
 |---|---:|---|
-| `agent-timeout-minutes` | 180 | Runtime process execution deadline; the lease lasts this plus fifteen minutes and any cleanup hook timeout |
+| `agent-timeout-minutes` | 180 | Runtime process execution deadline; independent of the fixed 30-minute lease |
 | `retry-backoff-seconds` | 60 | Initial retry delay after failure release or unreported lease expiry |
 | `max-backoff-seconds` | 3600 | Cap on exponential retry delay |
 | `max-attempts` | 5 | Consecutive failures allowed per item/agent before pickup stops |
@@ -269,10 +269,28 @@ Read current labels/head and all coordination comments before creating a claim.
 Create a separate tentative lease comment for each contender, then reread. The
 lowest GitHub comment ID among unexpired live leases wins. A loser edits only its
 own tentative comment to withdraw and never starts a runtime. The winner marks its
-record running before execution. The lease is never renewed: it lasts the run's
-timeout plus a fixed grace for setup, the cleanup hook and completion, so a dead
-launcher's claim expires on its own. The supervisor also stops a run whose lease has expired by
-wall clock, since monotonic timers pause while a machine sleeps.
+record running before execution. Each lease lasts 30 minutes and the supervising
+launcher renews it every 10 minutes while it owns the work, including setup,
+execution, completion, label transitions, rate-limit waits and the cleanup hook.
+Recovery claims renew the same way. These intervals cannot be configured; the
+agent timeout and cleanup timeout do not change the lease length. A dead launcher's
+claim expires within 30 minutes of its last renewal. The supervisor also stops a
+run whose last confirmed expiry has passed by wall clock, including after sleep.
+
+Renewal edits the existing comment, moving only `expires` forward after the usual
+ETag-cached ownership read. Lease state edits and renewal share a serialized writer,
+so renewal preserves release, withdrawal, cleanup uncertainty and state updates,
+and other edits retain a renewed expiry. Release and withdrawal expire immediately
+and are never renewed. A failed renewal leaves execution running and retries at
+the next interval; ownership is lost if another claim owns the item or the last
+confirmed expiry passes. A renewal write starts only with enough time remaining
+for its 20-second request timeout, so a late renewal cannot revive an expired claim.
+If the renewal worker stops unexpectedly, the launcher reports the failure in its
+terminal output and `.ub-agents/launch.log`; supervision keeps the last confirmed expiry.
+
+Launchers from the preceding release honour renewed comment expiries. New launchers
+also honour older claims' recorded, longer expiries; no coordinated upgrade is
+needed for this lease change.
 
 Every lease names the actor, agent, run, configured CLI/model/effort,
 expiry, attempt, input candidate SHA, and branch when known. The claim is tied to
@@ -313,8 +331,9 @@ unused responses in memory.
 GitHub rate limits during claim election, ownership checks and completion reads
 (including recovery) wait and retry without treating the limit as changed ownership.
 Waits use real response headers and the [rate-limit rules](configuration.md#top-level).
-A wait that would reach or outlast the active lease expiry instead takes the usual
-lost-ownership path: no further coordination writes, followed by expiry recovery.
+A reset beyond the current expiry still starts a wait, while renewal continues.
+The wait ends as lost ownership only when the last confirmed expiry actually passes
+or another claim owns the item: no further coordination writes, followed by expiry recovery.
 See [Stopping and restarting](../README.md#stopping-and-restarting) for signals
 during these waits. Rate-limited writes keep their existing handling.
 
@@ -434,14 +453,14 @@ lost, no comment protocol can make that verdict durable.
 
 ## Recovery
 
-An unexpired lease excludes pickup until release or an operator recovery claim
-supersedes it. Expiry permits a new fresh run, never conversation resumption.
+An unexpired lease excludes pickup until release or expiry. Expiry permits a new
+fresh run on any host, never conversation resumption.
 Durable attempts and backoff survive restarts.
 
 At startup, launcher and `status` discovery read repository issue comments updated
-within the longest configured agent lease plus seven days. The full lease includes
-the agent timeout, the 15-minute grace and any cleanup hook timeout, so every live
-lease falls inside the window. `ub-agents cleanup` still scans the full repository
+within 30 minutes plus seven days. Renewed live leases stay inside that window,
+independently of execution and cleanup timeouts. Older launchers' long leases keep
+their recorded expiry when an item's full history is read. `ub-agents cleanup` still scans the full repository
 comment history. Later discovery scans poll updated comments with
 `sort=updated` and `since`, a 60-second overlap and a cursor captured before the
 scan. Each page advances `since` to one second before its last update and
@@ -471,7 +490,7 @@ to recover that outcome. A later accepted success supersedes older crashed
 runs and resets the consecutive failure count. Failed scans stop visibly.
 
 An expired, unfinished lease whose outcome was reported within its validity window
-gets outcome-only recovery: a bounded recovery claim that names the recovered run
+gets outcome-only recovery: a renewed 30-minute recovery claim that names the recovered run
 and lease, finishes or validates the recorded outcome, accepts success or records
 the blockage, and releases. Repeated recovery claims cost no attempts, and a crash
 during recovery recovers again without execution. A started transition has already
@@ -482,32 +501,12 @@ An unstarted transition is validated in full, and a durably rejected outcome is
 never applied later. Replay treats removing an absent label or adding a present one
 as a no-op; a label in both lists ends up added.
 
-After checking on the launcher's host that the launcher has stopped, an operator
-can run `ub-agents recover --number N --agent NAME --reason TEXT` to perform the
-same outcome-only recovery before expiry. The latest lease for that item and agent
-must come from a trusted launcher account, record this machine's hostname as `host`,
-and record a `process_group` with no live members, using the same process inspection
-as `cleanup`. It must have a reported outcome within its validity window and no
-supervisor verdict that superseded the report. Unconfirmed cleanup still refuses.
-Failed checks write nothing, exit nonzero, and print the failed check and lease
-expiry. Accepted outcomes print their label changes; rejected or invalid outcomes
-print their rejection reason and finish with the same verdict and attempt effect
-as expiry recovery.
-
-The reason attests that the launcher has stopped; the command checks the agent's
-process group and does not try to prove launcher termination. The recovery lease
-records `recovery_reason`, with the GitHub comment author identifying the actor.
-Any non-withdrawn recovery claim naming the original lease revokes its ownership,
-so a surviving original supervisor makes no further coordination writes. Another
-trusted account can recover it and settle the source attempt with
-the same verdict as recovery by the source account. Source outcome comments keep
-their original authors; handoff copies posted by a recoverer name that recoverer.
-Recovery contenders, including expiry recovery racing the command, elect the lowest live
-comment id as usual. A stopped recovery can itself be recovered after its bounded
-claim expires, without starting an agent or restoring the original lease's ownership.
-No remote-host recovery, force clearing, process signalling or recovery without a
-report is provided. Stop all project launchers and upgrade them together before
-using this command: earlier launchers do not recognize early ownership revocation.
+Recovery contenders elect the lowest live comment id as usual. Any trusted launcher
+account on any host can settle the source attempt after expiry. Source outcome
+comments keep their original authors; handoff copies name the recovering account.
+A stopped recovery can itself be recovered after its claim expires, without starting
+an agent or restoring the original lease's ownership. Unconfirmed cleanup still
+blocks fresh execution and artifact removal until termination is established.
 
 Transitions create no cross-item reservations: removals from the assignment precede
 additions to the destination, so a crash between them leaves both items idle until

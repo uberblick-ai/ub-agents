@@ -43,6 +43,7 @@ def response_parts(output):
 RATE_LIMIT_MARGIN_SECONDS = 5
 RATE_LIMIT_FALLBACK_SECONDS = 60
 RATE_LIMIT_MAX_SECONDS = 3600
+REQUEST_TIMEOUT_SECONDS = 20
 
 
 def is_rate_limit(status, headers, detail):
@@ -239,7 +240,7 @@ class GitHub:
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
-                capture_output=True, text=True, timeout=20, check=False)
+                capture_output=True, text=True, timeout=REQUEST_TIMEOUT_SECONDS, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             error = GitHubError(method, endpoint, str(exc), retryable=isinstance(
                 exc, (subprocess.TimeoutExpired, TimeoutError, ConnectionError)))

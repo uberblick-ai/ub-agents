@@ -174,7 +174,10 @@ class Doctor:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
             self.add("github-permissions", "skip", "repository response unavailable")
             self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
-        if config:
+        if config and config.approvals is None and metadata is None:
+            self.add("approvals", "skip", "gh unavailable" if not gh_ready else
+                     "repository response unavailable")
+        elif config:
             try:
                 value, source = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
                 self.add("approvals", "ok", f"Approvals: {value} ({source})")
