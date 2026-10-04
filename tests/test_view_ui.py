@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +17,11 @@ from ub_agents.view_worker import LocalWorker
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        # IsolatedAsyncioTestCase starts its loop in debug mode, which slows
+        # Textual by about a third and reports every slow callback.
+        asyncio.get_running_loop().set_debug(False)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -55,6 +61,27 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_view_follows_a_run_that_starts_after_it_opens_until_a_row_is_picked(self):
+        assignment = self.state['assignment']
+        self.state['assignment'] = None
+        self.state['latest_pass']['rows'][0]['state'] = 'ready'
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.rows)
+            self.assertTrue(app.selected.startswith('plan:'))
+            self.state['assignment'] = assignment
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run')
+            self.assertNotIn('plan:114:implementer', app.rows)
+            app.select('plan:12:reviewer')
+            self.state['assignment'] = dict(assignment, run='next-run')
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'assignment:next-run' in app.rows)
+            self.assertEqual(app.selected, 'plan:12:reviewer')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_selected_plan_survives_section_order_change_and_disappearance(self):
         self.state['latest_pass']['rows'].extend([
             {'item': 20, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
@@ -70,15 +97,17 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             key = next(k for k, row in app.rows.items() if row.item == 21)
             app.select(key)
             tree = app.query_one('#work', Tree)
-            tree.move_cursor(app.reason_nodes[key])
+            app.move_cursor(app.reason_nodes[key])
             output.focus()
+            self.assertIs(tree.cursor_node, app.reason_nodes[key])
             self.state['latest_pass']['rows'] = [
                 {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'}]
             self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting'))
+            # The tree moves its cursor back to the kept node after the next refresh.
+            await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting')
+                             and tree.cursor_node is app.reason_nodes[key])
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
-            self.assertIs(tree.cursor_node, app.reason_nodes[key])
             self.assertNotIn('Eligible', app.groups)
             self.assertEqual([node.label.plain for node in tree.root.children[:2]],
                              ['Running · 1', 'Waiting · 1'])
