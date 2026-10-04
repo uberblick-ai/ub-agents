@@ -54,14 +54,9 @@ ub-agents doctor       # check the machine, GitHub labels/access and runtimes
 ub-agents launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
-The base install has no UI dependencies. For the optional read-only terminal view,
-install `brew install uberblick-ai/tap/ub-agents-ui`. Interactive launches then
-open their own session's view; `q` closes it and leaves the launcher running,
-and Ctrl-C stops the launcher. Use `launch --no-ui` for plain lines. Pipes and
-services stay plain. Without the UI, interactive launch prints one installation
-notice. See [terminal view installation](docs/terminal-view.md#installation) for
-version-pinned Python checkout installs in a dedicated environment, requirements
-and raw-log access.
+Interactive launches open a read-only [terminal view](docs/terminal-view.md) of
+their own session; `q` closes it and leaves the launcher running, and Ctrl-C stops
+the launcher. Use `launch --no-ui` for plain lines. Pipes and services stay plain.
 
 Launch output is flushed immediately to the terminal when the view is closed and appended to
 `.ub-agents/launch.log` in the control checkout, with a UTC timestamp on each file
@@ -406,11 +401,9 @@ model. This repository is developed with its own loop: see [ub-agents.yaml](ub-a
 and [AGENTS.md](AGENTS.md). The roadmap is in the
 [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
-An optional [local terminal view](docs/terminal-view.md) shows one launcher's
-local work, cached context, outcomes and paged runtime logs in a separate process.
-On the Issue tab, `g` can load a missing title/body through `gh` on request.
-Use the supported opt-in Homebrew package or a version-pinned Python install;
-interactive `launch` opens the view automatically, and the base launcher stays UI-free.
+The [local terminal view](docs/terminal-view.md) shows one launcher's local work,
+cached context, outcomes and paged runtime logs in a separate process. On the Issue
+tab, `g` can load a missing title/body through `gh` on request.
 
 ## License
 

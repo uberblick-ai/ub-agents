@@ -1,54 +1,24 @@
 # Local terminal view
 
-`ub-agents launch`, `launch --once` and `launch N` automatically open the read-only
-view for their own session when stdin and stdout are terminals and the opt-in UI
-is installed. `launch --no-ui` keeps plain line output. Pipes, CI and services
-remain plain. An interactive launch without the UI prints one installation notice
-and continues; nothing is installed at runtime. Other commands neither import UI
-packages nor print that notice.
+`ub-agents launch`, `launch --once` and `launch N` open a read-only view of their
+own session when stdin and stdout are terminals. `launch --no-ui` keeps plain line
+output. Pipes, CI and services remain plain. Other commands do not import the UI
+packages.
 
 The view runs in its own process. It reads local files on the same macOS or Linux
 host, as the same user as the launcher, from the **control checkout** rather than
 an agent's private worktree. A launcher passes its exact session ID; it never
 selects another fresh session. A missing, stale (over 30 seconds), ended or
-incompatible snapshot, or a UI/base version mismatch, produces a one-line error
-and plain output continues. The view has no workflow controls. Only an explicit
-Issue-tab description request uses the user's existing authenticated `gh` access.
+incompatible snapshot, or a version mismatch after an upgrade under a running
+launcher, produces a one-line error and plain output continues. The view has no
+workflow controls. Only an explicit Issue-tab description request uses the user's
+existing authenticated `gh` access.
 
 ## Installation
 
-The base Homebrew package stays UI-free. Install the separate opt-in package:
-
-```sh
-brew install uberblick-ai/tap/ub-agents
-brew install uberblick-ai/tap/ub-agents-ui
-```
-
-The UI package has its own environment and pinned Python resources. The launcher
-finds `ub-agents-ui` on PATH, and checks that its version matches the base package.
-Upgrade both packages together when updating the UI. The tap change accompanies
-this implementation as a separate reviewable PR; publishing a release and
-upgrading operator installations are separate actions. Installation changes no
-operator service or permissions.
-
-For Python, use Python 3.11+ and a dedicated environment. Select a tagged release
-that contains this feature, or the full reviewed commit from the implementation PR;
-older releases such as v0.1.10 do not contain this launch integration. Pin the
-checkout before installing; do not use the experiment's development environment:
-
-```sh
-git clone https://github.com/uberblick-ai/ub-agents.git
-cd ub-agents
-git checkout --detach REVIEWED_COMMIT_OR_RELEASE_TAG
-python3 -m venv "$HOME/.local/share/ub-agents-ui"
-"$HOME/.local/share/ub-agents-ui/bin/python" -m pip install '.[ui]'
-"$HOME/.local/share/ub-agents-ui/bin/ub-agents" --version
-```
-
-Run that environment's `ub-agents` in the control checkout, or put its `bin` on
-PATH. This installs a fixed checkout version of `ub-agents[ui]` and Textual 8.2.8;
-PyPI publication is not required. For upgrades, stop the launcher, select the next
-release tag or full commit, reinstall into this environment, and restart.
+The view is part of every install: `brew install uberblick-ai/tap/ub-agents`, or
+`pip install -e .` (or `mise run setup`) in a checkout, which installs Textual
+8.2.8 alongside PyYAML.
 
 `ub-agents-ui /path/to/control-checkout --session SESSION_ID` is available for
 manual local observation. Without an ID this standalone view opens the only
@@ -145,10 +115,9 @@ a running launcher is not supported.
 
 ## Validation
 
-CI runs the base suite without the extra, then installs `.[ui]` and runs the same
-suite with UI regressions enabled. It builds a wheel and source distribution,
-installs the wheel into clean base/UI environments, checks base help and plain
-launch without Textual, and resolves the UI entrypoint. Local checks:
+The post-merge GitHub run builds a wheel and source distribution, installs the
+wheel into a clean environment, checks that help and plain launch do not import
+Textual, and resolves the view entrypoint. Local checks:
 
 ```sh
 .venv/bin/python -m unittest discover -v

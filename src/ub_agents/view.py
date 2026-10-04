@@ -1,7 +1,6 @@
 """Supported optional view entrypoint. UI imports occur only after attachment."""
 
 import argparse
-import importlib.util
 from pathlib import Path
 import select
 import signal
@@ -82,8 +81,6 @@ def main(argv=None):
         if args.base_version != __version__:
             print(f'UI/base version mismatch: UI {__version__}, launcher {args.base_version}')
             return 2
-        if importlib.util.find_spec('textual') is None:
-            return 3
         return 0
     if args.control_checkout is None:
         parser.error('control_checkout is required')
