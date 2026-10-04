@@ -7,6 +7,7 @@ import uuid
 
 from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime
+from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .github import Item
 from .notices import Notices
@@ -33,6 +34,7 @@ class Plan:
     approval_gate: ApprovalCheck | None = None
     history: tuple[dict, ...] = field(default=(), compare=False, repr=False)
     owner: dict | None = field(default=None, compare=False, repr=False)
+    matches: AgentMatches | None = field(default=None, compare=False, repr=False)
 
 
 class Coordinator:
@@ -119,8 +121,10 @@ class Coordinator:
         result = sorted(history, key=lambda record: record["id"]), invalid
         return (*result, histories) if by_item else result
 
-    def plan(self, item, agent, stop_labels, history=None):
+    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):
         history = self.history(item.number) if history is None else history
+        matches = matches or AgentMatches.for_item(item, (agent,))
+        start = start or check_start(item, agent, matches, stop_labels, self.queue)
         now = self.clock()
         previous = attempts(history, agent.name, now)
         latest = [r for r in latest_leases(history).values() if r["agent"] == agent.name]
@@ -144,11 +148,10 @@ class Coordinator:
                                             "was unconfirmed; establish termination before an operator reset")
             else:
                 state, reason = "owned", f"A live run on #{owner['assignment']} owns this item's branch"
-        elif item.labels.intersection(stop_labels):
-            labels = ', '.join(sorted(item.labels.intersection(stop_labels)))
+        elif start.stop_reason:
             outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == agent.name]
             summary = lease_summary(history, latest[-1]) if latest else (outcomes[-1]["summary"] if outcomes else "")
-            state, reason = "parked", f"Stop label {labels} is present" + (f": {summary}" if summary else "")
+            state, reason = "parked", start.stop_reason + (f": {summary}" if summary else "")
         elif finished and finished[-1].get("result") == "blocked":
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
                                         "inspect outcome and use ub-agents retry")
@@ -172,7 +175,7 @@ class Coordinator:
         if state in {"ready", "recover"} and self.actor is not None:
             if untrusted := self.trust.reason(self.actor):
                 state, reason, runtime = "blocked", untrusted, None
-        return Plan(item, agent, runtime, state, reason, attempt, owner=owner)
+        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches)
 
     def choose_runtime(self, item, agent, history):
         if agent.command:
@@ -302,9 +305,13 @@ class Coordinator:
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
-        if current.head != plan.item.head or (not recovery and
-                (current.state != "open" or not current.labels.intersection(plan.agent.triggers))):
+        if current.head != plan.item.head:
             return None
+        matches = AgentMatches.for_item(current, plan.matches.configured if plan.matches else (plan.agent,))
+        if not recovery:
+            start = check_start(current, plan.agent, matches, stop_labels, self.queue)
+            if not start.allowed:
+                return None
         history = self.history(current.number)
         if recovery:
             outcome = (recovery_check(history) if recovery_check is not None else
@@ -313,17 +320,18 @@ class Coordinator:
                                       for r in live_leases(history, self.clock())):
                 return None
         else:
-            fresh = self.plan(current, plan.agent, stop_labels, history)
+            fresh = self.plan(current, plan.agent, stop_labels, history, start=start, matches=matches)
             if fresh.state != "ready" or fresh.runtime != plan.runtime:
                 return None
-        if self.queue.milestones == "gate" and not recovery and current.kind == "issue":
-            active_milestone = self.github.active_milestone()
-            if active_milestone is not None and current.milestone != active_milestone:
+            active = (self.github.active_milestone() if current.kind == "issue"
+                      and self.queue.milestones == "gate" else None)
+            if not check_start(current, plan.agent, matches, stop_labels, self.queue, active).allowed:
                 return None
-        if (self.queue.dependencies == "wait" and not recovery and current.kind == "issue"
-                and any(b.state == "open" for b in self.github.blocked_by(current.number))):
-            return None
-        if authorize is not None and not authorize(current):
+            blockers = (open_blockers(self.github, current) if current.kind == "issue"
+                        and self.queue.dependencies == "wait" else ())
+            if not check_start(current, plan.agent, matches, stop_labels, self.queue, active, blockers).allowed:
+                return None
+        if authorize is not None and not authorize(current, matches):
             return None
         now = self.clock()
         record = {"kind": "lease", "run": uuid.uuid4().hex,
