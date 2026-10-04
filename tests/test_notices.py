@@ -230,7 +230,7 @@ class NoticeTests(unittest.TestCase):
         comment = notices[0]["body"]
         for expected in ("**Action needed**", outcome["summary"], "a" * 40, "APPROVED", "SUCCESS",
                          lease["url"], outcome["url"],
-                         'ub-agents retry --number 2 --agent worker --reason "Human resolved the blocker"'):
+                         'ub-agents retry 2 --agent worker --reason "Human resolved the blocker"'):
             self.assertIn(expected, comment)
         self.assertEqual(records(notices, "operator"), [])
         self.assertEqual(len(self.co.history(2)), 2)
@@ -410,7 +410,7 @@ class NoticeTests(unittest.TestCase):
                 notice = notices[0]["body"]
                 for expected in (f"Execution exited {code}", "Attempt limit exhausted", "max-attempts: 3",
                                  "launcher-host", str(self.root / ".ub-agents" / "runs" / lease["run"]),
-                                 lease["url"], outcome["url"], "ub-agents retry --number 1 --agent worker"):
+                                 lease["url"], outcome["url"], "ub-agents retry 1 --agent worker"):
                     self.assertIn(expected, notice)
                 before = deepcopy(github.writes)
                 self.output.clear()

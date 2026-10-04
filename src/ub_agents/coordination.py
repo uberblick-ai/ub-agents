@@ -160,9 +160,11 @@ class Coordinator:
             state, reason = "parked", start.stop_reason + (f": {summary}" if summary else "")
         elif finished and finished[-1].get("result") == "blocked":
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
-                                        "inspect outcome and use ub-agents retry")
+                                        f"inspect outcome and use ub-agents retry {item.number} "
+                                        f"--agent {agent.name} --reason TEXT")
         elif attempt > agent.max_attempts:
-            state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agents retry"
+            state, reason = "blocked", ("Attempt limit exhausted; inspect failures and use "
+                                        f"ub-agents retry {item.number} --agent {agent.name} --reason TEXT")
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
             state, reason = "backoff", "Durable retry backoff has not elapsed"
         elif (latest and latest[-1].get("attempt_effect") == "pending" and previous

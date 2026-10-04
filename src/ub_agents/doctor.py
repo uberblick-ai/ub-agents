@@ -10,10 +10,10 @@ import subprocess
 import sys
 
 from .config import load_config
-from .approvals import Roles
+from .approvals import Roles, resolve_policy
 from .errors import AgentError
 from .execution import parse_process_table, repository_checks
-from .github import REPOSITORY, GitHub
+from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import configured_labels
 from .records import iso
 from .trust import WRITERS
@@ -126,6 +126,7 @@ class Doctor:
             for id in ("repository-root", "repository-remote"):
                 self.add(id, "skip", "configuration unavailable" if not config else "git unavailable")
         github = self.github or GitHub(config.repository if config else "", runner=self.runner)
+        metadata = None
         login = None
         if gh_ready:
             try:
@@ -139,7 +140,7 @@ class Doctor:
         else:
             self.add("github-auth", "skip", "gh unavailable")
         if config and gh_ready:
-            self.repository_access(config, github)
+            metadata = self.repository_access(config, github)
             self.labels(config, github)
             roles = Roles(github)
             if login:
@@ -172,6 +173,18 @@ class Doctor:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
             self.add("github-permissions", "skip", "repository response unavailable")
             self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
+        if config and config.approvals is None and metadata is None:
+            self.add("approvals", "skip", "gh unavailable" if not gh_ready else
+                     "repository response unavailable")
+        elif config:
+            try:
+                value, source = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
+                self.add("approvals", "ok", f"Approvals: {value} ({source})")
+            except AgentError:
+                self.add("approvals", "fail", "Approvals: repository visibility is unreadable",
+                         "Ensure the token can read repository visibility, or configure approvals: on or off")
+        else:
+            self.add("approvals", "skip", "configuration unavailable")
         if gh_ready:
             self.rate_limit(github.quota_headers, github.rate_limited)
         else:
@@ -239,6 +252,7 @@ class Doctor:
             else:
                 self.add("github-permissions", "fail", "token cannot change labels, so outcome transitions would fail",
                          f"Ask a maintainer for triage or higher access to {config.repository}")
+            return raw
         except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
             self.add("github-repository", "fail", self.github_failure("repository access", exc),
                      f"Authenticate with gh auth login and obtain access to {config.repository}")

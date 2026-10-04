@@ -110,10 +110,16 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agents launch --once` | Run at most one assignment, then exit |
 | `ub-agents launch N [--agent NAME]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
 | `ub-agents cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
-| `ub-agents retry` | Let stopped work run again, with a recorded reason |
-| `ub-agents approve --number N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
+| `ub-agents retry N --reason TEXT [--agent NAME]` | Let stopped work run again, with a recorded reason |
+| `ub-agents approve N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agents check` | Validate the configuration files only |
 | `ub-agents report` | Used by agents to record their outcome |
+
+`--config PATH` works before or after every configuration command; giving it in
+both positions is a usage error. Without `--agent`, `retry` prints and uses the
+first configured agent whose kind applies to the item. Use an explicit agent when
+resetting its attempts. The deprecated `--number N` alias remains available for
+one release, hidden from help.
 
 ## Stopping and restarting
 
@@ -146,6 +152,23 @@ upgrading any.
 
 ## Issue and PR approvals
 
+Set top-level `approvals: on` or `approvals: off` in `ub-agents.yaml` to choose the
+policy. By default it is on for public repositories and off for private and
+internal repositories, resolved from GitHub visibility each discovery pass. An
+unreadable visibility fails the pass without claims or parking writes. `doctor`
+shows the effective value and source; `check` shows the configured value or the
+visibility default without contacting GitHub.
+
+With approvals off, a configured trigger label starts work regardless of who
+applied it. Agents receive the current title and body, and comments, reviews and
+review comments only from authors with `write`, `maintain` or `admin`. Other
+feedback remains excluded even with an approval record. PR heads, including fork
+heads, need no approval; the launcher makes no approval reads or approval-parking
+writes. `ub-agents approve` still works, but its records have no effect. Other
+eligibility gates, stop labels and fork revision restrictions still apply.
+
+The following rules apply with approvals on.
+
 People who start and approve work use their own accounts with `maintain` or `admin`.
 
 Every issue run, including preparation, needs a maintainer start. The launcher
@@ -158,7 +181,7 @@ Outside edits during a run do not stop it.
 A maintainer adds `needs-preparation` to start an issue. The preparer adds `ready`,
 and implementation follows without another approval. An outside title or body edit
 parks the issue until a maintainer applies a trigger label again or runs
-`ub-agents approve --number N`. Outside comments are not agent input until a
+`ub-agents approve N`. Outside comments are not agent input until a
 maintainer clears them.
 
 When approval is the only pickup obstacle, `launch` adds the configured stop
@@ -170,7 +193,7 @@ without parking writes, and `status` stays read-only.
 Trusted-authored PRs need no start, and outside feedback cannot stall them.
 Outside-authored PRs need both a maintainer trigger label and an approved head;
 later outside edits or feedback suspend pickup. Maintainers approve current input
-with `ub-agents approve --number N`, including a PR's head and outside feedback.
+with `ub-agents approve N`, including a PR's head and outside feedback.
 A maintainer approving review can approve its head; accepted agent revisions from
 eligible heads in the base repository need no new approval. Every changed fork head
 needs explicit maintainer approval. Fork PRs can be reviewed, but agent revision

@@ -7,7 +7,7 @@ import threading
 from time import monotonic
 from dataclasses import replace
 
-from .approvals import ApprovalCheck, check_issue, check_pr
+from .approvals import ApprovalCheck, check_issue, check_pr, resolve_policy, trusted_input
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
@@ -51,6 +51,7 @@ class Loop:
         self.observer = observer
         self._observation_warning = False
         self.config = config
+        self.approvals = config.approvals or "on"
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
                                        on_claim=self.claimed, launchers=config.launchers,
@@ -157,6 +158,8 @@ class Loop:
 
     def input_check(self, item, github=None, matches=None):
         github = github or self.github
+        if self.approvals == "off":
+            return trusted_input(github, item)
         if matches is None or matches.configured != self.config.agents:
             matches = AgentMatches.for_item(item, self.config.agents)
         triggers = matches.trigger_labels
@@ -182,6 +185,7 @@ class Loop:
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
     def iter_plans(self, cached=True):
+        self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         github = self.discovery if cached else Discovery(self.github)
         lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
@@ -290,6 +294,7 @@ class Loop:
         return replace(plan, blockers=blockers)
 
     def item_plans(self, number, agent_name=None):
+        self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         # Share this item's history and approval reads, without repository
         # discovery, priority inheritance or milestone ordering.
         github = Discovery(self.github)

@@ -2,8 +2,8 @@
 
 `ub-agents.yaml` sits at the root of the repository the agents work on. Unknown keys are
 errors; `ub-agents check` validates the file. Commands use this file by default;
-`--config PATH` selects another configuration file. `init` writes the selected file
-or `ub-agents.yaml` by default.
+`--config PATH` selects another configuration file before or after the command.
+`init` writes the selected file or `ub-agents.yaml` by default.
 
 ## Top level
 
@@ -11,6 +11,7 @@ or `ub-agents.yaml` by default.
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `launchers` | Optional nonempty list of GitHub logins that narrows coordination trust; every account still needs `write` or higher. |
+| `approvals` | `on` or `off` (quoted or unquoted); defaults from GitHub visibility each pass: `on` for public, `off` for private and internal repositories. See [approvals](approvals.md). |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
@@ -18,6 +19,14 @@ or `ub-agents.yaml` by default.
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `runtime-updates` | Optional daily maintenance policy for configured Claude Code and Codex runtimes. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
+
+With `approvals: off`, current titles and bodies are input, trigger labels need no
+maintainer start, and PR heads need no approval. Feedback is limited to authors
+with `write`, `maintain` or `admin`; approval records cannot clear other feedback.
+The launcher makes no approval reads or approval-parking writes. When `approvals`
+is unset, an unreadable visibility fails the pass before any claim or parking
+write. `doctor` shows the effective value and source; `check` shows the configured
+value or that it comes from visibility, without contacting GitHub.
 
 `ub-agents launch`, including `--once`, appends stdout and stderr to
 `.ub-agents/launch.log` in the control checkout. Every file line starts with a UTC
@@ -845,7 +854,7 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
   JSON has `version`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
-- `ub-agents approve --number N` prints the current issue or PR title, body and
+- `ub-agents approve N` prints the current issue or PR title, body and
   outside comments; for PRs it also prints the head, outside reviews and review
   comments. It posts one [approval record](approvals.md#approving-current-input),
   pinning a PR head and recording the feedback it clears. It requires the
@@ -894,9 +903,21 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
 - `ub-agents report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
-- `ub-agents retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
+- `ub-agents retry N --reason TEXT [--agent NAME]` resets one agent's consecutive failure count on
   an item once you have fixed the cause. It prints the reset record's link and a
-  second line explaining closure, stop labels to remove, trigger labels to add,
+  next-step line explaining closure, stop labels to remove, trigger labels to add,
   or pickup by a running launcher on its next poll. Labels stay unchanged; use
   `ub-agents status` for progress and other pickup gates.
-- `--config PATH` selects a different configuration file.
+  For `retry`, omitting `--agent` selects the first configured agent
+  whose `kind` matches the item or is `either`, and prints its name before acting.
+  Trigger labels and other eligibility gates do not affect this selection. If no
+  agent applies, the command fails without recording anything. Specify `--agent`
+  when resetting a particular agent's attempts.
+- `approve` and `retry` require a positive item number. The deprecated
+  `--number N` alias remains available for one release and is hidden from help;
+  giving the number both ways is a usage error.
+- `--config PATH` selects a different configuration file before or after any
+  command except `report`, which reads no configuration. Giving it in both
+  positions is a usage error. For example, `ub-agents --config x.yaml launch` and
+  `ub-agents launch --config x.yaml` both write `.ub-agents/launch.log` next to
+  `x.yaml`.

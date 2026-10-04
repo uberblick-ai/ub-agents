@@ -132,7 +132,7 @@ class EnforcementTests(unittest.TestCase):
                     self.outside_edit()
                 self.assert_parked(f'Outside {change} edit', writes=True)
                 notice = self.notices()[0]
-                for text in ('re-apply a trigger label', 'ub-agents approve --number 1',
+                for text in ('re-apply a trigger label', 'ub-agents approve 1',
                              'then remove', '`needs-human`'):
                     self.assertIn(text, notice['body'])
                 before = self.github.writes[:]
@@ -180,7 +180,7 @@ class EnforcementTests(unittest.TestCase):
         self.start(2, 'needs-changes')
         self.assert_parked('head is not approved', writes=True)
         notice = self.notices(2)[0]
-        for text in ('ub-agents approve --number 2', 'approving review of the current head',
+        for text in ('ub-agents approve 2', 'approving review of the current head',
                      'then remove', 'Re-applying a trigger label does not approve a head'):
             self.assertIn(text, notice['body'])
         self.start(2, 'needs-changes', second=20)
@@ -203,7 +203,7 @@ class EnforcementTests(unittest.TestCase):
         self.github.review_store[2] = [feedback(100, second=20, state='COMMENTED', commit_id='a' * 40)]
         self.assert_parked('Outside PR feedback', writes=True)
         self.assertIn('re-apply a trigger label', self.notices(2)[0]['body'])
-        self.assertIn('ub-agents approve --number 2', self.notices(2)[0]['body'])
+        self.assertIn('ub-agents approve 2', self.notices(2)[0]['body'])
         self.start(2, 'needs-changes', second=25)
         self.remove_stop(2)
         self.execute()

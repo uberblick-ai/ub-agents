@@ -80,12 +80,12 @@ class Notices:
             resume = (f"A maintainer must remove the stop label(s) {labels} and re-apply a trigger label: "
                       f"{trigger_text}. An approval alone does not start work.")
         elif check.gate == "head":
-            resume = (f"A maintainer must run `ub-agents approve --number {number}` or submit an approving "
+            resume = (f"A maintainer must run `ub-agents approve {number}` or submit an approving "
                       f"review of the current head; then remove the stop label(s) {labels}. "
                       "Re-applying a trigger label does not approve a head.")
         else:
             resume = (f"A maintainer must re-apply a trigger label ({trigger_text}), or run "
-                      f"`ub-agents approve --number {number}`; then remove the stop label(s) {labels}.")
+                      f"`ub-agents approve {number}`; then remove the stop label(s) {labels}.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
         self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
             number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n", marker))
@@ -158,7 +158,7 @@ class Notices:
             triggers = ", ".join(f"`{label}`" for label in resume_triggers)
             resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
         else:
-            command = (f"ub-agents retry --number {number} --agent {lease['agent']} "
+            command = (f"ub-agents retry {number} --agent {lease['agent']} "
                        f"--reason {json.dumps('Human resolved the blocker')}")
             triggers = ", ".join(f"`{label}`" for label in lease.get("triggers", ()))
             resume = f"After resolving the blocker, run:\n\n```sh\n{command}\n```"

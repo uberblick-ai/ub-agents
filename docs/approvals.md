@@ -1,11 +1,50 @@
 # Issue and PR starts and outside input
 
+The top-level `approvals` key in `ub-agents.yaml` accepts `on` or `off`, quoted or
+unquoted. When unset, approvals are **on for public repositories** and **off for
+private and internal repositories**, using GitHub's repository visibility. The
+launcher resolves this default at the start of each discovery pass, including a
+targeted `launch N` pass. A repository that becomes public is checked from the
+next pass. If visibility cannot be read, the pass fails without claims or parking
+writes. An explicit setting does not require a visibility read.
+
+```yaml
+approvals: on
+```
+
+`ub-agents doctor` shows the effective value and its source: `config` or
+`visibility (public|private|internal)`. `ub-agents check` stays local-only: it shows
+the configured value or says the value comes from repository visibility.
+
+## With approvals off
+
+An item's configured trigger label starts work regardless of who applied it;
+GitHub restricts labeling to accounts with `triage` or higher. Its current title
+and body are input, including outside edits. Comments, reviews and review comments
+are input only from authors with `write`, `maintain` or `admin`. Feedback from
+`triage`, `read`, unknown or unreadable roles is excluded, even when an approval
+record covers it. Coordination records, launcher notices and approval records
+remain excluded from the agent's input.
+
+The launcher makes no timeline, body edit-history, approval-record or head-ancestry
+reads. Author permission lookups filter feedback. PR heads, including fork heads,
+need no approval. Nothing is parked or suspended for missing approval or outside
+input, and no approval stop label or **Action needed** notice is written. Other
+eligibility gates, configured stop labels and the restriction on agent revision
+of fork PRs still apply.
+
+`ub-agents approve` works unchanged, but its records have no effect while approvals
+are off. To retain the previous checks in private or internal repositories, set
+`approvals: on`.
+
+## With approvals on
+
 Issue work needs a maintainer's start. Once started, the pipeline can move its own
 labels and accept trusted edits without further human involvement. Outside content
 needs a maintainer's review before it becomes input.
 
 Every issue agent, including preparation, and every PR agent passes the approval
-check at pickup and again after claiming. There is no setting to disable it.
+check at pickup and again after claiming.
 `launch` and `status` show disallowed input as parked with the reason: missing
 maintainer start, outside changes or unreadable approval history. Pickup spends no
 attempt and makes no claim. When a failed approval is the only obstacle on a
@@ -15,8 +54,8 @@ starter) and posts one **Action needed** notice with the reason and resume steps
 | Gate | Maintainer action to resume |
 |---|---|
 | No maintainer start | Remove `needs-human` and re-apply a trigger label. Approval alone does not start work. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve --number N`; then remove `needs-human`. |
-| Outside PR head not approved | Run `ub-agents approve --number N` or submit an approving review of the current head; then remove `needs-human`. Re-applying a trigger does not approve a head. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve N`; then remove `needs-human`. |
+| Outside PR head not approved | Run `ub-agents approve N` or submit an approving review of the current head; then remove `needs-human`. Re-applying a trigger does not approve a head. |
 
 Use the project's configured stop and trigger labels when they differ from the
 starter. Each unresolved gate gets the label and notice at most once; repeated
@@ -148,7 +187,7 @@ including a head observed by an accepted successful run.
 Run from a project configured with `ub-agents.yaml`:
 
 ```sh
-ub-agents approve --number 123
+ub-agents approve 123
 ```
 
 The command refuses without posting if the authenticated `gh` account is not a
