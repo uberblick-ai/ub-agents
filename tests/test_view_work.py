@@ -32,6 +32,11 @@ class WorkLineTests(unittest.TestCase):
             self.assertTrue(work_lines(claiming, 50, now=now)[0].plain.endswith('claiming'))
         before = WorkRow('assignment:claiming', 'Running', 160, 'implementer', 'claiming', '', row.data)
         self.assertTrue(work_lines(before, 50, now=now)[0].plain.endswith('claiming'))
+        # A report timestamp cannot substitute for an unavailable claim time.
+        reported = WorkRow('assignment:own', 'Running', 160, 'implementer', 'running', '',
+                           {'history': {'runs': [{'agent': 'implementer', 'time': now.isoformat(),
+                                                 'acceptance': 'unaccepted'}]}}, run='own')
+        self.assertTrue(work_lines(reported, 50, now=now)[0].plain.endswith('claiming'))
 
     def test_foreign_owned_blocked_attempt_limit_and_eligible(self):
         cases = [

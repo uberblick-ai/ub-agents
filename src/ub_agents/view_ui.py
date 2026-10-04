@@ -479,6 +479,7 @@ class View(App):
                 group.remove()
                 del self.groups[name]
         self.rows = incoming
+        tree.remember_claims(incoming)
         tree.root.expand()
         title = Text('Launcher work')
         latest = mapping(self.session.data.get('latest_pass'))

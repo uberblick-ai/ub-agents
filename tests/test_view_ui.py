@@ -1158,7 +1158,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click('#work', offset=(3, foreign._line + offset - tree.scroll_offset.y))
                 self.assertEqual(app.selected, foreign.data)
                 self.assertIs(tree.cursor_node, foreign)
-            app.select('plan:20:worker')
+            blocked = app.nodes['plan:20:worker']
+            # Empty space after a short metadata line still belongs to its row.
+            await pilot.click('#work', offset=(width - 2, blocked._line + 1 - tree.scroll_offset.y))
+            self.assertEqual(app.selected, blocked.data)
             await self.ready(app, pilot, lambda: 'Full blocker detail stays on Issue' in
                              app.query_one('#issue_text', Static).render().plain)
             self.assertEqual(transport.calls, [])
@@ -1181,16 +1184,32 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.rows[app.selected] = replace(app.rows[app.selected], data={
                 **app.rows[app.selected].data,
                 'history': {'runs': [{'agent': 'implementer', 'time': stamp}]}})
+            tree.claim_times.clear()
+            tree.remember_claims(app.rows)
             line = app.nodes[app.selected]._line
+            def displayed():
+                strips = app.screen._compositor.render_strips()
+                return strips[tree.region.y + line].crop(tree.region.x,
+                                                        tree.region.x + tree.scrollable_content_region.width).text
             with patch('ub_agents.view_work.datetime') as clock:
                 clock.fromisoformat = datetime.fromisoformat
                 clock.now.return_value = now
                 tree.refresh()
                 await pilot.pause(0.1)
-                self.assertTrue(tree.render_line(line).text.endswith('04:12'))
+                self.assertTrue(displayed().endswith('04:12'), displayed())
                 clock.now.return_value = now + timedelta(seconds=1)
                 await pilot.pause(1.1)
-                self.assertTrue(tree.render_line(line).text.endswith('04:13'))
+                self.assertTrue(displayed().endswith('04:13'), displayed())
+                # A report replaces history.time with its outcome timestamp.
+                # It must not reset an already observed claim timer.
+                app.rows[app.selected] = replace(app.rows[app.selected], data={
+                    **app.rows[app.selected].data,
+                    'history': {'runs': [{'agent': 'implementer', 'time': now.isoformat(),
+                                          'acceptance': 'unaccepted'}]}})
+                tree.remember_claims(app.rows)
+                tree.refresh()
+                await pilot.pause(0.1)
+                self.assertTrue(displayed().endswith('04:13'), displayed())
                 app.session.data['activity']['state'] = 'stopping'
                 self.assertTrue(tree.render_line(line).text.startswith('■'))
                 self.assertTrue(tree.render_line(line).text.endswith('stopping'))

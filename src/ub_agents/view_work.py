@@ -12,28 +12,37 @@ from textual.widgets import Static, Tree
 from .view_data import mapping, outcomes_today, rows, text
 
 
-def assignment_elapsed(row, now=None):
+def assignment_claim_time(row):
     if not row.run:
-        return 'claiming'
+        return None
     # Published histories omit run IDs; the agent and lease expiry identify
     # the assignment's run using only the existing cached snapshot.
     expiry = row.data.get('lease_expires')
     history = rows(mapping(row.data.get('history')).get('runs'), 20)
     claim = next((run for run in reversed(history) if run.get('agent') == row.agent
                   and (not expiry or run.get('expires') == expiry)), {})
+    # After a report, history.time is the outcome time rather than claim time.
+    # Keep a previously observed claim in the view, never reset to report time.
+    if claim.get('acceptance'):
+        return None
     try:
         stamp = datetime.fromisoformat(claim['time'].replace('Z', '+00:00'))
-        if stamp.tzinfo is None:
-            return 'claiming'
-        elapsed = max(0, int(((now or datetime.now(timezone.utc)) - stamp).total_seconds()))
+        return stamp if stamp.tzinfo is not None else None
     except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+        return None
+
+
+def assignment_elapsed(row, now=None, claimed_at=None):
+    stamp = claimed_at or assignment_claim_time(row)
+    if stamp is None:
         return 'claiming'
+    elapsed = max(0, int(((now or datetime.now(timezone.utc)) - stamp).total_seconds()))
     minutes, seconds = divmod(elapsed, 60)
     hours, minutes = divmod(minutes, 60)
     return f'{hours}:{minutes:02}:{seconds:02}' if hours else f'{minutes:02}:{seconds:02}'
 
 
-def work_lines(row, width, *, next_row=False, stopping=False, now=None):
+def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None):
     """Two cell-bounded lines for one logical live-work row."""
     if width <= 0:
         return Text('', no_wrap=True), Text('', no_wrap=True)
@@ -43,7 +52,7 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None):
     if row.state == 'earlier observation':
         glyph, state = '○', row.state
     elif own:
-        glyph, state = ('■', 'stopping') if stopping else ('⠹', assignment_elapsed(row, now))
+        glyph, state = ('■', 'stopping') if stopping else ('⠹', assignment_elapsed(row, now, claimed_at))
     elif row.group == 'Running':
         glyph, state = '◌', 'owned'
     elif row.group == 'Eligible':
@@ -85,8 +94,20 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None):
 class WorkTree(Tree):
     """One Tree node per row, two display lines, using pinned Textual 8.2.8."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.claim_times = {}
+
     def on_mount(self):
         self.set_interval(1, self.refresh)
+
+    def remember_claims(self, work):
+        self.claim_times = {key: stamp for key, stamp in self.claim_times.items() if key in work}
+        for row in work.values():
+            if row.key.startswith('assignment:') and row.key not in self.claim_times:
+                stamp = assignment_claim_time(row)
+                if stamp is not None:
+                    self.claim_times[row.key] = stamp
 
     def _build(self):
         super()._build()
@@ -124,12 +145,14 @@ class WorkTree(Tree):
         if row:
             eligible = next((value.key for value in self.app.rows.values() if value.group == 'Eligible'), None)
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
-            value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping)[line_no != node._line]
+            value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
+                               claimed_at=self.claim_times.get(row.key))[line_no != node._line]
         else:
             value = self.render_label(node, style, label_style)
             value.truncate(width, overflow='ellipsis')
-        value.stylize(label_style + Style(meta={'line': line_no, 'node': node.id}))
-        return Strip(list(value.render(self.app.console))).extend_cell_length(width, style)
+        line_style = label_style + Style(meta={'line': line_no, 'node': node.id})
+        value.stylize(line_style)
+        return Strip(list(value.render(self.app.console))).extend_cell_length(width, style + line_style)
 
     def move_cursor(self, node, animate=False):
         # Resolve invalidated lines before Textual reads node._line.

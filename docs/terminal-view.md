@@ -83,7 +83,9 @@ the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
 Arrow keys move by row, and either line can be clicked to select its item.
 Elapsed time uses the item's cached run history and updates while the view is
-open. These rows require no extra GitHub reads or snapshot fields. Priority
+open; the view retains an observed claim time when a report updates the history.
+If that claim time is unavailable, the row shows `claiming`.
+These rows require no extra GitHub reads or snapshot fields. Priority
 markers are absent because the snapshot has no priority.
 
 Dependency and milestone waits are parked plans whose reasons start with
