@@ -139,7 +139,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         self.assertEqual(current['header_height'], 3)
                         self.assertLessEqual(current['header_y'] + current['header_height'], current['output_y'])
                         self.assertIn('#114', current['header'])
-                        self.assertEqual(current['yellow'], 'Color(215, 175, 0)')
+                        self.assertEqual(current['yellow'], 'Color(255, 139, 127)')
                         self.assertLessEqual(current['cells'], width - 2)
                         self.assertEqual(current['selected'], paused['selected'])
                         self.assertEqual(current['focus'], paused['focus'])
@@ -709,7 +709,8 @@ class ProofView(View):
                  'selected': self.selected, 'group': row.group if row else None,
                  'state': row.state if row else None,
                  'cursor': tree.cursor_node.data if tree.cursor_node else None,
-                 'focus': self.focused.id if self.focused else None, 'title': tree.root.label.plain,
+                 'focus': self.focused.id if self.focused else None,
+                 'title': self.query_one('#work_pane').border_title,
                  'sections': [node.label.plain for node in tree.root.children],
                  'nodes': list(self.nodes),
                  'idle': self.idle_node.label.plain if self.idle_node else None,

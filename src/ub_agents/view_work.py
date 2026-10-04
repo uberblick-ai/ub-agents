@@ -10,6 +10,15 @@ from textual.strip import Strip
 from textual.widgets import Static, Tree
 
 from .view_data import mapping, outcomes_today, rows, text
+from .view_theme import SECTION_COLORS, theme_style
+
+
+def section_rule(label, width, style):
+    heading = Text(label, style=style, no_wrap=True)
+    heading.truncate(width, overflow='ellipsis')
+    if heading.cell_len < width:
+        heading.append(' ' + '┄' * max(0, width - heading.cell_len - 1))
+    return heading
 
 
 def assignment_claim_time(row):
@@ -143,10 +152,15 @@ class WorkTree(Tree):
             value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
                                claimed_at=self.claim_times.get(row.key))[line_no != node._line]
         else:
-            value = self.render_label(node, style, label_style)
-            value.truncate(width, overflow='ellipsis')
+            label_style = theme_style(self.app, SECTION_COLORS.get(node.label.plain.split(' · ')[0], 'view-muted'))
+            value = section_rule(node.label.plain, width, label_style)
         line_style = label_style + Style(meta={'line': line_no, 'node': node.id})
         value.stylize(line_style)
+        if row:
+            if line_no == node._line:
+                value.stylize(theme_style(self.app, SECTION_COLORS.get(row.group, 'view-muted')), 0, 1)
+            else:
+                value.stylize(theme_style(self.app, 'view-muted', dim=True))
         return Strip(list(value.render(self.app.console))).extend_cell_length(width, style + line_style)
 
     def move_cursor(self, node, animate=False):
@@ -198,12 +212,14 @@ class RecentActivity(Static, can_focus=True):
 
     def render(self):
         width = self.content_size.width
-        header = Text(f'Recent activity · {self.today} today', no_wrap=True)
-        header.truncate(width, overflow='ellipsis')
+        header = section_rule(f'Recent activity · {self.today} today', width,
+                              theme_style(self.app, 'view-muted'))
         for row in self.visible_rows:
-            style = '' if row.key == self.app.selected else 'dim'
+            style = theme_style(self.app, 'foreground' if row.key == self.app.selected else 'view-muted',
+                                dim=row.key != self.app.selected)
             if self.has_focus and row.key == self.cursor:
-                style += ' reverse'
+                style += theme_style(self.app, 'view-accent',
+                                     bgcolor=self.app.theme_variables['view-selection'])
             result = text(row.data.get('result'))
             glyph = '✗' if result in {'retry', 'blocked', 'failed', 'abandoned'} else (
                 '✓' if row.data.get('completed') else '○')
@@ -222,10 +238,10 @@ class RecentActivity(Static, can_focus=True):
             detail = Text('  ' + ' · '.join(value for value in (row.agent, when, row.reason) if value), no_wrap=True)
             detail.truncate(width, overflow='ellipsis')
             header.append('\n')
-            first.stylize(style.strip())
+            first.stylize(style)
             header.append_text(first)
             header.append('\n')
-            detail.stylize(style.strip())
+            detail.stylize(style)
             header.append_text(detail)
         return header
 

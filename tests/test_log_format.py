@@ -37,7 +37,7 @@ class CompactClaudeTests(unittest.TestCase):
         self.assertIn('▸ Bash cat missing-owned.txt', output)
         error = next(entry for entry in entries if entry.kind == 'tool ERROR')
         self.assertTrue(error.text.endswith('  ✗ Exit code 1'))
-        self.assertEqual(error.styles[-1][2], 'red')
+        self.assertEqual(error.styles[-1][2], 'error')
         self.assertNotIn('cat:', error.text)
         self.assertEqual(entries[-1].text, '--:--:--  ✓ run finished')
         self.assertNotIn('assistant:', output)
@@ -83,17 +83,17 @@ class CompactClaudeTests(unittest.TestCase):
 
     def test_synthetic_edit_and_write_counts_and_colors(self):
         for name, inputs, suffix, colors in (
-                ('Edit', {'new_string': 'a\nb\n', 'old_string': 'old'}, '+2 -1', ('green', 'red')),
-                ('Edit', {'new_string': '', 'old_string': '\n'}, '+0 -1', ('green', 'red')),
-                ('Write', {'content': 'a\nb'}, '+2', ('green',)),
-                ('Write', {'content': 'a\r\nb\r\n'}, '+2', ('green',)),
-                ('Write', {'content': 'a\rb\vc\fd\x1ce\x1df\x1eg\x85h\u2028i\u2029'}, '+1', ('green',)),
+                ('Edit', {'new_string': 'a\nb\n', 'old_string': 'old'}, '+2 -1', ('diff-add', 'diff-remove')),
+                ('Edit', {'new_string': '', 'old_string': '\n'}, '+0 -1', ('diff-add', 'diff-remove')),
+                ('Write', {'content': 'a\nb'}, '+2', ('diff-add',)),
+                ('Write', {'content': 'a\r\nb\r\n'}, '+2', ('diff-add',)),
+                ('Write', {'content': 'a\rb\vc\fd\x1ce\x1df\x1eg\x85h\u2028i\u2029'}, '+1', ('diff-add',)),
                 ('Write', {}, '', ()), ('Edit', {}, '', ())):
             entry = self.decode(record(content=[{**tool(name=name), 'input': {'file_path': 'a', **inputs}}]))
             self.assertEqual(entry.text, '--:--:--  ▸ ' + name + ' a' + (' ' + suffix if suffix else ''))
             self.assertEqual(tuple(style for _, _, style in entry.styles), colors)
             for start, end, color in entry.styles:
-                self.assertTrue(entry.text[start:end].startswith('+' if color == 'green' else '-'))
+                self.assertTrue(entry.text[start:end].startswith('+' if color == 'diff-add' else '-'))
 
     def test_synthetic_multiline_long_and_control_arguments_are_one_line(self):
         for command in ('first\nsecond', 'x' * 500, '\x1b[2J\r\t\x9b31m\nsecond'):
@@ -141,11 +141,11 @@ class CompactClaudeTests(unittest.TestCase):
         failure = self.decode({'type': 'result', 'subtype': 'error_during_execution', 'is_error': True,
                                'result': 'last assistant message', 'errors': ['API failed\nstack', 'another error']})
         self.assertEqual(failure.text, '--:--:--  ✗ error_during_execution: API failed')
-        self.assertEqual(failure.styles[-1][2], 'red')
+        self.assertEqual(failure.styles[-1][2], 'error')
         for value in ('API failed\nstack', {'message': 'API failed\nstack'}):
             runtime = self.decode({'type': 'error', 'error': value})
             self.assertEqual(runtime.text, '--:--:--  ✗ API failed')
-            self.assertEqual(runtime.styles[-1][2], 'red')
+            self.assertEqual(runtime.styles[-1][2], 'error')
         unknown = self.decode({'type': 'future', 'subtype': 'phase', 'payload': 'private'})
         self.assertEqual(unknown.text, '--:--:--  · future · phase')
         self.assertEqual(unknown.styles[-1][2], 'dim')

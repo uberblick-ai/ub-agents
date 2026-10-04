@@ -8,6 +8,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .view_data import item_history, mapping, rows, text
+from .view_theme import theme_style
 
 SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
@@ -41,7 +42,7 @@ def relative_time(value, now=None):
     return local.strftime('%Y-%m-%d')
 
 
-def run_host(value, local_host=None):
+def run_host(value, local_host=None, *, muted='dim'):
     local_host = local_host or socket.gethostname()
     if isinstance(value, str) and value:
         if value.rstrip('.').casefold() == local_host.rstrip('.').casefold():
@@ -49,7 +50,7 @@ def run_host(value, local_host=None):
         name = text(value).split('.', 1)[0]
     else:
         name = 'unknown'
-    host = Text(name, style='dim')
+    host = Text(name, style=muted)
     host.truncate(14, overflow='ellipsis')
     return host
 
@@ -67,7 +68,11 @@ def run_status(row, now):
     return 'running', text(row.get('state'), 'running')
 
 
-def runs_view(row, session, now=None):
+def runs_view(row, session, now=None, *, app=None):
+    # The plain projection remains usable without a running Textual app.
+    muted = theme_style(app, 'view-muted', dim=True) if app else 'dim'
+    success = theme_style(app, 'view-success') if app else ''
+    error = theme_style(app, 'view-error') if app else ''
     if row is None:
         return Text('Select an item to see its history.')
     relative_now = now
@@ -84,22 +89,22 @@ def runs_view(row, session, now=None):
     if filed:
         details.append('filed by ' + text(filing['author']))
     details.append(f'{len(runs) + omitted} runs')
-    subtitle = Text(' · '.join(details), style='dim')
+    subtitle = Text(' · '.join(details), style=muted)
     if not filed and not runs and not omitted:
         return Group(subtitle, Text('No item history cached.'))
-    table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style='dim')
+    table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style=muted)
     table.add_column('when', width=11, no_wrap=True)
     table.add_column('result', width=6, no_wrap=True)
     table.add_column('agent · summary', ratio=1, min_width=12, no_wrap=True, overflow='ellipsis')
     table.add_column('where', width=14, no_wrap=True)
     table.add_column('outcome', min_width=12, max_width=24, overflow='fold')
     if filed:
-        table.add_row(relative_time(filing['time'], relative_now), Text('✓', style='green'),
+        table.add_row(relative_time(filing['time'], relative_now), Text('✓', style=success),
                       Text('filed by ' + text(filing['author'])), 'GitHub', 'filed')
     frame = SPINNER[int(now.timestamp() * 10) % len(SPINNER)]
     for run in runs:
         status, label = run_status(run, now)
-        glyph = Text('✓', style='green') if status == 'success' else Text('✗', style='red') if status == 'failed' else Text(frame)
+        glyph = Text('✓', style=success) if status == 'success' else Text('✗', style=error) if status == 'failed' else Text(frame)
         summary = text(run.get('agent'))
         if run.get('summary'):
             summary += ' · ' + text(run['summary'])
@@ -109,6 +114,7 @@ def runs_view(row, session, now=None):
         blockers = run.get('human_blocker')
         if isinstance(blockers, list) and blockers:
             outcome += ' · BLOCKED: ' + ', '.join(text(b) for b in blockers[:10])
-        table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary), run_host(run.get('host')), Text(outcome))
-    tail = [Text(f'{omitted} earlier runs omitted.', style='dim')] if omitted else []
+        table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary),
+                      run_host(run.get('host'), muted=muted), Text(outcome))
+    tail = [Text(f'{omitted} earlier runs omitted.', style=muted)] if omitted else []
     return Group(subtitle, table, *tail)
