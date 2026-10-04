@@ -231,6 +231,8 @@ class Observations:
     def plan(self, plan):
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
+               "runtime": plan.runtime.name if plan.runtime else None,
+               "failures": plan.attempt - 1, "max_attempts": plan.agent.max_attempts,
                "observed_at": iso(self.clock()), "description": (
                    {"available": True, "text": plan.item.body,
                     "omitted_characters": max(0, len(plan.item.body) - MAX_TEXT)}
@@ -258,6 +260,7 @@ class Observations:
     def assignment(self, plan):
         self.state["assignment"] = {
             "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
+            "title": plan.item.title[:MAX_TEXT], "attempt": plan.attempt,
             "run": None, "runtime": None, "lease_state": None, "lease_expires": None,
             "process": "claiming", "process_reason": "No process has been recorded",
             "process_log": None, "context_path": None,
@@ -276,8 +279,11 @@ class Observations:
             self.source_run = record.get("recovered_run")
             assignment.update(run=record["run"], runtime=record["runtime"],
                               lease_state=record["state"], lease_expires=record["expires"])
+            if record.get("attempt") is not None:
+                assignment["attempt"] = record["attempt"]
             if record.get("mode") == "recovery":
                 assignment.update(process="recovery", process_reason="Recovery starts no agent process",
+                                  recovered_run=self.source_run,
                                   paths_reason="This recovery has no process log or context")
             else:
                 if record["state"] == "released" and assignment["process"] in {"starting", "running"}:
@@ -298,6 +304,8 @@ class Observations:
             acceptance = ("rejected" if record.get("rejected") else "finalized" if finalized else
                           "accepted" if record.get("accepted") else "unaccepted")
             row = {"item": record["assignment"], "agent": record["agent"], "run": record["run"],
+                   "kind": assignment["kind"], "title": assignment["title"],
+                   "handoff": record.get("handoff"),
                    "runtime": record.get("runtime") or assignment.get("runtime"),
                    "result": assignment.get("result", record["status"]),
                    "summary": assignment.get("summary", record["summary"]),

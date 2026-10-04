@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,12 +13,17 @@ from tests.test_view_github import reply
 from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
-from textual.widgets import Markdown, Static, TabbedContent, Tree
-from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, UpdateBanner, View
+from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
+from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, UpdateBanner, View, pane_line
 from ub_agents.view_worker import LocalWorker
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        # IsolatedAsyncioTestCase starts its loop in debug mode, which slows
+        # Textual by about a third and reports every slow callback.
+        asyncio.get_running_loop().set_debug(False)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -54,6 +60,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(banner.size.height, 1)
                 self.assertEqual(banner.region.y, 0)
                 self.assertEqual(app.query_one('#body').region.y, 1)
+                header = app.query_one('#item_header')
+                self.assertGreater(header.region.y, banner.region.y)
+                self.assertEqual(header.size.height, 3)
+                self.assertIn('#114', header.render().plain)
                 self.assertFalse(banner.can_focus)
                 self.assertEqual(app.selected, selected)
                 self.assertIs(app.focused, focus)
@@ -81,6 +91,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.selected, selected)
             self.assertIs(app.focused, focus)
             self.assertEqual(transport.calls, [])
+
+    async def settled(self, app, pane):
+        # A pilot pause can return on a busy machine before the after-refresh
+        # callbacks that restore the pane's anchor. Queue behind them and wait.
+        events = [asyncio.Event(), asyncio.Event()]
+        app.call_after_refresh(events[0].set)
+        pane.call_after_refresh(events[1].set)
+        await asyncio.wait_for(asyncio.gather(*(event.wait() for event in events)), 5)
 
     async def test_compact_claude_styles_single_line_tools_and_hidden_anchor(self):
         # Replay recorded messages and synthetic counts, omitting only the huge
@@ -121,24 +139,32 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any('SPIKE111_MESSAGE_BEGIN' in segment.text and segment.style.italic for segment in segments))
             # In raw mode Home lands on a hidden system record. Keep its byte
             # anchor through formatted mode and resize, then recover it with u.
-            await pilot.press('f', 'u', 'home')
-            await pilot.pause()
+            await pilot.press('f', 'u')
+            await self.settled(app, output)
+            await pilot.press('home')
+            await self.settled(app, output)
             anchor = output.anchor()
             self.assertEqual(anchor[0], app.reading.page.refs[0].start)
             self.assertEqual(app.reading.page.refs[0].value.display(), '')
             await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.anchor(), anchor)
             await pilot.resize_terminal(120, 36)
             await pilot.pause()
+            await self.settled(app, output)
             self.assertEqual(output.anchor(), anchor)
             await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.anchor()[0], anchor[0])
             # Failed result anchors are retained on both projections too.
             failed = next(ref for ref in app.reading.page.refs if ref.value.kind == 'tool ERROR')
             app.reading.anchor = (failed.start, 0)
             output.reflow()
-            await pilot.pause()
-            await pilot.press('u', 'u')
+            await self.settled(app, output)
+            await pilot.press('u')
+            await self.settled(app, output)
+            await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.anchor()[0], failed.start)
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -162,17 +188,20 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     if app.reading.raw != raw:
                         await pilot.press('u')
                     status = str(app.query_one('#status', Static).render())
-                    note = str(app.query_one('#log_note', Static).render())
                     self.assertIn('FOLLOW', status)
                     self.assertIn('unread 0 entries · lag 0B', status)
-                    self.assertIn(f'bytes 0–{self.log.stat().st_size}', note)
-                    self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: 0 entries hidden', note)
+                    self.assertFalse(app.query_one('#log_note', Static).display)
                     self.assertEqual(output.visible_refs, app.reading.page.refs)
                     self.assertEqual(output.hidden, 0)
                     if not raw:
                         displayed = {start for start, _ in output.positions}
                         self.assertNotIn(app.reading.page.refs[0].start, displayed)
                         self.assertTrue(all(ref.start not in displayed for ref in app.reading.page.refs[-3:]))
+                    await pilot.press('p')
+                    details = app.screen.query_one('#raw_details', Static).render().plain
+                    self.assertIn(f'bytes 0–{self.log.stat().st_size}', details)
+                    self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: 0 entries hidden', details)
+                    await pilot.press('escape')
             # Leading hidden records are already on this page, not an older one.
             app.action_history()
             self.assertEqual(app.reading.notice, 'Beginning of file (byte zero).')
@@ -190,15 +219,20 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(output.lines, [])
             self.assertEqual(output.visible_refs, app.reading.page.refs)
             self.assertEqual(output.hidden, 0)
-            await pilot.press('f', 'u', 'home')
-            await pilot.pause()
+            await pilot.press('f', 'u')
+            await self.settled(app, output)
+            await pilot.press('home')
+            await self.settled(app, output)
             anchor = output.anchor()
             await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.lines, [])
             self.assertEqual(output.anchor(), anchor)
             await pilot.resize_terminal(120, 36)
             await pilot.pause()
+            await self.settled(app, output)
             await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.anchor()[0], anchor[0])
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -215,20 +249,24 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tail = app.reading.page.refs[-1].start
             app.reading.anchor = (tail, 0)
             output.reflow()
-            await pilot.pause()
+            await self.settled(app, output)
             self.assertEqual(output.anchor()[0], tail)
             await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.anchor()[0], tail)
             self.assertEqual(output.visible_refs[-1].start, tail)
             self.assertEqual(output.positions[-1][0], app.reading.page.refs[-2].start)
             await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.anchor()[0], tail)
             await pilot.press('u')
+            await self.settled(app, output)
             output.action_scroll_up()
-            await pilot.pause()
+            await self.settled(app, output)
             moved = output.anchor()[0]
             self.assertNotEqual(moved, tail)
             await pilot.press('u')
+            await self.settled(app, output)
             self.assertEqual(output.anchor()[0], moved)
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -246,6 +284,100 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport = RecordingDescriptionTransport()
         transport.response = parse_response(reply(title, body), b'', 0, 1000)
         return transport
+
+    async def test_shared_header_stays_below_tabs_including_a_later_tab(self):
+        self.state['assignment'].update(kind='pr', attempt=2)
+        self.state['outcomes'].append({'item': 114, 'run': 'prior', 'handoff': 1235})
+        self.path.write_text(json.dumps(self.state))
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(130, 36)) as pilot:
+            await self.ready(app, pilot)
+            header = app.query_one('#item_header', Static)
+            tabs = app.query_one(TabbedContent)
+            await tabs.add_pane(TabPane('Later', Static('Later content'), id='later'))
+            for tab in ('log', 'issue', 'runs', 'later'):
+                tabs.active = tab
+                await pilot.pause()
+                value = header.render()
+                title, metadata, rule = value.plain.split('\n')
+                self.assertEqual(title, '⌥114 Cached title')
+                self.assertEqual(metadata, 'implementer · claude synthetic-model high · attempt 2 · ⌥1235')
+                self.assertEqual(rule, '┄' * header.content_region.width)
+                self.assertTrue(value.get_style_at_offset(0).bold)
+                style = value.get_style_at_offset(len(title) + 1)
+                self.assertTrue(style.dim)
+                self.assertFalse(style.bold)
+                self.assertTrue(header.display)
+                self.assertEqual(header.region.height, 3)
+                self.assertLess(header.region.bottom, app.query_one('#' + tab).region.bottom)
+            issue = app.query_one('#issue_text', Static).render().plain
+            self.assertNotIn('Cached title', issue)
+            self.assertNotIn('#114', issue)
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_log_status_follows_process_and_report_with_right_aligned_history(self):
+        self.state['outcomes'].extend([
+            {'item': 114, 'run': 'before', 'agent': 'preparer'},
+            {'item': 114, 'run': 'other', 'agent': 'implementer'}])
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            status = app.query_one('#run_status', Static)
+            lines = status.render().plain.split('\n')
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(lines[0], '┄' * status.size.width)
+            self.assertIn('implementer running · no outcome reported', lines[1])
+            self.assertIn(lines[1][0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
+            self.assertTrue(lines[1].endswith('2 earlier runs'))
+            self.assertEqual(pane_line(lines[1], 1000).cell_len, status.size.width)
+            self.assertEqual(status.region.bottom, app.query_one('#log').region.bottom)
+            self.assertFalse(app.query_one('#log_note').display)
+            self.state['assignment']['process'] = 'exited'
+            self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',
+                                           'acceptance': 'finalized'})
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'finalized' in status.render().plain)
+            self.assertIn('implementer exited · reported success (finalized)', status.render().plain)
+            self.assertTrue(status.render().plain.endswith('2 earlier runs'))
+            await pilot.resize_terminal(65, 25)
+            await pilot.pause()
+            for widget in (status, app.query_one('#item_header', Static)):
+                self.assertTrue(all(pane_line(line, 1000).cell_len <= widget.content_region.width
+                                    for line in widget.render().plain.split('\n')))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_notice_is_one_highlighted_line_only_for_exceptional_log_states(self):
+        self.path, self.log, self.state = fixture(self.root, runtime='codex:model:high')
+        self.log.write_bytes(b'unfinished raw fragment')
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            note = app.query_one('#log_note', Static)
+            self.assertEqual(note.size.height, 1)
+            self.assertIn('Unfinished:', note.render().plain)
+            self.assertIn('plain/raw fallback', note.render().plain)
+            self.assertTrue(any(span.style == 'bold yellow' for span in note.render().spans))
+            self.assertNotIn('bytes ', note.render().plain)
+            self.log.write_bytes(b'finished\n')
+            await self.ready(app, pilot, lambda: app.reading.page.generation > 0)
+            self.assertIn('File replaced or changed generation', note.render().plain)
+            self.log.unlink()
+            await self.ready(app, pilot, lambda: app.reading.log.error)
+            self.assertIn('Read error:', note.render().plain)
+            self.assertNotIn('\n', note.render().plain)
+            self.assertLessEqual(note.render().cell_length, note.size.width)
+            self.assertTrue(note.render().plain.endswith('…'))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    def test_one_line_clipping_uses_terminal_cells_and_escapes_controls(self):
+        self.assertEqual(pane_line('界' * 10, 7).plain, '界界界…')
+        self.assertEqual(pane_line('one\ntwo\x1b', 40).plain, r'one\ntwo\x1b')
 
     async def test_markdown_body_from_every_source_is_formatted_and_inert(self):
         title = '[bold]Title[/bold]\r\nnext\ttitle\rlast\x1b[31m'
@@ -294,8 +426,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             self.assertTrue(any(span.style == style for span in spans))
                         self.assertTrue(all(isinstance(span.style, str) or not span.style.meta for span in spans))
                         header = app.query_one('#issue_text', Static).render()
-                        self.assertIn('[bold]Title[/bold]\nnext\ttitle\nlast' + r'\x1b[31m', header.plain)
+                        self.assertNotIn('Title', header.plain)
                         self.assertFalse(header.spans)
+                        shared = app.query_one('#item_header', Static).render()
+                        self.assertIn(r'[bold]Title[/bold]\nnext\ttitle\nlast\x1b[31m', shared.plain)
                         self.assertIn(f'Source: {source}', app.query_one('#issue_note', Static).render().plain)
                         self.assertNotIn('Source:', markdown.source)
                         # Neither mouse nor keyboard activation has a link target.
@@ -356,6 +490,27 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_view_follows_a_run_that_starts_after_it_opens_until_a_row_is_picked(self):
+        assignment = self.state['assignment']
+        self.state['assignment'] = None
+        self.state['latest_pass']['rows'][0]['state'] = 'ready'
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.rows)
+            self.assertTrue(app.selected.startswith('plan:'))
+            self.state['assignment'] = assignment
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run')
+            self.assertNotIn('plan:114:implementer', app.rows)
+            app.select('plan:12:reviewer')
+            self.state['assignment'] = dict(assignment, run='next-run')
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'assignment:next-run' in app.rows)
+            self.assertEqual(app.selected, 'plan:12:reviewer')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_selected_plan_survives_section_order_change_and_disappearance(self):
         description = {'available': True, 'text': '# Planned work\n\n**Cached body**'}
         self.state['latest_pass']['rows'].extend([
@@ -376,16 +531,18 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
             self.assertEqual(markdown.source, description['text'])
             tree = app.query_one('#work', Tree)
-            tree.move_cursor(app.reason_nodes[key])
+            app.move_cursor(app.reason_nodes[key])
             output.focus()
+            self.assertIs(tree.cursor_node, app.reason_nodes[key])
             self.state['latest_pass']['rows'] = [
                 {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31',
                  'description': description}]
             self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting'))
+            # The tree moves its cursor back to the kept node after the next refresh.
+            await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting')
+                             and tree.cursor_node is app.reason_nodes[key])
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
-            self.assertIs(tree.cursor_node, app.reason_nodes[key])
             self.assertEqual(markdown.source, description['text'])
             self.assertNotIn('Eligible', app.groups)
             self.assertEqual([node.label.plain for node in tree.root.children[:2]],
@@ -424,8 +581,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(group.children), 2)
             self.assertFalse(group.is_expanded)
             tree.focus()
-            tree.move_cursor(group)
+            app.move_cursor(group)
+            await self.settled(app, tree)
             await pilot.press('enter')
+            await self.settled(app, tree)
             self.assertTrue(group.is_expanded)
             self.assertEqual(app.selected, RECENT_ACTIVITY)
             key = 'outcome:previous-run'
@@ -434,8 +593,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             markdown = app.query_one('#issue_body', Markdown)
             await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
             self.assertIn('Outcome context', markdown.source)
-            await pilot.press('f', 'home', 'pagedown')
             output = app.query_one(LogPane)
+            for name in ('f', 'home', 'pagedown'):
+                await pilot.press(name)
+                await self.settled(app, output)
             page, anchor = app.reading.page, output.anchor()
             with log.open('ab') as stream:
                 stream.write(event(9000))
@@ -443,8 +604,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(group.is_expanded)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
-            tree.move_cursor(group)
+            app.move_cursor(group)
+            await self.settled(app, tree)
             await pilot.press('enter')
+            await self.settled(app, tree)
             self.assertFalse(group.is_expanded)
             self.assertEqual(app.selected, RECENT_ACTIVITY)
             self.assertEqual(markdown.source, '')
@@ -452,9 +615,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertFalse(group.is_expanded)
             await pilot.press('enter')
+            await self.settled(app, tree)
             tree.select_node(app.nodes[key])
-            await pilot.pause(0.3)
-            self.assertIn('Outcome context', markdown.source)
+            await self.ready(app, pilot, lambda: 'Outcome context' in markdown.source)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
             # Mouse/arrow collapse also selects the header when an outcome is selected.
@@ -594,8 +757,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot)
                 self.assertIn('Supervisor observed running', app.reason_nodes[app.selected].label.plain)
                 output = app.query_one('#output', LogPane)
-                await pilot.press('f', 'home', 'pagedown')
-                await pilot.pause()
+                for name in ('f', 'home', 'pagedown'):
+                    await pilot.press(name)
+                    await self.settled(app, output)
                 key = app.selected
                 page, lines, anchor = app.reading.page, tuple(output.lines), output.anchor()
                 self.assertFalse(app.reading.follow)
@@ -617,17 +781,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.select(foreign)
                 await pilot.pause(0.3)
                 self.assertIsNone(app.reading.page)
-                self.assertIn('Owner: @other-launcher', str(app.query_one('#log_note').render()))
+                self.assertIn('Owner: @other-launcher', app.reading.empty_message)
+                self.assertNotIn('entries hidden', app.query_one('#log_note').render().plain)
+                self.assertNotIn('evicted ', app.query_one('#log_note').render().plain)
                 app.select(key)
                 await pilot.pause(0.3)
                 self.assertEqual(app.reading.page, page)
                 self.assertEqual(output.anchor(), anchor)
                 await pilot.press('u')
+                await self.settled(app, output)
                 self.assertEqual(output.anchor()[0], anchor[0])
                 await pilot.press('u')
+                await self.settled(app, output)
                 self.assertEqual(output.anchor()[0], anchor[0])
                 await pilot.resize_terminal(130, 40)
                 await pilot.pause()
+                await self.settled(app, output)
                 self.assertEqual(output.anchor()[0], anchor[0])
                 await pilot.resize_terminal(110, 32)
                 await pilot.press('f')
@@ -635,10 +804,32 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(app.reading.follow)
                 self.assertLessEqual(len(output.lines), MAX_RENDER_LINES)
                 self.assertGreater(output.hidden, 0)
-                self.assertIn('entries hidden', str(app.query_one('#log_note').render()))
+                self.assertNotIn('entries hidden', app.query_one('#log_note').render().plain)
+                self.assertNotIn('evicted ', app.query_one('#log_note').render().plain)
+                await pilot.press('p')
+                raw = app.screen.query_one('#raw_details', Static).render().plain
+                self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden', raw)
+                self.assertIn('bytes ', raw)
+                self.assertIn('evicted ', raw)
+                self.assertIn('skipped ', raw)
+                self.assertIn('shortened ', raw)
+                await pilot.press('escape')
                 await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_raw_access_opens_with_current_status_when_an_update_lands_first(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            # A worker result can land between the push and the screen's compose.
+            app.action_path()
+            app.update_status()
+            await self.ready(app, pilot, lambda: app.screen.query('#raw_status'))
+            self.assertIn('FOLLOW', str(app.screen.query_one('#raw_status').render()))
+            self.assertIn('bytes ', app.screen.query_one('#raw_details', Static).render().plain)
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_history_navigation_and_paused_generation_notice(self):
         app = View(self.root, self.path)
@@ -680,9 +871,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('event 09000', app.reading.page.refs[-1].value.text)
             self.assertNotIn('event 00599', app.reading.page.refs[-1].value.text)
             await pilot.press('p')
-            await pilot.pause()
-            self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
-            self.assertIn('FOLLOW', str(app.screen.query_one('#raw_status').render()))
+            await self.ready(app, pilot, lambda: app.screen.__class__.__name__ == 'RawAccess'
+                             and 'FOLLOW' in str(app.screen.query_one('#raw_status').render()))
             await pilot.press('pageup', 'pagedown', 'home', 'end', 'f', 'u', 'h', '2', '3', '1')
             self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
             await pilot.press('q')

@@ -396,8 +396,12 @@ For development, install from a checkout with Python 3.11+:
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -e .
-.venv/bin/python -m unittest discover -v
+.venv/bin/python -m tests
 ```
+
+`python -m tests` runs the suite on every core; `-j N` sets the number of workers,
+`--durations N` lists the slowest tests, and names such as `tests.test_loop` select
+tests. `python -m unittest discover -v` runs the same tests one at a time.
 
 With [mise](https://mise.jdx.dev) activated in your shell, entering the checkout does
 this for you: it creates `.venv`, installs the checkout into it when missing or when

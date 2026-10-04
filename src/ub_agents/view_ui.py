@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from queue import Empty
+import time
 
 from markdown_it import MarkdownIt
 from rich.segment import Segment
@@ -14,9 +15,10 @@ from textual.geometry import Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.screen import ModalScreen
-from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
+from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
-from .view_data import WORK_GROUPS, context_header, context_text, mapping, outcome_text, outcomes_today, text
+from .view_data import (WORK_GROUPS, context_header, context_text, item_header, mapping,
+                        outcome_text, outcomes_today, run_status, text)
 from .view_github import DescriptionLoads
 from .view_worker import LocalWorker, Request
 from .updates import release_age
@@ -49,6 +51,22 @@ class UpdateBanner(Static):
         return line
 
 
+def pane_line(value, width, style=''):
+    line = Text(text(value, ''), style=style)
+    line.truncate(max(0, width), overflow='ellipsis')
+    return line
+
+
+class ItemTabs(TabbedContent):
+    """One header below the tab bar, shared even by subsequently added tabs."""
+
+    def compose(self):
+        for widget in super().compose():
+            yield widget
+            if isinstance(widget, Tabs):
+                yield Static('', id='item_header', markup=False)
+
+
 def description_parser():
     # Show links, images and HTML as source text, without interactive targets.
     # Entities stay literal so parsing cannot introduce escaped control characters.
@@ -70,14 +88,12 @@ class RawAccess(ModalScreen):
     BINDINGS = [Binding('escape,p', 'dismiss', 'Close', priority=True)]
     DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; } #raw_status { height: 2; background: $panel; }'
 
-    def __init__(self, message):
-        super().__init__()
-        self.message = message
-
     def compose(self):
+        # Read the view's state now: updates that land between the push and
+        # this compose find no widgets to update.
         with VerticalScroll():
-            yield Static(Text(self.message))
-        yield Static('', id='raw_status', markup=False)
+            yield Static(Text(self.app.raw_details()), id='raw_details')
+        yield Static(self.app.status_text, id='raw_status', markup=False)
 
     def action_dismiss(self):
         self.dismiss()
@@ -94,6 +110,7 @@ class Reading:
     latest: object = None
     log: object = None
     runtime: str = 'unknown'
+    empty_message: str = 'No local log cached for this row.'
 
 
 class LogPane(ScrollView):
@@ -220,6 +237,9 @@ class LogPane(ScrollView):
     def render_line(self, y):
         index = y + int(self.scroll_y)
         width = self.size.width
+        if not self.lines and y == 0 and self.reading:
+            value = pane_line(self.reading.empty_message, width)
+            return Strip([Segment(value.plain, self.rich_style)], value.cell_len).crop_extend(0, width, self.rich_style)
         return (self.lines[index].crop_extend(0, width, self.rich_style) if index < len(self.lines)
                 else Strip.blank(width, self.rich_style))
 
@@ -263,8 +283,10 @@ class View(App):
     #work { width: 36; border: solid $accent; }
     #panes { width: 1fr; }
     TabPane { padding: 0 1; }
-    #log_note { height: 5; overflow: hidden; }
+    #item_header { height: 3; padding: 0 1; overflow: hidden; }
+    #log_note { height: 1; overflow: hidden; }
     #output { height: 1fr; }
+    #run_status { height: 2; overflow: hidden; }
     #issue_body { padding: 0; }
     #status { height: 2; background: $panel; }
     #keys { height: 1; background: $panel; }
@@ -295,6 +317,8 @@ class View(App):
         self.session = None
         self.rows, self.nodes, self.reason_nodes, self.groups = {}, {}, {}, {}
         self.selected = None
+        self.chosen = False  # a person picked a row; the view stops following the run
+        self.status_text = Text('')
         self.readings = {}
         self.token = 0
         self.busy = False
@@ -306,10 +330,11 @@ class View(App):
         yield UpdateBanner()
         with Horizontal(id='body'):
             yield Tree('Launcher work', id='work')
-            with TabbedContent(id='panes'):
+            with ItemTabs(id='panes'):
                 with TabPane('Log', id='log'):
-                    yield Static('Reading local session…', id='log_note', markup=False)
+                    yield Static('', id='log_note', markup=False)
                     yield LogPane(id='output')
+                    yield Static('', id='run_status', markup=False)
                 with TabPane('Issue', id='issue'):
                     with VerticalScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
@@ -370,9 +395,13 @@ class View(App):
         cursor_reason = cursor is not None and cursor is self.reason_nodes.get(cursor.data)
         cursor_group = next((name for name, node in self.groups.items() if node is cursor), None)
         incoming = {row.key: row for row in rows}
+        # Until a person picks a row, the view follows the launcher's own run,
+        # which can start after the view first read the snapshot.
+        own = next((key for key in incoming if key.startswith('assignment:')), None)
+        follow = own is not None and not self.chosen and own != self.selected
         # A selected row disappearing in a partial pass is retained as an earlier
-        # observation; updates never replace the selection or steal pane focus.
-        if self.selected in self.rows and self.selected not in incoming:
+        # observation; updates never replace a picked row or steal pane focus.
+        if self.selected in self.rows and self.selected not in incoming and not follow:
             incoming[self.selected] = self.rows[self.selected]
         for key in tuple(self.nodes):
             if key not in incoming:
@@ -421,16 +450,25 @@ class View(App):
         if omitted:
             title.append(f' · omitted {text(str(omitted))}', style='dim')
         tree.root.set_label(title)
-        if self.selected is None and incoming:
+        if follow or self.selected is None and incoming:
             first = next(iter(incoming.values()))
-            self.select(RECENT_ACTIVITY if first.group == 'Recent activity' else first.key)
+            self.select(own if follow else RECENT_ACTIVITY if first.group == 'Recent activity' else first.key,
+                        chosen=False)
             target = self.groups['Recent activity'] if self.selected == RECENT_ACTIVITY else self.nodes[self.selected]
-            self.call_after_refresh(tree.move_cursor, target)
+            self.call_after_refresh(self.move_cursor, target)
         elif cursor:
             target = (self.groups.get(cursor_group) if cursor_group else
                       (self.reason_nodes if cursor_reason else self.nodes).get(cursor.data))
             if target is not None and target is not cursor:
-                self.call_after_refresh(tree.move_cursor, target)
+                self.call_after_refresh(self.move_cursor, target)
+
+    def move_cursor(self, node):
+        tree = self.query_one('#work', Tree)
+        # move_cursor reads the node's line number, which is stale until the
+        # tree rebuilds its lines; on a busy machine that rebuild may not have
+        # happened yet after a refresh, so ask for the lines first.
+        tree.last_line
+        tree.move_cursor(node)
 
     def on_tree_node_selected(self, event):
         if event.node.data == RECENT_ACTIVITY or event.node.data in self.rows:
@@ -448,7 +486,8 @@ class View(App):
                 self.select(RECENT_ACTIVITY)
                 self.query_one('#work', Tree).move_cursor(event.node)
 
-    def select(self, key):
+    def select(self, key, chosen=True):
+        self.chosen = self.chosen or chosen
         if key == self.selected:
             return
         self.selected = key
@@ -522,6 +561,31 @@ class View(App):
             self.query_one('#issue_note', Static).update(Text(details + extra))
             self.last_context = value
 
+    def current_description(self):
+        local = self.local_description
+        return local if local and local.available else (self.descriptions.get(self.description_key()) or local)
+
+    def raw_details(self):
+        row = self.rows.get(self.selected)
+        reading = self.reading
+        page, log = reading.page, reading.log
+        output = self.query_one('#output', LogPane)
+        start = output.visible_refs[0].start if output.visible_refs else (page.start if page else 0)
+        end = output.visible_refs[-1].end if output.visible_refs else (page.end if page else 0)
+        details = [f'Full raw file (open with an external pager):\n{text(str(row.log), "")}' if row and row.log else '',
+                   'The u view is a bounded raw projection. The file contains all retained bytes.',
+                   f'bytes {start}–{end}',
+                   f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden; h recovers earlier bytes']
+        if log:
+            details.append(f'evicted {log.evicted_entries}; skipped {log.skipped_bytes}B; shortened {log.shortened_entries}')
+            details.append(f'unfinished {log.pending_bytes}B; file resets {log.resets}')
+            if log.error:
+                details.append('Read error: ' + text(log.error))
+        if reading.notice:
+            details.append(reading.notice)
+        details.extend(('Runtime output is not a workflow outcome.', 'Escape closes this read-only raw-access view.'))
+        return '\n\n'.join(part for part in details if part)
+
     def action_load_description(self):
         if (isinstance(self.screen, RawAccess) or self.query_one(TabbedContent).active != 'issue' or
                 self.local_description is None or self.local_description.available):
@@ -546,32 +610,58 @@ class View(App):
         size = ' · minimum 110×32' if self.size.width < 110 or self.size.height < 32 else ''
         status = Text(f'{freshness} · {state} · {mode} · unread {unread} entries · lag {lag}B{size}\n'
                       f'Local files · {"reading" if self.busy else "idle"} · GitHub {"pending" if self.descriptions.pending else "on request"}{errors}')
+        self.status_text = status
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
-            self.screen.query_one('#raw_status', Static).update(status)
+            for widget in self.screen.query('#raw_status'):
+                widget.update(status)
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
-        if not row or not row.log:
-            note = row.reason if row and mapping(row.data.get('owner')) else 'No local log cached for this row.'
-        else:
-            start = output.visible_refs[0].start if output.visible_refs else (page.start if page else 0)
-            end = output.visible_refs[-1].end if output.visible_refs else (page.end if page else 0)
-            runtime = reading.runtime
-            fallback = '' if runtime == 'claude' else f' · {runtime}: plain/raw fallback'
-            changed = 'FILE CHANGED; paused earlier generation; f latest. ' if page and reading.latest and page.generation != reading.latest.generation else ''
-            notice = changed + reading.notice
-            boundary = f'evicted {log.evicted_entries}; skipped {log.skipped_bytes}B; shortened {log.shortened_entries}' if log else ''
-            width = max(20, self.query_one('#output').size.width)
-            def line(value):
-                return value if len(value) <= width else value[:width - 1] + '…'
-            note = (line(f'bytes {start}–{end}{fallback}') + '\n' +
-                    line(notice or 'h older pages to byte zero · p full raw file path') + '\n' +
-                    line(boundary) + '\n' +
-                    line(f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden; p raw access') + '\n' +
-                    line(f'Read error: {log.error}' if log and log.error else
-                         f'Unfinished: {log.pending_bytes}B (raw preview)' if log and log.pending_bytes else
-                         'Runtime output is not a workflow outcome.'))
-        self.query_one('#log_note', Static).update(Text(note))
+        header = self.query_one('#item_header', Static)
+        width = header.content_region.width
+        title, metadata = item_header(row, self.current_description(), self.session)
+        header_text = Text()
+        header_text.append_text(pane_line(title, width, 'bold'))
+        header_text.append('\n').append_text(pane_line(metadata, width, 'dim'))
+        header_text.append('\n' + '┄' * width, style='dim')
+        header.update(header_text)
+        width = output.size.width
+        notices = []
+        if row and row.log:
+            if page and reading.latest and page.generation != reading.latest.generation:
+                notices.append('FILE CHANGED; paused earlier generation; f latest.')
+            elif page and page.generation:
+                notices.append('File replaced or changed generation.')
+            if log and log.error:
+                notices.append('Read error: ' + log.error)
+            if log and log.pending_bytes:
+                notices.append(f'Unfinished: {log.pending_bytes}B (raw preview)')
+            if reading.notice:
+                notices.append(reading.notice)
+            if reading.runtime != 'claude':
+                notices.append(f'{reading.runtime}: plain/raw fallback')
+        note = self.query_one('#log_note', Static)
+        note.display = bool(notices)
+        note.update(pane_line(' · '.join(notices), width, 'bold yellow'))
+        empty_message = (row.reason if row and mapping(row.data.get('owner')) else
+                         'No local log cached for this row.' if not row or not row.log else 'No log output yet.')
+        if reading.empty_message != empty_message:
+            reading.empty_message = empty_message
+            output.refresh()
+        left, right, running = run_status(row, self.session)
+        if running:
+            left = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[int(time.monotonic() * 10) % 10] + ' ' + left
+        right_line = pane_line(right, max(0, width - 1))
+        left_line = pane_line(left, width - right_line.cell_len - (1 if right_line.cell_len else 0))
+        status_line = left_line
+        if right_line.cell_len:
+            status_line.append(' ' * max(1, width - left_line.cell_len - right_line.cell_len)).append_text(right_line)
+        run_note = Text('┄' * width + '\n', style='dim')
+        run_note.append_text(status_line)
+        self.query_one('#run_status', Static).update(run_note)
+        if isinstance(self.screen, RawAccess):
+            for widget in self.screen.query('#raw_details'):
+                widget.update(Text(self.raw_details()))
 
     def action_follow(self):
         if isinstance(self.screen, RawAccess):
@@ -632,9 +722,7 @@ class View(App):
     def action_path(self):
         row = self.rows.get(self.selected)
         if row and row.log:
-            self.push_screen(RawAccess(f'Full raw file (open with an external pager):\n{row.log}\n\n'
-                                      'The u view is a bounded raw projection. The file contains all retained bytes.\n'
-                                      + self.reading.notice + '\n\nEscape closes this read-only path view.'))
+            self.push_screen(RawAccess())
 
     def action_page_up(self):
         if isinstance(self.screen, RawAccess):
