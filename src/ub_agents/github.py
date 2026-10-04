@@ -14,6 +14,13 @@ from .records import iso, positive_int, seconds, timestamp
 REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
 
 
+def repository_visibility(raw):
+    visibility = raw.get("visibility") if isinstance(raw, dict) else None
+    if not isinstance(visibility, str) or visibility not in {"public", "private", "internal"}:
+        raise AgentError("Repository visibility is unreadable")
+    return visibility
+
+
 def response_parts(output):
     """Separate gh --include headers from JSON, retaining HTTP failure metadata."""
     output = output.replace("\r\n", "\n")
@@ -292,6 +299,9 @@ class GitHub:
             return None
         role = raw.get("role_name") if isinstance(raw, dict) else None
         return role if isinstance(role, str) and role in {"admin", "maintain", "write", "triage", "read", "none"} else None
+
+    def visibility(self):
+        return repository_visibility(self.request(self.prefix))
 
     def timeline(self, number):
         return self.request(f"{self.prefix}/issues/{number}/timeline", paginate=True)

@@ -10,9 +10,14 @@ notes are copied from that section.
 or add a stop label on open items whose last run was blocked under `ub-agent`;
 those records are now ignored, making triggered items eligible again. Delete any
 leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
+Approvals now default off for private and internal repositories; set
+`approvals: on` to retain the previous checks (#134).
 
 ### Added
 
+- Projects can configure outside-input approvals with `approvals: on` or `off`,
+  defaulting from repository visibility; disabled approvals include only feedback
+  from authors with `write` or higher (#134).
 - The terminal view can load a selected item's missing description from GitHub on request, with cached results and rate-limit cooldowns (#115).
 
 - A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).

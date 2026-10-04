@@ -32,6 +32,10 @@ def _mapping(loader, node, deep=False):
         if not isinstance(key, str) or key in result:
             raise AgentError(f"YAML keys must be unique strings: {key!r}")
         result[key] = loader.construct_object(value_node, deep=deep)
+        # Preserve exactly these policy spellings, not other YAML booleans.
+        if (key == "approvals" and isinstance(value_node, yaml.ScalarNode)
+                and value_node.value in {"on", "off"}):
+            result[key] = value_node.value
         # YAML 1.1 parses unquoted `off` as False. Preserve just this policy
         # spelling without changing existing YAML booleans elsewhere.
         if key == "runtime-updates" and isinstance(result[key], dict):
@@ -178,6 +182,7 @@ class Config:
     cleanup: CleanupHook | None = None
     runtime_updates: RuntimeUpdates | None = None
     launchers: tuple[str, ...] | None = None
+    approvals: str | None = None
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
@@ -195,8 +200,11 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
-                          "runtime-updates", "launchers"},
+                          "runtime-updates", "launchers", "approvals"},
                    "configuration")
+    approvals = data.get("approvals")
+    if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
+        raise AgentError("approvals must be on or off")
     launchers = None
     if "launchers" in data:
         launchers = argv(data["launchers"], "launchers")
@@ -342,7 +350,7 @@ def load_config(path):
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
-                  runtime_updates, launchers)
+                  runtime_updates, launchers, approvals)
 
 
 def argv(value, where, empty=False):

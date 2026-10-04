@@ -11,6 +11,7 @@ errors; `ub-agents check` validates the file. Commands use this file by default;
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `launchers` | Optional nonempty list of GitHub logins that narrows coordination trust; every account still needs `write` or higher. |
+| `approvals` | `on` or `off` (quoted or unquoted); defaults from GitHub visibility each pass: `on` for public, `off` for private and internal repositories. See [approvals](approvals.md). |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
@@ -18,6 +19,14 @@ errors; `ub-agents check` validates the file. Commands use this file by default;
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `runtime-updates` | Optional daily maintenance policy for configured Claude Code and Codex runtimes. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
+
+With `approvals: off`, current titles and bodies are input, trigger labels need no
+maintainer start, and PR heads need no approval. Feedback is limited to authors
+with `write`, `maintain` or `admin`; approval records cannot clear other feedback.
+The launcher makes no approval reads or approval-parking writes. When `approvals`
+is unset, an unreadable visibility fails the pass before any claim or parking
+write. `doctor` shows the effective value and source; `check` shows the configured
+value or that it comes from visibility, without contacting GitHub.
 
 `ub-agents launch`, including `--once`, appends stdout and stderr to
 `.ub-agents/launch.log` in the control checkout. Every file line starts with a UTC

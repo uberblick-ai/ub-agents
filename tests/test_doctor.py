@@ -84,6 +84,46 @@ agents:
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
 
+    def test_approvals_effective_policy_and_source(self):
+        for visibility, value in (("public", "on"), ("private", "off"), ("internal", "off")):
+            with self.subTest(visibility=visibility):
+                self.github.metadata["visibility"] = visibility
+                check = self.one(self.diagnose(), "approvals")
+                self.assertEqual(check["status"], "ok")
+                self.assertEqual(check["message"], f"Approvals: {value} (visibility ({visibility}))")
+        for value in ("on", "off"):
+            self.path.write_text(self.path.read_text() + f"approvals: {value}\n")
+            self.github.metadata.pop("visibility", None)
+            check = self.one(self.diagnose(), "approvals")
+            self.assertEqual((check["status"], check["message"]), ("ok", f"Approvals: {value} (config)"))
+            self.path.write_text(self.path.read_text().replace(f"approvals: {value}\n", ""))
+        self.assertEqual(self.one(self.diagnose(), "approvals")["status"], "fail")
+
+    def test_default_approvals_skip_when_repository_metadata_is_unavailable(self):
+        for missing_gh in (True, False):
+            with self.subTest(missing_gh=missing_gh):
+                self.missing = {"gh"} if missing_gh else set()
+                self.github.repository_error = AgentError("repository unavailable")
+                result = self.diagnose()
+                self.assertFalse(result["ok"])
+                check = self.one(result, "approvals")
+                self.assertEqual(check["status"], "skip")
+                self.assertEqual(check["message"], "gh unavailable" if missing_gh else
+                                 "repository response unavailable")
+                self.assertIsNone(check["remedy"])
+
+    def test_explicit_approvals_report_without_repository_metadata(self):
+        for missing_gh in (True, False):
+            for value in ("on", "off"):
+                with self.subTest(missing_gh=missing_gh, value=value):
+                    self.missing = {"gh"} if missing_gh else set()
+                    self.github.repository_error = AgentError("repository unavailable")
+                    self.path.write_text(self.path.read_text() + f"approvals: {value}\n")
+                    check = self.one(self.diagnose(), "approvals")
+                    self.assertEqual((check["status"], check["message"]),
+                                     ("ok", f"Approvals: {value} (config)"))
+                    self.path.write_text(self.path.read_text().replace(f"approvals: {value}\n", ""))
+
     def test_runtime_pause_is_visible_read_only_and_does_not_fail_doctor(self):
         from ub_agents.records import iso, timestamp
         from ub_agents.runtime_usage import RuntimeUsage

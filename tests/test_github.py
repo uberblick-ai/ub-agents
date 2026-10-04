@@ -580,6 +580,7 @@ agents:
                     github = GitHub("org/project")
                     loop = Loop(cfg, github, "operator")
                     with patch.object(github, "observe", return_value=[]), \
+                            patch.object(github, "visibility", return_value="public"), \
                             patch.object(github, "milestone_order", return_value=()), \
                             patch.object(github, "request", return_value=[]) as request, \
                             patch("ub_agents.github.timestamp", side_effect=[now, now + 100]):

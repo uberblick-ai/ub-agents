@@ -76,8 +76,9 @@ def parse_approval(body, number, kind="issue"):
 
 class Roles:
     """Cache only within one observation; role changes affect the next check."""
-    def __init__(self, github):
+    def __init__(self, github, role=None):
         self.github, self.cache = github, {}
+        self.role = role or github.role
 
     def __call__(self, actor):
         login = (actor or {}).get("login")
@@ -85,7 +86,7 @@ class Roles:
             return None
         key = login.casefold()
         if key not in self.cache:
-            self.cache[key] = self.github.role(login)
+            self.cache[key] = self.role(login)
         return self.cache[key]
 
 
@@ -99,6 +100,45 @@ class ApprovalCheck:
     snapshot: dict = field(default_factory=dict)
     gate: str | None = None
     gate_key: str | None = None
+
+
+def resolve_policy(configured, visibility):
+    """Resolve once per discovery pass; explicit policy needs no GitHub read."""
+    if configured is not None:
+        return configured, "config"
+    value = visibility()
+    if not isinstance(value, str) or value not in {"public", "private", "internal"}:
+        raise AgentError("Repository visibility is unreadable")
+    return ("on" if value == "public" else "off"), f"visibility ({value})"
+
+
+def trusted_input(github, item):
+    """Current content and write+ feedback, without approval or history reads."""
+    roles = Roles(github, role=getattr(github, "current_role", None))
+
+    def trusted(row):
+        if is_record(row):
+            return False
+        try:
+            return roles(row.get("user")) in TRUSTED
+        except AgentError as exc:
+            if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and exc.rate_limited):
+                raise
+            # Unreadable comment permissions exclude input, never park work.
+            login = (row.get("user") or {}).get("login")
+            if isinstance(login, str):
+                roles.cache[login.casefold()] = None
+            return False
+
+    groups = {"comments": github.comments(item.number)}
+    if item.kind == "pr":
+        groups |= {"reviews": github.reviews(item.number),
+                   "review_comments": github.review_comments(item.number)}
+    snapshot = {"title": item.title, "body": item.body}
+    snapshot.update({name: [row for row in rows if trusted(row)] for name, rows in groups.items()})
+    if item.kind == "pr":
+        snapshot["head"] = item.head
+    return ApprovalCheck(True, "Approvals off; only write+ feedback is input", snapshot=snapshot)
 
 
 def historical_content(content, renames, at):
