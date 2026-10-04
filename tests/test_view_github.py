@@ -135,9 +135,15 @@ time.sleep(60)
                     self.fail('Killed view left its gh request behind')
                 # Reparented helpers may briefly be zombies on CI; no live
                 # helper or request remains, and gh was reaped by the helper.
-                table = subprocess.check_output(['ps', '-axo', 'pid=,stat='], text=True)
-                states = {int(line.split()[0]): line.split()[1] for line in table.splitlines()}
-                self.assertTrue(helper_pid not in states or states[helper_pid].startswith('Z'))
+                # On a busy machine the helper can still be exiting after gh is gone.
+                def helper_gone():
+                    table = subprocess.check_output(['ps', '-axo', 'pid=,stat='], text=True)
+                    states = {int(line.split()[0]): line.split()[1] for line in table.splitlines()}
+                    return helper_pid not in states or states[helper_pid].startswith('Z')
+                deadline = time.monotonic() + 3
+                while not helper_gone() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(helper_gone())
             finally:
                 if parent.poll() is None:
                     parent.kill()

@@ -99,32 +99,39 @@ class SignalTests(unittest.TestCase):
                 self.assertFalse(outcome["accepted"])
                 self.assertEqual(self.loop.coordinator.history(3), [])
 
-    def test_stalled_publisher_does_not_delay_sigterm_drain_or_sigint_sighup_exit(self):
-        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-            with self.subTest(signal=sig):
-                self.setUp()
-                publisher = ActualPublisher(self.root, output=lambda *_: None,
-                                            command=observation_writer_command("    time.sleep(100000)"))
-                Observations(self.config, "operator", None, publisher)
-                try:
-                    deadline = time.monotonic() + 5
-                    while not (self.root / "writer-entered").exists():
-                        self.assertLess(time.monotonic(), deadline)
-                        time.sleep(0.01)
-                    started = time.monotonic()
-                    with patch("ub_agents.observations.Publisher", return_value=publisher):
-                        result, marker = self.run_signals([sig])
-                    self.assertLess(time.monotonic() - started, 1)
-                    self.assertEqual(result, 0 if sig == signal.SIGTERM else 130)
-                    self.assertEqual(marker.exists(), sig == signal.SIGTERM)
-                    lease, outcome = self.loop.coordinator.history(1)
-                    self.assertEqual(lease["state"], "released")
-                    self.assertEqual(outcome["accepted"], sig == signal.SIGTERM)
-                finally:
-                    publisher.close()
-                    publisher.process.wait(timeout=5)
-                    publisher.diagnostics.join(timeout=5)
-                    self.assertFalse(publisher.diagnostics.is_alive())
+    # One test per signal, so a parallel run spreads them over cores.
+    def test_stalled_publisher_does_not_delay_sigterm_drain(self):
+        self.check_stalled_publisher(signal.SIGTERM)
+
+    def test_stalled_publisher_does_not_delay_sigint_exit(self):
+        self.check_stalled_publisher(signal.SIGINT)
+
+    def test_stalled_publisher_does_not_delay_sighup_exit(self):
+        self.check_stalled_publisher(signal.SIGHUP)
+
+    def check_stalled_publisher(self, sig):
+        publisher = ActualPublisher(self.root, output=lambda *_: None,
+                                    command=observation_writer_command("    time.sleep(100000)"))
+        Observations(self.config, "operator", None, publisher)
+        try:
+            deadline = time.monotonic() + 5
+            while not (self.root / "writer-entered").exists():
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+            started = time.monotonic()
+            with patch("ub_agents.observations.Publisher", return_value=publisher):
+                result, marker = self.run_signals([sig])
+            self.assertLess(time.monotonic() - started, 1)
+            self.assertEqual(result, 0 if sig == signal.SIGTERM else 130)
+            self.assertEqual(marker.exists(), sig == signal.SIGTERM)
+            lease, outcome = self.loop.coordinator.history(1)
+            self.assertEqual(lease["state"], "released")
+            self.assertEqual(outcome["accepted"], sig == signal.SIGTERM)
+        finally:
+            publisher.close()
+            publisher.process.wait(timeout=5)
+            publisher.diagnostics.join(timeout=5)
+            self.assertFalse(publisher.diagnostics.is_alive())
 
     def test_sigterm_wakes_idle_wait_promptly(self):
         self.github.change(1, labels=frozenset())
@@ -146,56 +153,59 @@ class SignalTests(unittest.TestCase):
         self.assertLess(time.monotonic() - start, 1)
         self.assertEqual(self.github.writes, [])
 
-    def test_sigterm_after_interrupt_does_not_interrupt_group_cleanup_or_release(self):
-        for interrupt in (signal.SIGINT, signal.SIGHUP):
-            with self.subTest(interrupt=interrupt):
-                self.setUp()
-                groups = []
-                cleaned = []
+    def test_sigterm_after_sigint_does_not_interrupt_group_cleanup_or_release(self):
+        self.check_sigterm_after_interrupt(signal.SIGINT)
 
-                def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
-                    # Notify the launcher precisely when stop_group sends TERM.
-                    # The child stays alive until that cleanup escalates to KILL.
-                    script = ("import os,signal,time; signal.alarm(10); "
-                              "signal.signal(signal.SIGTERM, "
-                              "lambda *_: os.kill(os.getppid(), signal.SIGTERM)); "
-                              f"os.kill(os.getppid(), {int(interrupt)}); time.sleep(30)")
-                    try:
-                        return supervise([sys.executable, "-c", script], cwd, env, run_dir,
-                                         5, stop, prompt, **kwargs)
-                    finally:
-                        groups.append(int((run_dir / "pid").read_text()))
+    def test_sigterm_after_sighup_does_not_interrupt_group_cleanup_or_release(self):
+        self.check_sigterm_after_interrupt(signal.SIGHUP)
 
-                def cleanup(workspace, before_remove):
-                    self.assertEqual(group_members(groups[0]), [])
-                    signal.raise_signal(signal.SIGTERM)
-                    self.assertTrue(before_remove())
-                    cleaned.append(True)
+    def check_sigterm_after_interrupt(self, interrupt):
+        groups = []
+        cleaned = []
 
-                release = self.loop.coordinator.release
+        def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
+            # Notify the launcher precisely when stop_group sends TERM.
+            # The child stays alive until that cleanup escalates to KILL.
+            script = ("import os,signal,time; signal.alarm(10); "
+                      "signal.signal(signal.SIGTERM, "
+                      "lambda *_: os.kill(os.getppid(), signal.SIGTERM)); "
+                      f"os.kill(os.getppid(), {int(interrupt)}); time.sleep(30)")
+            try:
+                return supervise([sys.executable, "-c", script], cwd, env, run_dir,
+                                 5, stop, prompt, **kwargs)
+            finally:
+                groups.append(int((run_dir / "pid").read_text()))
 
-                def finish_release(*args, **kwargs):
-                    signal.raise_signal(signal.SIGTERM)
-                    return release(*args, **kwargs)
+        def cleanup(workspace, before_remove):
+            self.assertEqual(group_members(groups[0]), [])
+            signal.raise_signal(signal.SIGTERM)
+            self.assertTrue(before_remove())
+            cleaned.append(True)
 
+        release = self.loop.coordinator.release
+
+        def finish_release(*args, **kwargs):
+            signal.raise_signal(signal.SIGTERM)
+            return release(*args, **kwargs)
+
+        try:
+            with patch("ub_agents.loop.supervise", side_effect=run), \
+                    patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup), \
+                    patch.object(self.loop.coordinator, "release", side_effect=finish_release):
+                self.assertEqual(self.launch(), 130)
+            self.assertEqual(group_members(groups[0]), [])
+            self.assertEqual(cleaned, [True])
+            lease, outcome = self.loop.coordinator.history(1)
+            self.assertEqual((lease["state"], lease["result"]), ("released", "retry"))
+            self.assertEqual(lease["attempt_effect"], "unchanged")
+            self.assertFalse(outcome["accepted"])
+            self.assertEqual(self.loop.coordinator.history(3), [])
+        finally:
+            for group in groups:
                 try:
-                    with patch("ub_agents.loop.supervise", side_effect=run), \
-                            patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup), \
-                            patch.object(self.loop.coordinator, "release", side_effect=finish_release):
-                        self.assertEqual(self.launch(), 130)
-                    self.assertEqual(group_members(groups[0]), [])
-                    self.assertEqual(cleaned, [True])
-                    lease, outcome = self.loop.coordinator.history(1)
-                    self.assertEqual((lease["state"], lease["result"]), ("released", "retry"))
-                    self.assertEqual(lease["attempt_effect"], "unchanged")
-                    self.assertFalse(outcome["accepted"])
-                    self.assertEqual(self.loop.coordinator.history(3), [])
-                finally:
-                    for group in groups:
-                        try:
-                            os.killpg(group, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+                    os.killpg(group, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
     def test_sigterm_interrupts_slow_discovery_subprocess_promptly(self):
         pid_path = self.root / "poll-pid"
