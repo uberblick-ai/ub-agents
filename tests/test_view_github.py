@@ -1,7 +1,10 @@
 import json
 import os
+from pathlib import Path
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from unittest.mock import patch
@@ -87,6 +90,65 @@ class DescriptionLoadTests(unittest.TestCase):
 
 
 class GhTransportTests(unittest.TestCase):
+    def test_request_helper_reaps_hung_gh_when_view_is_killed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shim = root / 'gh'
+            shim.write_text(f'#!{sys.executable}\n' + '''
+import os, pathlib, signal, time
+root = pathlib.Path(__file__).parent
+(root / 'gh-pid').write_text(str(os.getpid()))
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+time.sleep(60)
+''')
+            shim.chmod(0o700)
+            script = '''
+from pathlib import Path
+import sys, time
+from ub_agents.view_github import GhTransport
+transport = GhTransport()
+transport.start('example/repo', 116)
+Path(sys.argv[1]).write_text(str(transport.process.pid))
+time.sleep(60)
+'''
+            parent = subprocess.Popen([sys.executable, '-P', '-c', script, str(root / 'helper-pid')],
+                                      env=dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH']),
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            gh_pid = helper_pid = None
+            try:
+                deadline = time.monotonic() + 5
+                while not (root / 'gh-pid').exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue((root / 'gh-pid').exists())
+                gh_pid = int((root / 'gh-pid').read_text())
+                helper_pid = int((root / 'helper-pid').read_text())
+                parent.kill()
+                parent.communicate(timeout=2)
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    try:
+                        os.kill(gh_pid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail('Killed view left its gh request behind')
+                # Reparented helpers may briefly be zombies on CI; no live
+                # helper or request remains, and gh was reaped by the helper.
+                table = subprocess.check_output(['ps', '-axo', 'pid=,stat='], text=True)
+                states = {int(line.split()[0]): line.split()[1] for line in table.splitlines()}
+                self.assertTrue(helper_pid not in states or states[helper_pid].startswith('Z'))
+            finally:
+                if parent.poll() is None:
+                    parent.kill()
+                parent.communicate(timeout=2)
+                for pid in (gh_pid, helper_pid):
+                    if pid is not None:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
     def test_query_only_selected_title_body_and_response_shortening(self):
         transport = GhTransport()
         process = subprocess.Popen

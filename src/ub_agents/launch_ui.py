@@ -45,7 +45,7 @@ def open_view(root, session, output, stop, *, no_ui=False):
         view = ViewProcess(command, root, session, output)
         view.start(stop)
         return view
-    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+    except (OSError, ValueError, termios.error, subprocess.TimeoutExpired) as exc:
         print(f'Terminal view unavailable: {" ".join(str(exc).split())[:300]}; continuing with plain output')
         return None
 
@@ -103,11 +103,12 @@ class ViewProcess:
                 termios.tcsetattr(sys.stdin.fileno(), termios.TCSAFLUSH, self.modes)
             self.output.stdout.terminal.write(RESTORE)
             self.output.stdout.terminal.flush()
-        except (OSError, ValueError):
+        except (OSError, ValueError, termios.error):
             pass
 
     def monitor(self):
         pending = b''
+        code = None
         try:
             while True:
                 if select.select([self.channel], [], [], 0.05)[0]:
@@ -127,11 +128,12 @@ class ViewProcess:
                     break
             code = self.process.wait()
         finally:
-            self.output.resume(self.restore, final=self.closing.is_set())
+            closing = self.closing.is_set()
+            self.output.resume(self.restore, final=closing)
+            if not closing and (self.error or code):
+                detail = self.error or f'view exited {code}'
+                print(f'Terminal view closed: {" ".join(detail.split())}; continuing with plain output')
             self.ready.set()
-        if not self.closing.is_set() and (self.error or code):
-            detail = self.error or f'view exited {code}'
-            print(f'Terminal view closed: {" ".join(detail.split())}; continuing with plain output')
 
     def close(self):
         self.closing.set()

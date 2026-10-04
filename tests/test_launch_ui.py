@@ -16,13 +16,14 @@ import subprocess
 import sys
 import tempfile
 import termios
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
 
 from ub_agents import __version__
 from ub_agents.launch_log import launch_output
-from ub_agents.launch_ui import open_view
+from ub_agents.launch_ui import ViewProcess, open_view
 from ub_agents.view import attach
 from tests.test_view_data import fixture
 
@@ -35,6 +36,19 @@ class Tty(io.StringIO):
 
 
 class LaunchSelectionTests(unittest.TestCase):
+    def test_terminal_startup_failure_keeps_plain_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            terminal = Tty()
+            with redirect_stdout(terminal), patch('sys.stdin', Tty()), launch_output(Path(directory)) as output, \
+                    patch('ub_agents.launch_ui.ui_command', return_value=['ub-agents-ui']), \
+                    patch('ub_agents.launch_ui.subprocess.run', return_value=Mock(returncode=0)), \
+                    patch('ub_agents.launch_ui.ViewProcess.start', side_effect=termios.error('terminal unavailable')):
+                self.assertIsNone(open_view(Path(directory), 'own', output, Mock()))
+                print('plain launch continues')
+            self.assertEqual(terminal.getvalue().splitlines(),
+                             ['Terminal view unavailable: terminal unavailable; continuing with plain output',
+                              'plain launch continues'])
+
     def test_plain_selection_never_discovers_or_imports_ui(self):
         for no_ui, stdin_tty, stdout_tty in ((True, True, True), (False, False, True), (False, True, False)):
             with self.subTest(no_ui=no_ui, stdin=stdin_tty, stdout=stdout_tty), tempfile.TemporaryDirectory() as directory:
@@ -99,6 +113,46 @@ class LaunchSelectionTests(unittest.TestCase):
             self.assertEqual(terminal.getvalue(), 'before\nfinal\n')
             self.assertEqual([line.split(' ', 1)[1] for line in (root / '.ub-agents/launch.log').read_text().splitlines()],
                              ['before', 'hidden', 'final'])
+
+    def test_child_attachment_errors_restore_terminal_and_continue_plain(self):
+        for change, expected in (({'version': 42}, 'snapshot version'),
+                                 ({'base_version': 'older'}, 'version mismatch'),
+                                 ({'published_at': '2020-01-01T00:00:00Z'}, 'stale'),
+                                 (None, 'unavailable')):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                path, _, state = fixture(root)
+                state['base_version'] = __version__
+                if change is None:
+                    path.unlink()
+                else:
+                    path.write_text(json.dumps(state | change))
+                master, slave = pty.openpty()
+                initial = termios.tcgetattr(slave)
+                stdin = os.fdopen(os.dup(slave), 'r')
+                terminal = os.fdopen(os.dup(slave), 'w')
+                view = None
+                try:
+                    with patch('sys.stdin', stdin), redirect_stdout(terminal), launch_output(root) as output:
+                        view = ViewProcess([sys.executable, '-P', '-m', 'ub_agents.view'], root, 'launcher', output)
+                        view.start(threading.Event())
+                        self.assertIn(expected, view.error)
+                        view.close()
+                        print('plain continues')
+                    transcript = bytearray()
+                    while select.select([master], [], [], 0.02)[0]:
+                        transcript.extend(os.read(master, 65536))
+                    self.assertEqual(bytes(transcript).count(b'Terminal view closed:'), 1)
+                    self.assertIn(b'plain continues', transcript)
+                    self.assertEqual(termios.tcgetattr(slave), initial)
+                    self.assertEqual(view.process.returncode, 1)
+                finally:
+                    if view is not None:
+                        view.close()
+                    stdin.close()
+                    terminal.close()
+                    os.close(master)
+                    os.close(slave)
 
 
 HARNESS = '''
@@ -197,10 +251,22 @@ class LaunchTerminalTests(unittest.TestCase):
                         table = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,command='], text=True)
                         view_pid = next(int(line.split()[0]) for line in table.splitlines()
                                         if len(line.split()) > 2 and line.split()[1] == str(process.pid)
-                                        and 'ub_agents.view ' in line)
+                                        and ('ub_agents.view ' in line or 'ub-agents-ui ' in line))
                         self.assertIn(b'--session', table.encode())
                         self.assertIn(first_session, next(line for line in table.splitlines() if line.split()[0] == str(view_pid)))
                     if mode == 'q':
+                        os.write(master, b'f')
+                        until(lambda: b'PAUSED' in transcript)
+                        os.write(master, b'\x1b[5~h')
+                        drain(0.2)
+                        os.write(master, b'u')
+                        until(lambda: b'RAW' in transcript)
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 25, 100, 0, 0))
+                        os.kill(process.pid, signal.SIGWINCH)
+                        until(lambda: b'minimum 110' in transcript)
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+                        os.kill(process.pid, signal.SIGWINCH)
+                        drain(0.15)
                         os.write(master, b'2')
                         until(lambda: b'Acceptance criteria' in transcript)
                         os.write(master, b'3')

@@ -252,3 +252,115 @@ sys.exit(app.return_code or 1)
 
 if __name__ == '__main__':
     unittest.main()
+
+@unittest.skipUnless(HAS_UI, 'install the opt-in UI extra')
+class TerminalRetentionTests(unittest.TestCase):
+    def test_captured_log_pause_retention_and_generation_in_real_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root)
+            capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
+            log.write_bytes(capture.read_bytes() * 20)
+            script = '''
+import json, pathlib, sys
+from textual.binding import Binding
+from ub_agents.view_ui import LogPane, View
+class ProofView(View):
+    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True)]
+    def action_checkpoint(self):
+        pane = self.query_one(LogPane)
+        r = self.reading
+        value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation,
+                 'starts': [ref.start for ref in r.page.refs], 'anchor': pane.anchor(),
+                 'entries': r.log.total_entries, 'lag': r.log.unread_bytes,
+                 'notice': self.query_one('#log_note').render().plain}
+        pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
+'''
+            proof = root / 'proof.json'
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+            modes = termios.tcgetattr(slave)
+            env = dict(os.environ, TERM='xterm-256color')
+            env.pop('NO_COLOR', None)
+            app = subprocess.Popen([sys.executable, '-P', '-c', script, str(root), str(path), str(proof)],
+                                   stdin=slave, stdout=slave, stderr=slave, start_new_session=True, env=env)
+            transcript = bytearray()
+            def drain(seconds=0.2):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.02)[0]:
+                        transcript.extend(os.read(master, 65536))
+            def checkpoint():
+                proof.unlink(missing_ok=True)
+                os.write(master, b'x')
+                deadline = time.monotonic() + 3
+                while not proof.exists() and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                return json.loads(proof.read_text())
+            try:
+                drain(1)
+                self.assertIn(b'FORMATTED', transcript)
+                os.write(master, b'f\x1b[5~')
+                drain(0.2)
+                paused = checkpoint()
+                self.assertFalse(paused['follow'])
+                # More than both ingestion retention (200 entries) and renderer
+                # retention (400 wrapped rows) arrive while the page is paused.
+                from tests.test_view_data import event
+                with log.open('ab') as stream:
+                    stream.write(b''.join(event(i, size=800) for i in range(1200)))
+                drain(2)
+                os.write(master, b'231')
+                drain(0.3)
+                retained = checkpoint()
+                self.assertEqual(retained['starts'], paused['starts'])
+                self.assertEqual(retained['anchor'][0], paused['anchor'][0])
+                # Tab relayout may settle the scrollbar and change wrapping;
+                # the same entry and proportional reading position survive.
+                self.assertAlmostEqual(retained['anchor'][1], paused['anchor'][1], delta=0.05)
+                self.assertGreater(retained['entries'] - paused['entries'], 200)
+                os.write(master, b'h')
+                drain(0.2)
+                older = checkpoint()
+                self.assertLess(older['starts'][0], paused['starts'][0])
+                os.write(master, b'u')
+                drain(0.2)
+                self.assertTrue(checkpoint()['raw'])
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                drain(0.2)
+                # Replacement preserves a paused earlier generation until follow.
+                replacement = log.with_suffix('.next')
+                replacement.write_bytes(capture.read_bytes())
+                replacement.replace(log)
+                drain(0.4)
+                changed = checkpoint()
+                self.assertEqual(changed['generation'], older['generation'])
+                self.assertIn('FILE CHANGED', changed['notice'])
+                os.write(master, b'h')
+                drain(0.2)
+                self.assertIn('File changed', checkpoint()['notice'])
+                os.write(master, b'f')
+                drain(0.3)
+                resumed = checkpoint()
+                self.assertTrue(resumed['follow'])
+                self.assertGreater(resumed['generation'], changed['generation'])
+                log.write_bytes(capture.read_bytes().splitlines(keepends=True)[0])
+                drain(0.3)
+                self.assertGreater(checkpoint()['generation'], resumed['generation'])
+                os.write(master, b'q')
+                deadline = time.monotonic() + 3
+                while app.poll() is None and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertEqual(app.wait(timeout=1), 0, bytes(transcript[-1000:]))
+                drain()
+                self.assertEqual(termios.tcgetattr(slave), modes)
+                self.assertIn(b'\x1b[?1049l', transcript)
+            finally:
+                if app.poll() is None:
+                    app.terminate()
+                app.wait(timeout=3)
+                os.close(master)
+                os.close(slave)
