@@ -10,6 +10,8 @@ import threading
 import uuid
 
 from .records import iso, timestamp
+from .github import closing_issues
+from .run_history import merge_record, observed_blockers, sort_runs
 from . import __version__
 
 VERSION = 1
@@ -146,7 +148,7 @@ class Observations:
             "config_path_reason": None if config_path else "No configuration path supplied",
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None,
-            "outcomes": [], "omitted": {"plans": 0, "outcomes": 0},
+            "outcomes": [], "histories": {}, "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
                        "bytes": MAX_BYTES, "heartbeat_seconds": HEARTBEAT_SECONDS,
                        "stale_seconds": STALE_SECONDS},
@@ -177,7 +179,8 @@ class Observations:
     def emit(self):
         shortened = {"fields": 0, "characters": 0}
         state = self.bound(self.state, shortened)
-        groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"]]
+        groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"],
+                  list(state["histories"].values())]
         for rows in groups:
             for row in rows:
                 for key in shortened:
@@ -191,12 +194,21 @@ class Observations:
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
+            # Keep item headers and the newest runs; account for every older run
+            # removed by either the per-item row limit or the shared byte limit.
+            for history in state["histories"].values():
+                while excess > 0 and history["runs"]:
+                    row = history["runs"].pop(0)
+                    excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+                    history["omitted_runs"] += 1
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
             for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
                 while excess > 0 and group:
                     row = group.pop(index)
                     excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
                     state["omitted"][key] += 1
+                    for history in self.prune_histories(state):
+                        excess -= len(json.dumps(history, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
             if excess > 0:
                 raise ValueError("Observation envelope exceeds its size limit")
 
@@ -218,13 +230,38 @@ class Observations:
     def begin_pass(self):
         self.state["latest_pass"] = {"started_at": iso(self.clock()), "state": "partial", "rows": []}
         self.state["omitted"]["plans"] = 0
+        self.prune_histories(self.state)
         self.activity("polling")
 
     def complete_pass(self):
         self.state["latest_pass"]["state"] = "complete"
         self.emit()
 
-    def plan(self, plan):
+    @staticmethod
+    def prune_histories(state):
+        rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+        referenced = {str(row["item"]) for row in rows + state["outcomes"]}
+        if state["assignment"]:
+            referenced.add(str(state["assignment"]["item"]))
+        return [state["histories"].pop(key) for key in tuple(state["histories"]) if key not in referenced]
+
+    def item_history(self, plan, filing=None):
+        closing = sorted(closing_issues(plan.item, self.state["repository"])) if plan.item.kind == "pr" else []
+        source = (plan.item if plan.item.kind == "issue" else
+                  filing if closing and filing and filing.kind == "issue" and filing.number == closing[0] else None)
+        runs = []
+        for record in plan.history:
+            merge_record(runs, record, self.stop_labels)
+        sort_runs(runs)
+        history = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
+                   "closes": closing[0] if closing else None,
+                   "filing": ({"author": source.author, "time": source.created_at}
+                              if source and source.author and source.created_at else None),
+                   "runs": runs[-MAX_OUTCOMES:], "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
+        observed_blockers(history, plan.item, self.stop_labels)
+        return self.bounded(history)
+
+    def plan(self, plan, filing=None):
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
                "observed_at": iso(self.clock()), "description": (
@@ -245,6 +282,8 @@ class Observations:
             rows.append(row)
         else:
             self.state["omitted"]["plans"] += 1
+        if any(row["item"] == plan.item.number for row in rows):
+            self.state["histories"][str(plan.item.number)] = self.item_history(plan, filing)
         for outcome in self.state["outcomes"]:
             if outcome["target"] == plan.item.number and outcome["completed"]:
                 outcome["human_blocker"] = sorted(plan.item.labels.intersection(self.stop_labels))
@@ -252,6 +291,7 @@ class Observations:
         self.emit()
 
     def assignment(self, plan):
+        self.state["histories"].setdefault(str(plan.item.number), self.item_history(plan))
         self.state["assignment"] = {
             "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
             "run": None, "runtime": None, "lease_state": None, "lease_expires": None,
@@ -263,6 +303,14 @@ class Observations:
         self.activity("running assignment")
 
     def record(self, record):
+        history = self.state["histories"].get(str(record["assignment"]))
+        if history:
+            merge_record(history["runs"], record, self.stop_labels)
+            history["runs"] = [self.bounded(row) for row in history["runs"]]
+            sort_runs(history["runs"])
+            while len(history["runs"]) > MAX_OUTCOMES:
+                history["runs"].pop(0)
+                history["omitted_runs"] += 1
         assignment = self.state["assignment"]
         if not assignment or (record["assignment"], record["agent"]) != (assignment["item"], assignment["agent"]):
             return
@@ -317,6 +365,7 @@ class Observations:
                 if len(outcomes) > MAX_OUTCOMES:
                     outcomes.pop(0)
                     self.state["omitted"]["outcomes"] += 1
+                    self.prune_histories(self.state)
         self.emit()
 
     def process(self, state, reason):

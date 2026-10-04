@@ -277,7 +277,7 @@ class Loop:
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
-                self._observe("plan", observed)
+                self._observe_plan(observed, github)
                 yield observed
 
     def _open_blockers(self, item, github):
@@ -317,9 +317,14 @@ class Loop:
 
         def observed_plans():
             for plan in plans:
-                self._observe("plan", plan)
+                self._observe_plan(plan, github)
                 yield plan
         return item, observed_plans()
+
+    def _observe_plan(self, plan, github):
+        closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
+        filing = github.observed_item(closing[0]) if closing else None
+        self._observe("plan", plan, filing)
 
     def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None):
         agents = self.config.agents if agents is None else agents

@@ -453,7 +453,9 @@ class GitHubTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 item = parse_item(raw, kind)
                 self.assertEqual((item.created_at, item.milestone), (iso(100), 20))
+                self.assertEqual(item.author, "operator")
                 self.assertIsNone(parse_item(dict(raw, milestone=None), kind).milestone)
+                self.assertIsNone(parse_item(dict(raw, user=None), kind).author)
         for changes in ({"created_at": None}, {"created_at": "bad"},
                         {"milestone": {}}, {"milestone": {"number": True}}):
             with self.subTest(changes=changes), self.assertRaises(AgentError):

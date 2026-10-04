@@ -1,3 +1,4 @@
+import io
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,6 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from rich.console import Console
 from tests.test_view_data import event, fixture
 from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response
@@ -52,6 +54,42 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
             self.assertEqual(tree.root.label.plain, 'Launcher work')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_follows_item_selection_refresh_and_retained_observation_without_github(self):
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        def displayed():
+            stream = io.StringIO()
+            Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
+            return stream.getvalue()
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('3')
+            self.assertIn('#114 Cached title', displayed())
+            self.assertIn('filed by bk-one', displayed())
+            self.assertIn('BLOCKED:', displayed())
+            self.assertIn('build-01', displayed())
+            app.select('plan:12:reviewer')
+            await self.ready(app, pilot, lambda: '#12 Foreign candidate' in displayed())
+            self.assertIn('closes #11 · 4 runs', displayed())
+            self.assertIn('3 earlier runs omitted.', displayed())
+            self.assertNotIn('filed by', displayed())
+            self.assertNotIn('#114', displayed())
+            self.state['histories']['12']['title'] = 'Updated candidate'
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: '#12 Updated candidate' in displayed())
+            self.state['latest_pass']['rows'] = []
+            self.state['histories'].pop('12')
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')
+            self.assertIn('#12 Updated candidate', displayed())
+            app.select(RECENT_ACTIVITY)
+            self.assertIn('Select an item', displayed())
+            app.select('outcome:previous-run')
+            await self.ready(app, pilot, lambda: '#10 Earlier item' in displayed())
+            self.assertEqual(transport.calls, [])
             await pilot.press('q')
         app.worker.thread.join(2)
 

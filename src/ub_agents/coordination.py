@@ -514,6 +514,8 @@ class Coordinator:
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
+        if lease.get("host"):
+            record["host"] = lease["host"]
         if outcome is not None:
             declaration = declarations[outcome]
             if "declared_triggers" not in lease:

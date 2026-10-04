@@ -15,8 +15,9 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Static, TabbedContent, TabPane, Tree
 
-from .view_data import WORK_GROUPS, context_text, mapping, outcome_text, outcomes_today, text
+from .view_data import WORK_GROUPS, context_text, mapping, outcomes_today, text
 from .view_github import DescriptionLoads
+from .view_runs import run_status, runs_view
 from .view_worker import LocalWorker, Request
 
 MAX_RENDER_LINES = 400
@@ -226,7 +227,7 @@ class View(App):
                         yield Static('Context unavailable.', id='issue_text', markup=False)
                 with TabPane('Runs', id='runs'):
                     with VerticalScroll():
-                        yield Static('No outcomes cached.', id='runs_text', markup=False)
+                        yield Static('Select an item to see its history.', id='runs_text', markup=False)
         yield Static('Snapshot freshness unavailable · FOLLOW · FORMATTED', id='status', markup=False)
         yield Static('f follow/pause · h older · u raw · p path · g load/retry Issue · 1/2/3 tabs · PgUp/PgDn · q quit', id='keys', markup=False)
 
@@ -270,6 +271,7 @@ class View(App):
                 self.busy = True
                 self.pending_history = None
         self.update_issue()
+        self.update_runs()
         self.update_status()
 
     def populate(self, rows):
@@ -367,8 +369,10 @@ class View(App):
         self.pending_history = None
         self.query_one('#output', LogPane).set_reading(self.reading)
         self.last_context = None
+        self.last_runs = None
         self.local_description = None
         self.query_one('#issue_text', Static).update('Reading cached context…')
+        self.update_runs()
         self.update_status()
 
     def apply(self, result):
@@ -391,10 +395,20 @@ class View(App):
         if result.error:
             reading.notice = text(result.error)
         self.local_description = result.description
-        runs = outcome_text(result.session)
-        if runs != self.last_runs:
-            self.query_one('#runs_text', Static).update(Text(runs))
-            self.last_runs = runs
+
+    def update_runs(self):
+        if self.session is None:
+            return
+        row = self.rows.get(self.selected)
+        history = (mapping(mapping(self.session.data.get('histories')).get(str(row.item))) or
+                   mapping(row.data.get('history'))) if row else {}
+        now = datetime.now().astimezone()
+        active = any(run_status(run, now)[0] == 'running' for run in history.get('runs', []))
+        title = self.local_description.title if self.local_description else ''
+        signature = (row.key if row else None, repr(history), title, int(now.timestamp() * (5 if active else 1)))
+        if signature != self.last_runs:
+            self.query_one('#runs_text', Static).update(runs_view(row, self.session, title, now))
+            self.last_runs = signature
 
     def description_key(self):
         row = self.rows.get(self.selected)

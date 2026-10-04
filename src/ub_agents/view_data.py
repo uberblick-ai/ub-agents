@@ -1,6 +1,6 @@
 """Bounded local inputs for the development view; no workflow authority."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -77,7 +77,7 @@ def load_session(path):
         data = read_json(path)
         if type(data.get('version')) is not int or data['version'] != 1:
             raise ValueError('Missing or unsupported snapshot version')
-        for key in ('assignment', 'latest_pass', 'activity', 'omitted'):
+        for key in ('assignment', 'latest_pass', 'activity', 'omitted', 'histories'):
             if data.get(key) is not None and not isinstance(data[key], dict):
                 raise ValueError(f'Invalid {key}')
         if 'outcomes' in data and not isinstance(data['outcomes'], list):
@@ -85,6 +85,14 @@ def load_session(path):
         if mapping(data.get('latest_pass')).get('rows') is not None and not isinstance(data['latest_pass']['rows'], list):
             raise ValueError('Invalid pass rows')
         groups = [data.get('outcomes', []), mapping(data.get('latest_pass')).get('rows', [])]
+        for history in mapping(data.get('histories')).values():
+            if not isinstance(history, dict) or not isinstance(history.get('runs'), list):
+                raise ValueError('Invalid item history')
+            if history.get('filing') is not None and not isinstance(history['filing'], dict):
+                raise ValueError('Invalid filing data')
+            if type(history.get('omitted_runs', 0)) is not int or history.get('omitted_runs', 0) < 0:
+                raise ValueError('Invalid omitted runs')
+            groups.extend(([history], history['runs']))
         if data.get('assignment'):
             groups.append([data['assignment']])
         for group in groups:
@@ -218,6 +226,9 @@ def work_rows(session, root):
         result.append(WorkRow('outcome:' + text(row.get('run'), str(index)), 'Recent activity', row.get('item', '?'),
                               text(row.get('agent')), state, text(row.get('summary')), row, row.get('run'),
                               runtime_type(row.get('runtime')), run / 'process.log' if run else None, run / 'context.json' if run else None))
+    histories = mapping(data.get('histories'))
+    result = [replace(row, data=row.data | {'history': histories[str(row.item)]})
+              if str(row.item) in histories else row for row in result]
     return sorted(result, key=lambda row: WORK_GROUPS.index(row.group))
 
 

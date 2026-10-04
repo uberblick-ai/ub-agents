@@ -23,7 +23,7 @@ from ub_agents.observations import (HEARTBEAT_SECONDS, MAX_BYTES, MAX_OUTCOMES, 
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
-from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, observation_writer_command, stub_refresh
+from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
 
 
 class ObservationTests(unittest.TestCase):
@@ -82,6 +82,32 @@ class ObservationTests(unittest.TestCase):
         self.assertNotIn("/private/other/logs", json.dumps(self.memory.snapshots))
         self.assertEqual(self.memory.snapshots[-1]["latest_pass"]["state"], "complete")
         self.assertIsNone(self.memory.snapshots[-1]["assignment"])
+        history = self.memory.snapshots[-1]["histories"]["1"]
+        self.assertEqual([run["run"] for run in history["runs"]], [lease["run"]])
+        self.assertEqual(history["runs"][0]["host"], socket.gethostname())
+
+    def test_pr_filing_uses_only_items_already_read_by_discovery(self):
+        self.cfg = config(self.root, agent(self.root, kind="pr", triggers=("needs-changes",)))
+        filed = replace(issue(), author="bk-one")
+        reads = []
+        for observed in (False, True):
+            github = PollGitHub(filed, pr())
+            loop = self.loop(github, observed)
+            self.observer.begin_pass()
+            list(loop.iter_plans())
+            reads.append(github.reads[:])
+        self.assertEqual(reads[0], reads[1])
+        history = self.memory.snapshots[-1]["histories"]["2"]
+        self.assertEqual(history["filing"], {"author": "bk-one", "time": filed.created_at})
+        # A targeted pass has not read the closing issue. Its PR author's data
+        # cannot stand in for the filing row, and display must not fetch it.
+        self.observer.begin_pass()
+        github = PollGitHub(filed, replace(pr(), author="pr-author"))
+        loop = self.loop(github)
+        _, plans = loop.item_plans(2)
+        list(plans)
+        self.assertIsNone(self.memory.snapshots[-1]["histories"]["2"]["filing"])
+        self.assertFalse(any(name == "item" and args[0] == 1 for name, args in github.reads))
 
     def test_targeted_launch_preserves_request_order_writes_and_outcomes(self):
         results = []
