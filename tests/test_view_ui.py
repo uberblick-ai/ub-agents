@@ -42,6 +42,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('Source: run context.json', app.last_context)
             self.assertIn('s old', app.last_context)
             own_key = app.selected
+            plan_key = next(k for k, row in app.rows.items() if row.item == 114 and k != own_key)
+            app.select(plan_key)
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            await pilot.press('g')
+            self.assertIn('Cached description', app.last_context)
+            self.assertEqual(transport.calls, [])
             foreign = next(k for k, row in app.rows.items() if row.item == 12)
             app.select(foreign)
             await self.ready(app, pilot, lambda: app.local_description is not None)

@@ -73,13 +73,17 @@ class LocalWorker:
         # Its log and cached context remain a local snapshot of the prior selection.
         source = next((row for row in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
                        if selected and row.get('item') == selected.item), {})
-        context_key = (selected.key, selected.state, selected.reason, repr(selected.data), repr(source)) if selected else None
+        item_key = (session.data.get('repository'), selected.item) if selected else None
+        context_key = (item_key, selected.key, selected.state, selected.reason, repr(selected.data), repr(source)) if selected else None
         context = self.contexts.get(context_key)
         if context is None:
             context = local_description(selected, session)
             self.contexts[context_key] = context
             while len(self.contexts) > 21:
                 self.contexts.popitem(last=False)
+        if not context.available:
+            context = next((value for key, value in reversed(self.contexts.items())
+                            if key and key[0] == item_key and value.available), context)
         log = page = history = None
         error = None
         runtime = 'unknown'

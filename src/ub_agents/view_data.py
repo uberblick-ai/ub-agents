@@ -222,9 +222,8 @@ def local_description(row, session):
     if not row:
         return Description()
     source = row.data
-    if row.group == 'Current assignment':
-        source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
-                       if r.get('item') == row.item), source)
+    source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
+                   if r.get('item') == row.item), source)
     description = mapping(source.get('description'))
     title = description_text(source.get('title'))
     if description.get('available') is True and isinstance(description.get('text'), str):
@@ -232,13 +231,22 @@ def local_description(row, session):
         stamp = time.time() - age if age is not None else None
         notice = 'Description shortened in snapshot.' if description.get('omitted_characters') else ''
         return Description(title, description_text(description['text']), 'snapshot', stamp, True, notice)
-    if row.context:
+    context_path = row.context
+    if context_path is None:
+        # A plan row can refer to the session's current or earlier own run.
+        candidates = [mapping(session.data.get('assignment')),
+                      *reversed(rows(session.data.get('outcomes'), 20))]
+        run = next((own_run(session.path.parents[2], candidate.get('run'))
+                    for candidate in candidates if candidate.get('item') == row.item and
+                    own_run(session.path.parents[2], candidate.get('run'))), None)
+        context_path = run / 'context.json' if run else None
+    if context_path:
         try:
-            context = read_json(row.context, CONTEXT_BYTES)
+            context = read_json(context_path, CONTEXT_BYTES)
             if isinstance(context.get('body'), str):
                 return Description(description_text(context.get('title')) or title,
                                    description_text(context['body']), 'run context.json',
-                                   row.context.stat().st_mtime, True)
+                                   context_path.stat().st_mtime, True)
         except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
             return Description(title=title, notice='Cached context unavailable: ' + text(str(exc)))
     return Description(title=title)
