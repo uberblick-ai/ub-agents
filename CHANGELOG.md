@@ -13,6 +13,7 @@ stop label on items you want to stay held (#132).
 ### Changed
 
 - Coordination reads only v3 records; attempt counts and blocked or exhausted state on items reset once on upgrade (#132).
+- The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
 
 ## 0.1.11 — 2026-10-04
