@@ -429,6 +429,7 @@ class View(App):
         yield Static('', id='status', markup=False)
 
     def on_mount(self):
+        self.update_work_pane_width(self.size)
         self.query_one('#work_pane').border_title = 'Work'
         self.query_one(ItemTabs).border_title = 'Log'
         self.query_one(WorkTree).show_root = False
@@ -438,6 +439,15 @@ class View(App):
         self.tick()
         if self.launcher is not None:
             self.launcher.mounted(self)
+
+    def on_resize(self, event):
+        self.update_work_pane_width(event.size)
+
+    def update_work_pane_width(self, size):
+        pane = self.query_one_optional('#work_pane')
+        if pane is not None:
+            pane.styles.width = (min(64, max(46, size.width // 3))
+                                 if size.width >= 110 and size.height >= 32 else 36)
 
     def action_quit(self):
         if self.launcher is not None:

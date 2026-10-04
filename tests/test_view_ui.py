@@ -62,6 +62,24 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     def screenshot_text(self, svg):
         return ''.join(ElementTree.fromstring(svg).itertext()).replace('\xa0', ' ')
 
+    async def test_work_pane_width_follows_terminal_resizes(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            work, panes = app.query_one('#work_pane'), app.query_one('#panes')
+            self.assertEqual(work.region.width, 46)
+            for size, width in (((150, 32), 50), ((152, 32), 50), ((189, 32), 63),
+                                ((200, 32), 64), ((109, 32), 36), ((200, 31), 36),
+                                ((110, 32), 46)):
+                with self.subTest(size=size):
+                    await pilot.resize_terminal(*size)
+                    await self.ready(app, pilot, lambda: work.region.width == width)
+                    self.assertEqual(work.region.width, width)
+                    self.assertEqual(panes.region.width, size[0] - width)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
     async def test_theme_screenshot_at_110_by_32_and_numbered_inert_mode_indicator(self):
         self.themed_fixture()
         with patch.dict(os.environ):
@@ -255,7 +273,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         recorded = [line for line in FIXTURE.read_bytes().splitlines(keepends=True) if len(line) < 4000]
         edit = record(content=[{**tool(name='Edit'), 'input': {
             'file_path': 'long/' * 50, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
-        self.log.write_bytes(b''.join(recorded) + edit + b''.join(event(i, 20) for i in range(30)))
+        # Keep the first hidden record inside the raw render budget at 110×32.
+        self.log.write_bytes(b''.join(recorded) + edit + b''.join(event(i, 20) for i in range(10)))
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -846,6 +865,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',
                                            'acceptance': 'finalized'})
             self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'reported success' in status.render().plain)
+            self.assertIn('implementer exited · reported success', status.render().plain)
+            self.assertIn('…', status.render().plain)
+            self.assertTrue(status.render().plain.endswith('2 earlier runs'))
+            await pilot.resize_terminal(150, 32)
             await self.ready(app, pilot, lambda: 'finalized' in status.render().plain)
             self.assertIn('implementer exited · reported success (finalized)', status.render().plain)
             self.assertTrue(status.render().plain.endswith('2 earlier runs'))
@@ -1597,7 +1621,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 if key.startswith('assignment:'):
                     self.assertRegex(first.text, r'\d\d:\d\d$')
                     self.assertIn('…', first.text)
-                    self.assertTrue(second.text.endswith('…'))
+                    self.assertEqual(second.text.rstrip(), '  implementer · this launcher · attempt 1')
                 else:
                     self.assertTrue(first.text.endswith(status), first.text)
                 self.assertTrue(second.text.startswith(detail), second.text)
@@ -2046,7 +2070,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.rows[app.selected].state, 'earlier observation')
             self.assertIn('malformed', str(app.query_one('#status').render()))
             self.assertGreater(app.query_one('#output').size.height, 15)
-            self.assertGreater(app.query_one('#output').size.width, 60)
+            self.assertGreaterEqual(app.query_one('#output').size.width, 60)
             await pilot.press('ctrl+c')
         app.worker.thread.join(2)
 

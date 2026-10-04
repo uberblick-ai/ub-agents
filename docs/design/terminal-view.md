@@ -11,9 +11,12 @@ Ctrl-C (#182).
 
 ## Layout
 
-Two panes at 110×32 and above: **Work** on the left (about 50 columns) and the
-selected item on the right, with tabs. A one-line footer sits below both. The
-focused pane has an accent border with its title set into the border.
+Two panes at 110×32 and above: **Work** on the left and the selected item on the
+right, with tabs. Work's outer width, including its border, is one third of the
+terminal width, rounded down and clamped to 46–64 columns; the tab panes take
+the rest. The width follows terminal resizes: 110 columns gives Work 46 columns,
+150 gives 50, and 200 gives 64. A one-line footer sits below both. The focused
+pane has an accent border with its title set into the border.
 
 ```text
 ╭─ Work · pass complete ───────────────────────────╮
@@ -53,8 +56,10 @@ Parked dependency and milestone waits are omitted from rows and section counts.
 Eligible lists ready/recovery plans in planned order, then retry backoff and
 paused-runtime plans in planned order.
 Other empty sections are hidden. It scrolls
-on its own when it overflows; the pane keeps its current width for the row change
-(#160), independently of the roughly 50-column design canvas above.
+on its own when it overflows; row changes do not alter the pane width (#160).
+The canvas above is illustrative; the Work pane's outer width follows the Layout
+rule: one third of the terminal width, rounded down and clamped to 46–64 columns
+including the border, at 110×32 and above.
 
 Every live row has two compact lines. Line 1 contains the glyph, item reference,
 title shortened with `…`, and a short right-aligned state:

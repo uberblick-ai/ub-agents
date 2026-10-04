@@ -64,9 +64,14 @@ result without delaying work. The result is included in the session snapshot;
 the view makes no GitHub reads for updates. Plain launch output prints each new
 banner text once. Restart with the current code to clear the notice.
 
-At least **110 columns × 32 rows** are needed for the combined view. The left
-pane groups work from the session snapshot into sections and shows each section's
-row count. Running always appears first; other empty sections are hidden:
+At least **110 columns × 32 rows** are needed for the combined view. At that size
+and above, the Work pane's outer width, including its border, is one third of the
+terminal width, rounded down and clamped to 46–64 columns; the tab panes take the
+rest. This follows terminal resizes. Below either minimum dimension, Work keeps
+its previous 36-column width and the two-pane layout remains in place.
+
+The left pane groups work from the session snapshot into sections and shows each
+section's row count. Running always appears first; other empty sections are hidden:
 
 | Section | Work |
 | --- | --- |
