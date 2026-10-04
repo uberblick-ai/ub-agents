@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 from xml.etree import ElementTree
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from rich.console import Console
 from tests.test_view_data import event, fixture
@@ -690,6 +690,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
                             'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', '?', 'Escape', 'q   ', 'Ctrl-C'):
                     self.assertIn(key, help_text)
+                self.assertIn('q   Quit: interrupt an attached launcher; close a standalone view', help_text)
+                self.assertIn('Ctrl-C   Same as q', help_text)
                 await pilot.press('f', 'h', 'u', 'g', 'p', '2', 'pageup', 'pagedown', 'home', 'end')
                 self.assertIsInstance(app.screen, KeyHelp)
                 await pilot.press(close)
@@ -1776,18 +1778,26 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_quit_closes_pending_recording_transport_for_both_keys(self):
         for key in ('q', 'ctrl+c'):
-            transport = RecordingDescriptionTransport()
-            app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
-            async with app.run_test(size=(110, 32)) as pilot:
-                await self.ready(app, pilot)
-                app.select(next(k for k, row in app.rows.items() if row.item == 12))
-                await self.ready(app, pilot, lambda: app.local_description is not None)
-                await pilot.press('2', 'g')
-                self.assertIsNotNone(app.descriptions.pending)
-                await pilot.press(key)
-            self.assertTrue(transport.closed)
-            self.assertIsNone(app.descriptions.pending)
-            app.worker.thread.join(2)
+            for attached in (False, True):
+                with self.subTest(key=key, attached=attached):
+                    transport = RecordingDescriptionTransport()
+                    launcher = Mock() if attached else None
+                    app = View(self.root, self.path, descriptions=DescriptionLoads(transport), launcher=launcher)
+                    async with app.run_test(size=(110, 32)) as pilot:
+                        await self.ready(app, pilot)
+                        app.select(next(k for k, row in app.rows.items() if row.item == 12))
+                        await self.ready(app, pilot, lambda: app.local_description is not None)
+                        await pilot.press('2', 'g')
+                        self.assertIsNotNone(app.descriptions.pending)
+                        await pilot.press('?')
+                        self.assertIsInstance(app.screen, KeyHelp)
+                        await pilot.press(key)
+                    self.assertTrue(transport.closed)
+                    self.assertIsNone(app.descriptions.pending)
+                    if attached:
+                        launcher.interrupt.assert_called_once_with()
+                        launcher.close.assert_called_once_with()
+                    app.worker.thread.join(2)
 
     async def test_pause_survives_sustained_reader_and_render_eviction_tabs_panes_raw_resize(self):
         app = View(self.root, self.path)

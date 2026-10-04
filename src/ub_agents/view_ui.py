@@ -128,8 +128,8 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             'p   Show the full raw path and log diagnostics; Escape closes it\n'
             'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
             '?   Open or close this help; Escape also closes it\n'
-            'q   Close only the view; launcher continues with plain output\n'
-            'Ctrl-C   Interrupt an attached launcher; close a standalone view')
+            'q   Quit: interrupt an attached launcher; close a standalone view\n'
+            'Ctrl-C   Same as q')
 
 
 @dataclass
@@ -366,8 +366,8 @@ class View(App):
     #status { height: 1; background: $panel; }
     '''
     BINDINGS = [
-        Binding('q', 'quit', 'Close view', priority=True),
-        Binding('ctrl+c', 'interrupt', 'Interrupt', priority=True),
+        Binding('q', 'quit', 'Quit', priority=True),
+        Binding('ctrl+c', 'quit', 'Quit', priority=True),
         Binding('f', 'follow', 'Follow/pause', priority=True),
         Binding('u', 'raw', 'Raw', priority=True),
         Binding('h', 'history', 'Older page', priority=True),
@@ -436,7 +436,7 @@ class View(App):
         if self.launcher is not None:
             self.launcher.mounted(self)
 
-    def action_interrupt(self):
+    def action_quit(self):
         if self.launcher is not None:
             self.launcher.interrupt()
         self.exit()
