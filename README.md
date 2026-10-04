@@ -55,8 +55,8 @@ ub-agents launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
 Interactive launches open a read-only [terminal view](docs/terminal-view.md) of
-their own session; `q` closes it and leaves the launcher running, and Ctrl-C stops
-the launcher. Use `launch --no-ui` for plain lines. Pipes and services stay plain.
+their own session; `q` and Ctrl-C interrupt the launcher and clean up owned runs.
+Use `launch --no-ui` for plain lines. Pipes and services stay plain.
 
 Launch output is flushed immediately to the terminal when the view is closed and appended to
 `.ub-agents/launch.log` in the control checkout, with a UTC timestamp on each file
@@ -142,7 +142,7 @@ one release, hidden from help.
 
 | Signal or key | Effect | Exit |
 |---|---|---|
-| `q` in the view | Close only the view and restore the terminal; launcher continues with new plain output, and earlier lines remain in `launch.log`. | launcher unchanged |
+| `q` in the view | Same as Ctrl-C: interrupt the launcher, clean up owned runs and restore the terminal with the final message visible. | 130 |
 | `SIGTERM` (`kill -TERM <pid>`) | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup; an in-progress checkout refresh finishes without a claim. When idle it exits promptly. | 0 |
 | `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`, including when idle or during a GitHub request. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
 | `SIGHUP` | Same as Ctrl-C. | 130 |

@@ -203,7 +203,7 @@ sys.exit(result)
 
 class LaunchTerminalTests(unittest.TestCase):
     # Each launch form is its own test so a parallel run spreads them over cores.
-    def test_q_closes_view_and_launch_drains_on_sigterm(self):
+    def test_q_stops_the_launch(self):
         self.check_launch_form('q')
 
     def test_view_crash_keeps_launch_running(self):
@@ -305,10 +305,6 @@ class LaunchTerminalTests(unittest.TestCase):
                     drain(0.15)
                     os.write(master, b'q')
                     until(lambda: b'\x1b[?1049l' in transcript)
-                    self.assertIsNone(process.poll())
-                    os.kill(agent_pid, 0)
-                    os.kill(process.pid, signal.SIGTERM)
-                    (root / 'finish').touch()
                 elif mode == 'crash':
                     os.kill(view_pid, signal.SIGKILL)
                     until(lambda: b'Terminal view closed:' in transcript)
@@ -332,7 +328,7 @@ class LaunchTerminalTests(unittest.TestCase):
                 else:
                     (root / 'finish').touch()
                 until(lambda: process.poll() is not None)
-                expected = 130 if mode in {'interrupt', 'interrupt-drain', 'hup'} else 1 if mode == 'error' else 0
+                expected = 130 if mode in {'q', 'interrupt', 'interrupt-drain', 'hup'} else 1 if mode == 'error' else 0
                 self.assertEqual(process.wait(), expected)
                 drain()
                 self.assertEqual(termios.tcgetattr(slave), modes)
@@ -344,8 +340,15 @@ class LaunchTerminalTests(unittest.TestCase):
                 message = (b'Intentional launcher error' if mode == 'error' else
                            b'Stopped; supervised execution terminated' if expected else b'Captured replay finished')
                 self.assertIn(message, transcript)
+                if mode in {'q', 'interrupt', 'interrupt-drain'}:
+                    self.assertEqual(transcript.count(message), 1)
+                    self.assertNotIn(b'Terminal view closed:', transcript)
+                elif mode == 'crash':
+                    self.assertEqual(transcript.count(b'Terminal view closed:'), 1)
                 history = json.loads((root / 'result.json').read_text())['history']
                 self.assertEqual(history[0]['state'], 'released')
+                if expected == 130:
+                    self.assertEqual(history[0]['attempt_effect'], 'unchanged')
                 for pid in (view_pid, agent_pid):
                     if pid is not None:
                         with self.assertRaises(ProcessLookupError):

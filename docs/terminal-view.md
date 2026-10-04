@@ -26,7 +26,7 @@ The view is part of every install: `brew install uberblick-ai/tap/ub-agents`, or
 manual local observation. Without an ID this standalone view opens the only
 fresh, unended local session or lists available sessions. Only this manual form
 allows an explicit ended/unavailable session; automatic launch attachment is
-strict. Ctrl-C in a standalone view closes only that view.
+strict. `q` or Ctrl-C in a standalone view closes only that view.
 
 ## Using the view
 
@@ -225,8 +225,8 @@ Log transcript is described below.
 | `p` | Show the full raw file path, byte ranges and retention diagnostics; `Escape` closes it |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
 | `?` | Show all keys; `Escape` or `?` closes help |
-| `q` | Close only the view; launcher continues with plain output |
-| `Ctrl-C` | Interrupt the launching process with its normal SIGINT handling (exit 130) |
+| `q` | Interrupt an attached launcher with its normal SIGINT handling (exit 130); close only a standalone view |
+| `Ctrl-C` | Same as `q` |
 
 The one-line footer shows the snapshot's launcher version and activity on the
 left: waiting counts down as `next poll Ns`; other activities say `polling`,
@@ -316,8 +316,8 @@ or prefetch. No reads or retries happen automatically. There is at most one read
 in flight: pressing `g` while any read is pending queues nothing. Input and local
 snapshot/log reading continue while it is pending, with a loading notice on Issue.
 Closing the view terminates and reaps its owned request processes. A request
-supervisor also cleans them up if the view is killed. `q` leaves the launcher
-running; Ctrl-C interrupts an attached launcher.
+supervisor also cleans them up if the view is killed. `q` and Ctrl-C interrupt an
+attached launcher; either key closes only a standalone view.
 
 Descriptions show their source and age: snapshot publication time, run context
 file modification time, or GitHub load completion time; missing local timestamps
@@ -358,12 +358,12 @@ limited to 21, matching the session's bounded
 20 recent outcomes plus its current assignment.
 
 Launcher lines written while the view is open continue to append, with the same
-UTC timestamps, to `.ub-agents/launch.log`. Closing with `q` resumes new plain
-lines without replaying past output. On launcher exit the view closes, the
+UTC timestamps, to `.ub-agents/launch.log`. Quitting with `q` or Ctrl-C interrupts
+the launcher and cleans up its owned runs. On launcher exit the view closes, the
 terminal is restored, and the final launcher message is visible. A crashed or
-killed view produces one diagnostic and resumes plain output. SIGTERM drains the
-launcher normally; SIGHUP interrupts it like Ctrl-C. Reopening a closed view from
-a running launcher is not supported.
+killed view produces one diagnostic and resumes plain output without replaying
+past lines. SIGTERM drains the launcher normally; SIGHUP interrupts it like Ctrl-C.
+Reopening a crashed or killed view from a running launcher is not supported.
 
 ## Validation
 
@@ -449,9 +449,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    inside an unclosed code fence; the plain shortening notice must remain visible.
 6. Start a pending or hung description load and quit with `q`; repeat with
    `Ctrl-C`. Verify prompt exit and no request process left behind, as well as
-   normal terminal input, cursor and alternate-screen restoration. With `q`,
-   confirm the launcher continues and output still grows. With Ctrl-C in an
-   automatic launch view, confirm launcher exit 130 and owned execution cleanup.
+   normal terminal input, cursor and alternate-screen restoration. In an automatic
+   launch view, confirm launcher exit 130, owned execution cleanup and a visible
+   final launcher message with either key.
    A standalone replay observer closes only itself on either key.
 
 7. Exercise `launch`, `--once` and `launch N`, exact-session attachment with another
