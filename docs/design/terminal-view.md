@@ -16,41 +16,59 @@ focused pane has an accent border with its title set into the border.
 
 ```text
 ╭─ Work · pass complete ───────────────────────────╮
-│ Running ─────────────────────────────────────  2 │
-│ ⠹ #163 Compact timestamped Claude log lines 04:12│
+│ Running ─────────────────────────────────────  1 │
+│ ⠹ issue #163 Compact timestamped Claude l… 04:12 │
 │   implementer · this launcher · attempt 1        │
-│ ◐ PR #167 Group the work list into sec…   remote │
-│   reviewer · bk-one on mac-mini                  │
 │ Needs attention ─────────────────────────────  2 │
-│ ? #156 Drop old coordination record… needs-human │
-│ ✗ #126 Codex structured run-log form…  failed 3/3│
-│ Eligible ─────────────────────── planned order   │
-│ ● #165 Render issue descriptions as Markdo… next │
-│ ● #166 Keep rows stable during a pass     ▲ high │
-│ Waiting ─────────────────────────────────────  2 │
-│ ◌ #160 Two-line work rows                ⊘ #159  │
-│ ◌ #170 Hub split and versioned contract milestone│
-│ ▸ Recent activity ─────────────────────  4 today │
+│ ? issue #156 Drop old coordination … needs-human │
+│ ✗ issue #126 Codex structured run-lo… failed 3/3 │
+│ Eligible ────────────────────────  planned order │
+│ ● issue #165 Render issue descriptions as … next │
+│ ● PR    #170 Compact timestamped Claude … review │
+│                                                  │
+├─ Recent activity ─────────────────────── 4 today ┤   (lower half, always shown, dimmed)
+│ ✓ PR    #167 Group the work list into se… merged │
+│   integrator · 11:52 · squash-merged             │
+│ ✓ PR    #167 Group the work list into … approved │
+│   reviewer · 11:38                               │
+│ ✓ issue #159 Group the work list int… handed off │
+│   implementer · 11:20 · opened PR #167           │
+│ ✗ issue #126 Codex structured run-log fo… failed │
+│   implementer · 10:02 · timed out after 180m     │
 ╰──────────────────────────────────────────────────╯
 ```
 
 ## Work pane
 
-Sections, in this order, each with a header rule and a count. Empty sections are
-hidden, except Running, which shows `Idle · nothing eligible for this launcher`.
+The upper half holds the live sections, in this order, each with a header rule and a
+count. Empty sections are hidden, except Running, which shows `Idle · nothing
+eligible for this launcher`. The upper half scrolls on its own when it overflows.
 
 | Section | Rows | Glyph | Right column |
 | --- | --- | --- | --- |
-| Running | this launcher's assignment; items another launcher is running | `⠹` spinner, `◐` remote, `■` stopping | elapsed time, `remote`, `stopping` |
+| Running | at most one: this launcher's assignment (one run at a time for now) | `⠹` spinner, `■` stopping | elapsed time, `stopping` |
 | Needs attention | blocked, parked or withdrawn plans; failed outcomes | `?` needs a person, `‖` approval, `✗` failed | short reason: `needs-human`, `approve input`, `failed 3/3` |
 | Eligible | ready plans in planned order | `●` | `next`, or priority (`▲ high`) |
-| Waiting | dependency and milestone waits | `◌` | `⊘ #N` blocker, `milestone` |
-| Recent activity | today's outcomes, collapsed into one row; Enter expands | `✓` accepted, `✗` failed | outcome (`merged`, `approved`, `handed off`) |
+
+Dependency and milestone waits are not shown.
+
+Every row says whether its number is an issue or a pull request: a fixed-width
+`issue` or `PR` tag before `#N`, so the numbers line up. `issue` is dim and `PR` is in
+the accent color. The item header on the right spells out `Issue #N` or `PR #N`.
+
+The lower half is always **Recent activity**: today's outcomes, newest first, with
+`N today` in its header. Its rows are dimmed; a selected one shows at full
+brightness. It never collapses. Rows that do not fit are cut from the oldest end.
+
+| Glyph | Meaning | Right column |
+| --- | --- | --- |
+| `✓` | accepted outcome | `merged`, `approved`, `handed off`, `prepared` |
+| `✗` | failed run | `failed` |
 
 Rows are two lines: glyph, `#N` (or `PR #N`), title shortened with `…`, right column;
-then agent · owner (`this launcher` or `actor on host`) · attempt. Rows that need no
-second line (Eligible, Waiting) may use one. A row keeps its place and selection across
-polls. An item appears once.
+then agent · owner or time · attempt or result. Eligible rows may use one line. A
+row keeps its place and selection across polls. An item appears once in the live
+sections.
 
 The pane title shows the pass state: `Work · pass complete`, or a dim `pass partial`.
 A stale snapshot dims the pane and shows `last seen HH:MM:SS`.
@@ -58,14 +76,14 @@ A stale snapshot dims the pane and shows `last seen HH:MM:SS`.
 ## Item pane
 
 Tabs `1 Log  2 Issue  3 Runs`, then `│ Formatted  Raw u` on the Log tab. Each tab
-starts with the item header: `#N title` in bold, then agent · runtime · attempt ·
-PR in dim text.
+starts with the item header: `Issue #N title` or `PR #N title` in bold, then
+agent · runtime · attempt · PR in dim text.
 
 ### Log
 
 ```text
  1 Log   2 Issue   3 Runs  │  Formatted  Raw u
- #163 Show Claude log entries as compact timestamped lines
+ Issue #163 Show Claude log entries as compact timestamped lines
  implementer · codex gpt-6.1-sol xhigh · attempt 1 · no PR yet
  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  11:41:02 launcher claimed #163 · lease 30m
@@ -102,7 +120,7 @@ PR in dim text.
 
 ```text
  1 Log   2 Issue   3 Runs
- #156 Drop old coordination record formats                       (bold)
+ Issue #156 Drop old coordination record formats                 (bold)
  issue · needs-human · issue-preparer asked a question           (dim)
  ┃ Waiting for a team member: answer on GitHub, then remove needs-human.   (red callout, only for attention rows)
 
@@ -155,8 +173,8 @@ Stale snapshot (banner above both panes, work pane dimmed, footer warns):
 ```text
 Colors, as Textual theme variables with these dark-theme values:
   background #0d1016 · panel/footer #161a22 · text #d4d9e1 · dim #6b7484
-  accent (focus border, pane titles, launcher lines) #b79cff · selection row #1b2030
-  Running #6cb6ff · Needs attention #ff8b7f · Eligible #7ee2a0 · Waiting #e8c062
+  accent (focus border, pane titles, launcher lines, PR tag) #b79cff · selection row #1b2030
+  Running #6cb6ff · Needs attention #ff8b7f · Eligible #7ee2a0
   diff + #7ee2a0 · diff - #ff8b7f
 Focused pane: accent border with its title in the border ("Work", "Log", "Issue"); unfocused: #2a303b border.
 Tab bar: active tab inverted (dark text on light), others dim; "Formatted" underlined in accent when on.
