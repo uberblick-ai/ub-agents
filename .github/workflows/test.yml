@@ -1,5 +1,10 @@
 name: Test
-on: [push, pull_request]
+# Linux only: GitHub bills macOS minutes at ten times the Linux rate, so
+# macOS is covered by running the suite on a Mac locally.
+on:
+  push:
+    branches: [main]
+  pull_request:
 permissions:
   contents: read
 jobs:
@@ -7,9 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.14"]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
