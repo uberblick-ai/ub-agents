@@ -164,6 +164,7 @@ from tests.support import FakeGitHub, agent, config, issue
 from ub_agents.cli import main
 from ub_agents.config import Runtime
 from ub_agents.execution import supervise
+from ub_agents.errors import AgentError
 from ub_agents.loop import Loop
 root = pathlib.Path(sys.argv[2])
 mode = sys.argv[3]
@@ -172,6 +173,12 @@ cfg = config(root, agent(root, kind='issue', command=(), runtimes=(Runtime('clau
 # One real supervised owned agent replays the sanitized captured Claude fixture.
 source = pathlib.Path(sys.argv[1]) / 'tests/fixtures/runtime_logs/claude.log'
 loop = None
+original_launch = Loop.launch
+def launch(self, *args, **kwargs):
+    result = original_launch(self, *args, **kwargs)
+    if mode == 'error':
+        raise AgentError('Intentional launcher error')
+    return result
 def create(*args, **kwargs):
     global loop
     loop = Loop(*args, **kwargs)
@@ -192,6 +199,7 @@ while not (root / 'finish').exists():
     return code
 with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop.load_config', return_value=cfg), \\
      patch('ub_agents.cli.GitHub', return_value=github), patch('ub_agents.cli.Loop', side_effect=create), \\
+     patch.object(Loop, 'launch', launch), \\
      patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
      patch('ub_agents.loop.supervise', side_effect=run):
     result = main(['--config', str(root / 'ub-agents.yaml'), 'launch', *sys.argv[4:]])
@@ -206,7 +214,8 @@ class LaunchTerminalTests(unittest.TestCase):
         # The clean-wheel interpreter is also used for the recorded acceptance run.
         python = os.environ.get('UB_UI_TEST_PYTHON', sys.executable)
         for mode, arguments in (('q', []), ('crash', ['--once']), ('interrupt', ['116']),
-                                ('drain', []), ('once', ['--once']), ('hup', []), ('no-ui', ['--no-ui', '--once'])):
+                                ('drain', []), ('interrupt-drain', []), ('once', ['--once']),
+                                ('error', ['--once']), ('hup', []), ('no-ui', ['--no-ui', '--once'])):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 shim = root / 'claude'
@@ -287,7 +296,11 @@ class LaunchTerminalTests(unittest.TestCase):
                         self.assertIsNone(process.poll())
                         self.assertEqual(termios.tcgetattr(slave), modes)
                         (root / 'finish').touch()
-                    elif mode == 'interrupt':
+                    elif mode in {'interrupt', 'interrupt-drain'}:
+                        if mode == 'interrupt-drain':
+                            os.kill(process.pid, signal.SIGTERM)
+                            drain(0.15)
+                            self.assertIsNone(process.poll())
                         os.write(master, b'\x03')
                     elif mode == 'hup':
                         os.kill(process.pid, signal.SIGHUP)
@@ -300,7 +313,7 @@ class LaunchTerminalTests(unittest.TestCase):
                     else:
                         (root / 'finish').touch()
                     until(lambda: process.poll() is not None)
-                    expected = 130 if mode in {'interrupt', 'hup'} else 0
+                    expected = 130 if mode in {'interrupt', 'interrupt-drain', 'hup'} else 1 if mode == 'error' else 0
                     self.assertEqual(process.wait(), expected)
                     drain()
                     self.assertEqual(termios.tcgetattr(slave), modes)
@@ -309,7 +322,9 @@ class LaunchTerminalTests(unittest.TestCase):
                         self.assertIn(b'\x1b[?25h', transcript)
                     else:
                         self.assertNotIn(b'\x1b[?1049h', transcript)
-                    self.assertIn(b'Stopped; supervised execution terminated' if expected else b'Captured replay finished', transcript)
+                    message = (b'Intentional launcher error' if mode == 'error' else
+                               b'Stopped; supervised execution terminated' if expected else b'Captured replay finished')
+                    self.assertIn(message, transcript)
                     history = json.loads((root / 'result.json').read_text())['history']
                     self.assertEqual(history[0]['state'], 'released')
                     for pid in (view_pid, agent_pid):
