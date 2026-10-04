@@ -107,7 +107,7 @@ def _one_line(value, limit=160):
 
 
 def _line_count(value):
-    return len(value.splitlines())
+    return value.count("\n") + (1 if value and not value.endswith("\n") else 0)
 
 
 def _time_column(event, capture):

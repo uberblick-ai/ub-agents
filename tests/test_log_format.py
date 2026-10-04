@@ -86,6 +86,8 @@ class CompactClaudeTests(unittest.TestCase):
                 ('Edit', {'new_string': 'a\nb\n', 'old_string': 'old'}, '+2 -1', ('green', 'red')),
                 ('Edit', {'new_string': '', 'old_string': '\n'}, '+0 -1', ('green', 'red')),
                 ('Write', {'content': 'a\nb'}, '+2', ('green',)),
+                ('Write', {'content': 'a\r\nb\r\n'}, '+2', ('green',)),
+                ('Write', {'content': 'a\rb\vc\fd\x1ce\x1df\x1eg\x85h\u2028i\u2029'}, '+1', ('green',)),
                 ('Write', {}, '', ()), ('Edit', {}, '', ())):
             entry = self.decode(record(content=[{**tool(name=name), 'input': {'file_path': 'a', **inputs}}]))
             self.assertEqual(entry.text, '--:--:--  ▸ ' + name + ' a' + (' ' + suffix if suffix else ''))

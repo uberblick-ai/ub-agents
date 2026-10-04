@@ -63,6 +63,8 @@ visible entry (or the preceding entry at the end of a page). Its original byte
 position remains the anchor until scrolling moves away; `u` restores that raw
 record, including across resizes. A page containing only hidden records is empty
 in formatted mode and still available with `u`.
+Byte ranges, lag, older-page boundaries and render-limit counts include every
+record within the line budget, including records hidden by the formatted projection.
 
 Claude's formatted Log pane shows a compact transcript:
 
@@ -90,10 +92,12 @@ first string input when available. Long or multiline arguments end with `…` an
 calls fit one display line. Edit adds green `+N` and red `-N` line counts from
 `new_string` and `old_string`; Write adds green `+N` from `content`. Missing fields
 have no count. Call IDs and JSON inputs are available only in raw mode.
+Counts use LF-separated lines; a trailing LF adds no extra line.
 
 Successful tool results add no line. Failed results show one red, indented `✗`
-line with the first error line. The tool name is included when another visible
-line has intervened or the call is outside the retained pairing history. Thinking
+line with the first error line. When another visible line has intervened, it
+includes the tool name, or `tool:` if the call is outside the retained pairing
+history. Thinking
 blocks show one dim `· thinking` line; unfamiliar blocks show a dim type label and
 the rest of the message still renders. System records, including initialization,
 thinking-token updates and task notifications, and rate-limit events are hidden.

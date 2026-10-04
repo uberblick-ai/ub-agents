@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.test_view_data import event, fixture
-from tests.test_log_reader import FIXTURE, record, tool
+from tests.test_log_reader import FIXTURE, record, result, tool
 from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response
 
@@ -90,6 +90,43 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_formatted_hidden_records_do_not_change_page_accounting(self):
+        leading = json.dumps({'type': 'system', 'subtype': 'init'}).encode() + b'\n'
+        self.log.write_bytes(leading + b''.join(event(i, 20) for i in range(30)) +
+                             record(content=[tool()]))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            trailing = (json.dumps({'type': 'system', 'subtype': 'task_notification'}).encode() + b'\n' +
+                        json.dumps({'type': 'rate_limit_event'}).encode() + b'\n' +
+                        record('user', [result(content='x' * 3000)]))
+            with self.log.open('ab') as stream:
+                stream.write(trailing)
+            await self.ready(app, pilot, lambda: app.reading.page.end == self.log.stat().st_size)
+            for raw in (False, True, False):
+                with self.subTest(raw=raw):
+                    if app.reading.raw != raw:
+                        await pilot.press('u')
+                    status = str(app.query_one('#status', Static).render())
+                    note = str(app.query_one('#log_note', Static).render())
+                    self.assertIn('FOLLOW', status)
+                    self.assertIn('unread 0 entries · lag 0B', status)
+                    self.assertIn(f'bytes 0–{self.log.stat().st_size}', note)
+                    self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: 0 entries hidden', note)
+                    self.assertEqual(output.visible_refs, app.reading.page.refs)
+                    self.assertEqual(output.hidden, 0)
+                    if not raw:
+                        displayed = {start for start, _ in output.positions}
+                        self.assertNotIn(app.reading.page.refs[0].start, displayed)
+                        self.assertTrue(all(ref.start not in displayed for ref in app.reading.page.refs[-3:]))
+            # Leading hidden records are already on this page, not an older one.
+            app.action_history()
+            self.assertEqual(app.reading.notice, 'Beginning of file (byte zero).')
+            self.assertIsNone(app.pending_history)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_page_of_only_hidden_records_retains_raw_anchor(self):
         self.log.write_bytes(b''.join(line for line in FIXTURE.read_bytes().splitlines(keepends=True)
                                      if json.loads(line)['type'] in ('system', 'rate_limit_event')))
@@ -98,7 +135,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             output = app.query_one(LogPane)
             self.assertEqual(output.lines, [])
-            self.assertEqual(output.visible_refs, ())
+            self.assertEqual(output.visible_refs, app.reading.page.refs)
+            self.assertEqual(output.hidden, 0)
             await pilot.press('f', 'u', 'home')
             await pilot.pause()
             anchor = output.anchor()
@@ -128,7 +166,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(output.anchor()[0], tail)
             await pilot.press('u')
             self.assertEqual(output.anchor()[0], tail)
-            self.assertEqual(output.visible_refs[-1].start, app.reading.page.refs[-2].start)
+            self.assertEqual(output.visible_refs[-1].start, tail)
+            self.assertEqual(output.positions[-1][0], app.reading.page.refs[-2].start)
             await pilot.press('u')
             self.assertEqual(output.anchor()[0], tail)
             await pilot.press('u')

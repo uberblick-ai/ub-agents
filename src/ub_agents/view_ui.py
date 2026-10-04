@@ -55,8 +55,8 @@ class Reading:
 class LogPane(ScrollView):
     """A fixed retained page, with a logical entry anchor instead of RichLog redraw.
 
-    At most 400 wrapped lines are rendered. Whole hidden entries are accounted for
-    at the boundary, and older paging starts at the first rendered entry's byte.
+    At most 400 wrapped lines are rendered. Accounting and older paging include
+    every entry inside that budget, even when its projection has no lines.
     """
     can_focus = True
 
@@ -146,7 +146,7 @@ class LogPane(ScrollView):
                         break
                     count += len(lines)
                     wrapped.append((ref, lines))
-        self.visible_refs = tuple(ref for ref, lines in wrapped if lines)
+        self.visible_refs = tuple(ref for ref, _ in wrapped)
         self.hidden = len(reading.page.refs) - len(self.visible_refs) if reading and reading.page else 0
         self.lines, self.positions = [], []
         for ref, lines in wrapped:
