@@ -358,6 +358,7 @@ and [AGENTS.md](AGENTS.md). The roadmap is in the
 
 An optional [development terminal view](docs/terminal-view.md) shows one launcher's
 local work, cached context, outcomes and paged runtime logs in a separate process.
+On the Issue tab, `g` can load a missing title/body through `gh` on request.
 Install `.[ui]` in the checkout venv; the base launcher does not depend on Textual.
 
 ## License
