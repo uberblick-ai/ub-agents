@@ -1,6 +1,7 @@
 """Help presentation derived from argparse's registered commands and actions."""
 
 import argparse
+from copy import copy
 import sys
 
 
@@ -26,6 +27,7 @@ class HelpParser(argparse.ArgumentParser):
         self.examples = examples
 
     def commands(self):
+        # argparse's private metadata deliberately keeps help tied to registration.
         return next((action.choices for action in self._actions
                      if isinstance(action, argparse._SubParsersAction)), {})
 
@@ -38,15 +40,22 @@ class HelpParser(argparse.ArgumentParser):
                         if isinstance(action, argparse._SubParsersAction)
                         for choice in action._choices_actions}
         for name, command in commands.items():
-            # Keep positionals, required options and required choices in the overview.
-            # The full parser usage retains secondary options in detailed help.
+            # Show one valid form for required groups; detailed help retains all
+            # alternatives and choices. Copy actions to leave parsing unchanged.
             groups = [group for group in command._mutually_exclusive_groups if group.required]
-            actions = [action for action in command._actions
-                       if action.help != argparse.SUPPRESS and
-                       (not action.option_strings or action.required or
-                        any(action in group._group_actions for group in groups))]
+            alternatives = [group._group_actions[0] for group in groups]
+            actions = []
+            for action in command._actions:
+                if action.help == argparse.SUPPRESS:
+                    continue
+                if action in alternatives:
+                    action = copy(action)
+                    action.required = True
+                    action.metavar = action.metavar or action.dest.upper()
+                if not action.option_strings or action.required:
+                    actions.append(action)
             formatter = command._get_formatter()
-            formatter.add_usage(None, actions, groups, prefix="")
+            formatter.add_usage(None, actions, [], prefix="")
             usage = " ".join(formatter.format_help().split())
             rows.append((usage, descriptions[name]))
         width = max(len(usage) for usage, _ in rows)

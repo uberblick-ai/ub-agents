@@ -818,8 +818,9 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
 
 ## Commands
 
-`ub-agents`, `ub-agents help` and `ub-agents --help` print the same aligned command
-overview and exit successfully. `ub-agents help COMMAND` and
+`ub-agents`, `ub-agents help` and `ub-agents --help` print the same compact, aligned
+command overview and exit successfully. Rows show one usage form; detailed help
+includes all options and alternatives. `ub-agents help COMMAND` and
 `ub-agents COMMAND --help` print the same detailed purpose, usage, arguments,
 options and examples. All help forms work without project configuration, GitHub
 authentication or network access, and neither execute commands nor create files.

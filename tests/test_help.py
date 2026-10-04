@@ -62,6 +62,24 @@ class HelpTests(unittest.TestCase):
         self.assertEqual(len({line.index("#") for line in rows}), 1)
         self.assertTrue(all(line.split(" # ")[1].strip() for line in rows))
 
+    def test_overview_fits_within_100_columns(self):
+        for line in self.invoke([])[1].splitlines():
+            with self.subTest(line=line):
+                self.assertLessEqual(len(line), 100)
+
+    def test_compact_report_row_preserves_detailed_choices_and_parsing(self):
+        rows = {line.split()[1]: line.split(" # ")[0].strip()
+                for line in self.command_line.format_help().splitlines() if " # " in line}
+        self.assertEqual(rows["report"], "ub-agents report --status STATUS --summary SUMMARY")
+        details = self.command_line.commands()["report"].format_help()
+        self.assertIn("--status {retry,blocked}", details)
+        self.assertIn("--outcome OUTCOME", details)
+        for option, value in (("--status", "retry"), ("--status", "blocked"),
+                              ("--outcome", "handed-off")):
+            with self.subTest(option=option, value=value):
+                args = self.command_line.parse_args(["report", option, value, "--summary", "Result"])
+                self.assertEqual(getattr(args, option.removeprefix("--")), value)
+
     def test_number_is_optional_only_for_launch(self):
         rows = {line.split()[1]: line.split(" # ")[0].strip()
                 for line in self.invoke([])[1].splitlines() if " # " in line}

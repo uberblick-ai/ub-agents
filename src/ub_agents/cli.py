@@ -31,23 +31,23 @@ def parser():
     result.add_argument("--version", action="version", version=f"ub-agents {__version__}")
     result.add_argument("--config", help="Project configuration (default: ub-agents.yaml)")
     commands = result.add_subparsers(dest="command")
-    init = commands.add_parser("init", help="Create starter files when adopting the loop",
+    init = commands.add_parser("init", help="Create starter files for a loop",
                                description="Create starter configuration and agent instructions for a project. "
                                "Use when adopting ub-agents; existing starter files are never overwritten.",
                                examples=("ub-agents init --repository org/project",
                                          "ub-agents init --repository org/project --runtime claude:opus:high"))
     init.add_argument("--repository", help="GitHub owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="Initial cli:model:effort for starter agents")
-    commands.add_parser("check", help="Validate local configuration before launching",
+    commands.add_parser("check", help="Validate local configuration",
                         description="Validate project configuration and instruction files without executing agents. "
                         "Use after editing the workflow or before launching it.",
                         examples=("ub-agents check", "ub-agents --config workflow.yaml check"))
-    doctor = commands.add_parser("doctor", help="Check prerequisites when setting up or diagnosing failures",
+    doctor = commands.add_parser("doctor", help="Diagnose setup or launch issues",
                                  description="Check machine, GitHub and runtime prerequisites without changing them. "
                                  "Use during setup or to diagnose launch failures; required failures exit nonzero.",
                                  examples=("ub-agents doctor", "ub-agents doctor --json"))
     doctor.add_argument("--json", action="store_true", help="Emit versioned prerequisite results")
-    launch = commands.add_parser("launch", help="Run the queue, or handle one item",
+    launch = commands.add_parser("launch", help="Run queue or handle one item",
                                  description="Run the serial foreground loop under the configured eligibility gates. "
                                  "Use without a number to watch the queue, or with a number to handle only that item.",
                                  examples=("ub-agents launch", "ub-agents launch --once",
@@ -55,17 +55,17 @@ def parser():
     launch.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="Run only this item, then exit (optional)")
     launch.add_argument("--agent", help="Evaluate only this configured agent (requires an item number)")
     launch.add_argument("--once", action="store_true", help="Observe once and execute at most one assignment")
-    status = commands.add_parser("status", help="Inspect matching work and current run progress",
+    status = commands.add_parser("status", help="Inspect matching work and runs",
                                  description="Read matching assignments, leases, attempts and reported outcomes. "
                                  "Use to inspect queue progress or why an item is waiting without changing it.",
                                  examples=("ub-agents status", "ub-agents status --json"))
     status.add_argument("--json", action="store_true", help="Emit structured status")
-    cleanup = commands.add_parser("cleanup", help="Preview or remove stale owned worktrees and branches",
+    cleanup = commands.add_parser("cleanup", help="Preview or clean stale artifacts",
                                   description="Preview stale owned worktrees and local branches. "
                                   "Use after stopped runs; --apply removes eligible artifacts after rechecking ownership.",
                                   examples=("ub-agents cleanup", "ub-agents cleanup --apply"))
     cleanup.add_argument("--apply", action="store_true", help="Remove eligible artifacts after rechecking")
-    report = commands.add_parser("report", help="Record a result from a supervised agent run",
+    report = commands.add_parser("report", help="Record a supervised run result",
                                  description="Record a supervised run's explicit result on GitHub. "
                                  "Use inside the launcher-provided assignment environment; choose --status or --outcome (required).",
                                  examples=('ub-agents report --outcome handed-off --summary "Ready for review" --handoff 150',
@@ -75,7 +75,7 @@ def parser():
     verdict.add_argument("--outcome", help="Declared project outcome; reports success")
     report.add_argument("--summary", required=True, help="Explain the result in 1–8000 characters")
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
-    retry = commands.add_parser("retry", help="Reset blocked work with authorization",
+    retry = commands.add_parser("retry", help="Reset blocked work if authorized",
                                 description="Record a human-authorized reset of blocked work and attempt limits. "
                                 "Use after resolving the cause; stop labels and missing triggers still prevent pickup.",
                                 examples=('ub-agents retry --number 143 --agent implementer --reason "Blocker resolved"',
@@ -83,7 +83,7 @@ def parser():
     retry.add_argument("--number", type=int, required=True, help="Issue or PR number to reset")
     retry.add_argument("--agent", required=True, help="Configured agent whose attempts are reset")
     retry.add_argument("--reason", required=True, help="Record why the human-authorized reset is justified")
-    recover = commands.add_parser("recover", help="Recover a stopped launcher's reported result",
+    recover = commands.add_parser("recover", help="Recover a stopped run's result",
                                   description="Recover a stopped local launcher's reported outcome, including before lease expiry. "
                                   "Use only after its processes have stopped; the reason attests to that fact.",
                                   examples=('ub-agents recover --number 143 --agent implementer --reason "Launcher stopped"',
@@ -91,12 +91,12 @@ def parser():
     recover.add_argument("--number", type=int, required=True, help="Issue or PR number with a reported outcome")
     recover.add_argument("--agent", required=True, help="Configured agent whose outcome is recovered")
     recover.add_argument("--reason", required=True, help="Attest that the launcher has stopped")
-    approve = commands.add_parser("approve", help="Record maintainer approval for an item",
+    approve = commands.add_parser("approve", help="Record maintainer approval",
                                   description="Display current issue or PR input and record maintainer approval. "
                                   "Use to clear changed input or outside feedback; requires maintain or admin access and changes no labels.",
                                   examples=("ub-agents approve --number 143", "ub-agents approve --number 150"))
     approve.add_argument("--number", type=int, required=True, help="Issue or PR number whose current input is approved")
-    help_command = commands.add_parser("help", help="Show the command overview or detailed usage",
+    help_command = commands.add_parser("help", help="Show overview or detailed help",
                                        description="Show the command overview or detailed help for a command. "
                                        "Use anywhere without project configuration, GitHub authentication or network access.",
                                        examples=("ub-agents help", "ub-agents help launch"))
