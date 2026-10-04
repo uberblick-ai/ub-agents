@@ -649,12 +649,16 @@ class ProofView(View):
     def action_assignment_cursor(self):
         self.cursor(self.nodes['assignment:owned-run'])
     def action_checkpoint(self):
+        self.call_after_refresh(lambda: self.query_one(LogPane).call_after_refresh(self.checkpoint))
+    def checkpoint(self):
         pane = self.query_one(LogPane)
         r = self.reading
         tree = self.query_one(Tree)
         row = self.rows.get(self.selected)
         value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation if r.page else None,
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
+                 'saved_anchor': r.anchor,
+                 'first_anchor': pane.positions[0] if pane.positions else None,
                  'entries': r.log.total_entries if r.log else 0, 'lag': r.log.unread_bytes if r.log else 0,
                  'notice': self.query_one('#log_note').render().plain,
                  'header': self.query_one('#item_header').render().plain,
@@ -702,6 +706,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     if ready(value) or time.monotonic() >= deadline:
                         return value
                     drain(0.05)
+            def pause_at_top():
+                os.write(master, b'f')
+                paused = checkpoint(lambda value: not value['follow'])
+                self.assertFalse(paused['follow'])
+                os.write(master, b'\x1b[H')
+                scrolled = checkpoint(lambda value: value['anchor'] is not None
+                                      and value['anchor'] == value['first_anchor'] == value['saved_anchor'])
+                self.assertFalse(scrolled['follow'])
+                self.assertIsNotNone(scrolled['anchor'])
+                self.assertEqual(scrolled['anchor'], scrolled['first_anchor'])
+                self.assertEqual(scrolled['anchor'], scrolled['saved_anchor'])
+                return scrolled
             try:
                 while b'FORMATTED' not in transcript and app.poll() is None:
                     drain(0.05)
@@ -720,9 +736,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     os.write(master, tab)
                     drain()
                     self.assertEqual(checkpoint()['header'], initial['header'])
-                os.write(master, b'f\x1b[5~')
-                drain(0.2)
-                paused = checkpoint(lambda value: not value['follow'])
+                paused = pause_at_top()
                 self.assertFalse(paused['follow'])
                 # More than both ingestion retention (200 entries) and renderer
                 # retention (400 wrapped rows) arrive while the page is paused.
@@ -746,9 +760,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'\x1b[B\r')  # Down to the latest outcome and Enter.
                 self.assertEqual(checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                             and value['anchor'] is not None)['selected'], 'outcome:previous-run')
-                os.write(master, b'f\x1b[5~')
-                drain(0.2)
-                outcome_paused = checkpoint(lambda value: not value['follow'] and value['anchor'] is not None)
+                outcome_paused = pause_at_top()
                 self.assertIsNotNone(outcome_paused['anchor'])
                 with outcome_log.open('ab') as stream:
                     stream.write(b''.join(event(i, size=800) for i in range(600)))
