@@ -1,6 +1,5 @@
 """The standalone ub-agents command. No Uberblick imports or workspace services."""
 
-import argparse
 from contextlib import ExitStack
 from importlib.resources import files
 import json
@@ -18,6 +17,7 @@ from .coordination import Coordinator
 from .errors import AgentError
 from .execution import repository_checks
 from .github import GitHub
+from .help import HelpParser
 from .loop import Loop, _GracefulStop
 from .launch_log import launch_output
 from .labels import provision_labels
@@ -27,40 +27,81 @@ from .runtime_usage import local_pauses
 
 
 def parser():
-    result = argparse.ArgumentParser(prog="ub-agents", description="Project-owned engineering loops on GitHub")
+    result = HelpParser(prog="ub-agents", description="Project-owned engineering loops on GitHub")
     result.add_argument("--version", action="version", version=f"ub-agents {__version__}")
     result.add_argument("--config", help="Project configuration (default: ub-agents.yaml)")
-    commands = result.add_subparsers(dest="command", required=True)
-    init = commands.add_parser("init", help="Copy customizable starter configuration and instructions")
+    commands = result.add_subparsers(dest="command")
+    init = commands.add_parser("init", help="Create starter files when adopting the loop",
+                               description="Create starter configuration and agent instructions for a project. "
+                               "Use when adopting ub-agents; existing starter files are never overwritten.",
+                               examples=("ub-agents init --repository org/project",
+                                         "ub-agents init --repository org/project --runtime claude:opus:high"))
     init.add_argument("--repository", help="GitHub owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="Initial cli:model:effort for starter agents")
-    commands.add_parser("check", help="Validate local project configuration without executing agents")
-    doctor = commands.add_parser("doctor", help="Check machine, GitHub and runtime prerequisites")
+    commands.add_parser("check", help="Validate local configuration before launching",
+                        description="Validate project configuration and instruction files without executing agents. "
+                        "Use after editing the workflow or before launching it.",
+                        examples=("ub-agents check", "ub-agents --config workflow.yaml check"))
+    doctor = commands.add_parser("doctor", help="Check prerequisites when setting up or diagnosing failures",
+                                 description="Check machine, GitHub and runtime prerequisites without changing them. "
+                                 "Use during setup or to diagnose launch failures; required failures exit nonzero.",
+                                 examples=("ub-agents doctor", "ub-agents doctor --json"))
     doctor.add_argument("--json", action="store_true", help="Emit versioned prerequisite results")
-    launch = commands.add_parser("launch", help="Run the serial foreground loop")
-    launch.add_argument("number", type=int, nargs="?", help="Run only this item, then exit")
+    launch = commands.add_parser("launch", help="Run the queue, or handle one item",
+                                 description="Run the serial foreground loop under the configured eligibility gates. "
+                                 "Use without a number to watch the queue, or with a number to handle only that item.",
+                                 examples=("ub-agents launch", "ub-agents launch --once",
+                                           "ub-agents launch 143 --agent implementer"))
+    launch.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="Run only this item, then exit (optional)")
     launch.add_argument("--agent", help="Evaluate only this configured agent (requires an item number)")
     launch.add_argument("--once", action="store_true", help="Observe once and execute at most one assignment")
-    status = commands.add_parser("status", help="Read current assignments, leases, attempts, and outcomes")
+    status = commands.add_parser("status", help="Inspect matching work and current run progress",
+                                 description="Read matching assignments, leases, attempts and reported outcomes. "
+                                 "Use to inspect queue progress or why an item is waiting without changing it.",
+                                 examples=("ub-agents status", "ub-agents status --json"))
     status.add_argument("--json", action="store_true", help="Emit structured status")
-    cleanup = commands.add_parser("cleanup", help="Preview stale owned worktrees and local branches")
+    cleanup = commands.add_parser("cleanup", help="Preview or remove stale owned worktrees and branches",
+                                  description="Preview stale owned worktrees and local branches. "
+                                  "Use after stopped runs; --apply removes eligible artifacts after rechecking ownership.",
+                                  examples=("ub-agents cleanup", "ub-agents cleanup --apply"))
     cleanup.add_argument("--apply", action="store_true", help="Remove eligible artifacts after rechecking")
-    report = commands.add_parser("report", help="Record a supervised run's explicit outcome on GitHub")
+    report = commands.add_parser("report", help="Record a result from a supervised agent run",
+                                 description="Record a supervised run's explicit result on GitHub. "
+                                 "Use inside the launcher-provided assignment environment; choose --status or --outcome (required).",
+                                 examples=('ub-agents report --outcome handed-off --summary "Ready for review" --handoff 150',
+                                           'ub-agents report --status blocked --summary "Human decision required"'))
     verdict = report.add_mutually_exclusive_group(required=True)
     verdict.add_argument("--status", choices=["retry", "blocked"], help="Failure verdict; changes no labels")
     verdict.add_argument("--outcome", help="Declared project outcome; reports success")
-    report.add_argument("--summary", required=True)
+    report.add_argument("--summary", required=True, help="Explain the result in 1–8000 characters")
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
-    retry = commands.add_parser("retry", help="Record a human-authorized reset of blocked work/attempt limits")
-    retry.add_argument("--number", type=int, required=True)
-    retry.add_argument("--agent", required=True)
-    retry.add_argument("--reason", required=True)
-    recover = commands.add_parser("recover", help="Recover a stopped local launcher's reported outcome before expiry")
-    recover.add_argument("--number", type=int, required=True)
-    recover.add_argument("--agent", required=True)
+    retry = commands.add_parser("retry", help="Reset blocked work with authorization",
+                                description="Record a human-authorized reset of blocked work and attempt limits. "
+                                "Use after resolving the cause; stop labels and missing triggers still prevent pickup.",
+                                examples=('ub-agents retry --number 143 --agent implementer --reason "Blocker resolved"',
+                                          'ub-agents retry --number 150 --agent reviewer --reason "Checks restored"'))
+    retry.add_argument("--number", type=int, required=True, help="Issue or PR number to reset")
+    retry.add_argument("--agent", required=True, help="Configured agent whose attempts are reset")
+    retry.add_argument("--reason", required=True, help="Record why the human-authorized reset is justified")
+    recover = commands.add_parser("recover", help="Recover a stopped launcher's reported result",
+                                  description="Recover a stopped local launcher's reported outcome, including before lease expiry. "
+                                  "Use only after its processes have stopped; the reason attests to that fact.",
+                                  examples=('ub-agents recover --number 143 --agent implementer --reason "Launcher stopped"',
+                                            'ub-agents recover --number 150 --agent reviewer --reason "Local processes exited"'))
+    recover.add_argument("--number", type=int, required=True, help="Issue or PR number with a reported outcome")
+    recover.add_argument("--agent", required=True, help="Configured agent whose outcome is recovered")
     recover.add_argument("--reason", required=True, help="Attest that the launcher has stopped")
-    approve = commands.add_parser("approve", help="Approve current issue or PR input as a maintainer")
-    approve.add_argument("--number", type=int, required=True)
+    approve = commands.add_parser("approve", help="Record maintainer approval for an item",
+                                  description="Display current issue or PR input and record maintainer approval. "
+                                  "Use to clear changed input or outside feedback; requires maintain or admin access and changes no labels.",
+                                  examples=("ub-agents approve --number 143", "ub-agents approve --number 150"))
+    approve.add_argument("--number", type=int, required=True, help="Issue or PR number whose current input is approved")
+    help_command = commands.add_parser("help", help="Show the command overview or detailed usage",
+                                       description="Show the command overview or detailed help for a command. "
+                                       "Use anywhere without project configuration, GitHub authentication or network access.",
+                                       examples=("ub-agents help", "ub-agents help launch"))
+    help_command.add_argument("topic", metavar="COMMAND", nargs="?", choices=commands.choices,
+                              help="Command to describe; omit for the overview (optional)")
     return result
 
 
@@ -207,7 +248,7 @@ def run(args):
     config = load_config(args.config)
     if args.command == "launch" and args.agent is not None:
         if not any(agent.name == args.agent for agent in config.agents):
-            parser().error(f"Unknown configured agent: {args.agent}")
+            parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}")
     if args.command == "check":
         from .config import instruction_text
         for agent in config.agents:
@@ -335,13 +376,18 @@ def run(args):
 def main(argv=None):
     with ExitStack() as stack:
         try:
-            args = parser().parse_args(argv)
+            command_line = parser()
+            args = command_line.parse_args(argv)
+            if args.command is None or args.command == "help":
+                target = command_line.commands()[args.topic] if args.command == "help" and args.topic else command_line
+                target.print_help()
+                return 0
             args.default_config = args.config is None
             if args.command == "launch":
                 if args.agent is not None and args.number is None:
-                    parser().error("launch --agent requires an item number")
+                    command_line.commands()["launch"].error("launch --agent requires an item number")
                 if args.number is not None and args.number < 1:
-                    parser().error("launch requires a positive item number")
+                    command_line.commands()["launch"].error("launch requires a positive item number")
                 stack.enter_context(launch_output(Path(args.config or DEFAULT_CONFIG).resolve().parent))
             args.config = (Path(args.config or DEFAULT_CONFIG).resolve()
                            if args.command in {"init", "report"} else resolve_config_path(args.config))

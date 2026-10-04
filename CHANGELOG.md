@@ -13,6 +13,9 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 
 ### Added
 
+- Bare invocation shows an aligned command overview; every command has detailed
+  help with usage and practical examples, available without project configuration (#143).
+
 - Every launcher, including `launch --once`, publishes a private, bounded,
   versioned session snapshot under `.ub-agents/sessions/` for a local view,
   with reached plans, process state and session outcomes. Publication adds no

@@ -818,6 +818,17 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
 
 ## Commands
 
+`ub-agents`, `ub-agents help` and `ub-agents --help` print the same aligned command
+overview and exit successfully. `ub-agents help COMMAND` and
+`ub-agents COMMAND --help` print the same detailed purpose, usage, arguments,
+options and examples. All help forms work without project configuration, GitHub
+authentication or network access, and neither execute commands nor create files.
+Square brackets mean optional: `launch [NUMBER]` accepts an optional item number,
+while `retry`, `recover` and `approve` require `--number NUMBER`. Global options
+such as `--config PATH` precede the command. Unknown commands and missing required
+arguments exit nonzero on standard error with a help command to run.
+
+- `ub-agents help [COMMAND]` shows the overview or detailed help for that command.
 - `ub-agents init [--repository owner/name] [--runtime cli:model:effort]` writes the
   starter `ub-agents.yaml`, shared `AGENTS.md` and `.agents/` files next to the selected
   `--config` file, and adds `.ub-agents/` to `.gitignore`. Fill in the shared guidance's
