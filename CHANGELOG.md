@@ -8,6 +8,7 @@ notes are copied from that section.
 
 ### Changed
 
+- The terminal Work pane grows with terminal width at 110×32 and above, making more of each item title and run line visible (#213).
 - Quitting an attached terminal view with `q` interrupts the launcher and cleans up owned runs, matching Ctrl-C (#182).
 - The terminal Work pane hides dependency and milestone waits, with retry backoff and paused-runtime plans following ready work in Eligible (#173).
 - Running shows only this launcher's assignment or an idle placeholder; other launchers' claims are omitted from the terminal Work pane (#172).
