@@ -788,7 +788,7 @@ class Loop:
                         "UB_AGENTS_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))
             setup = False
-            command = command_for(plan.agent, plan.runtime)
+            command = command_for(plan.agent, plan.runtime, scratch.path)
             if reservation is not None:
                 command[0] = reservation.executable
             if plan.runtime:
