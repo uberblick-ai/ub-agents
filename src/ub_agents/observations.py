@@ -373,7 +373,7 @@ class Observations:
                 for index, kept in enumerate(rows):
                     kept_key = (kept["item"], kept["agent"])
                     if (kept["item"] == plan.item.number and kept_key in self.kept_keys
-                            and "history_key" not in kept and cached):
+                            and "history_key" not in kept and cached and cached != history):
                         history_key = f'{kept["item"]}:{kept["agent"]}'
                         self.state["histories"][history_key] = cached
                         rows[index] = kept | {"history_key": history_key}
