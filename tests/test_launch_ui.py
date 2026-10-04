@@ -153,6 +153,7 @@ import json, os, pathlib, signal, sys, time
 from unittest.mock import patch
 sys.path.insert(0, sys.argv[1])
 from tests.support import FakeGitHub, agent, config, issue
+sys.stdin = sys.__stdin__  # importing tests detaches stdin; this launcher owns the pty
 from ub_agents.cli import main
 from ub_agents.config import Runtime
 from ub_agents.execution import supervise
