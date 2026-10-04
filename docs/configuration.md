@@ -552,10 +552,9 @@ stdin:
 - `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
 
-`runtime-args` are appended, with `{scratch}` replaced by the run's absolute scratch
-path (see [Runtime permissions](#runtime-permissions)). They must not change the model
-or effort, or resume a session: `check` rejects those flags, because
-`different-runtime-from` trusts the recorded `cli:model:effort` and every run starts fresh.
+`runtime-args` are appended. They must not change the model or effort, or resume a
+session: `check` rejects those flags, because `different-runtime-from` trusts the
+recorded `cli:model:effort` and every run starts fresh.
 For agents with a Claude runtime, `runtime-args` must not set `--output-format`
 (including `--output-format=…`); `check` rejects it because the launcher owns the
 stream format. A redundant `--verbose` is accepted.
@@ -748,18 +747,17 @@ modes and usually cannot edit files or push. Grant each role what it needs:
 ```yaml
 runtime-args: [--sandbox, danger-full-access]    # codex
 runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
-               --allowedTools, "Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)",
-               --add-dir, "{scratch}"]  # claude
+               --allowedTools, "Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)"]  # claude
 ```
 
 `init` includes the matching example, commented out, for every starter agent using
 the CLI selected by `--runtime`. Uncomment or customize it before unattended work.
 The Codex example grants full access, including writes to Git metadata for commits
 and commands for pushing. The Claude example grants file edits and the listed
-Git, GitHub and report commands without permission prompts, plus access to the run's
-scratch directory. Add permissions for your project's check commands as needed.
-`doctor` warns, without failing, for each runtime agent with no `runtime-args`; it
-does not test whether supplied arguments grant sufficient permissions.
+Git, GitHub and report commands without permission prompts. Add permissions for
+your project's check commands as needed. `doctor` warns, without failing, for each
+runtime agent with no `runtime-args`; it does not test whether supplied arguments
+grant sufficient permissions.
 
 `runtime-args` apply to every alternative in a runtime list, so use CLI-specific flags
 only on agents with a single runtime. Codex's `workspace-write` sandbox cannot commit in
@@ -768,22 +766,17 @@ private worktrees, whose Git metadata lives in the main checkout.
 Each run's scratch directory is outside private worktrees, at
 `.ub-agents/runs/<run>/scratch` in the control checkout. Runtimes restricted to the
 working directory need `runtime-args` that also allow access to scratch. For
-example, add Claude's `--add-dir` with the `{scratch}` placeholder:
+example, add Claude's `--add-dir` with the **absolute path to the control checkout's
+`.ub-agents/runs` directory**:
 
 ```yaml
-runtime-args: [--add-dir, "{scratch}"]
+runtime-args: [--add-dir, /absolute/path/to/project/.ub-agents/runs]
 ```
 
-Combine this with the role's other permission arguments. The launcher replaces
-`{scratch}` wherever it appears in a `runtime-args` argument, including
-`"--add-dir={scratch}"`, with that run's absolute scratch path. Quote `"{scratch}"`
-in YAML: unquoted `{scratch}` is parsed as a mapping rather than an argument string.
-A placeholder is a single word in braces using letters, digits, `-` or `_`; config
-loading rejects any placeholder other than `{scratch}` and names the agent and
-placeholder. Other braces, such as JSON `'{"a": 1}'` or TOML `'x={y=true}'`, pass
-through unchanged. There is no other templating or environment-variable expansion;
-placeholders apply only to `runtime-args`, not `command` or other config keys.
-The launcher adds no permission flags of its own.
+Combine this with the role's other permission arguments. Granting the parent
+directory works for every run; `runtime-args` are static and the run id changes.
+The launcher adds no permission flags and does not expand environment variables
+in `runtime-args`.
 
 ## Commands instead of agents
 

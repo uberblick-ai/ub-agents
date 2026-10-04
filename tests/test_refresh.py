@@ -16,11 +16,7 @@ from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, timestamp
-from ub_agents.refresh import refresh_checkout
-from ub_agents.updates import Updates
 from tests.support import FakeGitHub, PollGitHub, agent, config, isolate_runtime_state, issue, pr
-# Import before setUp patches Updates; parallel workers load modules on demand.
-from tests.test_updates import eventually, stop_checker
 
 
 class RefreshTests(unittest.TestCase):
@@ -55,31 +51,6 @@ class RefreshTests(unittest.TestCase):
         (self.upstream / "role.md").write_text(text)
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
-
-    def test_update_notice_counts_started_code_after_normal_fast_forwards(self):
-        started = git(self.root, "rev-parse", "HEAD")
-        update = Updates(self.root, detect=lambda _: 'checkout')
-        self.addCleanup(stop_checker, update)
-        update.start()
-        self.assertTrue(eventually(lambda: update.started == started))
-        self.assertIsNone(update.banner)
-        for count in (1, 2):
-            self.push_policy(f'Policy revision {count}\n')
-            with patch('ub_agents.refresh.git', wraps=git) as calls:
-                refresh_checkout(self.loop.config, self.github, on_fetch=update.fetched)
-            self.assertEqual(sum('fetch' in call.args for call in calls.call_args_list), 1)
-            self.assertEqual(git(self.root, 'rev-parse', 'HEAD'), git(self.upstream, 'rev-parse', 'HEAD'))
-            self.assertTrue(eventually(lambda: update.banner and f'{count} commits behind' in update.banner['text']))
-            self.assertEqual(update.started, started)
-        # A newly started launcher has the fast-forwarded code and no notice.
-        restarted = Updates(self.root, detect=lambda _: 'checkout')
-        self.addCleanup(stop_checker, restarted)
-        restarted.start()
-        self.assertTrue(eventually(lambda: restarted.started == git(self.root, 'rev-parse', 'HEAD')))
-        refresh_checkout(self.loop.config, self.github, on_fetch=restarted.fetched)
-        self.assertTrue(eventually(lambda: restarted.generation == 1))
-        stop_checker(restarted)
-        self.assertIsNone(restarted.banner)
 
     def snapshot(self):
         files = {}

@@ -71,6 +71,35 @@ environmental: state it with your results and do not change code or tests to avo
 - Do not copy credentials, change global settings, or disable commit signing to get
   past a blocked operation. Report blocked with the evidence instead.
 
+## Retrospectives
+
+Post one to your role's board only when the run lost something — a retry, rework, a
+denied command you had to work around, a long search, tokens spent for nothing — or
+missed something it needed, and you can name the change that would have prevented
+it. Otherwise post nothing. In one short paragraph, link the item, state the cost and
+its cause, and the smallest useful change. Post it before `ub-agents report`; a
+retrospective is telemetry, never a gate, so a failed post blocks nothing.
+
+| Board | Discussion | Node id |
+| --- | --- | --- |
+| issue-preparer | #202 | `D_kwDOU3EDKc4ApxOq` |
+| implementer | #203 | `D_kwDOU3EDKc4ApxOr` |
+| reviewer | #204 | `D_kwDOU3EDKc4ApxOs` |
+| integrator | #205 | `D_kwDOU3EDKc4ApxOt` |
+| workflow-audit | #206 | `D_kwDOU3EDKc4ApxOu` |
+
+Write the paragraph with the file-writing tool to a file in your worktree, then post
+it with the node id from the table, never a guessed one:
+
+```sh
+gh api graphql -f discussionId=NODE_ID -F body=@PATH \
+  -f query='mutation($discussionId:ID!,$body:String!){addDiscussionComment(input:{discussionId:$discussionId,body:$body}){comment{url}}}' \
+  --jq '.data.addDiscussionComment.comment.url'
+```
+
+A maintainer runs the `workflow-audit` skill about weekly to turn the boards into
+issues and clear them.
+
 ## Merging
 
 The integrator squash-merges a PR once every owed review and check applies to its

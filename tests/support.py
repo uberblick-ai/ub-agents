@@ -30,27 +30,6 @@ class RecordingDescriptionTransport:
         self.closed = True
 
 
-class RecordingUpdateRunner:
-    """Script advisory checks without GitHub or local Git reads."""
-    def __init__(self, *responses):
-        self.responses = list(responses)
-        self.calls = []
-        self.condition = threading.Condition()
-
-    def __call__(self, command):
-        with self.condition:
-            self.calls.append(command)
-            response = self.responses.pop(0)
-            self.condition.notify_all()
-        if isinstance(response, Exception):
-            raise response
-        return response() if callable(response) else response
-
-    def wait_calls(self, count, timeout=3):
-        with self.condition:
-            return self.condition.wait_for(lambda: len(self.calls) >= count, timeout)
-
-
 def isolate_runtime_state(test):
     """Keep launcher lock and health files out of the developer's state directory."""
     from unittest.mock import patch
@@ -93,11 +72,6 @@ def isolate_observations(test):
     mock = patch("ub_agents.observations.Publisher", MemoryPublisher)
     test.addCleanup(mock.stop)
     mock.start()
-    # Advisory requests have their own suite. Synthetic CLI roots should not
-    # start a thread (several launch tests replace Event.wait globally).
-    updates = patch("ub_agents.updates.Updates", return_value=None)
-    test.addCleanup(updates.stop)
-    updates.start()
 
 
 def stub_refresh(test):

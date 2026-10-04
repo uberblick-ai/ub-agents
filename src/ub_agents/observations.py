@@ -148,7 +148,7 @@ class Observations:
             "repository": config.repository, "config_path": str(config_path) if config_path else None,
             "config_path_reason": None if config_path else "No configuration path supplied",
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
-            "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
+            "activity": {"state": "polling"}, "assignment": None, "latest_pass": None,
             "outcomes": [], "histories": {}, "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
                        "bytes": MAX_BYTES, "heartbeat_seconds": HEARTBEAT_SECONDS,
@@ -269,10 +269,6 @@ class Observations:
 
     def activity(self, state, until=None, reason=None):
         self.state["activity"] = {"state": state, "until": until, "reason": reason}
-        self.emit()
-
-    def update(self, banner):
-        self.state["update"] = banner
         self.emit()
 
     def begin_pass(self):

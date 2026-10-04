@@ -186,50 +186,6 @@ agents:
                 configured = self.load(base.replace("RUNTIME", "codex:model:high").replace("ARGS", args))
                 self.assertTrue(configured.agents[0].runtime_args)
 
-    def test_runtime_args_reject_unknown_word_placeholders(self):
-        (self.root / "instructions.md").write_text("Do the task")
-        base = '''repository: org/project
-agents:
-  task:
-    runtime: claude:model:high
-    instructions: instructions.md
-    trigger: ready
-    outcomes: {done: {}}
-'''
-        for word in ("scrach", "SCRATCH", "scratch-dir", "scratch_dir", "123"):
-            placeholder = "{" + word + "}"
-            for arg in (placeholder, "--add-dir=" + placeholder, "{scratch}" + placeholder):
-                with self.subTest(arg=arg), self.assertRaises(AgentError) as caught:
-                    self.load(base + f"    runtime-args: ['{arg}']\n")
-                self.assertIn("task: unknown runtime-args placeholder", str(caught.exception))
-                self.assertIn(placeholder, str(caught.exception))
-
-    def test_runtime_args_accept_scratch_and_non_placeholder_braces(self):
-        (self.root / "instructions.md").write_text("Do the task")
-        configured = self.load('''repository: org/project
-agents:
-  task:
-    runtime: codex:model:high
-    instructions: instructions.md
-    trigger: ready
-    outcomes: {done: {}}
-    runtime-args: [--add-dir, "{scratch}", "--add-dir={scratch}",
-                   --settings, '{"a": 1}', --config, 'x={y=true}', '{}', '{two words}']
-''')
-        self.assertEqual(configured.agents[0].runtime_args,
-                         ("--add-dir", "{scratch}", "--add-dir={scratch}", "--settings", '{"a": 1}',
-                          "--config", "x={y=true}", "{}", "{two words}"))
-
-    def test_command_arguments_accept_literal_word_placeholders(self):
-        configured = self.load('''repository: org/project
-agents:
-  task:
-    command: [echo, "{scratch}", "{other}"]
-    trigger: ready
-    outcomes: {done: {}}
-''')
-        self.assertEqual(configured.agents[0].command, ("echo", "{scratch}", "{other}"))
-
     def test_codex_usage_requires_persistent_sessions(self):
         (self.root / "instructions.md").write_text("Do the task")
         base = '''repository: org/project

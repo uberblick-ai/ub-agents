@@ -17,8 +17,7 @@ from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
-from ub_agents.view_ui import (KeyHelp, LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY,
-                               RawAccess, UpdateBanner, View, pane_line)
+from ub_agents.view_ui import KeyHelp, LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, RawAccess, View, pane_line
 from ub_agents.view_worker import LocalWorker
 
 
@@ -40,67 +39,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             if condition() if condition else app.reading.page is not None:
                 return
         self.fail('View did not become ready')
-
-    async def test_update_banner_is_one_snapshot_row_and_preserves_focus_and_selection(self):
-        transport = RecordingDescriptionTransport()
-        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
-        async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot)
-            banner = app.query_one(UpdateBanner)
-            self.assertFalse(banner.display)
-            await pilot.press('f', '2')
-            selected, focus, page = app.selected, app.focused, app.reading.page
-            for value in (
-                    {'text': '⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, '
-                             'then restart the launcher',
-                     'released_at': (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()},
-                    {'text': '⬆ This launcher runs code 2 commits behind origin/main · restart the launcher'},
-                    {'text': '[bold]inert[/bold]\nnext\x1b[31m'}):
-                self.state['update'] = value
-                self.path.write_text(json.dumps(self.state))
-                await self.ready(app, pilot, lambda: banner.banner == value and banner.size.height == 1
-                                 and app.query_one('#body').region.y == 1)
-                self.assertTrue(banner.display)
-                self.assertEqual(banner.size.height, 1)
-                self.assertEqual(banner.region.y, 0)
-                self.assertEqual(app.query_one('#body').region.y, 1)
-                header = app.query_one('#item_header')
-                self.assertGreater(header.region.y, banner.region.y)
-                self.assertEqual(header.size.height, 3)
-                self.assertIn('#114', header.render().plain)
-                footer = app.query_one('#status', Static)
-                self.assertEqual(footer.size.height, 1)
-                self.assertEqual(footer.region.y, 31)
-                self.assertLess(header.region.y, footer.region.y)
-                self.assertTrue(footer.render().plain.endswith(
-                    'f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
-                self.assertFalse(banner.can_focus)
-                self.assertEqual(app.selected, selected)
-                self.assertIs(app.focused, focus)
-                self.assertEqual(app.reading.page, page)
-                self.assertFalse(app.reading.follow)
-                self.assertLessEqual(banner.render().cell_len, 108)
-                if 'released_at' in value:
-                    self.assertTrue(banner.render().plain.endswith('released 2 days ago'))
-                if 'inert' in value['text']:
-                    self.assertIn('[bold]inert[/bold]', banner.render().plain)
-                    self.assertIn(r'\n', banner.render().plain)
-                    self.assertNotIn('\x1b', banner.render().plain)
-                await pilot.resize_terminal(70, 32)
-                await pilot.pause()
-                self.assertEqual(banner.size.height, 1)
-                self.assertLessEqual(banner.render().cell_len, 68)
-                await pilot.resize_terminal(170, 32)
-                await pilot.pause()
-                self.assertEqual(banner.size.height, 1)
-                await pilot.resize_terminal(110, 32)
-            self.state['update'] = None
-            self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: not banner.display and app.query_one('#body').region.y == 0)
-            self.assertEqual(app.query_one('#body').region.y, 0)
-            self.assertEqual(app.selected, selected)
-            self.assertIs(app.focused, focus)
-            self.assertEqual(transport.calls, [])
 
     async def settled(self, app, pane):
         # A pilot pause can return on a busy machine before the after-refresh

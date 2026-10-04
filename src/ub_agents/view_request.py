@@ -1,4 +1,4 @@
-"""Reap an owned advisory request even if its launcher or UI is killed."""
+"""Reap an owned description request even if its UI is killed."""
 
 import os
 import select
