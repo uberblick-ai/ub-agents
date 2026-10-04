@@ -3,6 +3,7 @@ from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -66,6 +67,29 @@ class HelpTests(unittest.TestCase):
         for line in self.invoke([])[1].splitlines():
             with self.subTest(line=line):
                 self.assertLessEqual(len(line), 100)
+
+    def test_overview_stays_aligned_with_forced_color(self):
+        env = os.environ.copy()
+        for variable in ("FORCE_COLOR", "PYTHON_COLORS", "NO_COLOR"):
+            env.pop(variable, None)
+        for variable in ("FORCE_COLOR", "PYTHON_COLORS"):
+            expected = None
+            for argv in ([], ["help"], ["--help"]):
+                with self.subTest(variable=variable, argv=argv):
+                    result = subprocess.run([sys.executable, "-m", "ub_agents", *argv], cwd=self.root,
+                                            env={**env, variable: "1"}, capture_output=True,
+                                            text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    rows = [line for line in result.stdout.splitlines() if " # " in line]
+                    self.assertTrue(all("\x1b" not in line for line in rows), rows)
+                    self.assertEqual([line.split()[1] for line in rows], list(self.command_line.commands()))
+                    self.assertEqual(len({line.index("#") for line in rows}), 1)
+                    visible = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+                    self.assertTrue(all(len(line) <= 100 for line in visible.splitlines()), visible)
+                    if expected is None:
+                        expected = result.stdout
+                    self.assertEqual(result.stdout, expected)
 
     def test_compact_report_row_preserves_detailed_choices_and_parsing(self):
         rows = {line.split()[1]: line.split(" # ")[0].strip()

@@ -55,6 +55,9 @@ class HelpParser(argparse.ArgumentParser):
                 if not action.option_strings or action.required:
                     actions.append(action)
             formatter = command._get_formatter()
+            # Python 3.14 adds colour; keep ANSI codes out of table widths.
+            if hasattr(formatter, "_set_color"):
+                formatter._set_color(False)
             formatter.add_usage(None, actions, [], prefix="")
             usage = " ".join(formatter.format_help().split())
             rows.append((usage, descriptions[name]))
