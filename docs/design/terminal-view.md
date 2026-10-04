@@ -189,11 +189,11 @@ outcome.
 ## Footer and states
 
 ```text
- ub-agents v0.1.11 · ↻ refreshed 4s ago · next poll 26s     ↑↓ select ⏎ open 1-3 tabs ? keys q quit
+ ub-agents v0.1.11 · next poll 26s     ↑↓ select ⏎ open 1-3 tabs ? keys q quit
 
 Paused log (pill at the bottom right of the log pane, footer keys switch to log keys):
                                                               ⏸ PAUSED · 37 new ↓ · f follow
- ub-agents v0.1.11 · ↻ refreshed 3s ago · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
+ ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
 
 Stopping:
  ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
@@ -203,7 +203,7 @@ Stopping:
 - Stopping (SIGTERM): the running row shows `■ stopping`, Eligible reads `not claimed
   while stopping`, and the footer reads `stopping`.
 - Below 110×32: the Work pane only, at full width. ⏎ opens the selected item's tabs
-  full width and Esc returns. The footer shortens to `v0.1.11 · ↻ 4s · poll 26s`.
+  full width and Esc returns. The footer shortens to `v0.1.11 · poll 26s`.
 - `?` lists every key. The footer shows only the main ones.
 
 ## Colors
