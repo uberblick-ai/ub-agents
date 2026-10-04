@@ -92,7 +92,7 @@ shortened with `…`, and a short state aligned to the right:
 
 | Row | Glyph | Right-aligned state |
 | --- | --- | --- |
-| This launcher's assignment | `⠹`, or `■` while stopping | Elapsed claim time (`04:12`, `1:04:12`), `claiming` before the claim is known, or `stopping` |
+| This launcher's assignment | Animated spinner, or `■` while stopping | Elapsed claim time (`04:12`, `1:04:12`), `claiming` before the claim is known, or `stopping` |
 | Parked and needing attention | `?` | `parked` |
 | Blocked | `!` | `blocked` |
 | Attempt limit reached | `✗` | `failed F/M` |
@@ -105,8 +105,11 @@ or `F/M failures` for plans with at least one failure. Missing parts are omitted
 the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
 Arrow keys move by row, and either line can be clicked to select its item.
-Elapsed time uses the item's cached run history and updates while the view is
-open; the view retains an observed claim time when a report updates the history.
+The assignment spinner advances through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` one frame every
+0.1 seconds, like Runs and the log status line. Stopping and other row glyphs
+remain static. Elapsed time stays in whole seconds, uses the item's cached run
+history and updates while the view is open; the view retains an observed claim
+time when a report updates the history.
 If that claim time is unavailable, the row shows `claiming`.
 These rows require no extra GitHub reads or snapshot fields. Priority
 markers are absent because the snapshot has no priority.
@@ -415,8 +418,10 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    the pane title, which disappears when the pass completes. Confirm follow reaches
    recent output and cached Issue and per-item Runs tabs are readable. Check the
    shared two-line header and dashed rule on every tab, omission of missing values,
-   and the Log status, spinner, reported acceptance and earlier-run count. In Runs,
-   check the filing row, local and foreign hosts, in-progress and completed runs,
+   and the Log status, spinner, reported acceptance and earlier-run count. Confirm
+   the assignment spinner animates without moving the row, selection or scroll
+   position, while elapsed time changes in whole seconds and stopping stays static.
+   In Runs, check the filing row, local and foreign hosts, in-progress and completed runs,
    acceptance, blockers, and summary shortening at the minimum width. Select
    another item and confirm its history replaces the prior table without a
    GitHub request; include an item with missing filing data and omitted runs.

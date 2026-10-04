@@ -8,9 +8,8 @@ from rich.table import Table
 from rich.text import Text
 
 from .view_data import item_history, mapping, rows, text
+from .view_spinner import spinner_frame
 from .view_theme import theme_style
-
-SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
 
 def moment(value):
@@ -101,7 +100,7 @@ def runs_view(row, session, now=None, *, app=None):
     if filed:
         table.add_row(relative_time(filing['time'], relative_now), Text('✓', style=success),
                       Text('filed by ' + text(filing['author'])), 'GitHub', 'filed')
-    frame = SPINNER[int(now.timestamp() * 10) % len(SPINNER)]
+    frame = spinner_frame(now.timestamp())
     for run in runs:
         status, label = run_status(run, now)
         glyph = Text('✓', style=success) if status == 'success' else Text('✗', style=error) if status == 'failed' else Text(frame)

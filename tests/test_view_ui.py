@@ -1226,6 +1226,37 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_runs_and_log_spinners_advance_each_tenth_with_static_status_text(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            now = datetime(2026, 10, 5, 20, 0, tzinfo=timezone.utc)
+            status_text = None
+            for tick, glyph in enumerate('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋'):
+                with self.subTest(tick=tick):
+                    later = now + timedelta(milliseconds=100 * tick)
+                    with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                        clock.now.return_value = later
+                        app.update_runs()
+                    table = list(app.query_one('#runs_text', Static).content.renderables)[1]
+                    results = table.columns[1]._cells
+                    self.assertEqual([cell.plain for cell in results], ['✓', '✓', glyph])
+                    # Patch only this synchronous render, keeping Textual's timers live.
+                    with patch('ub_agents.view_ui.time.monotonic', return_value=later.timestamp()):
+                        app.update_status()
+                    line = app.query_one('#run_status', Static).render().plain.split('\n')[1]
+                    self.assertEqual(line[0], glyph)
+                    if status_text is None:
+                        status_text = line[1:]
+                    self.assertEqual(line[1:], status_text)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_cursor_follows_row_when_tree_changes_before_a_render(self):
         self.state['latest_pass']['rows'].append(
             {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'})
@@ -1604,7 +1635,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tree.virtual_size.height, 3 + 2 * 5)
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
-            expected = [('assignment:owned-run', '⠹ #114', '00:00', '  implementer · this launcher'),
+            expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
                         ('plan:12:reviewer', '● ⌥12', 'next', '  reviewer'),
                         ('plan:20:worker', '! #20', 'blocked', '  worker'),
                         ('plan:21:worker', '✗ #21', 'failed 3/3', '  worker · 3/3 failures'),
@@ -1617,12 +1648,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 second = tree.render_line(node._line + 1 - tree.scroll_offset.y)
                 self.assertEqual(first.cell_length, width)
                 self.assertEqual(second.cell_length, width)
-                self.assertTrue(first.text.startswith(prefix), first.text)
                 if key.startswith('assignment:'):
+                    self.assertIn(first.text[0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
+                    self.assertTrue(first.text[1:].startswith(prefix), first.text)
                     self.assertRegex(first.text, r'\d\d:\d\d$')
                     self.assertIn('…', first.text)
                     self.assertEqual(second.text.rstrip(), '  implementer · this launcher · attempt 1')
                 else:
+                    self.assertTrue(first.text.startswith(prefix), first.text)
                     self.assertTrue(first.text.endswith(status), first.text)
                 self.assertTrue(second.text.startswith(detail), second.text)
                 if '⌥' in prefix:
@@ -1652,12 +1685,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    async def test_assignment_timer_refreshes_without_a_new_worker_result(self):
+    async def test_assignment_spinner_and_timer_refresh_without_rebuilding_or_moving_rows(self):
+        self.state['latest_pass']['rows'].extend(
+            {'item': item, 'agent': 'worker', 'state': 'ready'} for item in range(20, 40))
+        self.path.write_text(json.dumps(self.state))
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             tree = app.query_one('#work', Tree)
-            now = datetime.now(timezone.utc)
+            now = datetime(2026, 10, 5, 20, 0, tzinfo=timezone.utc)
             stamp = (now - timedelta(minutes=4, seconds=12)).isoformat()
             # Hold the current snapshot, as when a filesystem read is slow.
             app.worker.close()
@@ -1665,13 +1701,25 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.busy = True
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
-            app.rows[app.selected] = replace(app.rows[app.selected], data={
-                **app.rows[app.selected].data,
+            own = 'assignment:owned-run'
+            other = 'plan:12:reviewer'
+            app.rows[own] = replace(app.rows[own], data={
+                **app.rows[own].data,
                 'history': {'runs': [{'agent': 'implementer', 'time': stamp}]}})
             tree.claim_times.clear()
             tree.remember_claims(app.rows)
-            line = app.nodes[app.selected]._line
-            def displayed():
+            tree.focus()
+            tree.move_cursor(app.nodes[other])
+            app.select(other)
+            tree.scroll_to(y=1, animate=False, immediate=True)
+            await pilot.pause()
+            self.assertEqual(tree.scroll_y, 1)
+            nodes = tuple(app.nodes.items())
+            lines = tree._tree_lines_cached
+            position = (app.selected, tree.cursor_node, tree.scroll_offset, app.focused, tree.virtual_size)
+            self.assertEqual(tree.virtual_size.height, len(app.groups) + 2 * len(nodes))
+            def displayed(key=own, detail=False):
+                line = app.nodes[key]._line + int(detail) - tree.scroll_offset.y
                 strips = app.screen._compositor.render_strips()
                 return strips[tree.region.y + line].crop(tree.region.x,
                                                         tree.region.x + tree.scrollable_content_region.width).text
@@ -1681,13 +1729,26 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 tree.refresh()
                 await pilot.pause(0.1)
                 self.assertTrue(displayed().endswith('04:12'), displayed())
+                first, detail = displayed(), displayed(detail=True)
+                static = (displayed(other), displayed(other, detail=True))
+                self.assertTrue(first.startswith('⠋'))
+                clock.now.return_value = now + timedelta(milliseconds=100)
+                # Only the mounted refresh timer drives the next frame.
+                await pilot.pause(0.15)
+                self.assertEqual(displayed(), '⠙' + first[1:])
+                self.assertEqual(displayed(detail=True), detail)
+                self.assertEqual((displayed(other), displayed(other, detail=True)), static)
+                self.assertEqual(tuple(app.nodes.items()), nodes)
+                self.assertIs(tree._tree_lines_cached, lines)
+                self.assertEqual((app.selected, tree.cursor_node, tree.scroll_offset, app.focused,
+                                  tree.virtual_size), position)
                 clock.now.return_value = now + timedelta(seconds=1)
-                await pilot.pause(1.1)
+                await pilot.pause(0.15)
                 self.assertTrue(displayed().endswith('04:13'), displayed())
                 # A report replaces history.time with its outcome timestamp.
                 # It must not reset an already observed claim timer.
-                app.rows[app.selected] = replace(app.rows[app.selected], data={
-                    **app.rows[app.selected].data,
+                app.rows[own] = replace(app.rows[own], data={
+                    **app.rows[own].data,
                     'history': {'runs': [{'agent': 'implementer', 'time': now.isoformat(),
                                           'acceptance': 'unaccepted'}]}})
                 tree.remember_claims(app.rows)
@@ -1695,8 +1756,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause(0.1)
                 self.assertTrue(displayed().endswith('04:13'), displayed())
                 app.session.data['activity']['state'] = 'stopping'
-                self.assertTrue(tree.render_line(line).text.startswith('■'))
-                self.assertTrue(tree.render_line(line).text.endswith('stopping'))
+                await pilot.pause(0.15)
+                stopped = displayed()
+                self.assertTrue(stopped.startswith('■'))
+                self.assertTrue(stopped.endswith('stopping'))
+                clock.now.return_value = now + timedelta(seconds=1, milliseconds=100)
+                await pilot.pause(0.15)
+                self.assertEqual(displayed(), stopped)
             await pilot.press('q')
         app.worker.thread.join(2)
 
