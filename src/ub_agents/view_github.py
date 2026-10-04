@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from .view_data import Description, description_text
+from .view_data import Description
 
 REQUEST_SECONDS = 10
 CACHE_ITEMS = 128
@@ -34,6 +34,12 @@ class Response:
     body: str = ''
     error: str = ''
     reset: float | None = None
+    notice: str = ''
+
+    def __post_init__(self):
+        description = Description(self.title, self.body, notice=self.notice, error=self.error)
+        for field in ('title', 'body', 'notice', 'error'):
+            object.__setattr__(self, field, getattr(description, field))
 
 
 def parse_response(stdout, stderr, code, now):
@@ -71,12 +77,12 @@ def parse_response(stdout, stderr, code, now):
         resets = [stamp for stamp in resets if math.isfinite(stamp) and stamp > now]
         return Response(error='GitHub rate limit reached.', reset=max(resets) if resets else now + 60)
     if code or errors:
-        return Response(error=description_text(detail.strip()) or f'gh exited with status {code}.')
+        return Response(error=detail.strip() or f'gh exited with status {code}.')
     try:
         item = data['data']['repository']['issueOrPullRequest']
         if not isinstance(item['title'], str) or not isinstance(item['body'], str):
             raise ValueError('Invalid description')
-        return Response(description_text(item['title']), description_text(item['body']))
+        return Response(item['title'], item['body'])
     except (KeyError, TypeError, ValueError):
         return Response(error='GitHub returned no readable title/body for this item.')
 
@@ -144,7 +150,7 @@ class GhTransport:
             return response
         except OSError as exc:
             self.close()
-            return Response(error=description_text(str(exc)))
+            return Response(error=str(exc))
 
     def close(self):
         if self.life is not None:
@@ -190,7 +196,7 @@ class DescriptionLoads:
 
     def remember(self, key, response):
         self.cache[key] = Description(response.title, response.body, 'GitHub', self.clock(),
-                                      not response.error, error=response.error)
+                                      not response.error, response.notice, response.error)
         self.cache.move_to_end(key)
         while len(self.cache) > CACHE_ITEMS:
             self.cache.popitem(last=False)
@@ -205,7 +211,7 @@ class DescriptionLoads:
             self.transport.start(*key)
             self.pending = key
         except OSError as exc:
-            self.remember(key, Response(error=description_text(str(exc))))
+            self.remember(key, Response(error=str(exc)))
 
     def poll(self):
         if self.pending is None:

@@ -403,7 +403,8 @@ and [AGENTS.md](AGENTS.md). The roadmap is in the
 
 The [local terminal view](docs/terminal-view.md) shows one launcher's local work,
 cached context, outcomes and paged runtime logs in a separate process. On the Issue
-tab, `g` can load a missing title/body through `gh` on request.
+tab, description bodies render as Markdown with inert links, and `g` can load a
+missing title/body through `gh` on request.
 
 ## License
 

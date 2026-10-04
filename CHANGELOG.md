@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
+
 ## 0.1.11 — 2026-10-04
 
 **Upgrading:** stop all of a project's launchers and upgrade them together, since

@@ -6,10 +6,11 @@ import unittest
 from unittest.mock import patch
 
 from tests.test_view_data import event, fixture
+from tests.test_view_github import reply
 from tests.support import RecordingDescriptionTransport
-from ub_agents.view_github import DescriptionLoads, Response
+from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
-from textual.widgets import Static, TabbedContent, Tree
+from textual.widgets import Markdown, Static, TabbedContent, Tree
 from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, View
 from ub_agents.view_worker import LocalWorker
 
@@ -27,6 +28,103 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             if condition() if condition else app.reading.page is not None:
                 return
         self.fail('View did not become ready')
+
+    def description_source(self, source, title, body):
+        if source == 'snapshot':
+            row = self.state['latest_pass']['rows'][0]
+            row['title'] = title
+            row['description'] = {'available': True, 'text': body}
+            self.path.write_text(json.dumps(self.state))
+        elif source == 'run context.json':
+            (self.log.parent / 'context.json').write_text(json.dumps({'title': title, 'body': body}))
+        else:
+            (self.log.parent / 'context.json').unlink()
+        transport = RecordingDescriptionTransport()
+        transport.response = parse_response(reply(title, body), b'', 0, 1000)
+        return transport
+
+    async def test_markdown_body_from_every_source_is_formatted_and_inert(self):
+        title = '[bold]Title[/bold]\r\nnext\ttitle\rlast\x1b[31m'
+        body = ('# Overview\r\n\r\nfirst\tline\rsecond\nthird\n\n'
+                '- **strong** and *emphasis* with `code`\n'
+                '- [bold]literal[/bold] \x1b[31mred\n\n'
+                '1. Ordered\n\n```text\ncode\tline\nnext line\n```\n\n'
+                '[web](https://example.invalid) <https://example.invalid>\n'
+                '[local](file:///missing) [anchor](#overview)\n'
+                '![picture](https://example.invalid/pic.png)\n'
+                '<b>HTML</b> <img src="https://example.invalid/pic.png">\n'
+                '&#27; &#x9b; [ref][target]\n[target]: https://example.invalid')
+        expected = body.replace('\r\n', '\n').replace('\r', '\n').replace('\x1b', r'\x1b')
+        for source in ('snapshot', 'run context.json', 'GitHub'):
+            with self.subTest(source=source):
+                self.path, self.log, self.state = fixture(self.root)
+                transport = self.description_source(source, title, body)
+                app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                with patch.object(app, 'open_url', side_effect=AssertionError('opened link')), \
+                     patch.object(Markdown, 'load', side_effect=AssertionError('loaded link')), \
+                     patch('subprocess.Popen', side_effect=AssertionError('unexpected process')):
+                    async with app.run_test(size=(110, 32)) as pilot:
+                        await self.ready(app, pilot)
+                        await pilot.press('2', 'g')
+                        await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
+                        markdown = app.query_one('#issue_body', Markdown)
+                        await self.ready(app, pilot, lambda: len(markdown.query('MarkdownBullet')) == 3)
+                        self.assertEqual(markdown.source, expected)
+                        self.assertEqual(len(markdown.query('MarkdownH1')), 1)
+                        self.assertEqual(len(markdown.query_one('MarkdownBulletList').query('MarkdownBullet')), 2)
+                        self.assertEqual(len(markdown.query_one('MarkdownOrderedList').query('MarkdownBullet')), 1)
+                        content = [block.render() for block in markdown.query('MarkdownParagraph')]
+                        rendered = '\n'.join(part.plain for part in content)
+                        self.assertIn('\nsecond\nthird', rendered)
+                        self.assertIn('[bold]literal[/bold]', rendered)
+                        self.assertIn(r'\x1b[31mred', rendered)
+                        self.assertNotIn('\x1b', rendered)
+                        for literal in ('[web](https://example.invalid)', '<https://example.invalid>',
+                                        '[local](file:///missing)', '[anchor](#overview)',
+                                        '![picture](https://example.invalid/pic.png)', '<b>HTML</b>',
+                                        '<img src="https://example.invalid/pic.png">',
+                                        '&#27; &#x9b;', '[ref][target]', '[target]: https://example.invalid'):
+                            self.assertIn(literal, rendered)
+                        spans = [span for part in content for span in part.spans]
+                        for style in ('.strong', '.em', '.code_inline'):
+                            self.assertTrue(any(span.style == style for span in spans))
+                        self.assertTrue(all(isinstance(span.style, str) or not span.style.meta for span in spans))
+                        header = app.query_one('#issue_text', Static).render()
+                        self.assertIn('[bold]Title[/bold]\nnext\ttitle\nlast' + r'\x1b[31m', header.plain)
+                        self.assertFalse(header.spans)
+                        self.assertIn(f'Source: {source}', app.query_one('#issue_note', Static).render().plain)
+                        self.assertNotIn('Source:', markdown.source)
+                        # Neither mouse nor keyboard activation has a link target.
+                        await pilot.click(markdown.query_one('MarkdownParagraph'), offset=(2, 0))
+                        await pilot.press('tab', 'enter', 'space')
+                        markdown.post_message(Markdown.LinkClicked(markdown, 'https://example.invalid'))
+                        await pilot.pause()
+                        self.assertEqual(len(transport.calls), 1 if source == 'GitHub' else 0)
+                        await pilot.press('q')
+                app.worker.thread.join(2)
+
+    async def test_shortened_code_fence_keeps_plain_notice_for_every_source(self):
+        body = '# Start\n\n```text\n' + 'x' * 3000 + '\n```\nEnd'
+        for source in ('snapshot', 'run context.json', 'GitHub'):
+            with self.subTest(source=source):
+                self.path, self.log, self.state = fixture(self.root)
+                transport = self.description_source(source, 'Title', body)
+                app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                async with app.run_test(size=(110, 32)) as pilot:
+                    await self.ready(app, pilot)
+                    await pilot.press('2', 'g')
+                    await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
+                    markdown = app.query_one('#issue_body', Markdown)
+                    await self.ready(app, pilot, lambda: len(markdown.query('MarkdownFence')) == 1)
+                    self.assertEqual(markdown.source, body[:2048])
+                    self.assertNotIn('shortened', markdown.query_one('MarkdownFence').code)
+                    note = app.query_one('#issue_note', Static)
+                    self.assertIn('Description shortened to 2,048 characters.', note.render().plain)
+                    self.assertFalse(note.render().spans)
+                    self.assertGreater(note.region.y, markdown.region.y)
+                    self.assertLess(note.region.bottom, 32)
+                    await pilot.press('q')
+                app.worker.thread.join(2)
 
     async def test_description_requests_local_sources_cache_and_navigation(self):
         transport = RecordingDescriptionTransport()
