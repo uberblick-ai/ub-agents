@@ -268,7 +268,10 @@ class ClaudeFormatter:
 
     def _project(self, data):
         kind = data.get("type")
-        if kind in ("system", "rate_limit_event", "tool_progress"):
+        if kind == "tool_progress":
+            # Preserve the previous raw projection's generic record label.
+            return "other", [], [], self.last_call
+        if kind in ("system", "rate_limit_event"):
             return kind, [], [], self.last_call
         if kind in ("assistant", "user"):
             message = data.get("message")

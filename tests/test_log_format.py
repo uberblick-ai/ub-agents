@@ -71,7 +71,8 @@ class CompactClaudeTests(unittest.TestCase):
             with self.subTest(fields=fields):
                 value = self.decode(progress(45, **fields))
                 self.assertEqual(value.display(), '')
-                self.assertIn('tool_progress', value.display(raw=True))
+                self.assertEqual(value.display(raw=True), 'time=unknown (pre-existing bytes) | other\n' +
+                                 progress(45, **fields).decode().replace('\n', r'\n'))
                 if fields:
                     self.assertEqual(value.progress, ())
 
