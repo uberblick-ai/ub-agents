@@ -17,23 +17,23 @@ focused pane has an accent border with its title set into the border.
 ```text
 ╭─ Work · pass complete ───────────────────────────╮
 │ Running ─────────────────────────────────────  1 │
-│ ⠹ issue #163 Compact timestamped Claude l… 04:12 │
+│ ⠹ #163 Compact timestamped Claude log lin… 04:12 │
 │   implementer · this launcher · attempt 1        │
 │ Needs attention ─────────────────────────────  2 │
-│ ? issue #156 Drop old coordination … needs-human │
-│ ✗ issue #126 Codex structured run-lo… failed 3/3 │
+│ ? #156 Drop old coordination record… needs-human │
+│ ✗ #126 Codex structured run-log form… failed 3/3 │
 │ Eligible ────────────────────────  planned order │
-│ ● issue #165 Render issue descriptions as … next │
-│ ● PR    #170 Compact timestamped Claude … review │
+│ ● #165 Render issue descriptions as Markdo… next │
+│ ● ⌥170 Compact timestamped Claude log li… review │
 │                                                  │
 ├─ Recent activity ─────────────────────── 4 today ┤   (lower half, always shown, dimmed)
-│ ✓ PR    #167 Group the work list into se… merged │
+│ ✓ ⌥167 Group the work list into sections  merged │
 │   integrator · 11:52 · squash-merged             │
-│ ✓ PR    #167 Group the work list into … approved │
+│ ✓ ⌥167 Group the work list into sectio… approved │
 │   reviewer · 11:38                               │
-│ ✓ issue #159 Group the work list int… handed off │
-│   implementer · 11:20 · opened PR #167           │
-│ ✗ issue #126 Codex structured run-log fo… failed │
+│ ✓ #159 Group the work list into sect… handed off │
+│   implementer · 11:20 · opened ⌥167              │
+│ ✗ #126 Codex structured run-log formatti… failed │
 │   implementer · 10:02 · timed out after 180m     │
 ╰──────────────────────────────────────────────────╯
 ```
@@ -52,9 +52,8 @@ eligible for this launcher`. The upper half scrolls on its own when it overflows
 
 Dependency and milestone waits are not shown.
 
-Every row says whether its number is an issue or a pull request: a fixed-width
-`issue` or `PR` tag before `#N`, so the numbers line up. `issue` is dim and `PR` is in
-the accent color. The item header on the right spells out `Issue #N` or `PR #N`.
+Numbers say what they are: `#N` is an issue and `⌥N` is a pull request, in rows,
+item headers and dim detail lines alike. `⌥` is in the accent color.
 
 The lower half is always **Recent activity**: today's outcomes, newest first, with
 `N today` in its header. Its rows are dimmed; a selected one shows at full
@@ -76,14 +75,14 @@ A stale snapshot dims the pane and shows `last seen HH:MM:SS`.
 ## Item pane
 
 Tabs `1 Log  2 Issue  3 Runs`, then `│ Formatted  Raw u` on the Log tab. Each tab
-starts with the item header: `Issue #N title` or `PR #N title` in bold, then
+starts with the item header: `#N title` (issue) or `⌥N title` (PR) in bold, then
 agent · runtime · attempt · PR in dim text.
 
 ### Log
 
 ```text
  1 Log   2 Issue   3 Runs  │  Formatted  Raw u
- Issue #163 Show Claude log entries as compact timestamped lines
+ #163 Show Claude log entries as compact timestamped lines
  implementer · codex gpt-6.1-sol xhigh · attempt 1 · no PR yet
  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  11:41:02 launcher claimed #163 · lease 30m
@@ -120,7 +119,7 @@ agent · runtime · attempt · PR in dim text.
 
 ```text
  1 Log   2 Issue   3 Runs
- Issue #156 Drop old coordination record formats                 (bold)
+ #156 Drop old coordination record formats                       (bold)
  issue · needs-human · issue-preparer asked a question           (dim)
  ┃ Waiting for a team member: answer on GitHub, then remove needs-human.   (red callout, only for attention rows)
 
@@ -173,7 +172,7 @@ Stale snapshot (banner above both panes, work pane dimmed, footer warns):
 ```text
 Colors, as Textual theme variables with these dark-theme values:
   background #0d1016 · panel/footer #161a22 · text #d4d9e1 · dim #6b7484
-  accent (focus border, pane titles, launcher lines, PR tag) #b79cff · selection row #1b2030
+  accent (focus border, pane titles, launcher lines, ⌥) #b79cff · selection row #1b2030
   Running #6cb6ff · Needs attention #ff8b7f · Eligible #7ee2a0
   diff + #7ee2a0 · diff - #ff8b7f
 Focused pane: accent border with its title in the border ("Work", "Log", "Issue"); unfocused: #2a303b border.
