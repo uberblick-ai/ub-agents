@@ -68,7 +68,7 @@ class ObservationTests(unittest.TestCase):
         changes = [replace(plans[1], item=replace(plans[1].item, body='New body 2')),
                    Plan(issue(5), self.cfg.agents[0], None, 'ready', 'New', 1),
                    replace(plans[2], state='ready'), plans[0]]
-        expected_order = ([1, 2], [1, 2], [1, 2, 5], [1, 2, 3, 5], [1, 2, 3, 5])
+        expected_order = ([1, 2, 3], [1, 2, 3], [1, 2, 5, 3], [1, 2, 3, 5], [1, 2, 3, 5])
         for step, eligible in enumerate(expected_order):
             if step:
                 self.observer.plan(changes[step - 1])
@@ -95,6 +95,8 @@ class ObservationTests(unittest.TestCase):
         self.observer.plan(replace(changes[0], state='waiting'))
         self.observer.begin_pass()
         self.assertEqual([row['item'] for row in self.memory.snapshots[-1]['latest_pass']['rows']], [2, 5, 3, 1])
+        _, work, _ = published('plan:2:worker')
+        self.assertEqual([row.item for row in work if row.group == 'Eligible'], [5, 3, 1, 2])
 
     def test_kept_agent_uses_its_previous_description_and_item_history(self):
         first = Plan(replace(issue(), body='Previous body'), self.cfg.agents[0], None,

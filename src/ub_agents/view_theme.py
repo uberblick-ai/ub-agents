@@ -25,7 +25,7 @@ VIEW_THEME = Theme(
 )
 
 SECTION_COLORS = {'Running': 'view-running', 'Needs attention': 'view-attention',
-                  'Eligible': 'view-eligible', 'Waiting': 'view-muted'}
+                  'Eligible': 'view-eligible'}
 
 
 def variable_defaults(theme):

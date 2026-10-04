@@ -14,7 +14,7 @@ SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
 SESSION_LIMIT = 256
 DESCRIPTION_LIMIT = 2048
-WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Waiting', 'Recent activity')
+WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Recent activity')
 
 
 def read_json(path, limit=SNAPSHOT_BYTES):
@@ -182,11 +182,11 @@ def runtime_type(value):
 
 def plan_group(row):
     state = row.get('state')
-    if state in {'ready', 'recover'}:
+    if state in {'ready', 'recover', 'backoff', 'waiting'}:
         return 'Eligible'
-    if state in {'backoff', 'waiting'} or (state == 'parked' and
-            text(row.get('reason')).startswith(('Waiting for blockers ', 'Waiting for active milestone #'))):
-        return 'Waiting'
+    if state == 'parked' and text(row.get('reason')).startswith(
+            ('Waiting for blockers ', 'Waiting for active milestone #')):
+        return None
     return 'Needs attention'
 
 
@@ -217,14 +217,15 @@ def work_rows(session, root):
                               run / 'context.json' if run else None))
     latest = mapping(data.get('latest_pass'))
     for row in rows(latest.get('rows'), 100):
-        if row.get('state') == 'owned':
+        group = plan_group(row)
+        if row.get('state') == 'owned' or group is None:
             continue
         if assignment and (row.get('item'), row.get('agent')) == (assignment.get('item'), assignment.get('agent')):
             continue
         owner = mapping(row.get('owner'))
         reason = (f'Owner: @{text(owner.get("actor"))} on {text(owner.get("host"))}' if owner else text(row.get('reason')))
         result.append(WorkRow(f'plan:{row.get("item")}:{text(row.get("agent"))}',
-                              plan_group(row), row.get('item', '?'),
+                              group, row.get('item', '?'),
                               text(row.get('agent')), text(row.get('state')), reason, row))
     for index, row in enumerate(reversed(rows(data.get('outcomes'), 20))):
         run = own_run(root, row.get('run'))
@@ -237,7 +238,8 @@ def work_rows(session, root):
     histories = mapping(data.get('histories'))
     result = [replace(row, data=row.data | {'history': histories[row.data.get('history_key', str(row.item))]})
               if row.data.get('history_key', str(row.item)) in histories else row for row in result]
-    return sorted(result, key=lambda row: WORK_GROUPS.index(row.group))
+    return sorted(result, key=lambda row: (WORK_GROUPS.index(row.group),
+                                          row.state in {'backoff', 'waiting'}))
 
 
 def item_history(row, session):

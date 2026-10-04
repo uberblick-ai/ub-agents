@@ -146,10 +146,12 @@ class ViewDataTests(unittest.TestCase):
             ('recover', 'Pending outcome', 'Eligible'),
             ('parked', 'Stop label needs-human is present', 'Needs attention'),
             ('parked', 'Approval required', 'Needs attention'),
-            ('parked', 'Waiting for blockers #31', 'Waiting'),
-            ('parked', 'Waiting for active milestone #10', 'Waiting'),
-            ('backoff', 'Retry backoff', 'Waiting'),
-            ('waiting', 'Runtime paused', 'Waiting'),
+            ('parked', 'Waiting for blockers #31', None),
+            ('parked', 'Waiting for active milestone #10', None),
+            ('backoff', 'Retry backoff', 'Eligible'),
+            ('waiting', 'Runtime paused', 'Eligible'),
+            ('recover', 'Pending outcome', 'Eligible'),
+            ('ready', 'Trigger matched', 'Eligible'),
         ]
         self.state['latest_pass']['rows'][0]['state'] = 'ready'
         self.state['latest_pass']['rows'].extend(
@@ -159,15 +161,16 @@ class ViewDataTests(unittest.TestCase):
         self.assertEqual([row.group for row in work if row.item == 114], ['Running'])
         self.assertFalse(any(row.item == 13 for row in work))
         for n, (_, _, expected) in enumerate(plans, 20):
-            self.assertEqual(next(row for row in work if row.item == n).group, expected)
-        self.assertEqual([row.item for row in work if row.group == 'Eligible'], [12, 20, 22])
+            observed = next((row for row in work if row.item == n), None)
+            self.assertEqual(observed.group if observed else None, expected)
+        self.assertEqual([row.item for row in work if row.group == 'Eligible'], [12, 20, 22, 29, 30, 27, 28])
         keys = {row.item: row.key for row in work}
         self.state['latest_pass']['rows'].reverse()
         reordered = work_rows(Session(self.path, self.state), self.root)
-        self.assertEqual([row.item for row in reordered if row.group == 'Eligible'], [22, 20, 12])
+        self.assertEqual([row.item for row in reordered if row.group == 'Eligible'], [30, 29, 22, 20, 12, 28, 27])
         self.assertEqual({row.item: row.key for row in reordered}, keys)
 
-    def test_eligibility_wait_wording_classifies_as_waiting(self):
+    def test_eligibility_dependency_and_milestone_waits_are_omitted(self):
         worker = agent(self.root)
         item = issue(milestone=20)
         matches = AgentMatches.for_item(item, (worker,))
@@ -176,9 +179,10 @@ class ViewDataTests(unittest.TestCase):
                 check = check_start(item, worker, matches, (),
                                     Queue(milestones='gate' if gate else 'ignore'), 10, blockers)
                 self.assertFalse(check.allowed)
-                snapshot = Session(self.path, {'latest_pass': {'rows': [
-                    {'item': item.number, 'agent': worker.name, 'state': 'parked', 'reason': check.reason}]}})
-                self.assertEqual(work_rows(snapshot, self.root)[0].group, 'Waiting')
+                for state in ('partial', 'complete'):
+                    snapshot = Session(self.path, {'latest_pass': {'state': state, 'rows': [
+                        {'item': item.number, 'agent': worker.name, 'state': 'parked', 'reason': check.reason}]}})
+                    self.assertEqual(work_rows(snapshot, self.root), [])
 
     def test_foreign_claims_are_omitted_from_partial_and_complete_passes(self):
         foreign = self.state['latest_pass']['rows'][2]

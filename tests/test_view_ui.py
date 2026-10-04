@@ -908,14 +908,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 20, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
             {'item': 21, 'agent': 'worker', 'state': 'blocked', 'reason': 'Cleanup unconfirmed'},
             {'item': 22, 'agent': 'worker', 'state': 'waiting', 'reason': 'Runtime paused'},
+            {'item': 23, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'},
+            {'item': 24, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
+            {'item': 25, 'agent': 'worker', 'state': 'backoff', 'reason': 'Retry backoff'},
         ])
         self.path.write_text(json.dumps(self.state))
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             tree = app.query_one('#work', Tree)
-            self.assertEqual([node.label.plain for node in tree.root.children[:4]],
-                             ['Running · 1', 'Needs attention · 1', 'Eligible · 2', 'Waiting · 1'])
+            self.assertEqual([node.label.plain for node in tree.root.children],
+                             ['Running · 1', 'Needs attention · 1', 'Eligible · 4'])
+            self.assertEqual([node.data for node in app.groups['Eligible'].children],
+                             ['plan:12:reviewer', 'plan:20:worker', 'plan:22:worker', 'plan:25:worker'])
+            for item in (23, 24):
+                self.assertNotIn(f'plan:{item}:worker', app.rows)
+                self.assertNotIn(f'plan:{item}:worker', app.nodes)
             self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
             self.assertNotIn('plan:13:reviewer', app.rows)
             self.assertEqual(app.query_one('#work_pane').border_title, 'Work · pass partial')
@@ -930,6 +938,48 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
             self.assertEqual(app.query_one('#work_pane').border_title, 'Work · pass complete')
             self.assertTrue(app.query_one(RecentActivity).render().plain.startswith('Recent activity · 0 today'))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_delayed_eligible_rows_follow_ready_work_and_never_show_next(self):
+        self.state['assignment'] = None
+        self.state['outcomes'] = []
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': 20, 'agent': 'worker', 'state': 'backoff', 'reason': 'Retry backoff'},
+            {'item': 21, 'agent': 'worker', 'state': 'waiting', 'reason': 'Runtime paused'},
+        ]}
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: 'plan:21:worker' in app.nodes)
+            tree = app.query_one('#work', Tree)
+            self.assertEqual([node.label.plain for node in tree.root.children],
+                             ['Running · 0', 'Eligible · 2'])
+            tree.get_node_at_line(0)
+            for item, state in ((20, 'backoff'), (21, 'waiting')):
+                node = app.nodes[f'plan:{item}:worker']
+                line = tree.render_line(node._line - tree.scroll_offset.y).text
+                self.assertTrue(line.startswith(f'◷ #{item}'), line)
+                self.assertTrue(line.endswith(state), line)
+                self.assertNotIn('next', line)
+            self.state['latest_pass']['rows'].append(
+                {'item': 22, 'agent': 'worker', 'state': 'recover', 'reason': 'Pending outcome'})
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'plan:22:worker' in app.nodes)
+            self.assertEqual([node.data for node in app.groups['Eligible'].children],
+                             ['plan:22:worker', 'plan:20:worker', 'plan:21:worker'])
+            tree.get_node_at_line(0)
+            node = app.nodes['plan:22:worker']
+            line = tree.render_line(node._line - tree.scroll_offset.y).text
+            self.assertTrue(line.startswith('● #22'), line)
+            self.assertTrue(line.endswith('next'), line)
+            self.state['latest_pass']['rows'] = [
+                {'item': 20, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'},
+                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
+            ]
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not app.nodes)
+            self.assertEqual(tree.root.children[0].label.plain, 'Running · 0')
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -1096,7 +1146,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree = app.query_one('#work', Tree)
             tree.move_cursor(app.nodes[key])
             old_node = tree.cursor_node
-            changed = [replace(row, group='Waiting', state='parked', reason='Waiting for blockers #31')
+            changed = [replace(row, group='Needs attention', state='parked', reason='Approval required')
                        if row.key == key else row for row in app.rows.values()]
             app.populate(changed)
             # Assert before yielding to Textual's next layout or idle callback.
@@ -1150,18 +1200,27 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             output.focus()
             self.assertIs(tree.cursor_node, app.nodes[key])
             self.state['latest_pass']['rows'] = [
-                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31',
+                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required',
                  'description': description}]
             self.path.write_text(json.dumps(self.state))
             # The tree moves its cursor back to the kept node after the next refresh.
-            await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting')
+            await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Needs attention')
                              and tree.cursor_node is app.nodes[key])
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
             self.assertEqual(markdown.source, description['text'])
             self.assertNotIn('Eligible', app.groups)
             self.assertEqual([node.label.plain for node in tree.root.children[:2]],
-                             ['Running · 1', 'Waiting · 1'])
+                             ['Running · 1', 'Needs attention · 1'])
+            for reason in ('Waiting for blockers #31', 'Waiting for active milestone #10'):
+                self.state['latest_pass']['rows'][0]['reason'] = reason
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: app.rows[key].hidden and key not in app.nodes
+                                 and app.session.data['latest_pass']['rows'][0]['reason'] == reason)
+                self.assertEqual(app.selected, key)
+                self.assertIs(app.focused, output)
+                self.assertEqual(markdown.source, description['text'])
+                self.assertEqual([node.label.plain for node in tree.root.children], ['Running · 1'])
             self.state['latest_pass']['rows'] = []
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')

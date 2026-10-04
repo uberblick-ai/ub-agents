@@ -704,6 +704,7 @@ class ProofView(View):
         pane = self.query_one(LogPane)
         r = self.reading
         tree = self.query_one(Tree)
+        tree.get_node_at_line(0)
         recent = self.query_one(RecentActivity)
         row = self.rows.get(self.selected)
         value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation if r.page else None,
@@ -730,6 +731,8 @@ class ProofView(View):
                  'title': self.query_one('#work_pane').border_title,
                  'sections': [node.label.plain for node in tree.root.children],
                  'nodes': list(self.nodes),
+                 'work_lines': {key: tree.render_line(node._line - tree.scroll_offset.y).text
+                                for key, node in self.nodes.items()},
                  'idle': self.idle_node.label.plain if self.idle_node else None,
                  'idle_dim': self.idle_node.label.style == 'dim' if self.idle_node else False,
                  'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
@@ -810,7 +813,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(newest['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
                 state.update(assignment=assignment, latest_pass=latest_pass)
                 path.write_text(json.dumps(state))
-                initial = checkpoint(lambda value: len(value['sections']) == 4 and value['anchor'] is not None
+                initial = checkpoint(lambda value: len(value['sections']) == 3 and value['anchor'] is not None
                                      and value['selected'] == 'assignment:owned-run'
                                      and '#114 Cached title' in value['header'] and not value['pill_visible'])
                 self.assertNotIn(b'FORMATTED', transcript)
@@ -821,8 +824,17 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertFalse(initial['pill_visible'])
                 self.assertEqual(initial['notice'], '')
                 self.assertEqual(initial['sections'], ['Running · 1', 'Needs attention · 3',
-                                                       'Eligible · 3', 'Waiting · 4'])
-                self.assertEqual(initial['eligible'], ['plan:12:reviewer', 'plan:20:worker', 'plan:21:worker'])
+                                                       'Eligible · 5'])
+                self.assertEqual(initial['eligible'], ['plan:12:reviewer', 'plan:20:worker', 'plan:21:worker',
+                                                      'plan:27:worker', 'plan:28:worker'])
+                for item in (25, 26):
+                    self.assertNotIn(f'plan:{item}:worker', initial['nodes'])
+                self.assertTrue(initial['work_lines']['plan:12:reviewer'].endswith('next'))
+                for item, status in ((27, 'backoff'), (28, 'waiting')):
+                    line = initial['work_lines'][f'plan:{item}:worker']
+                    self.assertTrue(line.startswith(f'◷ #{item}'), line)
+                    self.assertTrue(line.endswith(status), line)
+                    self.assertNotIn('next', line)
                 self.assertNotIn('plan:13:reviewer', initial['nodes'])
                 self.assertIsNone(initial['idle'])
                 self.assertIn('partial', initial['title'])
@@ -962,15 +974,22 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 plan = checkpoint()
                 state['latest_pass']['state'] = 'complete'
                 state['latest_pass']['rows'] = [
-                    {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'}]
+                    {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required'}]
                 path.write_text(json.dumps(state))
-                moved = checkpoint(lambda value: value['group'] == 'Waiting' and value['cursor'] == plan['cursor'])
-                self.assertEqual(moved['group'], 'Waiting')
+                moved = checkpoint(lambda value: value['group'] == 'Needs attention' and value['cursor'] == plan['cursor'])
+                self.assertEqual(moved['group'], 'Needs attention')
                 self.assertEqual(moved['selected'], plan['selected'])
                 self.assertEqual(moved['cursor'], plan['cursor'])
                 self.assertEqual(moved['focus'], plan['focus'])
-                self.assertEqual(moved['sections'][:2], ['Running · 1', 'Waiting · 1'])
+                self.assertEqual(moved['sections'], ['Running · 1', 'Needs attention · 1'])
                 self.assertNotIn('partial', moved['title'])
+                state['latest_pass']['rows'][0]['reason'] = 'Waiting for blockers #31'
+                path.write_text(json.dumps(state))
+                hidden = checkpoint(lambda value: value['sections'] == ['Running · 1']
+                                    and value['state'] == 'earlier observation')
+                self.assertNotIn(plan['selected'], hidden['nodes'])
+                self.assertEqual(hidden['selected'], plan['selected'])
+                self.assertEqual(hidden['focus'], plan['focus'])
                 state['latest_pass']['rows'] = []
                 path.write_text(json.dumps(state))
                 self.assertEqual(checkpoint(lambda value: value['state'] == 'earlier observation')['state'],

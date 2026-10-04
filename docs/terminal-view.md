@@ -72,8 +72,7 @@ row count. Running always appears first; other empty sections are hidden:
 | --- | --- |
 | Running | Only this launcher's current assignment, with a count of 0 or 1 |
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
-| Eligible | Ready and recovery plans, in the pass's planned order |
-| Waiting | Dependency and milestone waits, retry backoff and paused-runtime plans |
+| Eligible | Ready and recovery plans in the pass's planned order, then retry backoff and paused-runtime plans |
 
 With no assignment, Running shows one dim placeholder line,
 `Idle · nothing eligible for this launcher`. It is not a work item and has no
@@ -92,8 +91,8 @@ shortened with `…`, and a short state aligned to the right:
 | Parked and needing attention | `?` | `parked` |
 | Blocked | `!` | `blocked` |
 | Attempt limit reached | `✗` | `failed F/M` |
-| Eligible | `●` | `next` for the first row in planned order; otherwise `ready` or `recover` |
-| Waiting | `◷` | `backoff` for retry backoff; `waiting` for runtime, dependency or milestone waits |
+| Eligible, ready or recovery | `●` | `next` for the first ready/recovery row in planned order; otherwise `ready` or `recover` |
+| Eligible, delayed | `◷` | `backoff` for retry backoff; `waiting` for paused runtimes; never `next` |
 
 The second line is indented and joins the agent, `this launcher` for the
 assignment, and count with ` · `. The count is `attempt N` for the assignment,
@@ -108,13 +107,18 @@ These rows require no extra GitHub reads or snapshot fields. Priority
 markers are absent because the snapshot has no priority.
 
 Dependency and milestone waits are parked plans whose reasons start with
-`Waiting for blockers …` or `Waiting for active milestone #…`. While a pass is
-incomplete, the Work border title shows `Work · pass partial`.
-Rows from the previous pass stay visible, with their cached descriptions and item
+`Waiting for blockers …` or `Waiting for active milestone #…`. They are omitted
+from the Work pane and all section counts. There is no Waiting section.
+Retry backoff and paused-runtime plans remain in Eligible because this launcher
+can run them once their delay passes. Within Eligible, ready/recovery rows keep
+their planned order, followed by delayed rows in their planned order.
+While a pass is incomplete, the Work border title shows `Work · pass partial`.
+Visible rows from the previous pass remain, with their cached descriptions and item
 history, until the new pass completes. Each re-planned item and agent updates in
 place, moving sections if its state changes; new rows follow the kept rows in
-their section. Completion removes omitted rows and applies the new planned order
-within Eligible. A selected removed row remains as an earlier observation.
+their section, with ready/recovery rows always preceding delayed rows in Eligible.
+Completion removes omitted rows and applies the new planned order within each
+Eligible subgroup. A selected removed row remains as an earlier observation.
 
 **Recent activity · N today** always fills the lower half of the Work pane,
 including `0 today` when there are no outcomes. N counts cached session outcomes
@@ -132,7 +136,8 @@ can still be blocked. Until you select a row, the view selects the launcher's ow
 run whenever one starts. Selection, focus and paused log positions survive refreshes,
 including when a row moves between sections. A selected row that disappears
 remains an earlier local observation in the right pane. A previous assignment or
-a plan now claimed by another launcher is omitted from the live work sections.
+a plan now claimed by another launcher or parked for dependencies or a milestone
+is omitted from the live work sections.
 
 The right pane has `1 Log`, `2 Issue` and `3 Runs` tabs. The active tab is inverted
 and the others are dim. After a `│` separator, the inert `Formatted  Raw` indicator
@@ -367,9 +372,13 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
 
 1. Publish a replay with the current assignment, owned, blocked, parked stop/approval,
    ready/recovery, dependency/milestone wait, backoff and paused-runtime plans.
-   Confirm Running, Needs attention, Eligible and Waiting appear in that order,
-   with correct counts and planned order within Eligible. The current assignment
-   appears once. Empty sections are hidden. A partial pass has a dim marker on
+   Confirm Running, Needs attention and Eligible appear in that order, with
+   correct counts and no Waiting section. Dependency/milestone waits must be
+   absent from rows and counts. Within Eligible, ready/recovery rows keep their
+   planned order, followed by backoff and paused-runtime rows with `◷` and their
+   `backoff`/`waiting` states; delayed rows never show `next`, even without any
+   ready/recovery rows. The current assignment appears once. Empty sections are
+   hidden except Running. A partial pass has a dim marker on
    the pane title, which disappears when the pass completes. Confirm follow reaches
    recent output and cached Issue and per-item Runs tabs are readable. Check the
    shared two-line header and dashed rule on every tab, omission of missing values,
@@ -397,7 +406,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    check selection, focus and paused positions. Revisit the outcome and check
    the restored paused page. Add newer outcomes until the selected outcome is
    clipped; its right pane must keep showing it. Remove a selected plan and
-   check its earlier observation remains.
+   check its earlier observation remains. Park a selected plan for dependencies
+   or a milestone; it must leave the Work rows and counts while its cached
+   details remain in the right pane.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading
    position must remain stable; unread and lag must grow in the Log pill, which

@@ -6,7 +6,7 @@ from pathlib import Path
 from queue import Empty, Full, Queue
 import threading
 
-from .view_data import context_text, local_description, load_session, mapping, rows, work_rows
+from .view_data import context_text, local_description, load_session, mapping, plan_group, rows, work_rows
 from .view_logs import ViewReader
 
 
@@ -64,10 +64,10 @@ class LocalWorker:
             selected = work[0]
         if selected is None and self.selected_row and self.selected_row.key == request.key:
             selected = self.selected_row
-            foreign = any(row.get('state') == 'owned' and
+            omitted = any((row.get('state') == 'owned' or plan_group(row) is None) and
                           (row.get('item'), row.get('agent')) == (selected.item, selected.agent)
                           for row in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
-            if selected.key.startswith('plan:') and foreign:
+            if selected.key.startswith('plan:') and omitted:
                 selected = replace(selected, hidden=True)
             if selected.state != 'earlier observation':
                 selected = replace(selected, state='earlier observation',

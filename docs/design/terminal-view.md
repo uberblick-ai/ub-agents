@@ -44,11 +44,14 @@ focused pane has an accent border with its title set into the border.
 
 ## Work pane
 
-The upper half holds Running, Needs attention, Eligible and Waiting, in that
+The upper half holds Running, Needs attention and Eligible, in that
 order, each with its current row count. Running always appears with only this
 launcher's assignment and a count of 0 or 1. With no assignment it shows a dim
 `Idle · nothing eligible for this launcher` placeholder, which has no item content.
 Other launchers' claims are omitted; their runs remain in an item's Runs tab.
+Parked dependency and milestone waits are omitted from rows and section counts.
+Eligible lists ready/recovery plans in planned order, then retry backoff and
+paused-runtime plans in planned order.
 Other empty sections are hidden. It scrolls
 on its own when it overflows; the pane keeps its current width for the row change
 (#160), independently of the roughly 50-column design canvas above.
@@ -62,8 +65,8 @@ title shortened with `…`, and a short right-aligned state:
 | Needs attention, parked | `?` | `parked` |
 | Needs attention, blocked | `!` | `blocked` |
 | Needs attention, attempt limit reached | `✗` | `failed F/M` |
-| Eligible, in planned order | `●` | `next` on the first row, otherwise `ready` or `recover` |
-| Waiting | `◷` | `backoff`, or `waiting` for runtime, dependency and milestone waits |
+| Eligible, ready or recovery | `●` | `next` on the first ready/recovery row, otherwise `ready` or `recover` |
+| Eligible, delayed | `◷` | `backoff`, or `waiting` for paused runtimes; never `next` |
 
 Line 2 is indented and contains the agent, `this launcher` for the assignment,
 and count, joined with ` · ` and omitting missing parts.
