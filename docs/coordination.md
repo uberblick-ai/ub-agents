@@ -54,10 +54,8 @@ Retry backoff doubles with the consecutive failure count, capped at
 expiry; otherwise it starts at release after confirmed cleanup. An interrupt
 preserves prior failures but adds no delay of its own.
 
-New leases record an `attempt_effect` (`pending`, `failure`, `reset` or `unchanged`)
+Every lease records an `attempt_effect` (`pending`, `failure`, `reset` or `unchanged`)
 so restart discovery distinguishes human pauses and interrupts from failures.
-Records written by earlier versions retain their original start-count semantics;
-this change does not reclassify them. Use `ub-agents retry` to clear them.
 
 ## Selection order
 
@@ -168,16 +166,13 @@ head. Its records have no effect with approvals off. See the [complete PR rules]
 Lease, outcome and retry-reset comments start with one readable line naming the
 state, agent, runtime, short candidate SHA when available, and a short summary.
 The full JSON record follows inside a collapsed `<details>` block headed
-**Coordination record**, with the marker `<!-- ub-agents:v2 -->`. The parser reads
-the JSON, including on comments minimized by GitHub. Valid earlier `v1` records
-remain readable; an earlier-layout comment that cannot be read is ignored and
-never makes its item malformed.
+**Coordination record**, with the marker `<!-- ub-agents:v3 -->`. The parser reads
+only v3 JSON, including on comments minimized by GitHub. Every lease requires
+`attempt_effect`, `declared_triggers` and `stop_labels`; declarations and outcome
+transitions use the compact shape described below. Malformed v3 records block
+their item.
 
-Before upgrading to this layout, stop every launcher for a project and upgrade
-them together before restarting. Older launchers ignore v2 records, including
-live claims and outcomes, so a mixed fleet can claim and run an item that an
-upgraded launcher already owns. Reading v1 records in the new launcher does not
-make mixed versions safe.
+Stop every launcher for a project and upgrade them together before restarting.
 
 After releasing a run, the launcher minimizes its own lease and outcome comments
 from superseded runs of the same agent on that item (and copied outcomes on a
@@ -212,9 +207,8 @@ agent session. Malformed or contradictory trusted records park their item
 visibly without stopping unrelated work. Transport and read failures still stop
 the loop; they never become an empty queue.
 
-**Upgrading:** older launchers trust only their own account. Stop every launcher
-and upgrade them together before mixing accounts. Use the same `launchers` setting
-on every machine so all launchers agree on the trusted set.
+Use the same `launchers` setting on every machine so all launchers agree on the
+trusted set.
 
 ## Human action and launch output
 
@@ -414,10 +408,6 @@ a completed `handed-off` outcome contains these fields:
 The launcher resolves the implied trigger removals and stop labels from the
 original lease. The transition must match that lease's declaration, so
 configuration edits or a restarted launcher cannot replace the recorded changes.
-Upgraded launchers also read and recover 0.1.5 records, which repeat `triggers`,
-`stop_labels` and the full removal list in every declaration and transition.
-Stop all of a project's launchers and upgrade them together before restarting:
-launchers from 0.1.5 through 0.1.8 reject compact records as malformed.
 
 A report starts `accepted: false`. Once the process group has terminated, the
 launcher rereads GitHub and validates ownership, the exact reported candidate SHA,
@@ -459,9 +449,8 @@ Durable attempts and backoff survive restarts.
 
 At startup, launcher and `status` discovery read repository issue comments updated
 within 30 minutes plus seven days. Renewed live leases stay inside that window,
-independently of execution and cleanup timeouts. Older launchers' long leases keep
-their recorded expiry when an item's full history is read. `ub-agents cleanup` still scans the full repository
-comment history. Later discovery scans poll updated comments with
+independently of execution and cleanup timeouts. `ub-agents cleanup` still scans
+the full repository comment history. Later discovery scans poll updated comments with
 `sort=updated` and `since`, a 60-second overlap and a cursor captured before the
 scan. Each page advances `since` to one second before its last update and
 deduplicates by comment id, because page offsets skip rows when comments move. A
