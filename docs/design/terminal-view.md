@@ -20,12 +20,13 @@ focused pane has an accent border with its title set into the border.
 │ ⠹ #163 Compact timestamped Claude log lin… 04:12 │
 │   implementer · this launcher · attempt 1        │
 │ Needs attention ─────────────────────────────  2 │
-│ ? #156 Drop old coordination record… needs-human │
-│ ✗ #126 Codex structured run-log form… failed 3/3 │
+│ ! ⌥168 Render Issue descriptions as Markdown 24m │
+│   integrator · blocked · local CI could not run  │
+│ ? ⌥139 Give each run a private scratch dire… 19h │
+│   integrator · needs-human · maintainer merge    │
 │ Eligible ────────────────────────  planned order │
 │ ● #165 Render issue descriptions as Markdo… next │
 │ ● ⌥170 Compact timestamped Claude log li… review │
-│                                                  │
 ├─ Recent activity ─────────────────────── 4 today ┤   (lower half, always shown, dimmed)
 │ ✓ ⌥167 Group the work list into sections  merged │
 │   integrator · 11:52 · squash-merged             │
@@ -47,10 +48,14 @@ eligible for this launcher`. The upper half scrolls on its own when it overflows
 | Section | Rows | Glyph | Right column |
 | --- | --- | --- | --- |
 | Running | at most one: this launcher's assignment (one run at a time for now) | `⠹` spinner, `■` stopping | elapsed time, `stopping` |
-| Needs attention | blocked, parked or withdrawn plans; failed outcomes | `?` needs a person, `‖` approval, `✗` failed | short reason: `needs-human`, `approve input`, `failed 3/3` |
+| Needs attention | items parked with `needs-human` or blocked by an agent; failed outcomes | `?` needs-human, `!` blocked, `✗` failed | how long it has waited: `24m`, `19h`, `3d` |
 | Eligible | ready plans in planned order | `●` | `next`, or priority (`▲ high`) |
 
 Dependency and milestone waits are not shown.
+
+A Needs attention row always shows how long it has waited, counted from the
+action-needed comment that parked it. Its second line names the agent, the state
+(`needs-human`, `blocked`, `failed 3/3`) and a short reason.
 
 Numbers say what they are: `#N` is an issue and `⌥N` is a pull request, in rows,
 item headers and dim detail lines alike. `⌥` is in the accent color.
@@ -74,7 +79,7 @@ A stale snapshot dims the pane and shows `last seen HH:MM:SS`.
 
 ## Item pane
 
-Tabs `1 Log  2 Issue  3 Runs`, then `│ Formatted  Raw u` on the Log tab. Each tab
+Tabs `1 Log  2 Issue  3 Runs`, plus `4 Unblock` when the item needs attention, then `│ Formatted  Raw u` on the Log tab. Each tab
 starts with the item header: `#N title` (issue) or `⌥N title` (PR) in bold, then
 agent · runtime · attempt · PR in dim text.
 
@@ -120,8 +125,7 @@ agent · runtime · attempt · PR in dim text.
 ```text
  1 Log   2 Issue   3 Runs
  #156 Drop old coordination record formats                       (bold)
- issue · needs-human · issue-preparer asked a question           (dim)
- ┃ Waiting for a team member: answer on GitHub, then remove needs-human.   (red callout, only for attention rows)
+ issue · ready · prepared by issue-preparer                       (dim)
 
  Outcome                                                         (heading, accent color)
  Launchers read only the current record format. Older markers and branch
@@ -138,8 +142,44 @@ agent · runtime · attempt · PR in dim text.
 ```
 
 The body renders as Markdown. Links and HTML show as text and are never opened.
-Rows that need a person show a one-line callout saying what is needed. The
-source and age line is last.
+The source and age line is last.
+
+### Unblock
+
+Only for items in Needs attention. It shows the action-needed comment that parked
+the item, so a team member sees at once what has to happen. Acting on it from the
+view comes later; for now the tab is read-only.
+
+```text
+ 1 Log   2 Issue   3 Runs   4 Unblock
+ ⌥168 Render Issue descriptions as Markdown                      (bold)
+ integrator · blocked · waiting 24m · since 12:12                (dim, "waiting 24m" red)
+ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+ Local CI not run for ea4068a, so no signoff gate. `mise run ci ea4068a…`
+ failed: mise reports this worktree's mise.toml is not trusted. Running
+ `sh bin/ci.sh SHA` was denied by the session permission policy. Other gates
+ pass: PR head matches the candidate, it is mergeable on top of main, the
+ reviewer approved this SHA, and the changelog entry is accurate.
+
+ Needs: trust mise.toml for integrator worktrees, or allow bin/ci.sh, then
+ re-run integration.                                             (bold)
+
+ Candidate ea4068a · review: no decision · CI: no checks or statuses   (dim)
+
+ After resolving the blocker                                     (heading, accent color)
+ ┌────────────────────────────────────────────────────────────────────────────┐
+ │ ub-agents retry --number 168 --agent integrator --reason "Human resolved…" │
+ └────────────────────────────────────────────────────────────────────────────┘
+ Restore a matching trigger if absent: `ready-to-merge`; remove any stop label.
+ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+ Source: action-needed comment · 12:12 · snapshot                (dim)
+```
+
+The body is the latest `<!-- ub-agents:action-needed RUN -->` comment on the item,
+rendered as Markdown like the Issue tab, without its marker and Claim/Outcome
+links. The header gives the agent, the state and how long it has waited. For an
+item this launcher parked the text comes from the snapshot; for one parked
+elsewhere, `g` loads the comment from GitHub.
 
 ### Runs
 
