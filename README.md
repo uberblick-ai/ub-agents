@@ -158,7 +158,10 @@ view crash or kill restores the terminal and resumes plain output with one line
 reporting the failure. Launcher and view reap their owned processes.
 
 The launcher does not reload code; restart it after an upgrade or after checkout
-refresh pulls code changes.
+refresh pulls code changes. An update banner above the terminal panes (or one
+plain-output line) names the upgrade command for installed releases, or asks you
+to restart when a normal control-checkout fetch finds newer code. See
+[terminal view](docs/terminal-view.md#using-the-view) for update-check behavior.
 
 Before upgrading, check the [changelog](CHANGELOG.md) and
 [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases) for any

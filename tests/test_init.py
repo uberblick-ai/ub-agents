@@ -207,7 +207,8 @@ class InitTests(unittest.TestCase):
             ('codex:model:high', ['--sandbox', 'danger-full-access'],
              'Grants full access without the Codex sandbox'),
             ('claude:model:high', ['--permission-mode', 'acceptEdits', '--permission-prompts', 'none',
-                                   '--allowedTools', 'Bash(git *)', 'Bash(gh *)', 'Bash(ub-agents *)'],
+                                   '--allowedTools', 'Bash(git *)', 'Bash(gh *)', 'Bash(ub-agents *)',
+                                   '--add-dir', '{scratch}'],
              'Grants unattended edits and git/gh/report commands')):
             with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'ub-agents.yaml'

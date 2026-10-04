@@ -238,7 +238,7 @@ class ScratchTests(unittest.TestCase):
     def test_runtime_receives_scratch_outside_worktree_and_prompt_guidance(self):
         loop = self.loop()
         configured = replace(loop.config.agents[0], command=(), runtimes=(Runtime("codex", "model", "high"),),
-                             worktree=True)
+                             runtime_args=("--add-dir", "{scratch}", "--add-dir={scratch}"), worktree=True)
         loop.config = config(self.root, configured)
         worktree = self.root / "private-worktree"
         worktree.mkdir()
@@ -248,6 +248,7 @@ class ScratchTests(unittest.TestCase):
             self.assertEqual(scratch, directory / "scratch")
             self.assertEqual(env["TMPDIR"], str(scratch))
             self.assertTrue(scratch.is_absolute())
+            self.assertEqual(command[-3:], ["--add-dir", str(scratch), f"--add-dir={scratch}"])
             self.assertEqual(stat.S_IMODE(scratch.stat().st_mode), 0o700)
             self.assertEqual(cwd, worktree)
             self.assertFalse(scratch.is_relative_to(worktree))

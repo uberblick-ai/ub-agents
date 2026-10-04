@@ -20,6 +20,175 @@ import unittest
 from tests.test_view_data import fixture
 
 class TerminalViewTests(unittest.TestCase):
+    def test_update_banners_in_real_terminal_with_live_replay_and_resize(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root, count=100)
+            replay = subprocess.Popen([sys.executable, '-c', '''
+import pathlib, select, sys
+log = pathlib.Path(sys.argv[1])
+while not select.select([sys.stdin], [], [], 0.01)[0]:
+    with log.open('ab') as stream: stream.write(b'owned update replay\\n')
+''', str(log)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            proof = root / 'proof.json'
+            script = '''
+import json, pathlib, sys
+from textual.binding import Binding
+from textual.widgets import TabbedContent
+from ub_agents.view_ui import LogPane, UpdateBanner, View
+class ProofView(View):
+    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True)]
+    def action_checkpoint(self):
+        self.call_after_refresh(lambda: self.query_one(LogPane).call_after_refresh(self.checkpoint))
+    def checkpoint(self):
+        banner = self.query_one(UpdateBanner)
+        header = self.query_one('#item_header')
+        output = self.query_one(LogPane)
+        footer = self.query_one('#status')
+        run_status = self.query_one('#run_status')
+        value = {'display': banner.display, 'height': banner.size.height,
+                 'width': banner.content_size.width, 'line': banner.render().plain,
+                 'text': banner.banner.get('text'), 'terminal_width': self.size.width,
+                 'cells': banner.render().cell_len, 'yellow': str(banner.styles.background),
+                 'banner_y': banner.region.y, 'body_y': self.query_one('#body').region.y,
+                 'work_y': self.query_one('#work').region.y,
+                 'header_y': header.region.y, 'header_height': header.size.height,
+                 'header': header.render().plain, 'output_y': output.region.y,
+                 'footer': footer.render().plain, 'footer_height': footer.size.height,
+                 'footer_y': footer.region.y,
+                 'run_status_bottom': run_status.region.bottom,
+                 'active': self.query_one(TabbedContent).active,
+                 'selected': self.selected, 'focus': self.focused.id if self.focused else None,
+                 'follow': self.reading.follow, 'anchor': output.anchor(),
+                 'saved_anchor': self.reading.anchor,
+                 'first_anchor': output.positions[0] if output.positions else None,
+                 'starts': [r.start for r in self.reading.page.refs] if self.reading.page else []}
+        proof = pathlib.Path(sys.argv[3])
+        staging = proof.with_suffix('.new')
+        staging.write_text(json.dumps(value))
+        staging.replace(proof)
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
+'''
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+            modes = termios.tcgetattr(slave)
+            env = dict(os.environ, TERM='xterm-256color')
+            env.pop('NO_COLOR', None)
+            app = subprocess.Popen([sys.executable, '-P', '-c', script, str(root), str(path), str(proof)],
+                                   stdin=slave, stdout=slave, stderr=slave, start_new_session=True, env=env)
+            transcript = bytearray()
+            def drain(seconds=0.05):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.02)[0]:
+                        transcript.extend(os.read(master, 65536))
+            def checkpoint():
+                proof.unlink(missing_ok=True)
+                os.write(master, b'x')
+                deadline = time.monotonic() + 5
+                while not proof.exists() and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                return json.loads(proof.read_text())
+            def until(condition):
+                # A snapshot read or resize can finish after a key is handled.
+                # Wait for the rendered state instead of a fixed settling delay.
+                deadline = time.monotonic() + 5
+                current = checkpoint()
+                while not condition(current) and time.monotonic() < deadline:
+                    current = checkpoint()
+                self.assertTrue(condition(current), (current, bytes(transcript[-1000:])))
+                return current
+            try:
+                initial = until(lambda value: value['starts'] and value['focus'] is not None
+                                and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+                self.assertNotIn(b'FOLLOW', transcript)
+                self.assertFalse(initial['display'])
+                os.write(master, b'f')
+                until(lambda value: not value['follow'])
+                os.write(master, b'\x1b[H')
+                paused = until(lambda value: not value['follow'] and value['anchor'] is not None
+                               and value['anchor'] == value['first_anchor'] == value['saved_anchor'])
+                self.assertFalse(paused['follow'])
+                from tests.test_updates import release
+                from ub_agents.updates import release_banner
+                cases = [release_banner(release(), 'brew'), release_banner(release(), 'pip'),
+                         {'text': '⬆ This launcher runs code 2 commits behind origin/main · restart the launcher'}]
+                for banner in cases:
+                    if 'released_at' in banner:
+                        banner['released_at'] = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+                    state['update'] = banner
+                    path.write_text(json.dumps(state))
+                    for width in (110, 70, 170):
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, width, 0, 0))
+                        os.kill(app.pid, signal.SIGWINCH)
+                        keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit'
+                                if width >= 110 else '? keys q quit')
+                        current = until(lambda value: value['text'] == banner['text']
+                                        and value['display'] and value['height'] == 1
+                                        and value['terminal_width'] == width
+                                        and value['width'] == width - 2 and value['body_y'] == 1
+                                        and value['anchor'] == paused['anchor']
+                                        and value['footer'].endswith(keys))
+                        self.assertTrue(current['display'])
+                        self.assertEqual(current['height'], 1)
+                        self.assertEqual(current['banner_y'], 0)
+                        self.assertEqual(current['body_y'], 1)
+                        self.assertEqual(current['work_y'], 1)
+                        self.assertGreater(current['header_y'], current['banner_y'])
+                        self.assertEqual(current['header_height'], 3)
+                        self.assertLessEqual(current['header_y'] + current['header_height'], current['output_y'])
+                        self.assertIn('#114', current['header'])
+                        self.assertEqual(current['yellow'], 'Color(215, 175, 0)')
+                        self.assertLessEqual(current['cells'], width - 2)
+                        self.assertEqual(current['selected'], paused['selected'])
+                        self.assertEqual(current['focus'], paused['focus'])
+                        self.assertEqual(current['starts'], paused['starts'])
+                        self.assertEqual(current['anchor'], paused['anchor'])
+                        self.assertEqual(current['saved_anchor'], paused['saved_anchor'])
+                        self.assertFalse(current['follow'])
+                        self.assertEqual(current['footer_height'], 1)
+                        self.assertEqual(current['footer_y'], 31)
+                        self.assertLessEqual(current['run_status_bottom'], current['footer_y'])
+                        self.assertTrue(current['footer'].endswith(keys))
+                        if 'released_at' in banner:
+                            self.assertTrue(current['line'].endswith('released 2 days ago'))
+                            self.assertEqual(current['cells'], width - 2)
+                        if width == 170:
+                            self.assertIn(banner['text'], current['line'])
+                self.assertIn(b'released 2 days ago', transcript)
+                self.assertIn(b'restart the launcher', transcript)
+                state['update'] = None
+                path.write_text(json.dumps(state))
+                cleared = until(lambda value: not value['display'] and value['body_y'] == 0
+                                and value['anchor'] == paused['anchor'])
+                self.assertFalse(cleared['display'])
+                self.assertEqual(cleared['body_y'], 0)
+                self.assertEqual(cleared['anchor'], paused['anchor'])
+                before = log.stat().st_size
+                os.write(master, b'q')
+                deadline = time.monotonic() + 5
+                while app.poll() is None and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertEqual(app.wait(timeout=1), 0, bytes(transcript[-1000:]))
+                deadline = time.monotonic() + 5
+                while log.stat().st_size <= before and time.monotonic() < deadline:
+                    drain()
+                drain()
+                self.assertEqual(termios.tcgetattr(slave), modes)
+                self.assertIn(b'\x1b[?1049l', transcript)
+                self.assertIn(b'\x1b[?25h', transcript)
+                self.assertIsNone(replay.poll())
+                self.assertGreater(log.stat().st_size, before)
+            finally:
+                if app.poll() is None:
+                    app.terminate()
+                app.wait(timeout=3)
+                replay.communicate(b'stop\n', timeout=3)
+                self.assertEqual(replay.returncode, 0)
+                os.close(master)
+                os.close(slave)
+
     # One test per quit key, so a parallel run spreads them over cores.
     def test_real_terminal_explicit_load_cache_and_q_during_hung_request(self):
         self.check_load_cache_and_quit_during_hung_request(b'q')
@@ -333,17 +502,22 @@ class ProofView(View):
                                    if ref.value.kind == 'tool ERROR'), 0)
         self.query_one(LogPane).reflow()
     def action_checkpoint(self):
+        self.call_after_refresh(lambda: self.query_one(LogPane).call_after_refresh(self.checkpoint))
+    def checkpoint(self):
         pane = self.query_one(LogPane)
         r = self.reading
-        value = {'raw': r.raw, 'anchor': pane.anchor(), 'entries': len(r.page.refs),
+        refs = r.page.refs if r.page else []
+        value = {'ready': r.page is not None, 'raw': r.raw, 'anchor': pane.anchor(), 'entries': len(refs),
                  'header': self.query_one('#item_header').render().plain,
                  'run_status': self.query_one('#run_status').render().plain,
                  'notice': self.query_one('#log_note').render().plain,
                  'raw_details': self.raw_details(),
                  'lines': [line.text for line in pane.lines],
-                 'refs': [(ref.start, ref.value.kind) for ref in r.page.refs],
+                 'refs': [(ref.start, ref.value.kind) for ref in refs],
                  'positions': pane.positions}
-        pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
+        partial = pathlib.Path(sys.argv[3] + '.partial')
+        partial.write_text(json.dumps(value))
+        partial.replace(sys.argv[3])
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
             master, slave = pty.openpty()
@@ -359,24 +533,28 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 while time.monotonic() < deadline:
                     if select.select([master], [], [], 0.02)[0]:
                         transcript.extend(os.read(master, 65536))
-            def checkpoint():
-                proof.unlink(missing_ok=True)
-                os.write(master, b'x')
-                deadline = time.monotonic() + 3
-                while not proof.exists() and time.monotonic() < deadline:
-                    drain(0.05)
-                self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
-                return json.loads(proof.read_text())
+            def checkpoint(ready=lambda value: True):
+                deadline = time.monotonic() + 5
+                while True:
+                    proof.unlink(missing_ok=True)
+                    os.write(master, b'x')
+                    written = time.monotonic() + 3
+                    while not proof.exists() and time.monotonic() < written:
+                        drain(0.05)
+                    self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                    value = json.loads(proof.read_text())
+                    if ready(value) or time.monotonic() >= deadline:
+                        self.assertTrue(ready(value), value)
+                        return value
             try:
-                drain(0.8)
+                checkpoint(lambda value: value['ready'])
                 # Appending after attachment replays every recorded input from
                 # byte zero, preserving capture times as well as producer times.
                 from tests.test_view_data import event
                 with log.open('ab') as stream:
                     stream.write(capture.read_bytes())
                     stream.write(b''.join(event(i, 20) for i in range(10)))
-                drain(0.8)
-                formatted = checkpoint()
+                formatted = checkpoint(lambda value: value['entries'] == len(capture.read_bytes().splitlines()) + 10)
                 self.assertEqual(formatted['entries'], len(capture.read_bytes().splitlines()) + 10)
                 text = '\n'.join(formatted['lines'])
                 self.assertIn('· thinking', text)
@@ -501,12 +679,16 @@ class ProofView(View):
     def action_assignment_cursor(self):
         self.cursor(self.nodes['assignment:owned-run'])
     def action_checkpoint(self):
+        self.call_after_refresh(lambda: self.query_one(LogPane).call_after_refresh(self.checkpoint))
+    def checkpoint(self):
         pane = self.query_one(LogPane)
         r = self.reading
         tree = self.query_one(Tree)
         row = self.rows.get(self.selected)
         value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation if r.page else None,
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
+                 'saved_anchor': r.anchor,
+                 'first_anchor': pane.positions[0] if pane.positions else None,
                  'entries': r.log.total_entries if r.log else 0, 'lag': r.log.unread_bytes if r.log else 0,
                  'notice': self.query_one('#log_note').render().plain,
                  'header': self.query_one('#item_header').render().plain,
@@ -514,6 +696,7 @@ class ProofView(View):
                  'raw_details': self.raw_details(),
                  'footer': self.query_one('#status', Static).render().plain,
                  'footer_height': self.query_one('#status').size.height,
+                 'terminal_size': [self.size.width, self.size.height],
                  'pill': self.query_one('#log_state', Static).render().plain,
                  'pill_visible': self.query_one('#log_state').display,
                  'screen': type(self.screen).__name__,
@@ -558,9 +741,23 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         drain(0.02)
                     self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
                     value = json.loads(proof.read_text())
-                    if ready(value) or time.monotonic() >= deadline:
+                    if ready(value):
                         return value
+                    if time.monotonic() >= deadline:
+                        self.fail(('Rendered state did not become ready', value, bytes(transcript[-1000:])))
                     drain(0.05)
+            def pause_at_top():
+                os.write(master, b'f')
+                paused = checkpoint(lambda value: not value['follow'])
+                self.assertFalse(paused['follow'])
+                os.write(master, b'\x1b[H')
+                scrolled = checkpoint(lambda value: value['anchor'] is not None
+                                      and value['anchor'] == value['first_anchor'] == value['saved_anchor'])
+                self.assertFalse(scrolled['follow'])
+                self.assertIsNotNone(scrolled['anchor'])
+                self.assertEqual(scrolled['anchor'], scrolled['first_anchor'])
+                self.assertEqual(scrolled['anchor'], scrolled['saved_anchor'])
+                return scrolled
             try:
                 initial = checkpoint(lambda value: len(value['sections']) == 5 and value['anchor'] is not None)
                 self.assertNotIn(b'FORMATTED', transcript)
@@ -586,54 +783,50 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertEqual(checkpoint()['header'], initial['header'])
                 state['activity'] = {'state': 'waiting', 'until': (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()}
                 path.write_text(json.dumps(state))
-                drain(0.3)
-                waiting = checkpoint()
+                waiting = checkpoint(lambda value: re.search(r'next poll (\d+)s', value['footer']))
                 remaining = int(re.search(r'next poll (\d+)s', waiting['footer']).group(1))
-                drain(1.1)
-                self.assertLess(int(re.search(r'next poll (\d+)s', checkpoint()['footer']).group(1)), remaining)
+                counted = checkpoint(lambda value: re.search(r'next poll (\d+)s', value['footer'])
+                                     and int(re.search(r'next poll (\d+)s', value['footer']).group(1)) < remaining)
+                self.assertLess(int(re.search(r'next poll (\d+)s', counted['footer']).group(1)), remaining)
                 state['activity'] = {'state': 'stopping'}
                 path.write_text(json.dumps(state))
-                drain(0.3)
-                self.assertIn('· stopping', checkpoint()['footer'])
+                self.assertIn('· stopping', checkpoint(lambda value: '· stopping' in value['footer'])['footer'])
                 state['published_at'] = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
                 path.write_text(json.dumps(state))
-                drain(0.3)
-                self.assertIn('· stale', checkpoint()['footer'])
+                self.assertIn('· stale', checkpoint(lambda value: '· stale' in value['footer'])['footer'])
                 state['ended'] = True
                 path.write_text(json.dumps(state))
-                drain(0.3)
-                self.assertIn('· ended', checkpoint()['footer'])
+                self.assertIn('· ended', checkpoint(lambda value: '· ended' in value['footer'])['footer'])
                 path.write_text('{broken')
-                drain(0.3)
-                malformed = checkpoint()
+                malformed = checkpoint(lambda value: 'malformed: Expecting property' in value['footer'])
                 self.assertIn('malformed: Expecting property', malformed['footer'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
-                drain(0.3)
-                self.assertIn('minimum 110×32', checkpoint()['footer'])
+                smaller = checkpoint(lambda value: value['terminal_size'] == [80, 24]
+                                     and 'minimum 110×32' in value['footer'])
+                self.assertIn('minimum 110×32', smaller['footer'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
                 state['ended'] = False
                 state['published_at'] = datetime.now(timezone.utc).isoformat()
                 state['activity'] = {'state': 'running assignment'}
                 path.write_text(json.dumps(state))
-                drain(0.3)
+                checkpoint(lambda value: value['terminal_size'] == [110, 32]
+                           and '· running assignment' in value['footer']
+                           and 'malformed' not in value['footer'])
                 os.write(master, b'?')
-                drain()
-                help_view = checkpoint()
+                help_view = checkpoint(lambda value: value['screen'] == 'KeyHelp')
                 self.assertEqual(help_view['screen'], 'KeyHelp')
                 for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
                             'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', 'Escape', 'q   ', 'Ctrl-C'):
                     self.assertIn(key, help_view['modal'])
                 os.write(master, b'?')
-                drain()
-                self.assertNotEqual(checkpoint()['screen'], 'KeyHelp')
-                os.write(master, b'?\x1b')
-                drain(0.4)
-                self.assertNotEqual(checkpoint()['screen'], 'KeyHelp')
-                os.write(master, b'f\x1b[5~')
-                drain(0.2)
-                paused = checkpoint(lambda value: not value['follow'])
+                self.assertNotEqual(checkpoint(lambda value: value['screen'] != 'KeyHelp')['screen'], 'KeyHelp')
+                os.write(master, b'?')
+                checkpoint(lambda value: value['screen'] == 'KeyHelp')
+                os.write(master, b'\x1b\x1b[I')
+                self.assertNotEqual(checkpoint(lambda value: value['screen'] != 'KeyHelp')['screen'], 'KeyHelp')
+                paused = pause_at_top()
                 self.assertFalse(paused['follow'])
                 self.assertTrue(paused['pill_visible'])
                 self.assertIn('⏸ PAUSED', paused['pill'])
@@ -672,9 +865,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'\x1b[B\r')  # Down to the latest outcome and Enter.
                 self.assertEqual(checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                             and value['anchor'] is not None)['selected'], 'outcome:previous-run')
-                os.write(master, b'f\x1b[5~')
-                drain(0.2)
-                outcome_paused = checkpoint(lambda value: not value['follow'] and value['anchor'] is not None)
+                outcome_paused = pause_at_top()
                 self.assertIsNotNone(outcome_paused['anchor'])
                 with outcome_log.open('ab') as stream:
                     stream.write(b''.join(event(i, size=800) for i in range(600)))

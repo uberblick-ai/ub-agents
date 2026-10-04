@@ -79,7 +79,7 @@ def validate_incoming(root, head, path, where, links=0):
     raise AgentError(f"{where} is not an instruction file: {path}")
 
 
-def refresh_checkout(config, github, agent=None):
+def refresh_checkout(config, github, agent=None, *, on_fetch=None):
     root = config.root
     where = f"{agent.name} instructions" if agent else None
     try:
@@ -97,7 +97,11 @@ def refresh_checkout(config, github, agent=None):
             git(root, "fetch", "origin", f"+refs/heads/{default}:{remote}")
         except AgentError as exc:
             raise AgentError(f"fetch of origin/{default} failed; fix origin access and retry: {exc}") from exc
-        head = git(root, "rev-parse", remote)
+        if on_fetch is None:
+            head = git(root, "rev-parse", remote)
+        else:
+            head, previous = git(root, "rev-parse", remote, "HEAD").splitlines()
+            on_fetch(default, previous, head)
         ahead, behind = map(int, git(root, "rev-list", "--left-right", "--count",
                                     f"HEAD...{head}").split())
         if ahead:
@@ -127,6 +131,6 @@ def refresh_checkout(config, github, agent=None):
                          "no assignment attempt was charged") from exc
 
 
-def refresh_instructions(config, agent, github):
+def refresh_instructions(config, agent, github, *, on_fetch=None):
     # Callers without a configuration file still validate their supplied role.
-    return refresh_checkout(config, github, agent)
+    return refresh_checkout(config, github, agent, on_fetch=on_fetch)

@@ -26,16 +26,33 @@ class ExecutionTests(unittest.TestCase):
                          self.root / "run", timeout, stop or threading.Event())
 
     def test_thin_adapters_keep_argv_model_effort_and_explicit_permissions(self):
+        scratch = self.root / "scratch"
         configured = agent(self.root, command=(), runtime_args=("--sandbox", "read-only"))
-        codex = command_for(configured, Runtime("codex", "configured-model", "high"))
+        codex = command_for(configured, Runtime("codex", "configured-model", "high"), scratch)
         self.assertEqual(codex, ["codex", "exec", "--json", "--model", "configured-model", "--config",
                                  'model_reasoning_effort="high"', "--sandbox", "read-only"])
-        claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high"))
+        claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high"), scratch)
         self.assertEqual(claude, ["claude", "--print", "--output-format", "stream-json", "--verbose",
                                   "--model", "opus", "--effort", "high"])
         extra = ("--verbose", "--allowedTools", "Bash(git *)")
-        self.assertEqual(command_for(replace(configured, runtime_args=extra), Runtime("claude", "opus", "high")),
+        self.assertEqual(command_for(replace(configured, runtime_args=extra), Runtime("claude", "opus", "high"), scratch),
                          claude + list(extra))
+
+    def test_runtime_args_replace_only_scratch_in_each_argument(self):
+        scratch = self.root / "scratch with spaces"
+        unchanged = ("--settings", '{"a": 1}', "--config", "x={y=true}", "$UB_AGENTS_SCRATCH")
+        extra = ("--add-dir", "{scratch}", "--add-dir={scratch}", "{scratch}:{scratch}") + unchanged
+        configured = agent(self.root, command=(), runtime_args=extra)
+        for cli in ("codex", "claude"):
+            with self.subTest(cli=cli):
+                command = command_for(configured, Runtime(cli, "model", "high"), scratch)
+                self.assertEqual(command[-len(extra):],
+                                 ["--add-dir", str(scratch), f"--add-dir={scratch}",
+                                  f"{scratch}:{scratch}"] + list(unchanged))
+
+    def test_command_agent_arguments_are_not_expanded(self):
+        configured = agent(self.root, command=("echo", "{scratch}", "{other}"))
+        self.assertEqual(command_for(configured, None, self.root / "scratch"), list(configured.command))
 
     def test_prompt_cwd_environment_and_exit_are_delivered_to_recording_command(self):
         script = "import os,sys; print(os.getcwd()); print(os.environ['TEST_UB_CONTEXT']); print(sys.stdin.read())"

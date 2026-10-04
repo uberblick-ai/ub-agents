@@ -10,6 +10,11 @@ notes are copied from that section.
 then upgrade them together before restarting. Remove the trigger label or add a
 stop label on items you want to stay held (#132).
 
+### Added
+
+- Runtime arguments can use `{scratch}` to grant runtimes access to each run's private scratch directory ([configuration](docs/configuration.md#runtime-permissions), #194).
+- Launchers show an update banner with upgrade or restart instructions when a newer release or control-checkout code is available (#183).
+
 ### Changed
 
 - The Runs tab shows each item's filing and run history across launchers, with relative times, hosts, outcomes and visible omission counts (#179).

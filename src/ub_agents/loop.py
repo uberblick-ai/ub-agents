@@ -49,6 +49,9 @@ class Loop:
                  config_path=None, interrupt_event=None,
                  default_config=False, observer=None):
         self.observer = observer
+        self.updates = None
+        self._last_update = None
+        self._update_texts = set()
         self._observation_warning = False
         self.config = config
         self.approvals = config.approvals or "on"
@@ -93,8 +96,29 @@ class Loop:
     def _wait(self, event, delay, reason):
         if self.observer is not None:
             self._observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
-        event.wait(delay)
+        if self.updates is None:
+            event.wait(delay)
+        else:
+            remaining = delay
+            while remaining > 0:
+                interval = min(1, remaining)
+                if event.wait(interval):
+                    break
+                remaining -= interval
+                self._poll_updates()
         self._observe("activity", "running assignment" if self.github.lease else "polling")
+
+    def _poll_updates(self):
+        banner = self.updates.banner if self.updates is not None else None
+        state = getattr(self.observer, 'state', None)
+        if banner != self._last_update or (isinstance(state, dict) and state.get('update') != banner):
+            self._last_update = banner
+            self._observe("update", banner)
+        if banner and banner['text'] not in self._update_texts:
+            from .updates import release_age
+            age = release_age(banner.get('released_at'))
+            self.output(banner['text'] + (f'  {age}' if age else ''))
+            self._update_texts.add(banner['text'])
 
     def wait_rate_limit(self, error, lease=None):
         now = self.coordinator.clock()
@@ -151,6 +175,7 @@ class Loop:
             raise _GracefulStop
 
     def _before_claim(self):
+        self._poll_updates()
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
         if self.stop_event.is_set():
@@ -548,10 +573,11 @@ class Loop:
         # Refresh errors belong to the operator, not to an assignment attempt.
         self._refreshing_checkout = True
         try:
+            options = {"on_fetch": self.updates.fetched} if self.updates is not None else {}
             if self.config_path is None:
-                instructions = refresh_instructions(self.config, plan.agent, self.github)
+                instructions = refresh_instructions(self.config, plan.agent, self.github, **options)
             else:
-                refresh_checkout(self.config, self.github)
+                refresh_checkout(self.config, self.github, **options)
         finally:
             # An asynchronous exception in subprocess.run kills its child. Let
             # the checkout refresh finish so a fast-forward is never torn down
@@ -762,16 +788,20 @@ class Loop:
                         "UB_AGENTS_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))
             setup = False
-            command = command_for(plan.agent, plan.runtime)
+            command = command_for(plan.agent, plan.runtime, scratch.path)
             if reservation is not None:
                 command[0] = reservation.executable
             if plan.runtime:
                 usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env)
+            def observe_output(final=False):
+                self._poll_updates()
+                if usage_output:
+                    usage_output.poll(final=final)
             code = supervise(command, cwd, env, run_dir,
                              plan.agent.timeout_seconds, self.interrupt_event,
                              self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
                              expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
-                             observe_output=usage_output.poll if usage_output else None,
+                             observe_output=observe_output if usage_output or self.updates else None,
                              **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
             if usage_output:
                 usage_output.poll(final=True)
@@ -1079,6 +1109,7 @@ class Loop:
             return self._launch(once or number is not None)
         finally:
             try:
+                self._poll_updates()
                 self._observe("close")
             finally:
                 self._launch_number = None

@@ -127,7 +127,7 @@ def init_project(args):
         targets[config_path] = targets[config_path].replace(
             "[--sandbox, danger-full-access]",
             '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
-            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)"]').replace(
+            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)", --add-dir, "{scratch}"]').replace(
             "Grants full access without the Codex sandbox",
             "Grants unattended edits and git/gh/report commands")
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
@@ -350,6 +350,10 @@ def run(args):
     publisher = None
     view = None
     try:
+        from .updates import Updates
+        loop.updates = Updates(config.root)
+        if loop.updates is not None:
+            loop.updates.start()
         try:
             publisher = Publisher(config.root, output=loop.output)
             loop._before_claim()
@@ -372,6 +376,8 @@ def run(args):
     except _GracefulStop:
         return
     finally:
+        if loop.updates is not None:
+            loop.updates.close()
         if view is not None:
             view.close()
         if publisher is not None:
