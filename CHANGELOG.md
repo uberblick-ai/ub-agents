@@ -7,9 +7,10 @@ notes are copied from that section.
 ## Unreleased
 
 **Upgrading:** stop all of a project's launchers and wait until every one has exited,
-then upgrade them together before restarting: older builds do not expand this
-repository's new `{report_command}` permission rule (#198). Remove the trigger label
-or add a stop label on items you want to stay held (#132).
+then upgrade them together before restarting: older builds reject configurations
+using `{report_command}`. In Claude `--allowedTools`, replace `Bash(ub-agents *)`
+with `Bash({report_command} report *)` (#198). Remove the trigger label or add a stop
+label on items you want to stay held (#132).
 
 ### Added
 
