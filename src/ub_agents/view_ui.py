@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from queue import Empty
 
+from markdown_it import MarkdownIt
 from rich.segment import Segment
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -13,14 +14,31 @@ from textual.geometry import Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.screen import ModalScreen
-from textual.widgets import Static, TabbedContent, TabPane, Tree
+from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
 
-from .view_data import WORK_GROUPS, context_text, mapping, outcome_text, outcomes_today, text
+from .view_data import WORK_GROUPS, context_header, context_text, mapping, outcome_text, outcomes_today, text
 from .view_github import DescriptionLoads
 from .view_worker import LocalWorker, Request
 
 MAX_RENDER_LINES = 400
 RECENT_ACTIVITY = 'recent-activity'
+
+
+def description_parser():
+    # Show links, images and HTML as source text, without interactive targets.
+    # Entities stay literal so parsing cannot introduce escaped control characters.
+    parser = MarkdownIt('commonmark', {'html': False}).disable(
+        ['link', 'autolink', 'image', 'reference', 'entity'])
+
+    def line_breaks(state):
+        # Textual otherwise renders Markdown soft breaks as spaces.
+        for token in state.tokens:
+            for child in token.children or ():
+                if child.type == 'softbreak':
+                    child.type = 'hardbreak'
+
+    parser.core.ruler.after('inline', 'description_line_breaks', line_breaks)
+    return parser
 
 
 class RawAccess(ModalScreen):
@@ -221,6 +239,7 @@ class View(App):
     TabPane { padding: 0 1; }
     #log_note { height: 5; overflow: hidden; }
     #output { height: 1fr; }
+    #issue_body { padding: 0; }
     #status { height: 2; background: $panel; }
     #keys { height: 1; background: $panel; }
     '''
@@ -267,6 +286,8 @@ class View(App):
                 with TabPane('Issue', id='issue'):
                     with VerticalScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
+                        yield Markdown('', id='issue_body', parser_factory=description_parser, open_links=False)
+                        yield Static('', id='issue_note', markup=False)
                 with TabPane('Runs', id='runs'):
                     with VerticalScroll():
                         yield Static('No outcomes cached.', id='runs_text', markup=False)
@@ -412,6 +433,8 @@ class View(App):
         self.last_context = None
         self.local_description = None
         self.query_one('#issue_text', Static).update('Reading cached context…')
+        self.query_one('#issue_body', Markdown).update('')
+        self.query_one('#issue_note', Static).update('')
         self.update_status()
 
     def apply(self, result):
@@ -449,18 +472,26 @@ class View(App):
         key = self.description_key()
         local = self.local_description
         description = local if local.available else (self.descriptions.get(key) or local)
-        value = context_text(self.rows.get(self.selected), description)
+        row = self.rows.get(self.selected)
+        details = description.details()
+        extra = ''
         if self.descriptions.pending == key and key is not None:
-            value += '\n\nLoading title/body from GitHub…'
+            extra += '\n\nLoading title/body from GitHub…'
         elif not description.available:
-            value += '\n\nPress g on Issue to ' + ('retry' if description.error else 'load') + ' title/body from GitHub.'
+            extra += '\n\nPress g on Issue to ' + ('retry' if description.error else 'load') + ' title/body from GitHub.'
         if self.descriptions.clock() < self.descriptions.cooldown:
             reset = datetime.fromtimestamp(self.descriptions.cooldown, timezone.utc).isoformat()
-            value += f'\nGitHub cooldown until {reset}; no loads or retries before then.'
+            extra += f'\nGitHub cooldown until {reset}; no loads or retries before then.'
         elif self.descriptions.pending is not None and self.descriptions.pending != key:
-            value += '\nAnother description read is pending; no requests are queued.'
+            extra += '\nAnother description read is pending; no requests are queued.'
+        value = context_text(row, description) + extra
         if value != self.last_context:
-            self.query_one('#issue_text', Static).update(Text(value))
+            self.query_one('#issue_text', Static).update(Text(context_header(row, description)))
+            body = description.body if row and description.available and not description.error else ''
+            markdown = self.query_one('#issue_body', Markdown)
+            if body != markdown.source:
+                markdown.update(body)
+            self.query_one('#issue_note', Static).update(Text(details + extra))
             self.last_context = value
 
     def action_load_description(self):

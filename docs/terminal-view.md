@@ -61,6 +61,16 @@ description or that session's run `context.json`. A shortened or empty cached
 description is available and needs no GitHub read. Runs shows the snapshot's
 session outcomes, including acceptance and human blockers.
 
+Issue renders only the description body as Markdown, including headings, lists,
+emphasis, inline code and code blocks. Line breaks, including CRLF and lone CR,
+display as real line breaks; tabs are retained. Other control characters stay
+visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
+images and raw HTML display as text; links cannot be opened with the mouse or
+keyboard, and nothing is fetched. The item header, source/age and all notices
+remain plain text. Shortening notices sit outside the Markdown body, including
+when a description is cut inside a code fence. Log and Runs keep their existing
+plain-text projections and newline escaping.
+
 | Key | Action |
 | --- | --- |
 | `Tab`, arrows, `Enter` | Focus a pane and select a work row |
@@ -230,6 +240,12 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
 5. On Issue, select a row with no local description and press `g`. Confirm loading,
    then source/age and the loaded description or a cached failure. Visit other
    tabs/rows and return; confirm no further call. Retry a failure explicitly.
+   Use a description with headings, lists, emphasis, inline code, code blocks,
+   LF/CRLF/lone-CR line breaks and tabs. Check that only the body is formatted,
+   `[bold]` and an ESC sequence stay literal/inert, and links, images and HTML
+   remain text without opening or fetching anything on click or keyboard input.
+   Repeat with snapshot and run-context descriptions, and with a body shortened
+   inside an unclosed code fence; the plain shortening notice must remain visible.
 6. Start a pending or hung description load and quit with `q`; repeat with
    `Ctrl-C`. Verify prompt exit and no request process left behind, as well as
    normal terminal input, cursor and alternate-screen restoration. With `q`,

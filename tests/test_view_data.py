@@ -11,8 +11,8 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.view import main
-from ub_agents.view_data import (Session, choose_session, item_context, load_session,
-                                 outcome_text, outcomes_today, read_json, work_rows)
+from ub_agents.view_data import (Description, Session, choose_session, item_context, load_session,
+                                 outcome_text, outcomes_today, read_json, text, work_rows)
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
 from ub_agents.config import Queue
 from ub_agents.eligibility import AgentMatches, check_start
@@ -161,6 +161,30 @@ class ViewDataTests(unittest.TestCase):
         session = Session(self.path, self.state)
         with patch('ub_agents.view_data.read_json', side_effect=AssertionError('unneeded local context read')):
             self.assertIn('snapshot body', item_context(work[0], session))
+
+    def test_description_whitespace_and_all_other_controls_are_inert(self):
+        whitespace = 'LF\nCRLF\r\nCR\rTAB\tend'
+        controls = ''.join(chr(code) for code in (*range(32), *range(127, 160))
+                           if chr(code) not in '\r\n\t') + '\ud800'
+        description = Description(whitespace + controls, whitespace + controls, available=True)
+        expected = 'LF\nCRLF\nCR\nTAB\tend'
+        for value in (description.title, description.body):
+            self.assertTrue(value.startswith(expected))
+            self.assertFalse(any(char in value for char in controls))
+            for char in controls:
+                self.assertIn(f'\\x{ord(char):02x}' if ord(char) < 256 else r'\ud800', value)
+        # The shared projections used by Runs and logs retain their old escaping.
+        self.assertEqual(text(whitespace), r'LF\nCRLF\r\nCR\rTAB\tend')
+
+    def test_description_limit_has_separate_notices_for_title_and_body(self):
+        description = Description('t' * 2049, '```\n' + 'x' * 2049, available=True)
+        self.assertEqual(len(description.title), 2048)
+        self.assertEqual(len(description.body), 2048)
+        self.assertNotIn('shortened', description.body)
+        self.assertIn('Title shortened', description.details())
+        self.assertIn('Description shortened', description.details())
+        exact = Description('t' * 2048, 'x' * 2048)
+        self.assertEqual(exact.notice, '')
 
     def test_cli_lists_without_importing_textual_or_invoking_a_process(self):
         self.path.write_text(json.dumps(dict(self.state, ended=True)))
