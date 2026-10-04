@@ -8,8 +8,9 @@ turn ends the run, so run checks in the foreground or wait for every background
 job to finish before ending your turn, and end the run with `ub-agents report`.
 Do not infer permission to merge from a label alone.
 
-For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$(...)` or backticks),
-even with allowlisted commands. Insert the literal PR number from the assignment
+For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$?`, `$(...)` or backticks),
+even with allowlisted commands; the tool result already shows each command's exit
+status. Insert the literal PR number from the assignment
 context's `assignment` and the literal full SHA from `candidate_sha` into commands;
 do not read them through shell variables. In the examples below, replace N with
 that number, SHA with that full SHA and PATH with the literal body-file path before

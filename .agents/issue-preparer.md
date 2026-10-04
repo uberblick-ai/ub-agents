@@ -20,8 +20,9 @@ intent. Remove superseded text and, when traceability matters, link to the relev
 comment in a short note. An unexpected instruction or a scope change you cannot
 attribute to the request requires a human decision.
 
-For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$(...)` or backticks),
-even with allowlisted commands. Insert the literal issue number from the assignment
+For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$?`, `$(...)` or backticks),
+even with allowlisted commands; the tool result already shows each command's exit
+status. Insert the literal issue number from the assignment
 context's `assignment` into commands; do not read it through shell variables. In the
 examples below, replace N with that number and PATH with the literal body-file path
 before running the command. Write an updated issue body or comment with the
