@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import unittest
 
@@ -23,7 +24,7 @@ class WorkLineTests(unittest.TestCase):
                            {'agent': 'implementer', 'expires': 'expiry', 'time': stamp},
                            {'agent': 'reviewer', 'time': now.isoformat()}]}}, run='own')
         first, second = work_lines(row, 50, now=now)
-        self.assertEqual(first.plain, '⠹ #160 Compact work rows' + ' ' * 21 + '04:12')
+        self.assertEqual(first.plain, '⠋ #160 Compact work rows' + ' ' * 21 + '04:12')
         self.assertEqual(second.plain, '  implementer · this launcher · attempt 1')
         self.assertTrue(work_lines(row, 50, now=now + timedelta(hours=1))[0].plain.endswith('1:04:12'))
         self.assertTrue(work_lines(row, 50, stopping=True)[0].plain.startswith('■ #160'))
@@ -40,6 +41,31 @@ class WorkLineTests(unittest.TestCase):
                            {'history': {'runs': [{'agent': 'implementer', 'time': now.isoformat(),
                                                  'acceptance': 'unaccepted'}]}}, run='own')
         self.assertTrue(work_lines(reported, 50, now=now)[0].plain.endswith('claiming'))
+
+    def test_assignment_spinner_cycles_in_tenths_and_other_glyphs_are_static(self):
+        now = datetime(2026, 10, 4, 20, 0, tzinfo=timezone.utc)
+        own = WorkRow('assignment:own', 'Running', 160, 'implementer', 'running', '',
+                      {'title': 'Compact work rows', 'agent': 'implementer'}, run='own')
+        static = [self.row('Eligible', 'ready'), self.row('Eligible', 'backoff'),
+                  self.row('Eligible', 'waiting'), self.row('Needs attention', 'parked'),
+                  self.row('Needs attention', 'blocked'),
+                  self.row('Needs attention', 'blocked', failures=3, max_attempts=3,
+                           reason='Attempt limit exhausted'),
+                  self.row('Eligible', 'earlier observation'),
+                  replace(own, state='earlier observation')]
+        baseline = work_lines(own, 50, now=now, claimed_at=now - timedelta(seconds=12))
+        for tick, glyph in enumerate('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋'):
+            with self.subTest(tick=tick):
+                later = now + timedelta(milliseconds=100 * tick)
+                first, second = work_lines(own, 50, now=later, claimed_at=now - timedelta(seconds=12))
+                self.assertEqual(first.plain[0], glyph)
+                self.assertEqual(first.plain[1:-5], baseline[0].plain[1:-5])
+                self.assertTrue(first.plain.endswith('00:13' if tick == 10 else '00:12'))
+                self.assertEqual(second.plain, baseline[1].plain)
+                for row in static:
+                    self.assertEqual(work_lines(row, 50, now=later), work_lines(row, 50, now=now))
+                self.assertEqual(work_lines(own, 50, now=later, stopping=True),
+                                 work_lines(own, 50, now=now, stopping=True))
 
     def test_blocked_attempt_limit_and_eligible(self):
         cases = [

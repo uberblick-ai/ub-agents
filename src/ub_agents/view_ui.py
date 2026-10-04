@@ -23,6 +23,7 @@ from .view_data import (WORK_GROUPS, context_header, context_text, item_handoff,
                         rows as snapshot_rows, run_status, text)
 from .view_github import DescriptionLoads
 from .view_runs import run_status as history_status, runs_view
+from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_worker import LocalWorker, Request
 from .view_work import RecentActivity, WorkTree
 from .view_theme import VIEW_THEME, log_style, theme_style, variable_defaults
@@ -435,7 +436,7 @@ class View(App):
         self.query_one(WorkTree).show_root = False
         self.theme_changed_signal.subscribe(self, self.restyle)
         self.worker.start()
-        self.set_interval(0.1, self.tick)
+        self.set_interval(1 / SPINNER_FPS, self.tick)
         self.tick()
         if self.launcher is not None:
             self.launcher.mounted(self)
@@ -634,9 +635,9 @@ class View(App):
         history = item_history(row, self.session)
         now = datetime.now().astimezone()
         active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
-        signature = (row.key if row else None, repr(history), int(now.timestamp() * (5 if active else 1)))
+        signature = (row.key if row else None, repr(history), int(now.timestamp() * (SPINNER_FPS if active else 1)))
         if signature != self.last_runs:
-            self.query_one('#runs_text', Static).update(runs_view(row, self.session, app=self))
+            self.query_one('#runs_text', Static).update(runs_view(row, self.session, now=now, app=self))
             self.last_runs = signature
 
     def description_key(self):
@@ -829,7 +830,7 @@ class View(App):
             output.refresh()
         left, right, running = run_status(row, self.session)
         if running:
-            left = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[int(time.monotonic() * 10) % 10] + ' ' + left
+            left = spinner_frame(time.monotonic()) + ' ' + left
         right_line = pane_line(right, max(0, width - 1))
         left_line = pane_line(left, width - right_line.cell_len - (1 if right_line.cell_len else 0))
         status_line = left_line

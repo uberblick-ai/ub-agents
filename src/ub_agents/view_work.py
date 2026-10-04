@@ -10,6 +10,7 @@ from textual.strip import Strip
 from textual.widgets import Static, Tree
 
 from .view_data import item_handoff, mapping, outcomes_today, rows, text
+from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_theme import SECTION_COLORS, item_reference, theme_style
 
 
@@ -61,7 +62,9 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     if row.state == 'earlier observation':
         glyph, state = '○', row.state
     elif own:
-        glyph, state = ('■', 'stopping') if stopping else ('⠹', assignment_elapsed(row, now, claimed_at))
+        now = now or datetime.now(timezone.utc)
+        glyph, state = (('■', 'stopping') if stopping else
+                        (spinner_frame(now.timestamp()), assignment_elapsed(row, now, claimed_at)))
     elif row.state in {'backoff', 'waiting'}:
         glyph, state = '◷', row.state
     elif row.group == 'Eligible':
@@ -104,7 +107,7 @@ class WorkTree(Tree):
         self.claim_times = {}
 
     def on_mount(self):
-        self.set_interval(1, self.refresh)
+        self.set_interval(1 / SPINNER_FPS, self.refresh)
 
     def remember_claims(self, work):
         self.claim_times = {key: stamp for key, stamp in self.claim_times.items() if key in work}

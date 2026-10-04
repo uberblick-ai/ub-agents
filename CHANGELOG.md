@@ -16,6 +16,7 @@ notes are copied from that section.
 
 ### Fixed
 
+- The running assignment's Work pane spinner animates at the same rate as the Runs tab and log status line (#217).
 - Item comments fold every agent's superseded candidate records and withdrawn election losers, while preserving current candidate records and parking explanations (#214).
 - Claude's formatted log skips cut-off first records, shows tool progress as elapsed call time, and aligns exact, capture and unknown timestamps (#192).
 - The terminal view distinguishes PRs with accent-colored ⌥ markers, including Recent activity rows and their linked PR handoffs (#174).
