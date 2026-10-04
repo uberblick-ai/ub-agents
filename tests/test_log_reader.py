@@ -45,24 +45,26 @@ class FormattingTests(unittest.TestCase):
         runtime = self.decode({"type": "error", "error": {"message": "API unavailable"}})
         self.assertEqual([e.kind for e in (message, call, output, error, runtime)],
                          ["assistant", "tool call", "tool result", "tool ERROR", "runtime ERROR"])
-        self.assertIn("Bash id=a", output.text)
-        self.assertIn("ERROR", error.display())
+        self.assertEqual(output.display(), "")
+        self.assertIn("✗", error.display())
         self.assertIn("Exit code 1", error.text)
         self.assertIn("API unavailable", runtime.text)
 
     def test_multiple_tools_pair_by_id_and_unpaired_results_are_honest(self):
         self.decode(record(content=[tool("a", "Read"), tool("b", "Bash")]))
-        value = self.decode(record("user", [result("b"), result("a"), result("missing")]))
-        self.assertIn("Bash id=b", value.text)
-        self.assertIn("Read id=a", value.text)
-        self.assertIn("unpaired id=missing", value.text)
+        value = self.decode(record("user", [result("b", is_error=True), result("a", is_error=True),
+                                           result("missing", is_error=True)]))
+        self.assertIn("✗ hello", value.text)
+        self.assertIn("Read: hello", value.text)
+        self.assertIn("tool: hello", value.text)
+        self.assertNotIn("id=", value.text)
 
     def test_pairing_cache_is_bounded_and_invalid_records_do_not_change_it(self):
         for index in range(MAX_TOOLS + 10):
             self.decode(record(content=[tool(str(index))]))
         self.assertEqual(len(self.formatter.tools), MAX_TOOLS)
         self.assertNotIn("0", self.formatter.tools)
-        self.assertEqual(self.decode(record(content=[tool("invalid"), {"type": "future"}])).kind, "raw text")
+        self.assertEqual(self.decode(record(content=[tool("invalid"), None])).kind, "other")
         self.assertNotIn("invalid", self.formatter.tools)
 
     def test_runtime_success_and_failure_are_only_display_entries(self):
@@ -72,16 +74,24 @@ class FormattingTests(unittest.TestCase):
                                  "is_error": failed, "result": "needs-review",
                                  "errors": ["failed tool"] if failed else []})
             self.assertEqual(value.kind, expected)
-            self.assertIn(subtype, value.text)
+            self.assertIn(subtype if failed else "✓ run finished", value.text)
+            self.assertNotIn("needs-review", value.text)
             self.assertFalse(hasattr(value, "outcome"))
             self.assertFalse(hasattr(value, "report"))
 
-    def test_raw_fallback_for_unknown_malformed_mixed_and_invalid_shapes(self):
+    def test_raw_fallback_for_fragments_and_non_records(self):
         values = [b"diagnostic: unavailable", b'{"type":"assistant"', b"null", b"[]",
                   b"42", b'{"type":"error","message":NaN}', b"\xff",
-                  b'{"type":"assistant","message":{"content":[],"role":"assistant"}}',
                   b"[" * 1500 + b"0" + b"]" * 1500]
-        values += [json.dumps(value).encode() for value in (
+        for raw in values:
+            with self.subTest(raw=raw[:80]):
+                value = self.decode(raw)
+                self.assertEqual(value.kind, "raw text")
+                self.assertEqual(value.text, value.raw)
+                self.assertIsNone(value.event)
+
+    def test_complete_unfamiliar_json_records_have_compact_labels(self):
+        values = (
             {"type": "future", "timestamp": "2026-10-03T12:00:00Z"},
             {"type": ["assistant"]}, {"type": "assistant", "message": []},
             {"type": "assistant", "message": {"content": [None]}},
@@ -91,19 +101,20 @@ class FormattingTests(unittest.TestCase):
             {"type": "user", "message": {"content": [result(content=[{"type": "image"}])]}},
             {"type": "result", "subtype": "success", "result": {}},
             {"type": "error", "message": {}},
-        )]
-        for raw in values:
-            with self.subTest(raw=raw[:80]):
-                value = self.decode(raw)
-                self.assertEqual(value.kind, "raw text")
-                self.assertEqual(value.text, value.raw)
-                self.assertIsNone(value.event)
+        )
+        for data in values:
+            with self.subTest(data=data):
+                value = self.decode(data)
+                self.assertTrue(value.compact)
+                self.assertNotEqual(value.display(), value.raw)
+                self.assertNotIn('{', value.display())
 
     def test_nested_text_tool_result_and_mixed_assistant_content(self):
         self.decode(record(content=[{"type": "text", "text": "running"}, tool()]))
-        value = self.decode(record("user", [result(content=[{"type": "text", "text": "one"},
+        value = self.decode(record("user", [result(is_error=True, content=[{"type": "text", "text": "one"},
                                                               {"type": "text", "text": "two"}])]))
-        self.assertIn(r"one\ntwo", value.text)
+        self.assertIn("one", value.text)
+        self.assertNotIn("two", value.text)
 
     def test_all_terminal_controls_are_visible_in_all_projections(self):
         controls = "".join(chr(i) for i in (*range(32), *range(127, 160)))
@@ -115,8 +126,7 @@ class FormattingTests(unittest.TestCase):
         for value in values:
             for text in (value.text, value.raw, value.display(), value.display(raw=True)):
                 self.assertFalse(any(ord(c) < 32 and c != "\n" or 127 <= ord(c) <= 159 for c in text))
-                self.assertTrue(r"\x1b" in text or r"\u001b" in text)
-                self.assertIn(r"\x9b", text)
+            self.assertTrue(r"\x1b" in value.raw or r"\u001b" in value.raw)
         self.assertEqual(inert("\ud800"), r"\ud800")
 
     def test_projection_bounds_include_timing_and_labels(self):
@@ -137,7 +147,8 @@ class FormattingTests(unittest.TestCase):
     def test_only_aware_iso_producer_timestamps_are_accepted(self):
         valid = self.decode(record(timestamp="2026-10-03T14:00:00+02:00"))
         self.assertEqual(valid.event, "2026-10-03T12:00:00+00:00")
-        self.assertIn("producer=", valid.display())
+        self.assertNotIn("producer=", valid.display())
+        self.assertIn("producer=", valid.display(raw=True))
         for stamp in ("2026-10-03T14:00:00", "bad", 1, None, "a" * 100,
                       "0001-01-01T00:00:00+12:00"):
             self.assertIsNone(self.decode(record(timestamp=stamp)).event)
@@ -182,12 +193,12 @@ class ReadingTests(unittest.TestCase):
         self.assertIn("tool result", kinds)
         self.assertIn("tool ERROR", kinds)
         self.assertEqual(kinds[-1], "runtime result")
-        self.assertIn("success", snapshot.entries[-1].text)
+        self.assertIn("✓ run finished", snapshot.entries[-1].text)
         read_result = next(e for e in snapshot.entries if e.kind == "tool result")
-        self.assertIn("Read id=<id-12>", read_result.text)
+        self.assertEqual(read_result.display(), "")
         error = next(e for e in snapshot.entries if e.kind == "tool ERROR")
-        self.assertIn("Bash id=<id-22>", error.text)
-        self.assertIn("No such file", error.text)
+        self.assertIn("✗ Exit code 1", error.text)
+        self.assertNotIn("No such file", error.text)
         self.assertGreater(snapshot.shortened_entries, 0)
         self.assertEqual(snapshot.entries[-1].capture, NOW.isoformat())
         self.assertTrue(read_result.event.startswith("2026-10-03T12:56:16"))
@@ -350,7 +361,8 @@ class ReadingTests(unittest.TestCase):
         snapshot = self.drain(reader)
         self.assertEqual(snapshot.resets, 1)
         output = next(e for e in snapshot.entries if e.kind == "tool result")
-        self.assertIn("unpaired id=a", output.text)
+        self.assertEqual(output.text, "")
+        self.assertEqual(reader.formatter.tools, {})
         self.assertIsNone(output.capture)
         self.assertNotIn("old partial", snapshot.entries[-1].text)
 

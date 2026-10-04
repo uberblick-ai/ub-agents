@@ -4,7 +4,7 @@ import json
 import socket
 
 from .errors import LostOwnership
-from .records import RECORD_MARKERS, declared_transition, lease_by_id, records, resolve_transition
+from .records import MARKER, declared_transition, lease_by_id, records, resolve_transition
 from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
@@ -19,7 +19,7 @@ class Notices:
     def comments(self, number):
         trusted = self.trusted.observation()
         return [c for c in self.github.comments(number)
-                if (c.get("body") or "").startswith(RECORD_MARKERS + (ACTION_MARKER,))
+                if (c.get("body") or "").startswith((MARKER, ACTION_MARKER))
                 and trusted(c.get("user"))]
 
     def post_once(self, number, text, marker):
@@ -108,7 +108,7 @@ class Notices:
         reported = parking_outcome or outcome
         target = lease["assignment"]
         transition = reported.get("transition", {}) if reported else {}
-        if transition and "triggers" not in transition:
+        if transition:
             source = lease if reported["lease_id"] == lease["id"] else lease_by_id(
                 records(self.comments(reported["assignment"])), reported["lease_id"])
             transition = resolve_transition(transition, declared_transition(source, reported["outcome"]))

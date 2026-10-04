@@ -6,13 +6,20 @@ notes are copied from that section.
 
 ## Unreleased
 
-### Fixed
-
-- The terminal view shows the launcher's run when it starts after the view opened, until a row is selected, and keeps the tree cursor on a moved row (#189).
+**Upgrading:** stop all of a project's launchers and wait until every one has exited,
+then upgrade them together before restarting. Remove the trigger label or add a
+stop label on items you want to stay held (#132).
 
 ### Changed
 
+- Coordination reads only v3 records; attempt counts and blocked or exhausted state on items reset once on upgrade (#132).
+- The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
+- Claude logs use compact local timestamps, tool calls, line counts and distinct errors in the terminal view, with raw records available on demand (#163).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
+
+### Fixed
+
+- The terminal view shows the launcher's run when it starts after the view opened, until a row is selected, and keeps the tree cursor on a moved row (#189).
 
 ## 0.1.11 — 2026-10-04
 

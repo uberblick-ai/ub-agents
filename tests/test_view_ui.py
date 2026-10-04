@@ -8,10 +8,12 @@ import unittest
 from unittest.mock import patch
 
 from tests.test_view_data import event, fixture
+from tests.test_log_reader import FIXTURE, record, result, tool
+from tests.test_view_github import reply
 from tests.support import RecordingDescriptionTransport
-from ub_agents.view_github import DescriptionLoads, Response
+from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
-from textual.widgets import Static, TabbedContent, Tree
+from textual.widgets import Markdown, Static, TabbedContent, Tree
 from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, View
 from ub_agents.view_worker import LocalWorker
 
@@ -34,6 +36,254 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             if condition() if condition else app.reading.page is not None:
                 return
         self.fail('View did not become ready')
+
+    async def test_compact_claude_styles_single_line_tools_and_hidden_anchor(self):
+        # Replay recorded messages and synthetic counts, omitting only the huge
+        # successful result so this page fits the bounded initial attachment.
+        recorded = [line for line in FIXTURE.read_bytes().splitlines(keepends=True) if len(line) < 4000]
+        edit = record(content=[{**tool(name='Edit'), 'input': {
+            'file_path': 'long/' * 50, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
+        self.log.write_bytes(b''.join(recorded) + edit + b''.join(event(i, 20) for i in range(30)))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            joined = '\n'.join(line.text for line in output.lines)
+            self.assertIn('· thinking', joined)
+            self.assertIn('✗ Exit code 1', joined)
+            self.assertIn('✓ run finished', joined)
+            self.assertNotIn('producer=', joined)
+            self.assertNotIn('thinking_tokens', joined)
+            call_ref = next(ref for ref in app.reading.page.refs if '▸ Edit' in ref.value.text)
+            self.assertEqual(sum(start == call_ref.start for start, _ in output.positions), 1)
+            self.assertTrue(next(line.text for line, pos in zip(output.lines, output.positions)
+                                 if pos[0] == call_ref.start).endswith('… +2 -1'))
+            # Render a shorter call too, proving Rich styles reach terminal segments.
+            call = record(content=[{**tool(name='Edit'), 'input': {
+                'file_path': 'a.py', 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
+            with self.log.open('ab') as stream:
+                stream.write(call)
+            await self.ready(app, pilot, lambda: app.reading.page.refs[-1].value.text.endswith('+2 -1'))
+            with self.log.open('ab') as stream:
+                stream.write(json.dumps({'type': 'error', 'message': 'x' * 300}).encode() + b'\n')
+            await self.ready(app, pilot, lambda: app.reading.page.refs[-1].value.kind == 'runtime ERROR')
+            self.assertTrue(all(line.cell_length <= output.render_width for line in output.lines))
+            segments = [segment for line in output.lines for segment in line]
+            self.assertTrue(any('+2' in segment.text and segment.style.color.name == 'green' for segment in segments))
+            self.assertTrue(any('-1' in segment.text and segment.style.color.name == 'red' for segment in segments))
+            self.assertTrue(any('✗' in segment.text and segment.style.color.name == 'red' for segment in segments))
+            self.assertTrue(any('· thinking' in segment.text and segment.style.dim for segment in segments))
+            self.assertTrue(any('SPIKE111_MESSAGE_BEGIN' in segment.text and segment.style.italic for segment in segments))
+            # In raw mode Home lands on a hidden system record. Keep its byte
+            # anchor through formatted mode and resize, then recover it with u.
+            await pilot.press('f', 'u', 'home')
+            await pilot.pause()
+            anchor = output.anchor()
+            self.assertEqual(anchor[0], app.reading.page.refs[0].start)
+            self.assertEqual(app.reading.page.refs[0].value.display(), '')
+            await pilot.press('u')
+            self.assertEqual(output.anchor(), anchor)
+            await pilot.resize_terminal(120, 36)
+            await pilot.pause()
+            self.assertEqual(output.anchor(), anchor)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], anchor[0])
+            # Failed result anchors are retained on both projections too.
+            failed = next(ref for ref in app.reading.page.refs if ref.value.kind == 'tool ERROR')
+            app.reading.anchor = (failed.start, 0)
+            output.reflow()
+            await pilot.pause()
+            await pilot.press('u', 'u')
+            self.assertEqual(output.anchor()[0], failed.start)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_formatted_hidden_records_do_not_change_page_accounting(self):
+        leading = json.dumps({'type': 'system', 'subtype': 'init'}).encode() + b'\n'
+        self.log.write_bytes(leading + b''.join(event(i, 20) for i in range(30)) +
+                             record(content=[tool()]))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            trailing = (json.dumps({'type': 'system', 'subtype': 'task_notification'}).encode() + b'\n' +
+                        json.dumps({'type': 'rate_limit_event'}).encode() + b'\n' +
+                        record('user', [result(content='x' * 3000)]))
+            with self.log.open('ab') as stream:
+                stream.write(trailing)
+            await self.ready(app, pilot, lambda: app.reading.page.end == self.log.stat().st_size)
+            for raw in (False, True, False):
+                with self.subTest(raw=raw):
+                    if app.reading.raw != raw:
+                        await pilot.press('u')
+                    status = str(app.query_one('#status', Static).render())
+                    note = str(app.query_one('#log_note', Static).render())
+                    self.assertIn('FOLLOW', status)
+                    self.assertIn('unread 0 entries · lag 0B', status)
+                    self.assertIn(f'bytes 0–{self.log.stat().st_size}', note)
+                    self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: 0 entries hidden', note)
+                    self.assertEqual(output.visible_refs, app.reading.page.refs)
+                    self.assertEqual(output.hidden, 0)
+                    if not raw:
+                        displayed = {start for start, _ in output.positions}
+                        self.assertNotIn(app.reading.page.refs[0].start, displayed)
+                        self.assertTrue(all(ref.start not in displayed for ref in app.reading.page.refs[-3:]))
+            # Leading hidden records are already on this page, not an older one.
+            app.action_history()
+            self.assertEqual(app.reading.notice, 'Beginning of file (byte zero).')
+            self.assertIsNone(app.pending_history)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_page_of_only_hidden_records_retains_raw_anchor(self):
+        self.log.write_bytes(b''.join(line for line in FIXTURE.read_bytes().splitlines(keepends=True)
+                                     if json.loads(line)['type'] in ('system', 'rate_limit_event')))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            self.assertEqual(output.lines, [])
+            self.assertEqual(output.visible_refs, app.reading.page.refs)
+            self.assertEqual(output.hidden, 0)
+            await pilot.press('f', 'u', 'home')
+            await pilot.pause()
+            anchor = output.anchor()
+            await pilot.press('u')
+            self.assertEqual(output.lines, [])
+            self.assertEqual(output.anchor(), anchor)
+            await pilot.resize_terminal(120, 36)
+            await pilot.pause()
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], anchor[0])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_hidden_tail_uses_preceding_entry_and_scrolling_releases_anchor(self):
+        hidden = json.dumps({'type': 'system', 'subtype': 'task_notification',
+                             'fixture_source': 'synthetic', 'payload': 'x' * 1800}).encode() + b'\n'
+        self.log.write_bytes(b''.join(event(i, 20) for i in range(40)) + hidden)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            await pilot.press('f', 'u')
+            tail = app.reading.page.refs[-1].start
+            app.reading.anchor = (tail, 0)
+            output.reflow()
+            await pilot.pause()
+            self.assertEqual(output.anchor()[0], tail)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], tail)
+            self.assertEqual(output.visible_refs[-1].start, tail)
+            self.assertEqual(output.positions[-1][0], app.reading.page.refs[-2].start)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], tail)
+            await pilot.press('u')
+            output.action_scroll_up()
+            await pilot.pause()
+            moved = output.anchor()[0]
+            self.assertNotEqual(moved, tail)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], moved)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    def description_source(self, source, title, body):
+        if source == 'snapshot':
+            row = self.state['latest_pass']['rows'][0]
+            row['title'] = title
+            row['description'] = {'available': True, 'text': body}
+            self.path.write_text(json.dumps(self.state))
+        elif source == 'run context.json':
+            (self.log.parent / 'context.json').write_text(json.dumps({'title': title, 'body': body}))
+        else:
+            (self.log.parent / 'context.json').unlink()
+        transport = RecordingDescriptionTransport()
+        transport.response = parse_response(reply(title, body), b'', 0, 1000)
+        return transport
+
+    async def test_markdown_body_from_every_source_is_formatted_and_inert(self):
+        title = '[bold]Title[/bold]\r\nnext\ttitle\rlast\x1b[31m'
+        body = ('# Overview\r\n\r\nfirst\tline\rsecond\nthird\n\n'
+                '- **strong** and *emphasis* with `code`\n'
+                '- [bold]literal[/bold] \x1b[31mred\n\n'
+                '1. Ordered\n\n```text\ncode\tline\nnext line\n```\n\n'
+                '[web](https://example.invalid) <https://example.invalid>\n'
+                '[local](file:///missing) [anchor](#overview)\n'
+                '![picture](https://example.invalid/pic.png)\n'
+                '<b>HTML</b> <img src="https://example.invalid/pic.png">\n'
+                '&#27; &#x9b; [ref][target]\n[target]: https://example.invalid')
+        expected = body.replace('\r\n', '\n').replace('\r', '\n').replace('\x1b', r'\x1b')
+        for source in ('snapshot', 'run context.json', 'GitHub'):
+            with self.subTest(source=source):
+                self.path, self.log, self.state = fixture(self.root)
+                transport = self.description_source(source, title, body)
+                app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                with patch.object(app, 'open_url', side_effect=AssertionError('opened link')), \
+                     patch.object(Markdown, 'load', side_effect=AssertionError('loaded link')), \
+                     patch('subprocess.Popen', side_effect=AssertionError('unexpected process')):
+                    async with app.run_test(size=(110, 32)) as pilot:
+                        await self.ready(app, pilot)
+                        await pilot.press('2', 'g')
+                        await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
+                        markdown = app.query_one('#issue_body', Markdown)
+                        await self.ready(app, pilot, lambda: len(markdown.query('MarkdownBullet')) == 3)
+                        self.assertEqual(markdown.source, expected)
+                        self.assertEqual(len(markdown.query('MarkdownH1')), 1)
+                        self.assertEqual(len(markdown.query_one('MarkdownBulletList').query('MarkdownBullet')), 2)
+                        self.assertEqual(len(markdown.query_one('MarkdownOrderedList').query('MarkdownBullet')), 1)
+                        content = [block.render() for block in markdown.query('MarkdownParagraph')]
+                        rendered = '\n'.join(part.plain for part in content)
+                        self.assertIn('\nsecond\nthird', rendered)
+                        self.assertIn('[bold]literal[/bold]', rendered)
+                        self.assertIn(r'\x1b[31mred', rendered)
+                        self.assertNotIn('\x1b', rendered)
+                        for literal in ('[web](https://example.invalid)', '<https://example.invalid>',
+                                        '[local](file:///missing)', '[anchor](#overview)',
+                                        '![picture](https://example.invalid/pic.png)', '<b>HTML</b>',
+                                        '<img src="https://example.invalid/pic.png">',
+                                        '&#27; &#x9b;', '[ref][target]', '[target]: https://example.invalid'):
+                            self.assertIn(literal, rendered)
+                        spans = [span for part in content for span in part.spans]
+                        for style in ('.strong', '.em', '.code_inline'):
+                            self.assertTrue(any(span.style == style for span in spans))
+                        self.assertTrue(all(isinstance(span.style, str) or not span.style.meta for span in spans))
+                        header = app.query_one('#issue_text', Static).render()
+                        self.assertIn('[bold]Title[/bold]\nnext\ttitle\nlast' + r'\x1b[31m', header.plain)
+                        self.assertFalse(header.spans)
+                        self.assertIn(f'Source: {source}', app.query_one('#issue_note', Static).render().plain)
+                        self.assertNotIn('Source:', markdown.source)
+                        # Neither mouse nor keyboard activation has a link target.
+                        await pilot.click(markdown.query_one('MarkdownParagraph'), offset=(2, 0))
+                        await pilot.press('tab', 'enter', 'space')
+                        markdown.post_message(Markdown.LinkClicked(markdown, 'https://example.invalid'))
+                        await pilot.pause()
+                        self.assertEqual(len(transport.calls), 1 if source == 'GitHub' else 0)
+                        await pilot.press('q')
+                app.worker.thread.join(2)
+
+    async def test_shortened_code_fence_keeps_plain_notice_for_every_source(self):
+        body = '# Start\n\n```text\n' + 'x' * 3000 + '\n```\nEnd'
+        for source in ('snapshot', 'run context.json', 'GitHub'):
+            with self.subTest(source=source):
+                self.path, self.log, self.state = fixture(self.root)
+                transport = self.description_source(source, 'Title', body)
+                app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                async with app.run_test(size=(110, 32)) as pilot:
+                    await self.ready(app, pilot)
+                    await pilot.press('2', 'g')
+                    await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
+                    markdown = app.query_one('#issue_body', Markdown)
+                    await self.ready(app, pilot, lambda: len(markdown.query('MarkdownFence')) == 1)
+                    self.assertEqual(markdown.source, body[:2048])
+                    self.assertNotIn('shortened', markdown.query_one('MarkdownFence').code)
+                    note = app.query_one('#issue_note', Static)
+                    self.assertIn('Description shortened to 2,048 characters.', note.render().plain)
+                    self.assertFalse(note.render().spans)
+                    self.assertGreater(note.region.y, markdown.region.y)
+                    self.assertLess(note.region.bottom, 32)
+                    await pilot.press('q')
+                app.worker.thread.join(2)
 
     async def test_sections_counts_hidden_empty_sections_and_dim_partial_marker(self):
         self.state['latest_pass']['rows'].extend([
@@ -83,9 +333,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_selected_plan_survives_section_order_change_and_disappearance(self):
+        description = {'available': True, 'text': '# Planned work\n\n**Cached body**'}
         self.state['latest_pass']['rows'].extend([
             {'item': 20, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
-            {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
+            {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched',
+             'description': description},
         ])
         self.path.write_text(json.dumps(self.state))
         app = View(self.root, self.path)
@@ -96,18 +348,23 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             own, page, anchor = app.selected, app.reading.page, output.anchor()
             key = next(k for k, row in app.rows.items() if row.item == 21)
             app.select(key)
+            markdown = app.query_one('#issue_body', Markdown)
+            await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
+            self.assertEqual(markdown.source, description['text'])
             tree = app.query_one('#work', Tree)
             app.move_cursor(app.reason_nodes[key])
             output.focus()
             self.assertIs(tree.cursor_node, app.reason_nodes[key])
             self.state['latest_pass']['rows'] = [
-                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'}]
+                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31',
+                 'description': description}]
             self.path.write_text(json.dumps(self.state))
             # The tree moves its cursor back to the kept node after the next refresh.
             await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting')
                              and tree.cursor_node is app.reason_nodes[key])
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
+            self.assertEqual(markdown.source, description['text'])
             self.assertNotIn('Eligible', app.groups)
             self.assertEqual([node.label.plain for node in tree.root.children[:2]],
                              ['Running · 1', 'Waiting · 1'])
@@ -116,6 +373,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
+            self.assertEqual(markdown.source, description['text'])
             app.select(own)
             await pilot.pause(0.3)
             self.assertEqual(app.reading.page, page)
@@ -133,6 +391,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         previous.mkdir()
         log = previous / 'process.log'
         log.write_bytes(b''.join(event(i) for i in range(600)))
+        (previous / 'context.json').write_text(json.dumps({
+            'title': 'Earlier work', 'body': '# Earlier work\n\n**Outcome context**'}))
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -149,6 +409,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             key = 'outcome:previous-run'
             tree.select_node(app.nodes[key])
             await self.ready(app, pilot)
+            markdown = app.query_one('#issue_body', Markdown)
+            await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
+            self.assertIn('Outcome context', markdown.source)
             await pilot.press('f', 'home', 'pagedown')
             output = app.query_one(LogPane)
             page, anchor = app.reading.page, output.anchor()
@@ -162,12 +425,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('enter')
             self.assertFalse(group.is_expanded)
             self.assertEqual(app.selected, RECENT_ACTIVITY)
+            self.assertEqual(markdown.source, '')
             self.assertIs(tree.cursor_node, group)
             await pilot.pause(0.3)
             self.assertFalse(group.is_expanded)
             await pilot.press('enter')
             tree.select_node(app.nodes[key])
             await pilot.pause(0.3)
+            self.assertIn('Outcome context', markdown.source)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
             # Mouse/arrow collapse also selects the header when an outcome is selected.

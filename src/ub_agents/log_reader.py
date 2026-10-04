@@ -125,6 +125,8 @@ class LogReader:
             trailing, _ = decoder.getstate()
             if trailing:
                 raw = raw[:-len(trailing)]
+        if kind:
+            self.formatter.last_call = None
         value = (raw_entry(raw, self.capture, kind) if kind else
                  self.formatter.decode(raw, self.capture) if self.runtime == "claude" else
                  raw_entry(raw, self.capture))
