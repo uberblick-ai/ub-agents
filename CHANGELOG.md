@@ -13,6 +13,8 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 
 ### Added
 
+- The terminal view can load a selected item's missing description from GitHub on request, with cached results and rate-limit cooldowns (#115).
+
 - A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).
 
 - Every launcher, including `launch --once`, publishes a private, bounded,
