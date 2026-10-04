@@ -13,8 +13,8 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from ub_agents.records import LEGACY_MARKER, MARKER, attempts, body, iso, records, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh, write_legacy_records
+from ub_agents.records import MARKER, attempts, body, iso, records, seconds
+from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class NoticeTests(unittest.TestCase):
@@ -72,55 +72,6 @@ class NoticeTests(unittest.TestCase):
         long["summary"] = "A" * 2000
         self.assertLess(len(body(long).splitlines()[1]), 350)
         self.assertIn("A" * 2000, body(long))
-
-    def test_legacy_records_never_make_an_item_malformed(self):
-        lease = self.start()
-        valid = self.github.comments(1)[0]
-        # Recreate the previous layout, then mix valid and broken old records.
-        valid["body"] = (LEGACY_MARKER + "\nOld human prose\n\n```json\n" +
-                         valid["body"].split("```json\n", 1)[1].split("\n```", 1)[0] + "\n```\n")
-        broken = valid | {"id": 90, "body": LEGACY_MARKER + "\nunreadable old record"}
-        wrong_item = valid | {"id": 91, "issue_url": "not an assignment URL"}
-        self.github.store[1] = [valid, broken, wrong_item]
-        self.assertEqual(self.co.history(1)[0]["run"], lease["run"])
-        self.assertEqual(len(self.co.history(1)), 1)
-        history, invalid = self.co.repository_history()
-        self.assertEqual((len(history), invalid), (1, set()))
-        broken["body"] = MARKER + "\nunreadable new record"
-        self.assertEqual(self.co.repository_history()[1], {1})
-
-    def test_record_versions_preserve_ownership_attempts_and_recovery(self):
-        for version in (1, 2):
-            with self.subTest(version=version):
-                self.github = self.github_for(issue(), pr())
-                self.now = 1000
-                self.co = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
-
-                def convert_records():
-                    if version == 1:
-                        for comment in self.github.store[1]:
-                            if comment['body'].startswith(MARKER):
-                                payload = comment['body'].split('```json\n', 1)[1].split('\n```', 1)[0]
-                                comment['body'] = f'{LEGACY_MARKER}\n\n```json\n{payload}\n```\n'
-
-                failed = self.start()
-                self.co.release(failed, "retry", "First failed attempt")
-                lease = self.start()
-                outcome = self.co.report(lease, "success", "Finished", outcome="done")
-                convert_records()
-                self.assertEqual(self.co.plan(self.github.item(1), self.worker, ()).state, "owned")
-                self.assertIsNone(self.co.claim(self.co.plan(self.github.item(1), self.worker, ())))
-                self.now = seconds(lease["expires"]) + 1
-                plan = self.co.plan(self.github.item(1), self.worker, ())
-                self.assertEqual((plan.state, plan.attempt), ("recover", 2))
-                self.assertEqual(self.co.pending_completion(self.co.history(1), "worker", self.now), outcome)
-                self.assertIsNotNone(self.co.claim(plan, recovery=True))
-                convert_records()
-                with self.assertRaises(LostOwnership):
-                    self.co.assert_owned(lease)
-                history, invalid = self.co.repository_history()
-                self.assertTrue(history)
-                self.assertEqual(invalid, set())
 
     def test_release_minimizes_only_superseded_runs_of_the_same_agent(self):
         first = self.start()
@@ -503,13 +454,6 @@ class NoticeTests(unittest.TestCase):
         loop.tick()
         self.assertEqual(len(self.output), 3)
         self.assertIn("parked", self.output[-1])
-
-
-class LegacyNoticeTests(NoticeTests):
-    def github_for(self, *items):
-        github = super().github_for(*items)
-        write_legacy_records(github)
-        return github
 
 
 if __name__ == "__main__":

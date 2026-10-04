@@ -6,9 +6,9 @@ notes are copied from that section.
 
 ## Unreleased
 
-**Upgrading:** before starting launchers on this version, remove the trigger label
-or add a stop label on open items whose last run was blocked under `ub-agent`;
-those records are now ignored, making triggered items eligible again. Delete any
+**Upgrading:** stop all of a project's launchers and wait until every one has exited,
+then upgrade them together before restarting. Remove the trigger label or add a
+stop label on items you want to stay held (#132). Delete any
 leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 Approvals now default off for private and internal repositories; set
 `approvals: on` to retain the previous checks (#134).
@@ -33,6 +33,8 @@ Approvals now default off for private and internal repositories; set
   GitHub reads and cannot hold up execution or shutdown (#113).
 
 ### Changed
+
+- Coordination reads only v3 records; attempt counts and blocked or exhausted state on items reset once on upgrade (#132).
 
 - Configuration commands accept `--config` before or after the command; `approve`
   and `retry` take positional numbers, retaining deprecated `--number` for one release (#130).

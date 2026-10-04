@@ -9,7 +9,7 @@ import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
-from ub_agents.records import RECORD_MARKERS, body, lease_by_id, payload, records
+from ub_agents.records import MARKER, body, payload, records
 
 
 class RecordingDescriptionTransport:
@@ -28,34 +28,6 @@ class RecordingDescriptionTransport:
 
     def close(self):
         self.closed = True
-
-
-def write_legacy_records(github):
-    """Simulate expanded transition snapshots for the schema compatibility suites."""
-    create = github.create_comment
-
-    def legacy_create(number, text):
-        parsed = records([{"id": 1, "body": text, "user": {"login": github.actor()}}])
-        if parsed:
-            record = payload(parsed[0])
-            if record["kind"] == "lease" and "declared_triggers" in record:
-                legacy = {}
-                for name, declaration in record["outcomes"].items():
-                    changes = {"add": declaration} if isinstance(declaration, list) else declaration
-                    legacy[name] = {"add": changes["add"],
-                                    "remove": sorted(set(record["declared_triggers"]).union(changes.get("remove", ()))),
-                                    "triggers": record["declared_triggers"], "stop_labels": record["stop_labels"]}
-                record["outcomes"] = legacy
-                record.pop("declared_triggers")
-                record.pop("stop_labels")
-            elif record["kind"] == "outcome" and "transition" in record:
-                source = lease_by_id(records(github.comments(record["assignment"])), record["lease_id"])
-                record["transition"] = source["outcomes"][record["outcome"]] | {
-                    "started": record["transition"]["started"]}
-            text = body(record)
-        return create(number, text)
-
-    github.create_comment = legacy_create
 
 
 def isolate_runtime_state(test):
@@ -279,7 +251,7 @@ class FakeGitHub:
     def create_comment(self, number, body, *, login=None):
         from ub_agents.records import iso, timestamp
         login = self.login if login is None else login
-        data = records([{"body": body, "id": 0, "user": {"login": login}}])[0] if body.startswith(RECORD_MARKERS) else {}
+        data = records([{"body": body, "id": 0, "user": {"login": login}}])[0] if body.startswith(MARKER) else {}
         with self.lock:
             created_at = iso(timestamp())
             comment = {"id": self.next_id, "node_id": f"node-{self.next_id}", "body": body, "user": {"login": login},
