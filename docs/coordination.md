@@ -62,7 +62,7 @@ this change does not reclassify them. Use `ub-agents retry` to clear them.
 ## Selection order
 
 1. Eligibility first: live claims, stop labels, retry backoff, attempt limits and
-   [maintainer starts and outside-input approval](approvals.md). Every issue run
+   [maintainer starts and outside-input approval](approvals.md) when approvals are on. Every issue run
    needs a start; outside PRs also need an eligible head. Trusted PRs need no start.
    Outside feedback suspends outside PRs, while issues and trusted PRs only exclude
    uncleared feedback.
@@ -98,7 +98,17 @@ recheck.
 
 ## Assignment input
 
-Approval checks at pickup park disallowed items with their reason, without claims
+The top-level `approvals` setting defaults to on for public repositories and off
+for private and internal repositories. Each discovery pass resolves the unset
+default from GitHub visibility; an unreadable visibility fails before claims or
+parking writes. With approvals off, a configured trigger label starts work
+regardless of who applied it, current titles and bodies are input, and feedback
+is limited to authors with `write`, `maintain` or `admin`. No approval record can
+clear other feedback. PR heads need no approval, and there are no approval reads
+or approval-parking writes. Other eligibility gates and stop labels still apply.
+See the [approval policy](approvals.md) for details.
+
+With approvals on, checks at pickup park disallowed items with their reason, without claims
 or attempts. When approval is the only obstacle for an open, triggered item,
 `launch` adds the project's configured stop label (`needs-human` in the starter)
 and posts one **Action needed** notice. `status` stays read-only. Unreadable
@@ -118,13 +128,14 @@ These writes are advisory: a failure is logged, never writes coordination record
 or changes attempt counts, and cannot cause a claim. A later claim minimizes the
 notice using the same launcher notice marker as other Action needed notices.
 
-After winning a claim, the launcher rereads and validates input.
+With approvals on, after winning a claim, the launcher rereads and validates input.
 A failed check withdraws that claim before execution, preserves attempts and returns
 the item to parked; approval makes it eligible without `ub-agents retry`. Preparation
 uses the same gate: a maintainer's `needs-preparation` starts it, and the preparer's
-rewrite is trusted. There is no switch to bypass enforcement.
+rewrite is trusted.
 
-Context holds the post-claim title, body and trusted or cleared outside comments.
+Context holds the post-claim title, body and trusted comments; approvals on can also
+include cleared outside comments.
 PR context adds the assigned head, reviews and review comments. Uncleared and
 later-edited outside feedback, coordination records, launcher notices and approval records are
 excluded. The prompt makes this snapshot the assignment input; other GitHub
@@ -142,14 +153,15 @@ from every trusted launcher account supply this input. Revisions must address
 `feedback` alongside comments and reviews.
 This field does not change approval requirements.
 
-An outside PR head requires a valid pinned approval record, a maintainer approving
+With approvals on, an outside PR head requires a valid pinned approval record, a maintainer approving
 review on that head, or an accepted agent outcome from an eligible assignment head
 when the head repository is the base repository. Changed fork heads need explicit
 maintainer approval, even if an accepted successful run observed them.
 A trigger label alone cannot identify a pushed head. Fork PR review is supported;
-agent revision of a fork PR remains blocked. `ub-agents approve --number N` accepts
+agent revision of a fork PR remains blocked regardless of the approvals setting.
+`ub-agents approve --number N` accepts
 issues and PRs and clears the outside feedback it records; PR records also pin the
-head. See the [complete PR rules](approvals.md#pull-requests).
+head. Its records have no effect with approvals off. See the [complete PR rules](approvals.md#pull-requests).
 
 ## Trusted comments
 

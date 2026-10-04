@@ -105,8 +105,9 @@ def agent(root, **overrides):
 
 
 def config(root, *agents, queue=Queue()):
+    # General coordination fixtures retain the approvals-on contract explicitly.
     return Config(Path(root), "org/project", agents or (agent(root),), 1, ("needs-human",),
-                  queue=queue)
+                  queue=queue, approvals="on")
 
 
 def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milestone=None):
@@ -140,6 +141,7 @@ class FakeGitHub:
         self.minimized_ids = set()
         self.login = "operator"
         self.roles = {"operator": "write", "maintainer": "maintain"}
+        self.repository_visibility = "public"
         self.timelines = {}
         self.content_histories = {}
         self.review_store = {}
@@ -149,6 +151,9 @@ class FakeGitHub:
 
     def role(self, login):
         return self.roles.get(login.casefold(), "none") if isinstance(login, str) else None
+
+    def visibility(self):
+        return self.repository_visibility
 
     def timeline(self, number):
         # General coordination fixtures start authorized; trust tests supply explicit histories.
@@ -339,6 +344,9 @@ class PollGitHub(FakeGitHub):
     def role(self, login):
         return self._read("role", login)
 
+    def visibility(self):
+        return self._read("visibility")
+
     def timeline(self, number):
         return self._read("timeline", number)
 
@@ -489,7 +497,7 @@ class DoctorGitHub(FakeGitHub):
         self.quota_headers = {"x-ratelimit-remaining": "5000", "x-ratelimit-limit": "5000",
                                  "x-ratelimit-reset": "1000"}
         self.rate_limited = False
-        self.metadata = {"full_name": "org/project", "permissions": {"triage": True}}
+        self.metadata = {"full_name": "org/project", "permissions": {"triage": True}, "visibility": "public"}
 
     def actor(self):
         self.reads.append("user")

@@ -213,6 +213,8 @@ def run(args):
         for agent in config.agents:
             instruction_text(config.root, agent.instructions, f"{agent.name} instructions")
         print(f"Valid configuration: {config.repository}, {len(config.agents)} agents")
+        print(f"Approvals: {config.approvals} (config)" if config.approvals is not None else
+              "Approvals: from repository visibility (public: on; private/internal: off)")
         return
     github = GitHub(config.repository)
     actor = None if args.command == "launch" else github.actor()

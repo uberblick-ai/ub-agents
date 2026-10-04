@@ -147,6 +147,23 @@ upgrading any.
 
 ## Issue and PR approvals
 
+Set top-level `approvals: on` or `approvals: off` in `ub-agents.yaml` to choose the
+policy. By default it is on for public repositories and off for private and
+internal repositories, resolved from GitHub visibility each discovery pass. An
+unreadable visibility fails the pass without claims or parking writes. `doctor`
+shows the effective value and source; `check` shows the configured value or the
+visibility default without contacting GitHub.
+
+With approvals off, a configured trigger label starts work regardless of who
+applied it. Agents receive the current title and body, and comments, reviews and
+review comments only from authors with `write`, `maintain` or `admin`. Other
+feedback remains excluded even with an approval record. PR heads, including fork
+heads, need no approval; the launcher makes no approval reads or approval-parking
+writes. `ub-agents approve` still works, but its records have no effect. Other
+eligibility gates, stop labels and fork revision restrictions still apply.
+
+The following rules apply with approvals on.
+
 People who start and approve work use their own accounts with `maintain` or `admin`.
 
 Every issue run, including preparation, needs a maintainer start. The launcher
