@@ -80,14 +80,26 @@ plain-text projections and newline escaping.
 | `f` | Toggle follow/pause; resuming loads the latest generation |
 | `h` | Read an older bounded page, down to byte zero |
 | `u` | Toggle formatted/raw projection of the same page |
-| `p` | Show the full raw file path; `Escape` closes it |
+| `p` | Show the full raw file path, byte ranges and retention diagnostics; `Escape` closes it |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
+| `?` | Show all keys; `Escape` or `?` closes help |
 | `q` | Close only the view; launcher continues with plain output |
 | `Ctrl-C` | Interrupt the launching process with its normal SIGINT handling (exit 130) |
 
-FOLLOW/PAUSED, RAW/FORMATTED, snapshot freshness, unread entries and byte lag are
-always visible in the footer, including on Issue and Runs. Pausing freezes the
-page and its position while ingestion continues. Revisiting tabs or selected
+The one-line footer shows the snapshot's launcher version and activity on the
+left: waiting counts down as `next poll Ns`; other activities say `polling`,
+`running assignment` or `stopping`. Stale, ended and malformed snapshots are
+labelled there, including the malformed error, without a snapshot-age counter.
+Below 110×32, it also shows the minimum-size hint. Main keys appear on the right;
+they switch to log keys while the selected log is paused, including on Issue and
+Runs. `?` lists all keys in a help overlay.
+
+A pill at the bottom right of Log appears only when paused or behind. It shows
+PAUSED or BEHIND, nonzero unread entries and byte lag, and RAW when that projection
+is on. There is no FOLLOW badge. Log notices appear only when applicable: file
+changes or an earlier generation, read errors, unfinished records, unknown-runtime
+fallback and older-page notices. Pausing freezes the page and its position while
+ingestion continues. Revisiting tabs or selected
 rows restores that page and position. Resizing and raw-mode changes retain the
 entry at the reading position, with a proportional position within wrapped text.
 Claude uses the #112 formatter. Unknown runtimes, including Codex, use a labelled
@@ -115,13 +127,15 @@ After a rate-limit response, Issue shows a global cooldown through the reported
 reset or `Retry-After` time. Loads and retries make no call during it. If GitHub
 provides neither a future reset nor retry time, the cooldown is 60 seconds.
 
-Attachment reads near the tail, with a visible byte range. Ingestion reads at
+Attachment reads near the tail; `p` shows the displayed and retained page's byte
+ranges alongside the full raw file path. Ingestion reads at
 most 32 KiB and processes at most 128 records per update; a bounded first-read
 selection avoids replaying a tiny-record history before recent output. Retention
 is 200 entries per reader. Older reads inspect at most 32 KiB plus identity
 anchors and decode at most 200 complete records and one fragment. Rendering keeps
-at most 400 wrapped lines, discarding whole older entries with a visible boundary.
-Press `h` to recover those bytes from disk. A paused page is independent of reader
+at most 400 wrapped lines, discarding whole older entries. `p` shows this rendered
+limit and hidden-entry boundary, plus eviction, skip and shortening counts.
+Press `h` to recover earlier bytes from disk. A paused page is independent of reader
 and renderer retention. Text is limited by the formatter to 2,048 characters per
 projection, with shortening markers. `u` is also a bounded projection: use `p`
 and an external pager for the full raw file. Oversized or split records remain
@@ -168,6 +182,12 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    appears once. Empty sections are hidden. A partial pass has a dim marker on
    the pane title, which disappears when the pass completes. Confirm follow reaches
    recent output and cached Issue and session Runs tabs are readable.
+   Check the single footer line shows the snapshot's version and activity, including
+   the waiting countdown and stopping state, with readable main keys at 110 columns.
+   Check stale, ended and malformed snapshots are labelled, with the malformed error,
+   and that a smaller terminal shows `minimum 110×32`. There is no snapshot age or
+   Local files/GitHub diagnostic line. Open `?`, check every key, and close it with
+   both `?` and `Escape` without losing selection or the reading position.
    Include today's and older outcomes; check the collapsed Recent activity count
    against the local date. Use `Enter` to expand it, select an outcome and pause
    its log. Publish refreshes and move a selected plan between sections; check
@@ -176,9 +196,14 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    paused page. Remove a selected plan and check its earlier observation remains.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading
-   position must remain stable; unread and lag must grow.
-3. Read older pages toward byte zero, switch raw mode and resize. Check the byte
-   range, omission notices and `p` full raw path. Resume follow.
+   position must remain stable; unread and lag must grow in the Log pill, which
+   appears only when paused or behind. Check the footer switches to log keys on
+   every tab, and the pill stays in Log.
+3. Read older pages toward byte zero, switch raw mode and resize. Check older-page
+   notices and the pill's RAW marker. Open `p` and check the full raw path, byte
+   ranges, eviction/skip/shortening counts and rendered-line limit there. Those
+   diagnostics no longer occupy the Log header. Resume follow; the pill disappears
+   when caught up, and no FOLLOW badge appears.
 4. Replace or truncate the replay log. Check generation recovery and refusal of
    older reads from the prior generation.
 5. On Issue, select a row with no local description and press `g`. Confirm loading,

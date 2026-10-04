@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import signal
 import struct
@@ -224,8 +225,10 @@ sys.exit(app.return_code or 1)
                             return bytes(chunk)
                         drain(1.2)
                         self.assertIsNone(app.poll(), bytes(transcript[-1000:]))
-                        self.assertIn(b'FOLLOW', transcript)
-                        self.assertIn(b'FORMATTED', transcript)
+                        self.assertIn(b'running assignment', transcript)
+                        self.assertIn(b'? keys q quit', transcript)
+                        self.assertNotIn(b'FOLLOW', transcript)
+                        self.assertNotIn(b'FORMATTED', transcript)
                         self.assertIn(b'Running', transcript)
                         self.assertIn(b'partial', transcript)
                         self.assertIn(b'\x1b[?1049h', transcript)
@@ -251,11 +254,15 @@ sys.exit(app.return_code or 1)
                         os.write(master, b'3')
                         self.assertIn(b'needs-human', drain())
                         os.write(master, b'1p')
-                        self.assertIn(b'process.log', drain())
+                        raw = drain()
+                        self.assertIn(b'process.log', raw)
+                        self.assertIn(b'Displayed bytes', raw)
+                        self.assertIn(b'evicted', raw)
+                        self.assertIn(b'Rendered limit 400', raw)
                         os.write(master, b'\x1b')
                         drain()
                         os.write(master, b'f')
-                        self.assertIn(b'FOLLOW', drain())
+                        self.assertNotIn(b'FOLLOW', drain())
                         before_size = log.stat().st_size
                         os.write(master, quit_key)
                         # Keep draining until exit. A rich crash traceback can fill
@@ -292,6 +299,7 @@ class TerminalRetentionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, log, state = fixture(root)
+            state['base_version'] = '9.8.7'
             capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
             log.write_bytes(capture.read_bytes() * 20)
             state['latest_pass']['rows'].extend([
@@ -317,7 +325,7 @@ class TerminalRetentionTests(unittest.TestCase):
             script = '''
 import json, pathlib, sys
 from textual.binding import Binding
-from textual.widgets import Tree
+from textual.widgets import Static, Tree
 from ub_agents.view_ui import LogPane, View
 class ProofView(View):
     BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
@@ -342,12 +350,20 @@ class ProofView(View):
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
                  'entries': r.log.total_entries if r.log else 0, 'lag': r.log.unread_bytes if r.log else 0,
                  'notice': self.query_one('#log_note').render().plain,
+                 'footer': self.query_one('#status', Static).render().plain,
+                 'footer_height': self.query_one('#status').size.height,
+                 'pill': self.query_one('#log_state', Static).render().plain,
+                 'pill_visible': self.query_one('#log_state').display,
+                 'screen': type(self.screen).__name__,
+                 'modal': self.screen.query_one('#raw_text', Static).render().plain
+                          if self.screen.query('#raw_text') else '',
                  'selected': self.selected, 'group': row.group if row else None,
                  'state': row.state if row else None, 'cursor': tree.cursor_node.data,
                  'focus': self.focused.id, 'title': tree.root.label.plain,
                  'sections': [node.label.plain for node in tree.root.children],
                  'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
-                 'recent_expanded': self.groups['Recent activity'].is_expanded}
+                 'recent_expanded': self.groups['Recent activity'].is_expanded
+                                    if 'Recent activity' in self.groups else False}
         pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
@@ -375,18 +391,74 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 return json.loads(proof.read_text())
             try:
                 drain(1)
-                self.assertIn(b'FORMATTED', transcript)
+                self.assertNotIn(b'FORMATTED', transcript)
+                self.assertNotIn(b'FOLLOW', transcript)
                 initial = checkpoint()
+                self.assertIn('ub-agents v9.8.7 · running assignment', initial['footer'])
+                self.assertTrue(initial['footer'].endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+                self.assertEqual(initial['footer_height'], 1)
+                self.assertFalse(initial['pill_visible'])
+                self.assertEqual(initial['notice'], '')
                 self.assertEqual(initial['sections'], ['Running · 2', 'Needs attention · 3',
                                                        'Eligible · 2', 'Waiting · 4',
                                                        'Recent activity · 1 today'])
                 self.assertEqual(initial['eligible'], ['plan:20:worker', 'plan:21:worker'])
                 self.assertIn('partial', initial['title'])
                 self.assertFalse(initial['recent_expanded'])
+                state['activity'] = {'state': 'waiting', 'until': (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()}
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                waiting = checkpoint()
+                remaining = int(re.search(r'next poll (\d+)s', waiting['footer']).group(1))
+                drain(1.1)
+                self.assertLess(int(re.search(r'next poll (\d+)s', checkpoint()['footer']).group(1)), remaining)
+                state['activity'] = {'state': 'stopping'}
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                self.assertIn('· stopping', checkpoint()['footer'])
+                state['published_at'] = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                self.assertIn('· stale', checkpoint()['footer'])
+                state['ended'] = True
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                self.assertIn('· ended', checkpoint()['footer'])
+                path.write_text('{broken')
+                drain(0.3)
+                malformed = checkpoint()
+                self.assertIn('malformed: Expecting property', malformed['footer'])
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                drain(0.3)
+                self.assertIn('minimum 110×32', checkpoint()['footer'])
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                state['ended'] = False
+                state['published_at'] = datetime.now(timezone.utc).isoformat()
+                state['activity'] = {'state': 'running assignment'}
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                os.write(master, b'?')
+                drain()
+                help_view = checkpoint()
+                self.assertEqual(help_view['screen'], 'KeyHelp')
+                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
+                            'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', 'Escape', 'q   ', 'Ctrl-C'):
+                    self.assertIn(key, help_view['modal'])
+                os.write(master, b'?')
+                drain()
+                self.assertNotEqual(checkpoint()['screen'], 'KeyHelp')
+                os.write(master, b'?\x1b')
+                drain(0.4)
+                self.assertNotEqual(checkpoint()['screen'], 'KeyHelp')
                 os.write(master, b'f\x1b[5~')
                 drain(0.2)
                 paused = checkpoint()
                 self.assertFalse(paused['follow'])
+                self.assertTrue(paused['pill_visible'])
+                self.assertIn('⏸ PAUSED', paused['pill'])
+                self.assertTrue(paused['footer'].endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
                 # More than both ingestion retention (200 entries) and renderer
                 # retention (400 wrapped rows) arrive while the page is paused.
                 from tests.test_view_data import event
@@ -402,6 +474,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 # the same entry and proportional reading position survive.
                 self.assertAlmostEqual(retained['anchor'][1], paused['anchor'][1], delta=0.05)
                 self.assertGreater(retained['entries'] - paused['entries'], 200)
+                self.assertIn('new ↓', retained['pill'])
+                self.assertIn('B lag', retained['pill'])
+                self.assertNotIn('evicted', retained['notice'])
+                os.write(master, b'p')
+                drain()
+                raw = checkpoint()
+                self.assertEqual(raw['screen'], 'RawAccess')
+                for diagnostic in (str(log), 'Displayed bytes', 'Page bytes', 'evicted', 'skipped',
+                                   'shortened', 'Rendered limit 400', 'entries hidden'):
+                    self.assertIn(diagnostic, raw['modal'])
+                os.write(master, b'\x1b')
+                drain()
                 os.write(master, b'r\r')  # Focus Recent activity, then real Enter.
                 drain()
                 self.assertTrue(checkpoint()['recent_expanded'])
@@ -463,7 +547,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertLess(older['starts'][0], paused['starts'][0])
                 os.write(master, b'u')
                 drain(0.2)
-                self.assertTrue(checkpoint()['raw'])
+                raw_mode = checkpoint()
+                self.assertTrue(raw_mode['raw'])
+                self.assertIn('RAW', raw_mode['pill'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
                 drain(0.2)
@@ -482,6 +568,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 drain(0.3)
                 resumed = checkpoint()
                 self.assertTrue(resumed['follow'])
+                self.assertFalse(resumed['pill_visible'])
                 self.assertGreater(resumed['generation'], changed['generation'])
                 log.write_bytes(capture.read_bytes().splitlines(keepends=True)[0])
                 drain(0.3)

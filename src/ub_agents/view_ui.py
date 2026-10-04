@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from math import ceil
 from queue import Empty
 
 from markdown_it import MarkdownIt
@@ -43,7 +44,7 @@ def description_parser():
 
 class RawAccess(ModalScreen):
     BINDINGS = [Binding('escape,p', 'dismiss', 'Close', priority=True)]
-    DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; } #raw_status { height: 2; background: $panel; }'
+    DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; } #raw_status { height: 1; background: $panel; }'
 
     def __init__(self, message):
         super().__init__()
@@ -51,11 +52,31 @@ class RawAccess(ModalScreen):
 
     def compose(self):
         with VerticalScroll():
-            yield Static(Text(self.message))
+            yield Static(Text(self.message), id='raw_text')
         yield Static('', id='raw_status', markup=False)
 
     def action_dismiss(self):
         self.dismiss()
+
+
+class KeyHelp(RawAccess, inherit_bindings=False):
+    BINDINGS = [Binding('escape,question_mark', 'dismiss', 'Close', priority=True)]
+
+    def __init__(self):
+        super().__init__(
+            'Keys\n\n'
+            'Tab / arrows / Enter   Focus a pane and select a work row\n'
+            'Enter on Recent activity   Expand or collapse outcomes\n'
+            '1 / 2 / 3   Log / Issue / Runs\n'
+            'g on Issue   Load a missing description or retry a failed read\n'
+            'f   Toggle follow/pause; resuming loads the latest generation\n'
+            'h   Read an older bounded page toward byte zero\n'
+            'u   Toggle formatted/raw projection of the same page\n'
+            'p   Show the full raw path and log diagnostics; Escape closes it\n'
+            'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
+            '?   Open or close this help; Escape also closes it\n'
+            'q   Close only the view; launcher continues with plain output\n'
+            'Ctrl-C   Interrupt an attached launcher; close a standalone view')
 
 
 @dataclass
@@ -194,11 +215,11 @@ class View(App):
     #work { width: 36; border: solid $accent; }
     #panes { width: 1fr; }
     TabPane { padding: 0 1; }
-    #log_note { height: 5; overflow: hidden; }
-    #output { height: 1fr; }
+    #log_note { height: auto; max-height: 6; overflow: hidden; }
+    #output { height: 1fr; scrollbar-gutter: stable; overflow-x: hidden; }
+    #log_state { height: 1; content-align: right middle; }
     #issue_body { padding: 0; }
-    #status { height: 2; background: $panel; }
-    #keys { height: 1; background: $panel; }
+    #status { height: 1; background: $panel; }
     '''
     BINDINGS = [
         Binding('q', 'quit', 'Close view', priority=True),
@@ -207,6 +228,7 @@ class View(App):
         Binding('u', 'raw', 'Raw', priority=True),
         Binding('h', 'history', 'Older page', priority=True),
         Binding('p', 'path', 'Full raw path', priority=True),
+        Binding('question_mark', 'help', 'Keys', priority=True),
         Binding('g', 'load_description', 'Load/retry description', priority=True),
         Binding('1', "tab('log')", 'Log', priority=True),
         Binding('2', "tab('issue')", 'Issue', priority=True),
@@ -240,6 +262,7 @@ class View(App):
                 with TabPane('Log', id='log'):
                     yield Static('Reading local session…', id='log_note', markup=False)
                     yield LogPane(id='output')
+                    yield Static('', id='log_state', markup=False)
                 with TabPane('Issue', id='issue'):
                     with VerticalScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
@@ -248,8 +271,7 @@ class View(App):
                 with TabPane('Runs', id='runs'):
                     with VerticalScroll():
                         yield Static('No outcomes cached.', id='runs_text', markup=False)
-        yield Static('Snapshot freshness unavailable · FOLLOW · FORMATTED', id='status', markup=False)
-        yield Static('f follow/pause · h older · u raw · p path · g load/retry Issue · 1/2/3 tabs · PgUp/PgDn · q quit', id='keys', markup=False)
+        yield Static('', id='status', markup=False)
 
     def on_mount(self):
         self.worker.start()
@@ -458,49 +480,95 @@ class View(App):
         self.descriptions.request(self.description_key())
         self.update_issue()
 
-    def update_status(self):
-        if not self.is_mounted:
-            return
+    def log_lag(self):
         reading = self.reading
         page, log = reading.page, reading.log
-        mode = 'RAW' if reading.raw else 'FORMATTED'
-        state = 'FOLLOW' if reading.follow else 'PAUSED'
         unread = max(0, log.total_entries - reading.seen) if log else 0
         lag = log.unread_bytes if log else 0
         if page and reading.latest and page.generation == reading.latest.generation:
             refs = self.query_one('#output', LogPane).visible_refs
             lag += max(0, reading.latest.end - (refs[-1].end if refs else page.end))
-        freshness = self.session.freshness() if self.session else 'freshness unavailable'
-        errors = (' · malformed: ' + self.session.error) if self.session and self.session.error else ''
-        size = ' · minimum 110×32' if self.size.width < 110 or self.size.height < 32 else ''
-        status = Text(f'{freshness} · {state} · {mode} · unread {unread} entries · lag {lag}B{size}\n'
-                      f'Local files · {"reading" if self.busy else "idle"} · GitHub {"pending" if self.descriptions.pending else "on request"}{errors}')
+        return unread, lag
+
+    def footer(self, width, keys):
+        parts = ['ub-agents']
+        if self.session:
+            version = text(self.session.data.get('base_version'), '')
+            if version:
+                parts[0] += f' v{version}'
+        if self.size.width < 110 or self.size.height < 32:
+            parts.append('minimum 110×32')
+        if self.session:
+            state = self.session.state()
+            if state == 'malformed':
+                parts.append('malformed: ' + text(self.session.error))
+            elif state in {'stale', 'ended'}:
+                parts.append(state)
+            activity = mapping(self.session.data.get('activity'))
+            value = text(activity.get('state'), '')
+            if value == 'waiting':
+                try:
+                    until = datetime.fromisoformat(activity['until'].replace('Z', '+00:00'))
+                    if until.tzinfo is not None:
+                        value = f'next poll {max(0, ceil((until - datetime.now(timezone.utc)).total_seconds()))}s'
+                except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+                    pass
+            if value:
+                parts.append(value)
+        else:
+            parts.append('reading session')
+        # Keep the main keys intact at the supported minimum width. Below that,
+        # reserve space for the minimum-size hint and session diagnostics.
+        right = Text(keys if width >= 110 else '? keys q quit')
+        left = Text(' · '.join(parts), no_wrap=True, overflow='ellipsis')
+        left.truncate(max(0, width - right.cell_len - 1), overflow='ellipsis')
+        left.append(' ' * max(1, width - left.cell_len - right.cell_len))
+        left.append_text(right)
+        return left
+
+    def update_status(self):
+        if not self.is_mounted:
+            return
+        reading = self.reading
+        page, log = reading.page, reading.log
+        unread, lag = self.log_lag()
+        keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit' if not reading.follow else
+                '↑↓ select ⏎ open 1-3 tabs ? keys q quit')
+        status = self.footer(self.size.width, keys)
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
-            self.screen.query_one('#raw_status', Static).update(status)
+            keys = 'Esc/? close q quit' if isinstance(self.screen, KeyHelp) else 'Esc close ? keys q quit'
+            self.screen.query_one('#raw_status', Static).update(
+                self.footer(self.screen.query_one('#raw_status').size.width, keys))
+        pill = self.query_one('#log_state', Static)
+        pill.display = bool((page or log) and (not reading.follow or unread or lag))
+        parts = ['⏸ PAUSED' if not reading.follow else '↓ BEHIND']
+        if unread:
+            parts.append(f'{unread} new ↓')
+        if lag:
+            parts.append(f'{lag}B lag')
+        if reading.raw:
+            parts.append('RAW')
+        parts.append('f follow')
+        pill.update(Text(' ' + ' · '.join(parts) + ' ', style='reverse', no_wrap=True, overflow='ellipsis'))
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
         if not row or not row.log:
             note = row.reason if row and mapping(row.data.get('owner')) else 'No local log cached for this row.'
         else:
-            start = output.visible_refs[0].start if output.visible_refs else (page.start if page else 0)
-            end = output.visible_refs[-1].end if output.visible_refs else (page.end if page else 0)
             runtime = reading.runtime
-            fallback = '' if runtime == 'claude' else f' · {runtime}: plain/raw fallback'
+            fallback = '' if runtime == 'claude' else f'{runtime}: plain/raw fallback'
             changed = 'FILE CHANGED; paused earlier generation; f latest. ' if page and reading.latest and page.generation != reading.latest.generation else ''
-            notice = changed + reading.notice
-            boundary = f'evicted {log.evicted_entries}; skipped {log.skipped_bytes}B; shortened {log.shortened_entries}' if log else ''
-            width = max(20, self.query_one('#output').size.width)
+            width = max(20, output.size.width)
             def line(value):
                 return value if len(value) <= width else value[:width - 1] + '…'
-            note = (line(f'bytes {start}–{end}{fallback}') + '\n' +
-                    line(notice or 'h older pages to byte zero · p full raw file path') + '\n' +
-                    line(boundary) + '\n' +
-                    line(f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden; p raw access') + '\n' +
-                    line(f'Read error: {log.error}' if log and log.error else
-                         f'Unfinished: {log.pending_bytes}B (raw preview)' if log and log.pending_bytes else
-                         'Runtime output is not a workflow outcome.'))
-        self.query_one('#log_note', Static).update(Text(note))
+            notices = [changed + reading.notice, fallback,
+                       f'Read error: {log.error}' if log and log.error else '',
+                       f'Unfinished: {log.pending_bytes}B (raw preview)' if log and log.pending_bytes else '']
+            note = '\n'.join(line(value) for value in notices if value)
+        widget = self.query_one('#log_note', Static)
+        widget.display = bool(note)
+        widget.update(Text(note))
 
     def action_follow(self):
         if isinstance(self.screen, RawAccess):
@@ -559,11 +627,32 @@ class View(App):
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
 
     def action_path(self):
+        if isinstance(self.screen, RawAccess):
+            return
         row = self.rows.get(self.selected)
         if row and row.log:
+            reading = self.reading
+            page, log = reading.page, reading.log
+            output = self.query_one('#output', LogPane)
+            start = output.visible_refs[0].start if output.visible_refs else (page.start if page else 0)
+            end = output.visible_refs[-1].end if output.visible_refs else (page.end if page else 0)
+            diagnostics = f'Displayed bytes {start}–{end}\n'
+            if page:
+                diagnostics += f'Page bytes {page.start}–{page.end} · generation {page.generation}\n'
+            if log:
+                diagnostics += (f'evicted {log.evicted_entries}; skipped {log.skipped_bytes}B; '
+                                f'shortened {log.shortened_entries}\n')
+            diagnostics += f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden\n'
             self.push_screen(RawAccess(f'Full raw file (open with an external pager):\n{row.log}\n\n'
+                                      + diagnostics + '\n'
                                       'The u view is a bounded raw projection. The file contains all retained bytes.\n'
                                       + self.reading.notice + '\n\nEscape closes this read-only path view.'))
+
+    def action_help(self):
+        if isinstance(self.screen, KeyHelp):
+            self.screen.dismiss()
+        else:
+            self.push_screen(KeyHelp())
 
     def action_page_up(self):
         if isinstance(self.screen, RawAccess):

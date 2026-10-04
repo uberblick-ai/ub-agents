@@ -8,6 +8,7 @@ notes are copied from that section.
 
 ### Changed
 
+- The terminal view uses a one-line activity footer, contextual keys and optional log-state pill; `?` lists keys and `p` shows diagnostics (#161).
 - The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
 
