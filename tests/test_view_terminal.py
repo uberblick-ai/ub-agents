@@ -309,7 +309,10 @@ class TerminalRetentionTests(unittest.TestCase):
     def test_compact_claude_replay_hidden_and_failed_result_toggles_in_real_terminal(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            path, log, _ = fixture(root)
+            path, log, state = fixture(root)
+            state['assignment'].update(kind='issue', attempt=2)
+            state['outcomes'].append({'item': 114, 'run': 'earlier-run', 'handoff': 185})
+            path.write_text(json.dumps(state))
             capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
             proof = root / 'proof.json'
             script = '''
@@ -328,6 +331,10 @@ class ProofView(View):
         pane = self.query_one(LogPane)
         r = self.reading
         value = {'raw': r.raw, 'anchor': pane.anchor(), 'entries': len(r.page.refs),
+                 'header': self.query_one('#item_header').render().plain,
+                 'run_status': self.query_one('#run_status').render().plain,
+                 'notice': self.query_one('#log_note').render().plain,
+                 'raw_details': self.raw_details(),
                  'lines': [line.text for line in pane.lines],
                  'refs': [(ref.start, ref.value.kind) for ref in r.page.refs],
                  'positions': pane.positions}
@@ -374,6 +381,20 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertIn('✓ run finished', text)
                 self.assertNotIn('thinking_tokens', text)
                 self.assertNotIn('producer=', text)
+                self.assertEqual(formatted['header'].splitlines()[:2],
+                                 ['#114 Cached title',
+                                  'implementer · claude synthetic-model high · attempt 2 · ⌥185'])
+                # A runtime's success line does not establish a workflow report.
+                self.assertIn('implementer running · no outcome reported', formatted['run_status'])
+                self.assertTrue(formatted['run_status'].endswith('1 earlier run'))
+                self.assertEqual(formatted['notice'], '')
+                self.assertIn('bytes ', formatted['raw_details'])
+                self.assertIn('Rendered limit 400', formatted['raw_details'])
+                for tab in (b'2', b'3', b'1'):
+                    os.write(master, tab)
+                    drain()
+                    self.assertEqual(checkpoint()['header'], formatted['header'])
+                self.assertEqual(checkpoint()['lines'], formatted['lines'])
                 os.write(master, b'f')
                 drain()
                 os.write(master, b'u')
@@ -431,6 +452,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, log, state = fixture(root)
+            state['assignment'].update(kind='issue', attempt=1)
             capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
             log.write_bytes(capture.read_bytes() * 20)
             state['latest_pass']['rows'].extend([
@@ -481,6 +503,9 @@ class ProofView(View):
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
                  'entries': r.log.total_entries if r.log else 0, 'lag': r.log.unread_bytes if r.log else 0,
                  'notice': self.query_one('#log_note').render().plain,
+                 'header': self.query_one('#item_header').render().plain,
+                 'run_status': self.query_one('#run_status').render().plain,
+                 'raw_details': self.raw_details(),
                  'selected': self.selected, 'group': row.group if row else None,
                  'state': row.state if row else None,
                  'cursor': tree.cursor_node.data if tree.cursor_node else None,
@@ -533,6 +558,14 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(initial['eligible'], ['plan:20:worker', 'plan:21:worker'])
                 self.assertIn('partial', initial['title'])
                 self.assertFalse(initial['recent_expanded'])
+                self.assertEqual(initial['header'].splitlines()[:2],
+                                 ['#114 Cached title', 'implementer · claude synthetic-model high · attempt 1'])
+                self.assertIn('implementer running · no outcome reported', initial['run_status'])
+                self.assertNotIn('bytes ', initial['notice'])
+                for tab in (b'2', b'3', b'1'):
+                    os.write(master, tab)
+                    drain()
+                    self.assertEqual(checkpoint()['header'], initial['header'])
                 os.write(master, b'f\x1b[5~')
                 drain(0.2)
                 paused = checkpoint(lambda value: not value['follow'])
@@ -609,6 +642,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'h')
                 older = checkpoint(lambda value: value['starts'] and value['starts'][0] < paused['starts'][0])
                 self.assertLess(older['starts'][0], paused['starts'][0])
+                os.write(master, b'p')
+                drain()
+                raw = checkpoint()['raw_details']
+                self.assertIn('bytes ', raw)
+                self.assertIn('evicted ', raw)
+                self.assertIn('skipped ', raw)
+                self.assertIn('shortened ', raw)
+                self.assertIn('Rendered limit 400:', raw)
+                self.assertIn('process.log', raw)
+                self.assertIn(b'Rendered limit 400:', transcript)
+                os.write(master, b'\x1b')
+                drain()
                 os.write(master, b'u')
                 self.assertTrue(checkpoint(lambda value: value['raw'])['raw'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))

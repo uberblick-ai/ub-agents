@@ -59,9 +59,16 @@ including when a row moves between sections. A selected row that disappears
 remains an earlier local observation. Claims held by another launcher show their
 owner and have no log access.
 
-The right pane has Log, Issue and Runs tabs. Issue first uses the snapshot
-description or that session's run `context.json`. A shortened or empty cached
-description is available and needs no GitHub read. Runs shows the snapshot's
+The right pane has Log, Issue and Runs tabs. Each starts below the tab bar with
+the same two-line item header and a dashed rule. The bold first line shows `#N`
+for an issue or `⌥N` for a PR, followed by its title. The dim second line joins
+the agent, runtime (`cli model effort`), running assignment's `attempt N` or
+planned work's `F/M failures`, and a session outcome's linked PR (`⌥N`) with
+` · `. Missing values are omitted. Failure counts and the agent's `max-attempts`
+come from the launcher's existing coordination reads, within the snapshot limits.
+Issue first uses the snapshot description or that session's run `context.json`.
+A shortened or empty cached description is available and needs no GitHub read.
+Runs shows the snapshot's
 session outcomes, including acceptance and human blockers.
 
 Issue renders only the description body as Markdown, including headings, lists,
@@ -70,9 +77,11 @@ display as real line breaks; tabs are retained. Other control characters stay
 visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
 images and raw HTML display as text; links cannot be opened with the mouse or
 keyboard, and nothing is fetched. The item header, source/age and all notices
-remain plain text. Shortening notices sit outside the Markdown body, including
-when a description is cut inside a code fence. Log and Runs keep their existing
-plain-text projections and newline escaping.
+remain literal text. Issue does not repeat the item reference or title in its
+content. Shortening notices sit outside the Markdown body, including
+when a description is cut inside a code fence. Runs and the raw log projection
+remain literal text with visibly escaped control characters. Claude's formatted
+Log transcript is described below.
 
 | Key | Action |
 | --- | --- |
@@ -83,7 +92,7 @@ plain-text projections and newline escaping.
 | `f` | Toggle follow/pause; resuming loads the latest generation |
 | `h` | Read an older bounded page, down to byte zero |
 | `u` | Toggle formatted/raw projection of the same page |
-| `p` | Show the full raw file path; `Escape` closes it |
+| `p` | Show raw access: full file path, byte range and retention/rendering diagnostics; `Escape` closes it |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
 | `q` | Close only the view; launcher continues with plain output |
 | `Ctrl-C` | Interrupt the launching process with its normal SIGINT handling (exit 130) |
@@ -146,6 +155,15 @@ unfinished and non-JSON fragments keep their labelled raw display. Unknown
 runtimes, including Codex, use the labelled plain/raw fallback (#126). Runtime
 output never establishes a workflow outcome.
 
+Log ends with a dashed rule and a one-line status showing the agent and its
+process or plan state, plus `no outcome reported` or the reported result and
+acceptance. A spinner appears while the process runs. Other cached session
+outcomes for the same item appear at the right as `N earlier run(s)`, omitted
+when zero. Header, Log notice and status lines are shortened with `…` to fit the
+pane's width. A highlighted notice above the log appears only for file or
+generation changes, read errors, unfinished records, responses to `h`, or a
+runtime's plain/raw fallback.
+
 Only `g` on Issue starts a GitHub read. Attachment, selection, tabs, redraws,
 resizes and timers make no GitHub calls. One `gh api graphql` request reads only
 the selected issue or PR's title and body, without comments, history, queue scans
@@ -168,12 +186,15 @@ After a rate-limit response, Issue shows a global cooldown through the reported
 reset or `Retry-After` time. Loads and retries make no call during it. If GitHub
 provides neither a future reset nor retry time, the cooldown is 60 seconds.
 
-Attachment reads near the tail, with a visible byte range. Ingestion reads at
+Attachment reads near the tail; `p` shows the displayed byte range, eviction,
+skip and shortening counts, and the rendered-line limit and hidden-entry count.
+These diagnostics do not occupy rows above the log. Ingestion reads at
 most 32 KiB and processes at most 128 records per update; a bounded first-read
 selection avoids replaying a tiny-record history before recent output. Retention
 is 200 entries per reader. Older reads inspect at most 32 KiB plus identity
 anchors and decode at most 200 complete records and one fragment. Rendering keeps
-at most 400 wrapped lines, discarding whole older entries with a visible boundary.
+at most 400 wrapped lines, discarding whole older entries with a boundary recorded
+on the `p` screen.
 Press `h` to recover those bytes from disk. A paused page is independent of reader
 and renderer retention. Text is limited by the formatter to 2,048 characters per
 projection, with shortening markers. `u` is also a bounded projection: use `p`
@@ -220,7 +241,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    with correct counts and planned order within Eligible. The current assignment
    appears once. Empty sections are hidden. A partial pass has a dim marker on
    the pane title, which disappears when the pass completes. Confirm follow reaches
-   recent output and cached Issue and session Runs tabs are readable.
+   recent output and cached Issue and session Runs tabs are readable. Check the
+   shared two-line header and dashed rule on every tab, omission of missing
+   values, and the Log status, spinner, reported acceptance and earlier-run count.
    Include today's and older outcomes; check the collapsed Recent activity count
    against the local date. Use `Enter` to expand it, select an outcome and pause
    its log. Publish refreshes and move a selected plan between sections; check
@@ -230,8 +253,10 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading
    position must remain stable; unread and lag must grow.
-3. Read older pages toward byte zero, switch raw mode and resize. Check the byte
-   range, omission notices and `p` full raw path. Resume follow.
+3. Read older pages toward byte zero, switch raw mode and resize. Open `p` and
+   check the byte range, eviction/skip/shortening counts, rendered-line limit and
+   hidden count, and full raw path. Check that diagnostics stay off the log and
+   that responses to `h` use one highlighted, shortened line. Resume follow.
    With `tests/fixtures/runtime_logs/claude.log` as the replay source, check the
    compact timestamps, thinking markers, tool calls, red failed Bash result and
    final success line. Pause in raw mode on a `system` or `rate_limit_event`
