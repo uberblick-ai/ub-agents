@@ -213,11 +213,11 @@ agents:
     instructions: instructions.md
     trigger: ready
     outcomes: {done: {}}
-    runtime-args: [--add-dir, "{scratch}", "--add-dir={scratch}",
+    runtime-args: [--allowedTools, "Bash({report_command} report *)", --add-dir, "{scratch}", "--add-dir={scratch}",
                    --settings, '{"a": 1}', --config, 'x={y=true}', '{}', '{two words}']
 ''')
         self.assertEqual(configured.agents[0].runtime_args,
-                         ("--add-dir", "{scratch}", "--add-dir={scratch}", "--settings", '{"a": 1}',
+                         ("--allowedTools", "Bash({report_command} report *)", "--add-dir", "{scratch}", "--add-dir={scratch}", "--settings", '{"a": 1}',
                           "--config", "x={y=true}", "{}", "{two words}"))
 
     def test_command_arguments_accept_literal_word_placeholders(self):

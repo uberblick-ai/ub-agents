@@ -9,9 +9,10 @@ import subprocess
 import time
 
 from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
+from .report_command import launcher_report_command
 
 
-def command_for(agent, runtime, scratch):
+def command_for(agent, runtime, scratch, report_command=None):
     if agent.command:
         return list(agent.command)
     if runtime.cli == "codex":
@@ -21,7 +22,9 @@ def command_for(agent, runtime, scratch):
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
                    "--model", runtime.model, "--effort", runtime.effort]
     # No permission flags, auth stores, or hidden provider fallback; never a shell.
-    return command + [arg.replace("{scratch}", str(scratch)) for arg in agent.runtime_args]
+    report_command = report_command or launcher_report_command()
+    return command + [arg.replace("{scratch}", str(scratch)).replace("{report_command}", report_command)
+                      for arg in agent.runtime_args]
 
 
 def git(root, *arguments, strip=True):

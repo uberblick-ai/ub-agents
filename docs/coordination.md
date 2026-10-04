@@ -369,12 +369,23 @@ copies preserve this launcher host, so the terminal Runs tab can show where a
 run happened even without its claim on the PR. The optional field is display
 metadata; older launchers ignore it, and older outcomes without it remain valid.
 
-`ub-agents report` uses the supervised environment to verify the run's current
+Agents invoke `report` through the launcher's absolute `report_command` in the
+assignment context, also supplied as `UB_AGENTS_REPORT`. It pins the launcher's
+Python interpreter and package, including for `python -m ub_agents` launchers;
+PATH, the agent's working directory and `PYTHONPATH` cannot select another install.
+The prompt writes the command literally and uses it wherever project instructions
+say `ub-agents report`. Agents must not report through their worktree's development copy.
+
+`report` uses the supervised environment to verify the run's current
 ownership and create one versioned outcome comment. Human summaries lead; JSON is
 fenced in `json` blocks inside collapsed details, and arbitrary prose is never parsed for routing. A declared
 outcome is reported with `--outcome NAME` and has status `success`;
 `--status retry|blocked` changes no labels. Undeclared names are rejected, and the
 runner blocks records that bypass reporting validation.
+When the supervised lease's marker names a newer record format, reporting fails
+with a diagnostic directing the agent to `UB_AGENTS_REPORT`, without interpreting
+the newer payload. This diagnostic is available only in releases that include it;
+0.1.10 and 0.1.11 keep their previous missing-lease message.
 
 The running lease snapshots the agent's declared outcomes compactly. Each name
 maps to the labels to add, or to an object with `add` and `remove` when extra

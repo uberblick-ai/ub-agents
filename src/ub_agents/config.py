@@ -296,7 +296,7 @@ def load_config(path):
         runtime_args = argv(item.get("runtime-args", []), f"{name} runtime-args", empty=True)
         for arg in runtime_args:
             for placeholder in re.findall(r"\{[a-zA-Z0-9_-]+\}", arg):
-                if placeholder != "{scratch}":
+                if placeholder not in {"{scratch}", "{report_command}"}:
                     raise AgentError(f"{name}: unknown runtime-args placeholder {placeholder}")
         # Provenance records cli:model:effort and independence checks trust it; sessions start fresh.
         forbidden = {"--model", "-m", "--effort", "--resume", "-r", "resume", "--continue",

@@ -12,6 +12,7 @@ from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, timestamp
+from ub_agents.report_command import launcher_report_command
 from tests.support import stub_refresh, FakeGitHub, agent, config, edit_lease, issue, pr
 
 
@@ -28,12 +29,16 @@ class LoopTests(unittest.TestCase):
     def test_prompt_requires_checks_and_report_before_ending_single_session(self):
         plan = self.loop.plans()[0]
         lease = self.loop.coordinator.claim(plan)
-        prompt = self.loop.prompt_for(plan, lease, {"earlier_branches": []}, "Project rules")
+        report = launcher_report_command()
+        prompt = self.loop.prompt_for(plan, lease, {"earlier_branches": [], "report_command": report}, "Project rules")
         self.assertIn("single, non-interactive session that is never resumed", prompt)
         self.assertIn("Ending your turn ends the run", prompt)
         self.assertIn("Run checks in the foreground or wait for every background job to finish "
                       "before ending your turn", prompt)
-        self.assertIn("End the run with ub-agents report", prompt)
+        self.assertIn(f"End the run with {report} report", prompt)
+        self.assertIn(f"Report one with {report} report --outcome NAME", prompt)
+        self.assertIn(f"Use {report} report wherever project instructions say `ub-agents report`", prompt)
+        self.assertNotIn("$UB_AGENTS_REPORT", prompt)
         self.assertIn("reviews, review comments and feedback", prompt)
         self.assertIn("address it when revising the work", prompt)
 

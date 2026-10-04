@@ -16,6 +16,7 @@ from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
+from .report_command import launcher_report_command
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
 from .polling import idle_interval
@@ -765,12 +766,14 @@ class Loop:
             if current.head != plan.item.head:
                 raise AgentError("Candidate changed before execution")
             self.coordinator.assert_owned(lease)
+            report_command = launcher_report_command()
             context = {"repository": self.config.repository, "assignment": plan.item.number,
                        "kind": plan.item.kind, "title": approval.snapshot["title"],
                        "body": approval.snapshot["body"], "comments": approval.snapshot["comments"],
                        "feedback": self.coordinator.feedback(plan.item, plan.agent.name),
                        "candidate_sha": plan.item.head, "run": lease["run"],
                        "scratch": str(scratch.path),
+                       "report_command": report_command,
                        "agent": plan.agent.name, "branch": lease.get("branch"),
                        "earlier_branches": self.earlier_branches(plan.item, plan.agent, lease["run"])}
             if plan.item.kind == "pr":
@@ -783,12 +786,13 @@ class Loop:
                         "UB_AGENTS_ASSIGNMENT": str(plan.item.number),
                         "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
                         "UB_AGENTS_CONTEXT": str(context_path),
+                        "UB_AGENTS_REPORT": report_command,
                         "UB_AGENTS_SCRATCH": str(scratch.path), "TMPDIR": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENTS_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))
             setup = False
-            command = command_for(plan.agent, plan.runtime, scratch.path)
+            command = command_for(plan.agent, plan.runtime, scratch.path, report_command)
             if reservation is not None:
                 command[0] = reservation.executable
             if plan.runtime:
@@ -904,6 +908,7 @@ class Loop:
 
     def prompt_for(self, plan, lease, context, instructions):
         earlier = context["earlier_branches"]
+        report_command = context["report_command"]
         continuation = (f"Earlier runs of this issue recorded branches {json.dumps(earlier)}; check each with "
                         "gh pr list --state open --head BRANCH and continue an open draft PR there instead "
                         "of opening another. " if earlier else "")
@@ -918,7 +923,10 @@ class Loop:
         return (f"You are the project-configured agent {plan.agent.name}.\n"
                 "This run is a single, non-interactive session that is never resumed. "
                 "Ending your turn ends the run. Run checks in the foreground or wait for every "
-                "background job to finish before ending your turn. End the run with ub-agents report.\n"
+                "background job to finish before ending your turn. "
+                f"End the run with {report_command} report.\n"
+                f"Use {report_command} report wherever project instructions say `ub-agents report`. "
+                "This command runs the launcher's own installation; write it literally in shell commands.\n"
                 "Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, "
                 "not directly under /tmp. TMPDIR points to the same directory. Its absolute "
                 "path is the context's scratch value; use that path directly rather than "
@@ -934,7 +942,7 @@ class Loop:
                 "Use a fresh session; do not consume implementation reasoning transcripts. "
                 "Apply only project-authorized handoffs and permissions. "
                 f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
-                "Report one with ub-agents report --outcome NAME --summary 'what happened' "
+                f"Report one with {report_command} report --outcome NAME --summary 'what happened' "
                 "[--handoff PR_NUMBER]. Do not change workflow labels "
                 f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
                 "Use --status retry|blocked for failures; those change no labels. "
