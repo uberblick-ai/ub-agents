@@ -13,6 +13,7 @@ from .log_format import inert, shorten
 SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
 SESSION_LIMIT = 256
+WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Waiting', 'Recent activity')
 
 
 def read_json(path, limit=SNAPSHOT_BYTES):
@@ -163,33 +164,61 @@ def runtime_type(value):
     return text(value, 'unknown').split(':', 1)[0]
 
 
+def plan_group(row):
+    state = row.get('state')
+    if state == 'owned':
+        return 'Running'
+    if state in {'ready', 'recover'}:
+        return 'Eligible'
+    if state in {'backoff', 'waiting'} or (state == 'parked' and
+            text(row.get('reason')).startswith(('Waiting for blockers ', 'Waiting for active milestone #'))):
+        return 'Waiting'
+    return 'Needs attention'
+
+
+def outcomes_today(session, now=None):
+    today = (now or datetime.now().astimezone()).date()
+    local_zone = now.tzinfo if now else None
+    count = 0
+    for row in rows(session.data.get('outcomes'), 20):
+        try:
+            stamp = datetime.fromisoformat(row['time'].replace('Z', '+00:00'))
+            if stamp.tzinfo is not None and stamp.astimezone(local_zone).date() == today:
+                count += 1
+        except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+            pass
+    return count
+
+
 def work_rows(session, root):
     data = session.data
     result = []
     assignment = mapping(data.get('assignment'))
     if assignment:
         run = own_run(root, assignment.get('run'))
-        result.append(WorkRow('assignment:' + text(assignment.get('run'), 'claiming'), 'Current assignment',
+        result.append(WorkRow('assignment:' + text(assignment.get('run'), 'claiming'), 'Running',
                               assignment.get('item', '?'), text(assignment.get('agent')), text(assignment.get('process')),
                               text(assignment.get('process_reason')), assignment, assignment.get('run'),
                               runtime_type(assignment.get('runtime')), run / 'process.log' if run else None,
                               run / 'context.json' if run else None))
     latest = mapping(data.get('latest_pass'))
-    for index, row in enumerate(rows(latest.get('rows'), 100)):
+    for row in rows(latest.get('rows'), 100):
+        if assignment and (row.get('item'), row.get('agent')) == (assignment.get('item'), assignment.get('agent')):
+            continue
         owner = mapping(row.get('owner'))
         reason = (f'Owner: @{text(owner.get("actor"))} on {text(owner.get("host"))}' if owner else text(row.get('reason')))
-        result.append(WorkRow(f'plan:{row.get("item")}:{text(row.get("agent"))}:{index}',
-                              'Latest pass (' + text(latest.get('state'), 'partial') + ')', row.get('item', '?'),
+        result.append(WorkRow(f'plan:{row.get("item")}:{text(row.get("agent"))}',
+                              plan_group(row), row.get('item', '?'),
                               text(row.get('agent')), text(row.get('state')), reason, row))
     for index, row in enumerate(reversed(rows(data.get('outcomes'), 20))):
         run = own_run(root, row.get('run'))
         blockers = row.get('human_blocker')
         state = ('BLOCKED: ' + ', '.join(text(b) for b in blockers[:10]) if isinstance(blockers, list) and blockers else
                  text(row.get('result')) + ' · ' + text(row.get('acceptance')))
-        result.append(WorkRow('outcome:' + text(row.get('run'), str(index)), 'Recent outcomes', row.get('item', '?'),
+        result.append(WorkRow('outcome:' + text(row.get('run'), str(index)), 'Recent activity', row.get('item', '?'),
                               text(row.get('agent')), state, text(row.get('summary')), row, row.get('run'),
                               runtime_type(row.get('runtime')), run / 'process.log' if run else None, run / 'context.json' if run else None))
-    return result
+    return sorted(result, key=lambda row: WORK_GROUPS.index(row.group))
 
 
 @dataclass(frozen=True)
