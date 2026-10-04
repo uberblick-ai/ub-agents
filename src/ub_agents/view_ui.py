@@ -16,11 +16,12 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
 
-from .view_data import context_header, context_text, mapping, outcome_text, text
+from .view_data import WORK_GROUPS, context_header, context_text, mapping, outcome_text, outcomes_today, text
 from .view_github import DescriptionLoads
 from .view_worker import LocalWorker, Request
 
 MAX_RENDER_LINES = 400
+RECENT_ACTIVITY = 'recent-activity'
 
 
 def description_parser():
@@ -230,6 +231,7 @@ class View(App):
         self.busy = False
         self.pending_history = None
         self.last_context = self.last_runs = None
+        self.recent_expanded = False
 
     def compose(self) -> ComposeResult:
         with Horizontal(id='body'):
@@ -293,6 +295,9 @@ class View(App):
 
     def populate(self, rows):
         tree = self.query_one('#work', Tree)
+        cursor = tree.cursor_node
+        cursor_reason = cursor is not None and cursor is self.reason_nodes.get(cursor.data)
+        cursor_group = next((name for name, node in self.groups.items() if node is cursor), None)
         incoming = {row.key: row for row in rows}
         # A selected row disappearing in a partial pass is retained as an earlier
         # observation; updates never replace the selection or steal pane focus.
@@ -302,39 +307,83 @@ class View(App):
             if key not in incoming:
                 self.nodes.pop(key).remove()
                 self.reason_nodes.pop(key, None)
-        for row in incoming.values():
-            group_key = 'Latest pass' if row.group.startswith('Latest pass') else row.group
-            group = self.groups.get(group_key)
+        previous = None
+        for name in WORK_GROUPS:
+            grouped = [row for row in incoming.values() if row.group == name]
+            if not grouped:
+                continue
+            group = self.groups.get(name)
             if group is None:
-                group = self.groups[group_key] = tree.root.add(Text(row.group), expand=True)
-            label = Text(row.label())
-            if row.key in self.nodes:
-                self.nodes[row.key].set_label(label)
-                self.reason_nodes[row.key].set_label(Text(row.reason))
+                group = self.groups[name] = tree.root.add(
+                    Text(name), after=previous, before=0 if previous is None else None,
+                    data=RECENT_ACTIVITY if name == 'Recent activity' else None,
+                    expand=self.recent_expanded if name == 'Recent activity' else True)
+            previous = group
+            if name == 'Recent activity':
+                group.set_label(Text(f'Recent activity · {outcomes_today(self.session)} today'))
             else:
-                self.nodes[row.key] = group.add(label, data=row.key, expand=True)
-                self.reason_nodes[row.key] = self.nodes[row.key].add_leaf(Text(row.reason), data=row.key)
+                group.set_label(Text(f'{name} · {len(grouped)}'))
+            for index, row in enumerate(grouped):
+                node = self.nodes.get(row.key)
+                expanded = node.is_expanded if node else True
+                if node is not None and (node.parent is not group or group.children[index] is not node):
+                    node.remove()
+                    node = None
+                if node is None:
+                    node = self.nodes[row.key] = group.add(Text(row.label()), data=row.key,
+                                                          before=index, expand=expanded)
+                    self.reason_nodes[row.key] = node.add_leaf(Text(row.reason), data=row.key)
+                else:
+                    node.set_label(Text(row.label()))
+                    self.reason_nodes[row.key].set_label(Text(row.reason))
+        for name, group in tuple(self.groups.items()):
+            if not group.children:
+                group.remove()
+                del self.groups[name]
         self.rows = incoming
         tree.root.expand()
-        if self.selected is None and incoming:
-            self.select(next(iter(incoming)))
-            tree.select_node(self.nodes[self.selected])
-        # Update the pass header in place, preserving cursor/focus and expansion.
+        title = Text('Launcher work')
         latest = mapping(self.session.data.get('latest_pass'))
-        for name, node in self.groups.items():
-            if name.startswith('Latest pass'):
-                omitted = mapping(self.session.data.get('omitted')).get('plans', 0)
-                node.set_label(Text('Latest pass (' + text(latest.get('state'), 'partial') +
-                                    (f'; omitted {text(str(omitted))}' if omitted else '') + ')'))
+        if latest and latest.get('state') != 'complete':
+            title.append(' · ' + text(latest.get('state'), 'partial'), style='dim')
+        omitted = mapping(self.session.data.get('omitted')).get('plans', 0)
+        if omitted:
+            title.append(f' · omitted {text(str(omitted))}', style='dim')
+        tree.root.set_label(title)
+        if self.selected is None and incoming:
+            first = next(iter(incoming.values()))
+            self.select(RECENT_ACTIVITY if first.group == 'Recent activity' else first.key)
+            target = self.groups['Recent activity'] if self.selected == RECENT_ACTIVITY else self.nodes[self.selected]
+            self.call_after_refresh(tree.move_cursor, target)
+        elif cursor:
+            target = (self.groups.get(cursor_group) if cursor_group else
+                      (self.reason_nodes if cursor_reason else self.nodes).get(cursor.data))
+            if target is not None and target is not cursor:
+                self.call_after_refresh(tree.move_cursor, target)
 
     def on_tree_node_selected(self, event):
-        if event.node.data in self.rows:
+        if event.node.data == RECENT_ACTIVITY or event.node.data in self.rows:
             self.select(event.node.data)
+
+    def on_tree_node_expanded(self, event):
+        if event.node is self.groups.get('Recent activity'):
+            self.recent_expanded = True
+
+    def on_tree_node_collapsed(self, event):
+        if event.node is self.groups.get('Recent activity'):
+            self.recent_expanded = False
+            row = self.rows.get(self.selected)
+            if row and row.group == 'Recent activity':
+                self.select(RECENT_ACTIVITY)
+                self.query_one('#work', Tree).move_cursor(event.node)
 
     def select(self, key):
         if key == self.selected:
             return
         self.selected = key
+        row = self.rows.get(key)
+        if row and row.group == 'Recent activity':
+            self.groups['Recent activity'].expand()
         self.token += 1
         self.pending_history = None
         self.query_one('#output', LogPane).set_reading(self.reading)

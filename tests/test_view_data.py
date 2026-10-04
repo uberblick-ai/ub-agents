@@ -12,8 +12,11 @@ from unittest.mock import patch
 
 from ub_agents.view import main
 from ub_agents.view_data import (Description, Session, choose_session, item_context, load_session,
-                                 outcome_text, read_json, text, work_rows)
+                                 outcome_text, outcomes_today, read_json, text, work_rows)
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
+from ub_agents.config import Queue
+from ub_agents.eligibility import AgentMatches, check_start
+from tests.support import agent, issue
 
 
 def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
@@ -57,6 +60,56 @@ class ViewDataTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path, self.log, self.state = fixture(self.root)
+
+    def test_section_mapping_deduplicates_assignment_and_preserves_planned_order(self):
+        plans = [
+            ('ready', 'Trigger matched', 'Eligible'),
+            ('blocked', 'Last run blocked', 'Needs attention'),
+            ('recover', 'Pending outcome', 'Eligible'),
+            ('parked', 'Stop label needs-human is present', 'Needs attention'),
+            ('parked', 'Approval required', 'Needs attention'),
+            ('parked', 'Waiting for blockers #31', 'Waiting'),
+            ('parked', 'Waiting for active milestone #10', 'Waiting'),
+            ('backoff', 'Retry backoff', 'Waiting'),
+            ('waiting', 'Runtime paused', 'Waiting'),
+        ]
+        self.state['latest_pass']['rows'][0]['state'] = 'ready'
+        self.state['latest_pass']['rows'].extend(
+            {'item': n, 'agent': 'worker', 'state': state, 'reason': reason}
+            for n, (state, reason, _) in enumerate(plans, 20))
+        work = work_rows(Session(self.path, self.state), self.root)
+        self.assertEqual([row.group for row in work if row.item == 114], ['Running'])
+        self.assertEqual(next(row for row in work if row.item == 12).group, 'Running')
+        for n, (_, _, expected) in enumerate(plans, 20):
+            self.assertEqual(next(row for row in work if row.item == n).group, expected)
+        self.assertEqual([row.item for row in work if row.group == 'Eligible'], [20, 22])
+        keys = {row.item: row.key for row in work}
+        self.state['latest_pass']['rows'].reverse()
+        reordered = work_rows(Session(self.path, self.state), self.root)
+        self.assertEqual([row.item for row in reordered if row.group == 'Eligible'], [22, 20])
+        self.assertEqual({row.item: row.key for row in reordered}, keys)
+
+    def test_eligibility_wait_wording_classifies_as_waiting(self):
+        worker = agent(self.root)
+        item = issue(milestone=20)
+        matches = AgentMatches.for_item(item, (worker,))
+        for gate, blockers in ((False, ('#31',)), (True, ()), (True, ('#31',))):
+            with self.subTest(gate=gate, blockers=blockers):
+                check = check_start(item, worker, matches, (),
+                                    Queue(milestones='gate' if gate else 'ignore'), 10, blockers)
+                self.assertFalse(check.allowed)
+                snapshot = Session(self.path, {'latest_pass': {'rows': [
+                    {'item': item.number, 'agent': worker.name, 'state': 'parked', 'reason': check.reason}]}})
+                self.assertEqual(work_rows(snapshot, self.root)[0].group, 'Waiting')
+
+    def test_today_count_uses_local_dates_and_ignores_missing_invalid_times(self):
+        local = timezone(timedelta(hours=2))
+        now = datetime(2026, 10, 4, 12, tzinfo=local)
+        times = ['2026-10-03T22:30:00Z', '2026-10-04T21:59:59+00:00',
+                 '2026-10-04T23:30:00Z', '2026-10-03T21:59:59Z',
+                 '2026-10-04T12:00:00', 'invalid', None]
+        snapshot = Session(self.path, {'outcomes': [{'time': stamp} for stamp in times] + [{}]})
+        self.assertEqual(outcomes_today(snapshot, now), 2)
 
     def test_selection_only_live_or_explicit_including_ended_malformed(self):
         self.assertEqual(choose_session(self.root)[0], self.path)

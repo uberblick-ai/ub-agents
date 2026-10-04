@@ -1,6 +1,7 @@
 """Actual owned 110x32 PTY acceptance, separate from Textual headless pilots."""
 
 import fcntl
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -225,7 +226,8 @@ sys.exit(app.return_code or 1)
                         self.assertIsNone(app.poll(), bytes(transcript[-1000:]))
                         self.assertIn(b'FOLLOW', transcript)
                         self.assertIn(b'FORMATTED', transcript)
-                        self.assertIn(b'Latest pass', transcript)
+                        self.assertIn(b'Running', transcript)
+                        self.assertIn(b'partial', transcript)
                         self.assertIn(b'\x1b[?1049h', transcript)
                         os.write(master, b'f')
                         paused = drain()
@@ -292,19 +294,60 @@ class TerminalRetentionTests(unittest.TestCase):
             path, log, state = fixture(root)
             capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
             log.write_bytes(capture.read_bytes() * 20)
+            state['latest_pass']['rows'].extend([
+                {'item': 20, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
+                {'item': 21, 'agent': 'worker', 'state': 'recover', 'reason': 'Pending outcome'},
+                {'item': 22, 'agent': 'worker', 'state': 'blocked', 'reason': 'Cleanup unconfirmed'},
+                {'item': 23, 'agent': 'worker', 'state': 'parked', 'reason': 'Stop label needs-human is present'},
+                {'item': 24, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required'},
+                {'item': 25, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'},
+                {'item': 26, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
+                {'item': 27, 'agent': 'worker', 'state': 'backoff', 'reason': 'Retry backoff'},
+                {'item': 28, 'agent': 'worker', 'state': 'waiting', 'reason': 'Runtime paused'},
+            ])
+            now = datetime.now(timezone.utc)
+            state['outcomes'][0]['time'] = now.isoformat()
+            state['outcomes'].insert(0, dict(state['outcomes'][0], run='older-run',
+                                             time=(now - timedelta(days=2)).isoformat()))
+            path.write_text(json.dumps(state))
+            previous = root / '.ub-agents' / 'runs' / 'previous-run'
+            previous.mkdir()
+            outcome_log = previous / 'process.log'
+            outcome_log.write_bytes(capture.read_bytes() * 20)
             script = '''
 import json, pathlib, sys
 from textual.binding import Binding
+from textual.widgets import Tree
 from ub_agents.view_ui import LogPane, View
 class ProofView(View):
-    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True)]
+    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
+                Binding('r', 'recent_cursor', priority=True), Binding('s', 'plan_cursor', priority=True),
+                Binding('a', 'assignment_cursor', priority=True)]
+    def cursor(self, node):
+        tree = self.query_one(Tree)
+        tree.focus()
+        tree.move_cursor(node)
+    def action_recent_cursor(self):
+        self.cursor(self.groups['Recent activity'])
+    def action_plan_cursor(self):
+        self.cursor(self.nodes['plan:21:worker'])
+    def action_assignment_cursor(self):
+        self.cursor(self.nodes['assignment:owned-run'])
     def action_checkpoint(self):
         pane = self.query_one(LogPane)
         r = self.reading
-        value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation,
-                 'starts': [ref.start for ref in r.page.refs], 'anchor': pane.anchor(),
-                 'entries': r.log.total_entries, 'lag': r.log.unread_bytes,
-                 'notice': self.query_one('#log_note').render().plain}
+        tree = self.query_one(Tree)
+        row = self.rows.get(self.selected)
+        value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation if r.page else None,
+                 'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
+                 'entries': r.log.total_entries if r.log else 0, 'lag': r.log.unread_bytes if r.log else 0,
+                 'notice': self.query_one('#log_note').render().plain,
+                 'selected': self.selected, 'group': row.group if row else None,
+                 'state': row.state if row else None, 'cursor': tree.cursor_node.data,
+                 'focus': self.focused.id, 'title': tree.root.label.plain,
+                 'sections': [node.label.plain for node in tree.root.children],
+                 'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
+                 'recent_expanded': self.groups['Recent activity'].is_expanded}
         pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
@@ -333,6 +376,13 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             try:
                 drain(1)
                 self.assertIn(b'FORMATTED', transcript)
+                initial = checkpoint()
+                self.assertEqual(initial['sections'], ['Running · 2', 'Needs attention · 3',
+                                                       'Eligible · 2', 'Waiting · 4',
+                                                       'Recent activity · 1 today'])
+                self.assertEqual(initial['eligible'], ['plan:20:worker', 'plan:21:worker'])
+                self.assertIn('partial', initial['title'])
+                self.assertFalse(initial['recent_expanded'])
                 os.write(master, b'f\x1b[5~')
                 drain(0.2)
                 paused = checkpoint()
@@ -352,6 +402,61 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 # the same entry and proportional reading position survive.
                 self.assertAlmostEqual(retained['anchor'][1], paused['anchor'][1], delta=0.05)
                 self.assertGreater(retained['entries'] - paused['entries'], 200)
+                os.write(master, b'r\r')  # Focus Recent activity, then real Enter.
+                drain()
+                self.assertTrue(checkpoint()['recent_expanded'])
+                os.write(master, b'\x1b[B\r')  # Down to the latest outcome and Enter.
+                drain()
+                self.assertEqual(checkpoint()['selected'], 'outcome:previous-run')
+                os.write(master, b'f\x1b[5~')
+                drain()
+                outcome_paused = checkpoint()
+                with outcome_log.open('ab') as stream:
+                    stream.write(b''.join(event(i, size=800) for i in range(600)))
+                drain(1.5)
+                outcome_retained = checkpoint()
+                self.assertTrue(outcome_retained['recent_expanded'])
+                self.assertEqual(outcome_retained['starts'], outcome_paused['starts'])
+                self.assertEqual(outcome_retained['anchor'], outcome_paused['anchor'])
+                os.write(master, b'r\r')
+                drain()
+                collapsed = checkpoint()
+                self.assertEqual(collapsed['selected'], 'recent-activity')
+                self.assertEqual(collapsed['cursor'], 'recent-activity')
+                self.assertFalse(collapsed['recent_expanded'])
+                os.write(master, b'\r')
+                drain()
+                os.write(master, b'\x1b[B\r')
+                drain()
+                revisited = checkpoint()
+                self.assertEqual(revisited['starts'], outcome_paused['starts'])
+                self.assertEqual(revisited['anchor'][0], outcome_paused['anchor'][0])
+                self.assertAlmostEqual(revisited['anchor'][1], outcome_paused['anchor'][1], delta=0.05)
+                os.write(master, b's\r')
+                drain()
+                plan = checkpoint()
+                state['latest_pass']['state'] = 'complete'
+                state['latest_pass']['rows'] = [
+                    {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'}]
+                path.write_text(json.dumps(state))
+                drain()
+                moved = checkpoint()
+                self.assertEqual(moved['group'], 'Waiting')
+                self.assertEqual(moved['selected'], plan['selected'])
+                self.assertEqual(moved['cursor'], plan['cursor'])
+                self.assertEqual(moved['focus'], plan['focus'])
+                self.assertEqual(moved['sections'][:2], ['Running · 1', 'Waiting · 1'])
+                self.assertNotIn('partial', moved['title'])
+                state['latest_pass']['rows'] = []
+                path.write_text(json.dumps(state))
+                drain()
+                self.assertEqual(checkpoint()['state'], 'earlier observation')
+                os.write(master, b'a\r')
+                drain()
+                restored = checkpoint()
+                self.assertEqual(restored['starts'], paused['starts'])
+                self.assertEqual(restored['anchor'][0], paused['anchor'][0])
+                self.assertAlmostEqual(restored['anchor'][1], paused['anchor'][1], delta=0.05)
                 os.write(master, b'h')
                 drain(0.2)
                 older = checkpoint()

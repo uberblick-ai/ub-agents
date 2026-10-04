@@ -396,6 +396,11 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -v
 ```
 
+With [mise](https://mise.jdx.dev) activated in your shell, entering the checkout does
+this for you: it creates `.venv`, installs the checkout into it when missing or when
+`pyproject.toml` changes, puts it on `PATH` and lists common commands. Run
+`mise trust` once to allow it.
+
 Tests use fakes for GitHub and real child processes for supervision; they never call a
 model. This repository is developed with its own loop: see [ub-agents.yaml](ub-agents.yaml)
 and [AGENTS.md](AGENTS.md). The roadmap is in the

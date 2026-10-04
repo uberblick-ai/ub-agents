@@ -29,11 +29,32 @@ strict. Ctrl-C in a standalone view closes only that view.
 ## Using the view
 
 At least **110 columns × 32 rows** are needed for the combined view. The left
-pane contains the current assignment, the latest pass (marked partial until
-complete) and recent outcomes. Outcome completion and a human blocker are shown
-separately: a completed step can still be blocked. Selection and focus survive
-refreshes. A selected row that disappears remains an earlier local observation.
-Claims held by another launcher show their owner and have no log access.
+pane groups work from the session snapshot into sections, hiding empty sections
+and showing each section's row count:
+
+| Section | Work |
+| --- | --- |
+| Running | The current assignment, once, and plans owned by another launcher, with their owner |
+| Needs attention | Blocked plans and parked plans with stop labels or approval gates |
+| Eligible | Ready and recovery plans, in the pass's planned order |
+| Waiting | Dependency and milestone waits, retry backoff and paused-runtime plans |
+
+Dependency and milestone waits are parked plans whose reasons start with
+`Waiting for blockers …` or `Waiting for active milestone #…`. While a pass is
+incomplete, a dim `partial` marker appears on the `Launcher work` pane title.
+
+When the session has outcomes, a collapsed **Recent activity · N today** row
+follows the sections. N counts cached session outcomes dated today in the
+viewer's local timezone; older outcomes remain available when expanded. Select
+the row and press `Enter` to expand or collapse it. Expanded outcomes have the
+same local log access as other own runs. Expansion survives refreshes; collapsing
+while an outcome is selected selects the Recent activity row.
+
+Outcome completion and a human blocker are shown separately: a completed step
+can still be blocked. Selection, focus and paused log positions survive refreshes,
+including when a row moves between sections. A selected row that disappears
+remains an earlier local observation. Claims held by another launcher show their
+owner and have no log access.
 
 The right pane has Log, Issue and Runs tabs. Issue first uses the snapshot
 description or that session's run `context.json`. A shortened or empty cached
@@ -53,6 +74,7 @@ plain-text projections and newline escaping.
 | Key | Action |
 | --- | --- |
 | `Tab`, arrows, `Enter` | Focus a pane and select a work row |
+| `Enter` on Recent activity | Expand or collapse session outcomes |
 | `1`, `2`, `3` | Log, Issue, Runs |
 | `g` on Issue | Load the selected item's missing title/body, or retry a failed description read |
 | `f` | Toggle follow/pause; resuming loads the latest generation |
@@ -139,8 +161,19 @@ An actual terminal acceptance check is also required, separately from headless
 Textual pilots or screenshots. In a real 110×32 terminal, attach to a live launcher
 or a local replay that appends to a session's `process.log` and publishes snapshots:
 
-1. Confirm follow reaches recent output and the current assignment, partial pass,
-   cached Issue and session Runs tabs are readable.
+1. Publish a replay with the current assignment, owned, blocked, parked stop/approval,
+   ready/recovery, dependency/milestone wait, backoff and paused-runtime plans.
+   Confirm Running, Needs attention, Eligible and Waiting appear in that order,
+   with correct counts and planned order within Eligible. The current assignment
+   appears once. Empty sections are hidden. A partial pass has a dim marker on
+   the pane title, which disappears when the pass completes. Confirm follow reaches
+   recent output and cached Issue and session Runs tabs are readable.
+   Include today's and older outcomes; check the collapsed Recent activity count
+   against the local date. Use `Enter` to expand it, select an outcome and pause
+   its log. Publish refreshes and move a selected plan between sections; check
+   selection, focus and paused positions. Collapse Recent activity with an outcome
+   selected, then expand and revisit it; check header selection and the restored
+   paused page. Remove a selected plan and check its earlier observation remains.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading
    position must remain stable; unread and lag must grow.

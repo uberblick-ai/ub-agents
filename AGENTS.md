@@ -24,6 +24,10 @@ at `origin/main`, for a pushed commit:
 mise run ci <sha>
 ```
 
+mise only reads a trusted `mise.toml`, and every fresh worktree is a new path, so an
+agent runs `mise trust` in its own worktree before its first `mise` command. That is
+expected and needs no approval.
+
 It checks the commit out into a temporary worktree with a fresh virtualenv, runs
 `git diff --check`, the unit suite, and
 `ub-agents check`. When all pass it posts a green `signoff` commit status through
@@ -72,8 +76,8 @@ environmental: state it with your results and do not change code or tests to avo
 The integrator squash-merges a PR once every owed review and check applies to its
 current head, with `--match-head-commit` set to the assigned SHA. The check is a green
 `signoff` status at that head from local CI. The integrator runs it: detach its own
-worktree at `origin/main` (`git switch --detach origin/main`) and run
-`mise run ci SHA`, every time: a `signoff` already on the commit only says someone
+worktree at `origin/main` (`git switch --detach origin/main`), run `mise trust` there,
+and run `mise run ci SHA`, every time: a `signoff` already on the commit only says someone
 posted it, not that the checks ran. It leaves the merge
 to a maintainer, and says why, when the PR:
 
