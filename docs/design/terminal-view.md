@@ -221,11 +221,25 @@ footer keys switch to log keys):
 
 Update available (yellow banner above both panes; the view is otherwise unchanged):
  ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, then restart the launcher   released 2 days ago
- ⬆ This checkout is 3 commits behind origin/main · git pull, then restart the launcher
+ ⬆ This launcher runs code 3 commits behind origin/main · restart the launcher
 
 Stopping:
  ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
 ```
+
+The update banner is one yellow row above both panes and the shared item header,
+with the release age at the right when space permits. It truncates to the terminal
+width and takes no focus. The activity footer remains at the bottom.
+Pip releases name `pip install -U ub-agents` instead of the Homebrew command.
+The launcher supplies the result in its session snapshot; the view does not read
+GitHub for it. Plain launch output prints each new banner text once (#183).
+
+Installed releases check the latest GitHub release at startup and at most daily.
+The control-checkout editable install instead compares the started source with
+the result of the latest normal fetch, which already fast-forwards the checkout;
+the action is to restart. It makes no release request or extra fetch. An idle
+launcher that has not fetched, or an editable install elsewhere, shows no notice.
+Slow or failed checks retain the last successful result without delaying work.
 
 - Idle: Running shows the idle line, and the status reads `○ Idle · waiting for the next poll`.
 - Stopping (SIGTERM): the running row shows `■ stopping`, Eligible reads `not claimed
