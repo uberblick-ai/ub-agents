@@ -430,7 +430,7 @@ class View(App):
         title = self.local_description.title if self.local_description else ''
         signature = (row.key if row else None, repr(history), title, int(now.timestamp() * (5 if active else 1)))
         if signature != self.last_runs:
-            self.query_one('#runs_text', Static).update(runs_view(row, self.session, title, now))
+            self.query_one('#runs_text', Static).update(runs_view(row, self.session, title))
             self.last_runs = signature
 
     def description_key(self):

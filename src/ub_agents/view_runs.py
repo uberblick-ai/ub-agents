@@ -22,10 +22,11 @@ def moment(value):
 
 
 def relative_time(value, now=None):
-    now = now or datetime.now().astimezone()
     stamp = moment(value)
     if stamp is None:
         return 'unknown'
+    local = stamp.astimezone(now.tzinfo) if now is not None else stamp.astimezone()
+    now = now or datetime.now().astimezone()
     age = max(0, now.timestamp() - stamp.timestamp())
     if age < 60:
         return 'just now'
@@ -33,7 +34,6 @@ def relative_time(value, now=None):
         return f'{int(age // 60)} min ago'
     if age < 86400:
         return f'{int(age // 3600)} h ago'
-    local = stamp.astimezone(now.tzinfo)
     days = (now.date() - local.date()).days
     if days == 1:
         return 'yesterday'
@@ -71,6 +71,7 @@ def run_status(row, now):
 def runs_view(row, session, title='', now=None):
     if row is None:
         return Text('Select an item to see its history.')
+    relative_now = now
     now = now or datetime.now().astimezone()
     history = mapping(mapping(session.data.get('histories')).get(str(row.item))) or mapping(row.data.get('history'))
     runs = rows(history.get('runs'), 20)
@@ -78,7 +79,7 @@ def runs_view(row, session, title='', now=None):
     omitted = omitted if type(omitted) is int and omitted > 0 else 0
     filing = mapping(history.get('filing'))
     filed = isinstance(filing.get('author'), str) and bool(filing['author']) and moment(filing.get('time')) is not None
-    header = Text(f'#{row.item} {text(history.get("title"), title)}', style='bold', overflow='ellipsis', no_wrap=True)
+    header = Text(f'#{row.item} {text(history.get("title") or title, "")}', style='bold', overflow='ellipsis', no_wrap=True)
     details = []
     if history.get('kind') == 'pr' and type(history.get('closes')) is int:
         details.append(f'closes #{history["closes"]}')
@@ -95,7 +96,7 @@ def runs_view(row, session, title='', now=None):
     table.add_column('where', width=14, no_wrap=True)
     table.add_column('outcome', min_width=12, max_width=24, overflow='fold')
     if filed:
-        table.add_row(relative_time(filing['time'], now), Text('✓', style='green'),
+        table.add_row(relative_time(filing['time'], relative_now), Text('✓', style='green'),
                       Text('filed by ' + text(filing['author'])), 'GitHub', 'filed')
     frame = SPINNER[int(now.timestamp() * 10) % len(SPINNER)]
     for run in runs:
@@ -110,6 +111,6 @@ def runs_view(row, session, title='', now=None):
         blockers = run.get('human_blocker')
         if isinstance(blockers, list) and blockers:
             outcome += ' · BLOCKED: ' + ', '.join(text(b) for b in blockers[:10])
-        table.add_row(relative_time(run.get('time'), now), glyph, Text(summary), run_host(run.get('host')), Text(outcome))
+        table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary), run_host(run.get('host')), Text(outcome))
     tail = [Text(f'{omitted} earlier runs omitted.', style='dim')] if omitted else []
     return Group(header, subtitle, Rule(style='dim', characters='┄'), table, *tail)

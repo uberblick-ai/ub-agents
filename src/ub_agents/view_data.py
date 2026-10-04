@@ -102,7 +102,8 @@ def load_session(path):
                     raise ValueError('Invalid row')
                 if 'item' in row and (type(row['item']) is not int or row['item'] < 1):
                     raise ValueError('Invalid item number')
-                for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary'):
+                for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary',
+                              'result', 'outcome', 'host', 'time', 'expires', 'acceptance'):
                     if row.get(field) is not None and not isinstance(row[field], str):
                         raise ValueError(f'Invalid row {field}')
                 for field in ('owner', 'description'):

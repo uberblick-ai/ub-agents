@@ -2,8 +2,10 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -70,6 +72,14 @@ class RunsTests(unittest.TestCase):
         now = datetime(2026, 10, 4, 1, tzinfo=timezone(timedelta(hours=2)))
         self.assertEqual(relative_time('2026-10-02T21:30:00Z', now), '2 days ago')
         self.assertEqual(relative_time('2026-09-26T23:30:00Z', now), '2026-09-27')
+
+    def test_local_date_applies_the_recorded_dates_daylight_saving_offset(self):
+        self.addCleanup(time.tzset)
+        with patch.dict(os.environ, {'TZ': 'America/New_York'}):
+            time.tzset()
+            with patch('ub_agents.view_runs.datetime', wraps=datetime) as clock:
+                clock.now.return_value = datetime(2026, 11, 3, 1, tzinfo=timezone(timedelta(hours=-5)))
+                self.assertEqual(relative_time('2026-10-27T04:30:00Z'), '2026-10-27')
 
     def test_host_domain_shortening_fixed_slot_and_local_machine(self):
         for host, expected in (('build-01.tail9c.ts.net', 'build-01'),
