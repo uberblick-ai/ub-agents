@@ -8,11 +8,12 @@ from pathlib import Path
 import stat
 import time
 
-from .log_format import inert, shorten
+from .log_format import CONTROLS, inert, shorten
 
 SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
 SESSION_LIMIT = 256
+DESCRIPTION_LIMIT = 2048
 WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Waiting', 'Recent activity')
 
 
@@ -231,20 +232,42 @@ class Description:
     notice: str = ''
     error: str = ''
 
-    def display(self, now=None):
+    def __post_init__(self):
+        notices = [self.notice] if self.notice else []
+        for field, label in (('title', 'Title'), ('body', 'Description')):
+            value = description_text(getattr(self, field))
+            if len(value) > DESCRIPTION_LIMIT:
+                notices.append(f'{label} shortened to 2,048 characters.')
+            object.__setattr__(self, field, value[:DESCRIPTION_LIMIT])
+        error = inert(self.error)
+        if len(error) > DESCRIPTION_LIMIT:
+            notices.append('Description load error shortened to 2,048 characters.')
+        object.__setattr__(self, 'error', error[:DESCRIPTION_LIMIT])
+        object.__setattr__(self, 'notice', '\n'.join(notices))
+
+    def details(self, now=None):
+        """Plain status and provenance, kept outside the Markdown body."""
         age = f'{max(0, (time.time() if now is None else now) - self.observed_at):.0f}s old' if self.observed_at is not None else 'age unavailable'
-        value = self.body if self.available else 'Description unavailable (not cached).'
+        lines = [] if self.available else ['Description unavailable (not cached).']
         if self.error:
-            value = 'Description load failed: ' + self.error
-        source = f'\nSource: {self.source} · {age}' if self.source else ''
-        return value + source + ('\n' + self.notice if self.notice else '')
+            lines = ['Description load failed: ' + self.error]
+        if self.source:
+            lines.append(f'Source: {self.source} · {age}')
+        if self.notice:
+            lines.append(self.notice)
+        return '\n'.join(lines)
+
+    def display(self, now=None):
+        body = self.body if self.available and not self.error else ''
+        return '\n'.join(part for part in (body, self.details(now)) if part)
 
 
 def description_text(value):
-    # Description shortening must not imply that a full raw log file exists.
-    value = inert(value) if isinstance(value, str) else ''
-    limit = 2048
-    return value if len(value) <= limit else value[:limit] + ' … [description shortened]'
+    """Keep description line breaks and tabs; escape all other controls."""
+    if not isinstance(value, str):
+        return ''
+    value = value.replace('\r\n', '\n').replace('\r', '\n')
+    return CONTROLS.sub(lambda match: match.group() if match.group() in '\n\t' else inert(match.group()), value)
 
 
 def local_description(row, session):
@@ -254,12 +277,12 @@ def local_description(row, session):
     source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
                    if r.get('item') == row.item), source)
     description = mapping(source.get('description'))
-    title = description_text(source.get('title'))
+    title = source.get('title')
     if description.get('available') is True and isinstance(description.get('text'), str):
         age = session.age()
         stamp = time.time() - age if age is not None else None
         notice = 'Description shortened in snapshot.' if description.get('omitted_characters') else ''
-        return Description(title, description_text(description['text']), 'snapshot', stamp, True, notice)
+        return Description(title, description['text'], 'snapshot', stamp, True, notice)
     context_path = row.context
     if context_path is None:
         # A plan row can refer to the session's current or earlier own run.
@@ -273,18 +296,21 @@ def local_description(row, session):
         try:
             context = read_json(context_path, CONTEXT_BYTES)
             if isinstance(context.get('body'), str):
-                return Description(description_text(context.get('title')) or title,
-                                   description_text(context['body']), 'run context.json',
+                return Description(context.get('title') or title, context['body'], 'run context.json',
                                    context_path.stat().st_mtime, True)
         except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
             return Description(title=title, notice='Cached context unavailable: ' + text(str(exc)))
     return Description(title=title)
 
 
-def context_text(row, description):
+def context_header(row, description):
     if not row:
         return 'No item selected.'
-    return f'#{row.item} {description.title}\n{row.state}\n{row.reason}\n\n{description.display()}'
+    return f'#{row.item} {description.title}\n{row.state}\n{row.reason}'
+
+
+def context_text(row, description):
+    return context_header(row, description) + ('\n\n' + description.display() if row else '')
 
 
 def item_context(row, session):
