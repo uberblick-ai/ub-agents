@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -22,8 +23,8 @@ def command_for(agent, runtime, scratch, report_command=None):
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
                    "--model", runtime.model, "--effort", runtime.effort]
     # No permission flags, auth stores, or hidden provider fallback; never a shell.
-    report_command = report_command or launcher_report_command()
-    return command + [arg.replace("{scratch}", str(scratch)).replace("{report_command}", report_command)
+    values = {"{scratch}": str(scratch), "{report_command}": report_command or launcher_report_command()}
+    return command + [re.sub(r"\{(?:scratch|report_command)\}", lambda match: values[match[0]], arg)
                       for arg in agent.runtime_args]
 
 

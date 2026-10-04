@@ -163,8 +163,9 @@ class ReportVersionTests(unittest.TestCase):
                 self.assertEqual(self.github.writes, writes)
 
     def test_other_versions_comments_and_authors_do_not_trigger_the_diagnostic(self):
-        for version, author, targeted in ((2, "operator", True), (4, "outsider", True),
-                                          (4, "operator", False)):
+        future = record_version(MARKER) + 1
+        for version, author, targeted in ((2, "operator", True), (future, "outsider", True),
+                                          (future, "operator", False)):
             with self.subTest(version=version, author=author, targeted=targeted):
                 comment = self.github.store[1][0]
                 original = dict(comment)

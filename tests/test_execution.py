@@ -64,6 +64,13 @@ class ExecutionTests(unittest.TestCase):
                 self.assertEqual(command[-4:], ["--allowedTools", f"Bash({report} report *)",
                                                 "--add-dir", str(self.root)])
 
+    def test_placeholder_words_in_paths_are_not_expanded_again(self):
+        scratch = self.root / "{report_command}"
+        report = "/installation/{scratch}/python -I /installation/report_command.py"
+        configured = agent(self.root, command=(), runtime_args=("{scratch}", "{report_command}"))
+        command = command_for(configured, Runtime("claude", "model", "high"), scratch, report)
+        self.assertEqual(command[-2:], [str(scratch), report])
+
     def test_prompt_cwd_environment_and_exit_are_delivered_to_recording_command(self):
         script = "import os,sys; print(os.getcwd()); print(os.environ['TEST_UB_CONTEXT']); print(sys.stdin.read())"
         env = os.environ.copy() | {"TEST_UB_CONTEXT": "context"}
