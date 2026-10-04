@@ -155,6 +155,7 @@ class Observations:
                        "stale_seconds": STALE_SECONDS},
         }
         self.source_run = None
+        self.previous_histories = {}
         self.emit()
 
     @staticmethod
@@ -271,6 +272,9 @@ class Observations:
         self.emit()
 
     def begin_pass(self):
+        # Keep one bounded pass privately so unreadable records can recover the
+        # last observation without publishing histories for unlisted items.
+        self.previous_histories = dict(self.state["histories"])
         self.state["latest_pass"] = {"started_at": iso(self.clock()), "state": "partial", "rows": []}
         self.state["omitted"]["plans"] = 0
         self.prune_histories(self.state)
@@ -278,6 +282,7 @@ class Observations:
 
     def complete_pass(self):
         self.state["latest_pass"]["state"] = "complete"
+        self.previous_histories.clear()
         self.emit()
 
     @staticmethod
@@ -302,7 +307,8 @@ class Observations:
                               if source and source.author and source.created_at else None),
                    "runs": [self.bounded_run(run) for run in runs[-MAX_OUTCOMES:]],
                    "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
-        cached = self.state["histories"].get(str(plan.item.number))
+        key = str(plan.item.number)
+        cached = self.state["histories"].get(key) or self.previous_histories.get(key)
         if not plan.history_read and cached:
             history.update(runs=[dict(run) for run in cached["runs"]], omitted_runs=cached["omitted_runs"],
                            filing=history["filing"] or cached["filing"])

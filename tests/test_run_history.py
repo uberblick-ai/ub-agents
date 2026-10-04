@@ -186,6 +186,33 @@ class RunsTests(unittest.TestCase):
         self.observer.plan(replace(plan, history=()))
         self.assertEqual(self.memory.snapshots[-1]['histories']['1']['runs'], [])
 
+    def test_unreadable_records_recover_history_across_polling_passes(self):
+        filed = replace(issue(labels=('needs-human',)), author='bk-one')
+        plan = self.plan(filed, (claim(), outcome(handoff=None)))
+        expected = self.memory.snapshots[-1]['histories']['1']
+        self.observer.complete_pass()
+        for _ in range(2):
+            self.observer.begin_pass()
+            self.assertNotIn('1', self.memory.snapshots[-1]['histories'])
+            self.observer.plan(replace(plan, item=replace(filed, labels=frozenset(), author=None),
+                                       state='blocked', reason='Unreadable record',
+                                       history=(), history_read=False))
+            self.observer.complete_pass()
+            history = self.memory.snapshots[-1]['histories']['1']
+            self.assertEqual(history['filing'], expected['filing'])
+            self.assertEqual(history['omitted_runs'], expected['omitted_runs'])
+            self.assertEqual(history['runs'], [expected['runs'][0] | {'human_blocker': []}])
+            self.assertEqual(self.observer.previous_histories, {})
+        # A successful read of an empty history clears the recovered runs.
+        self.observer.begin_pass()
+        self.observer.plan(replace(plan, history=()))
+        self.observer.complete_pass()
+        self.assertEqual(self.memory.snapshots[-1]['histories']['1']['runs'], [])
+        self.observer.begin_pass()
+        self.observer.complete_pass()
+        self.assertEqual(self.memory.snapshots[-1]['histories'], {})
+        self.assertEqual(self.observer.previous_histories, {})
+
     def test_byte_pressure_keeps_each_items_newest_runs_and_exact_omissions(self):
         # Assignment is inserted first, as in a running launcher. Bodies alone
         # exceed the byte limit in some cases; compact history must survive.

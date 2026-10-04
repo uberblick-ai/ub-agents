@@ -102,7 +102,8 @@ runs are omitted. Each item's newest run is retained; if necessary, later plan
 rows and older session outcomes are then omitted with their unreferenced histories.
 The current assignment's history remains. These reductions affect only published
 snapshots; the next snapshot can use the launcher's retained data again.
-Unreadable coordination records preserve an item's earlier cached history.
+Unreadable coordination records preserve an item's cached history from the
+previous polling pass.
 An item with no filing or run data shows `No item history cached.` Selecting
 Recent activity itself prompts for an item; its expanded rows each show their
 item's history.
