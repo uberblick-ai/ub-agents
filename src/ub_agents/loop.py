@@ -8,7 +8,7 @@ from time import monotonic
 from dataclasses import replace
 
 from .approvals import ApprovalCheck, check_issue, check_pr
-from .config import instruction_text, load_config, resolve_config_path
+from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .discovery import Discovery
@@ -24,6 +24,7 @@ from .records import (attempts, backoff, declared_transition, iso, latest_leases
                       lease_summary, resolve_transition, seconds, timestamp)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
+from .renewal import LeaseRenewal
 from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
@@ -52,8 +53,9 @@ class Loop:
         self.config = config
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
-                                       on_claim=self.github.claimed, launchers=config.launchers,
+                                       on_claim=self.claimed, launchers=config.launchers,
                                        on_record=lambda record: self._observe("record", record))
+        self._renewal = None
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
@@ -97,19 +99,40 @@ class Loop:
         now = self.coordinator.clock()
         reset = error.reset_at if error.reset_at is not None else now + RATE_LIMIT_FALLBACK_SECONDS
         delay = min(RATE_LIMIT_MAX_SECONDS, max(0, reset - now))
-        if lease is not None and now + delay >= seconds(lease["expires"]):
-            raise LostOwnership(f"Cannot establish ownership before lease expiry: {error}") from error
         self.output(f"GitHub rate limit reached; waiting until {iso(now + delay)} ({delay / 60:g} min)")
         # SIGTERM wakes discovery, but an owned run keeps draining. Only Ctrl-C
         # and SIGHUP wake the in-run wait.
         event = self.interrupt_event if lease is not None else self.stop_event
-        self._wait(event, delay, "rate-limit reset")
+        if lease is None:
+            self._wait(event, delay, "rate-limit reset")
+            if self.interrupt_event.is_set():
+                raise KeyboardInterrupt
+            if self.stop_event.is_set():
+                raise _GracefulStop
+            return
+        until, remaining = now + delay, delay
+        while remaining > 0:
+            now = self.coordinator.clock()
+            try:
+                expiry = self.coordinator.deadline(lease)
+            except LostOwnership as exc:
+                raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
+            remaining = min(remaining, until - now)
+            if remaining <= 0:
+                break
+            # Renewal runs independently. Wake at least once a minute so an
+            # extended expiry or known ownership loss changes this wait's bound.
+            wait = min(60, remaining, expiry - now)
+            self._wait(event, wait, "rate-limit reset")
+            remaining -= wait
+            if self.interrupt_event.is_set():
+                raise KeyboardInterrupt
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
-        if lease is not None and self.coordinator.clock() >= seconds(lease["expires"]):
-            raise LostOwnership("Lease expired while waiting for GitHub rate limit reset")
-        if lease is None and self.stop_event.is_set():
-            raise _GracefulStop
+        try:
+            self.coordinator.deadline(lease)
+        except LostOwnership as exc:
+            raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
 
     def stop_gracefully(self):
         self._observe("activity", "stopping")
@@ -160,7 +183,7 @@ class Loop:
 
     def iter_plans(self, cached=True):
         github = self.discovery if cached else Discovery(self.github)
-        lookback = max(agent.lease_seconds for agent in self.config.agents) + COMMENT_RECOVERY_SECONDS
+        lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
@@ -480,11 +503,19 @@ class Loop:
                                           sorted(matches.trigger_labels))
 
     def execute(self, plan):
+        self._renewal = LeaseRenewal(self.coordinator, self.github.github)
         try:
             return self._execute(plan)
         finally:
+            self._renewal.close()
+            self._renewal = None
             self._observe("clear_assignment")
             self.github.lease = None
+
+    def claimed(self, lease):
+        self.github.claimed(lease)
+        if self._renewal is not None:
+            self._renewal.claimed(lease)
 
     def maintain_runtimes(self):
         self._before_claim()
@@ -644,7 +675,7 @@ class Loop:
                         self.stop_event.set()
                     reported = outcome
                 failure = run_hook(self.config, lease, workspace.private, reported,
-                                   expires=seconds(lease["expires"]) if record else None)
+                                   expires=(lambda: self.coordinator.deadline(lease)) if record else None)
                 if failure:
                     if record:
                         try:
@@ -728,7 +759,7 @@ class Loop:
             code = supervise(command, cwd, env, run_dir,
                              plan.agent.timeout_seconds, self.interrupt_event,
                              self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
-                             expires=seconds(lease["expires"]), process_started=process_started,
+                             expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
                              observe_output=usage_output.poll if usage_output else None,
                              **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
             if usage_output:
@@ -962,23 +993,24 @@ class Loop:
         if not outcome.get("transition_complete"):
             self.coordinator.update_outcome(lease, outcome, transition_complete=True)
 
-    def recover(self, plan, recovery_check=None, recovery_reason=None):
+    def recover(self, plan):
+        self._renewal = LeaseRenewal(self.coordinator, self.github.github)
         try:
-            return self._recover(plan, recovery_check, recovery_reason)
+            return self._recover(plan)
         finally:
+            self._renewal.close()
+            self._renewal = None
             self._observe("clear_assignment")
             self.github.lease = None
 
-    def _recover(self, plan, recovery_check=None, recovery_reason=None):
+    def _recover(self, plan):
         history = self.coordinator.history(plan.item.number)
-        outcome = (recovery_check(history) if recovery_check is not None else
-                   self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock()))
+        outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
             return False
         self._observe("assignment", plan)
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
-                                          before_write=self._end_poll, recovery_check=recovery_check,
-                                          recovery_reason=recovery_reason)
+                                          before_write=self._end_poll)
         if recovery is None:
             return False
         # The claim reread may have observed a supervisor's newer outcome flags.
@@ -1016,19 +1048,9 @@ class Loop:
         self.coordinator.update(recovery, **verdict,
                                 retry_after=iso(self.coordinator.clock() + delay) if delay else None)
         self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
-        transition = self.validate_report(outcome) if recovery_reason is not None and result == "success" else None
         self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
                                  attempt_effect=effect, parking_outcome=outcome)
-        if recovery_reason is None:
-            self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
-        elif result == "success":
-            target = outcome.get("handoff") or outcome["assignment"]
-            removed = ", ".join(sorted(set(transition["remove"]))) or "none"
-            added = ", ".join(sorted(set(transition["add"]))) or "none"
-            self.output(f"#{plan.item.number} {plan.agent.name}: outcome accepted — {outcome['summary']}; "
-                        f"removed from #{outcome['assignment']}: {removed}; added to #{target}: {added}")
-        else:
-            self.output(f"#{plan.item.number} {plan.agent.name}: outcome rejected — {summary}")
+        self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 
     def _end_poll(self):

@@ -31,7 +31,7 @@ Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
 publishes a local JSON snapshot at `.ub-agents/sessions/<session-id>.json` in the
 control checkout. Publication is always on, has no configuration key, and makes
 no additional GitHub requests.
-`status`, `recover` and embedded loops without an observer keep their existing
+`status` and embedded loops without an observer keep their existing
 behavior. Snapshots contain issue titles and descriptions already read by the
 launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
 directories have mode `0700`; snapshot and temporary files have mode `0600`.
@@ -59,7 +59,7 @@ The version 1 envelope contains:
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
 | `assignment` | Current item, kind, agent, run, runtime, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery has no agent log or context. |
 | `latest_pass` | Start time, `partial` or `complete`, and the plans actually reached, including item, kind, title, agent, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
-| `outcomes` | This session's recent reports and recovered outcomes: item, agent, run, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. |
+| `outcomes` | This session's recent reports and recovered outcomes: item, agent, run, runtime, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit runtime. |
 | `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
 
 Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
@@ -198,8 +198,9 @@ discovery waits. `launch --once` and `status` still fail on their first discover
 error.
 
 From claim election through release, including completion recovery, rate-limited
-reads wait and retry under the active lease. If the wait would reach or outlast
-lease expiry, the launcher takes the lost-ownership path and leaves expiry recovery
+reads wait and retry under the active lease, even when the reset is beyond its
+current expiry. Renewal continues during the wait. If the last confirmed expiry
+actually passes, the launcher takes the lost-ownership path and leaves expiry recovery
 to finish durable completion. See
 [Stopping and restarting](../README.md#stopping-and-restarting) for signals during
 owned-run waits. Rate-limited writes retain their existing handling and are not
@@ -257,8 +258,8 @@ log directory and deadline; surviving helpers are terminated and checked using
 the same supervision as agent processes. An already requested launcher stop does
 not skip the cleanup hook.
 
-The lease covers the hook: a claim lasts the agent timeout, the fifteen-minute grace
-and the hook timeout. If the lease nevertheless expires by wall clock during the
+The fixed 30-minute lease renews every 10 minutes throughout the hook; the hook
+timeout does not extend it. If the last confirmed expiry passes by wall clock during the
 hook, the supervised hook is stopped and the worktree preserved for recovery; that is
 not a normal hook failure. Cleanup after ownership has already been lost runs without
 lease writes.
@@ -529,7 +530,7 @@ request may already have written the transition start marker.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim normally waits for expiry; `ub-agents recover` can finish a reported outcome early on its host. Projects with long runs may prefer shorter per-agent timeouts. |
+| `agent-timeout-minutes` | 180 | Deadline for agent execution only. Claims last 30 minutes and renew every 10 minutes throughout setup, execution, completion and cleanup, including recovery and rate-limit waits. Lease duration and renewal interval are fixed. Older claims retain their recorded expiry. |
 | `max-attempts` | 5 | Consecutive failures per item and agent before pickup stops. |
 | `retry-backoff-seconds` | 60 | First failure retry delay; doubles with consecutive failures and restarts after success or reset. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
@@ -869,23 +870,14 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
   signal handling and execution exit codes as `launch --once`.
 - `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
-- `ub-agents recover --number N --agent NAME --reason TEXT` finishes the latest lease's
-  reported outcome on the launcher's host, including before expiry. The lease must
-  come from a trusted account, record this hostname and a process group
-  with no live members, and have an outcome within its validity window that no
-  supervisor verdict superseded. The reason attests that the launcher has stopped
-  and is recorded on the recovery claim with its author. It prints acceptance and
-  label changes or rejection and its reason. Failed eligibility checks refuse without
-  writing, name the check and lease expiry, and exit nonzero. See [Recovery](coordination.md#recovery).
 - `ub-agents status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
   A live lease's summary names its actor, host, claim time, runtime and lease end,
   including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
   the current UTC day. Only leases on this host have their recorded process group
   inspected: live members display `running` and the path to `process.log`; an
   exited group explains launcher completion or recovery after lease expiry. If
-  that owning run reported an outcome, the reason also points to
-  `ub-agents recover --number N --agent NAME --reason TEXT` for recovery now; the
-  command's eligibility checks still apply. Other reasons distinguish a starting
+  that owning run reported an outcome, the reason explains acceptance after expiry.
+  Other reasons distinguish a starting
   run, a claim without a host, another host, outcome recovery and an unknown
   process state with its inspection error. Inspection failures leave `status`
   successful. It makes no additional GitHub requests, recovers or releases nothing,
