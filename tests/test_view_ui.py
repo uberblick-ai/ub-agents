@@ -12,8 +12,8 @@ from tests.test_view_github import reply
 from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
-from textual.widgets import Markdown, Static, TabbedContent, Tree
-from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, View
+from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
+from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, View, pane_line
 from ub_agents.view_worker import LocalWorker
 
 
@@ -111,17 +111,20 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     if app.reading.raw != raw:
                         await pilot.press('u')
                     status = str(app.query_one('#status', Static).render())
-                    note = str(app.query_one('#log_note', Static).render())
                     self.assertIn('FOLLOW', status)
                     self.assertIn('unread 0 entries · lag 0B', status)
-                    self.assertIn(f'bytes 0–{self.log.stat().st_size}', note)
-                    self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: 0 entries hidden', note)
+                    self.assertFalse(app.query_one('#log_note', Static).display)
                     self.assertEqual(output.visible_refs, app.reading.page.refs)
                     self.assertEqual(output.hidden, 0)
                     if not raw:
                         displayed = {start for start, _ in output.positions}
                         self.assertNotIn(app.reading.page.refs[0].start, displayed)
                         self.assertTrue(all(ref.start not in displayed for ref in app.reading.page.refs[-3:]))
+                    await pilot.press('p')
+                    details = app.screen.query_one('#raw_details', Static).render().plain
+                    self.assertIn(f'bytes 0–{self.log.stat().st_size}', details)
+                    self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: 0 entries hidden', details)
+                    await pilot.press('escape')
             # Leading hidden records are already on this page, not an older one.
             app.action_history()
             self.assertEqual(app.reading.notice, 'Beginning of file (byte zero).')
@@ -196,6 +199,100 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport.response = parse_response(reply(title, body), b'', 0, 1000)
         return transport
 
+    async def test_shared_header_stays_below_tabs_including_a_later_tab(self):
+        self.state['assignment'].update(kind='pr', attempt=2)
+        self.state['outcomes'].append({'item': 114, 'run': 'prior', 'handoff': 1235})
+        self.path.write_text(json.dumps(self.state))
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(130, 36)) as pilot:
+            await self.ready(app, pilot)
+            header = app.query_one('#item_header', Static)
+            tabs = app.query_one(TabbedContent)
+            await tabs.add_pane(TabPane('Later', Static('Later content'), id='later'))
+            for tab in ('log', 'issue', 'runs', 'later'):
+                tabs.active = tab
+                await pilot.pause()
+                value = header.render()
+                title, metadata, rule = value.plain.split('\n')
+                self.assertEqual(title, '⌥114 Cached title')
+                self.assertEqual(metadata, 'implementer · claude synthetic-model high · attempt 2 · ⌥1235')
+                self.assertEqual(rule, '┄' * header.content_region.width)
+                self.assertTrue(value.get_style_at_offset(0).bold)
+                style = value.get_style_at_offset(len(title) + 1)
+                self.assertTrue(style.dim)
+                self.assertFalse(style.bold)
+                self.assertTrue(header.display)
+                self.assertEqual(header.region.height, 3)
+                self.assertLess(header.region.bottom, app.query_one('#' + tab).region.bottom)
+            issue = app.query_one('#issue_text', Static).render().plain
+            self.assertNotIn('Cached title', issue)
+            self.assertNotIn('#114', issue)
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_log_status_follows_process_and_report_with_right_aligned_history(self):
+        self.state['outcomes'].extend([
+            {'item': 114, 'run': 'before', 'agent': 'preparer'},
+            {'item': 114, 'run': 'other', 'agent': 'implementer'}])
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            status = app.query_one('#run_status', Static)
+            lines = status.render().plain.split('\n')
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(lines[0], '┄' * status.size.width)
+            self.assertIn('implementer running · no outcome reported', lines[1])
+            self.assertIn(lines[1][0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
+            self.assertTrue(lines[1].endswith('2 earlier runs'))
+            self.assertEqual(pane_line(lines[1], 1000).cell_len, status.size.width)
+            self.assertEqual(status.region.bottom, app.query_one('#log').region.bottom)
+            self.assertFalse(app.query_one('#log_note').display)
+            self.state['assignment']['process'] = 'exited'
+            self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',
+                                           'acceptance': 'finalized'})
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'finalized' in status.render().plain)
+            self.assertIn('implementer exited · reported success (finalized)', status.render().plain)
+            self.assertTrue(status.render().plain.endswith('2 earlier runs'))
+            await pilot.resize_terminal(65, 25)
+            await pilot.pause()
+            for widget in (status, app.query_one('#item_header', Static)):
+                self.assertTrue(all(pane_line(line, 1000).cell_len <= widget.content_region.width
+                                    for line in widget.render().plain.split('\n')))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_notice_is_one_highlighted_line_only_for_exceptional_log_states(self):
+        self.path, self.log, self.state = fixture(self.root, runtime='codex:model:high')
+        self.log.write_bytes(b'unfinished raw fragment')
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            note = app.query_one('#log_note', Static)
+            self.assertEqual(note.size.height, 1)
+            self.assertIn('Unfinished:', note.render().plain)
+            self.assertIn('plain/raw fallback', note.render().plain)
+            self.assertTrue(any(span.style == 'bold yellow' for span in note.render().spans))
+            self.assertNotIn('bytes ', note.render().plain)
+            self.log.write_bytes(b'finished\n')
+            await self.ready(app, pilot, lambda: app.reading.page.generation > 0)
+            self.assertIn('File replaced or changed generation', note.render().plain)
+            self.log.unlink()
+            await self.ready(app, pilot, lambda: app.reading.log.error)
+            self.assertIn('Read error:', note.render().plain)
+            self.assertNotIn('\n', note.render().plain)
+            self.assertLessEqual(note.render().cell_length, note.size.width)
+            self.assertTrue(note.render().plain.endswith('…'))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    def test_one_line_clipping_uses_terminal_cells_and_escapes_controls(self):
+        self.assertEqual(pane_line('界' * 10, 7).plain, '界界界…')
+        self.assertEqual(pane_line('one\ntwo\x1b', 40).plain, r'one\ntwo\x1b')
+
     async def test_markdown_body_from_every_source_is_formatted_and_inert(self):
         title = '[bold]Title[/bold]\r\nnext\ttitle\rlast\x1b[31m'
         body = ('# Overview\r\n\r\nfirst\tline\rsecond\nthird\n\n'
@@ -243,8 +340,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             self.assertTrue(any(span.style == style for span in spans))
                         self.assertTrue(all(isinstance(span.style, str) or not span.style.meta for span in spans))
                         header = app.query_one('#issue_text', Static).render()
-                        self.assertIn('[bold]Title[/bold]\nnext\ttitle\nlast' + r'\x1b[31m', header.plain)
+                        self.assertNotIn('Title', header.plain)
                         self.assertFalse(header.spans)
+                        shared = app.query_one('#item_header', Static).render()
+                        self.assertIn(r'[bold]Title[/bold]\nnext\ttitle\nlast\x1b[31m', shared.plain)
                         self.assertIn(f'Source: {source}', app.query_one('#issue_note', Static).render().plain)
                         self.assertNotIn('Source:', markdown.source)
                         # Neither mouse nor keyboard activation has a link target.
@@ -332,6 +431,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                  'description': description}]
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting'))
+            await pilot.pause()
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
             self.assertIs(tree.cursor_node, app.reason_nodes[key])
@@ -566,7 +666,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.select(foreign)
                 await pilot.pause(0.3)
                 self.assertIsNone(app.reading.page)
-                self.assertIn('Owner: @other-launcher', str(app.query_one('#log_note').render()))
+                self.assertIn('Owner: @other-launcher', app.reading.empty_message)
+                self.assertNotIn('entries hidden', app.query_one('#log_note').render().plain)
+                self.assertNotIn('evicted ', app.query_one('#log_note').render().plain)
                 app.select(key)
                 await pilot.pause(0.3)
                 self.assertEqual(app.reading.page, page)
@@ -584,7 +686,16 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(app.reading.follow)
                 self.assertLessEqual(len(output.lines), MAX_RENDER_LINES)
                 self.assertGreater(output.hidden, 0)
-                self.assertIn('entries hidden', str(app.query_one('#log_note').render()))
+                self.assertNotIn('entries hidden', app.query_one('#log_note').render().plain)
+                self.assertNotIn('evicted ', app.query_one('#log_note').render().plain)
+                await pilot.press('p')
+                raw = app.screen.query_one('#raw_details', Static).render().plain
+                self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden', raw)
+                self.assertIn('bytes ', raw)
+                self.assertIn('evicted ', raw)
+                self.assertIn('skipped ', raw)
+                self.assertIn('shortened ', raw)
+                await pilot.press('escape')
                 await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())

@@ -80,15 +80,17 @@ The pane title shows the pass state: `Work · pass complete`, or a dim `pass par
 ## Item pane
 
 Tabs `1 Log  2 Issue  3 Runs`, plus `4 Unblock` when the item needs attention, then `│ Formatted  Raw u` on the Log tab. Each tab
-starts with the item header: `#N title` (issue) or `⌥N title` (PR) in bold, then
-agent · runtime · attempt · PR in dim text.
+starts with the same item header: `#N title` (issue) or `⌥N title` (PR) in bold,
+then agent · runtime · attempt · PR in dim text and a dashed rule. Missing values
+are omitted. The running assignment shows `attempt N`; planned work shows
+`F/M failures`. A session outcome's linked PR shows as `⌥N` (#162).
 
 ### Log
 
 ```text
  1 Log   2 Issue   3 Runs  │  Formatted  Raw u
  #163 Show Claude log entries as compact timestamped lines
- implementer · codex gpt-6.1-sol xhigh · attempt 1 · no PR yet
+ implementer · codex gpt-6.1-sol xhigh · attempt 1
  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  11:41:02 launcher claimed #163 · lease 30m
  11:41:03 launcher worktree .ub-agents/worktrees/78849e0b · start codex
@@ -101,7 +103,7 @@ agent · runtime · attempt · PR in dim text.
  11:44:02 ▸ Bash .venv/bin/python -m unittest discover
           ✗ exit 1 · FAIL test_thinking_marker (tests.test_log_format)     (red, under its call)
  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- ⠹ Implementing · no outcome reported                         1 earlier run
+ ⠹ implementer running · no outcome reported                  1 earlier run
 ```
 
 - One line per entry: local `HH:MM:SS`, then the content. Launcher lines say
@@ -112,11 +114,13 @@ agent · runtime · attempt · PR in dim text.
 - Assistant text is italic and keeps its line breaks. Thinking is a dim `· thinking`
   line. System task records fold into their tool call. The final runtime result is
   one line.
-- A one-line status sits below the log: the step and whether an outcome was
-  reported, with earlier runs on the right.
+- A one-line status sits below the log: the agent and process or plan state,
+  then `no outcome reported` or the reported result and acceptance. A spinner
+  appears only while running; other session outcomes for the item are counted
+  as earlier runs on the right, omitted when zero (#162).
 - Paused: a `⏸ PAUSED · N new ↓ · f follow` pill at the bottom right. The footer keys
-  switch to the log keys. A replaced or truncated file shows one red notice line
-  above the status.
+  switch to the log keys. Exceptional log notices, including replaced or
+  truncated files, use one highlighted line above the transcript (#162).
 - Raw mode (`u`) shows the full records. Byte ranges, eviction counts and render
   limits are only on the `p` raw-access screen.
 

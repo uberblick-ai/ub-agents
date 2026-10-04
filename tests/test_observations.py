@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.coordination import Plan
+from ub_agents.config import Runtime
 from ub_agents.errors import GitHubError
 from ub_agents.execution import group_members
 from ub_agents.loop import Loop, _GracefulStop
@@ -39,6 +40,24 @@ class ObservationTests(unittest.TestCase):
     def loop(self, github, observer=True):
         return Loop(self.cfg, github, "operator", output=lambda *_: None,
                     observer=self.observer if observer else None)
+
+    def test_header_context_uses_plan_failures_and_claims_authoritative_attempt(self):
+        plan = Plan(issue(), self.cfg.agents[0], Runtime('codex', 'gpt-6.1-sol', 'xhigh'),
+                    'ready', 'Trigger matched', 3)
+        self.observer.begin_pass()
+        self.observer.plan(plan)
+        row = self.memory.snapshots[-1]['latest_pass']['rows'][0]
+        self.assertEqual((row['failures'], row['max_attempts'], row['runtime']),
+                         (2, plan.agent.max_attempts, 'codex:gpt-6.1-sol:xhigh'))
+        self.observer.assignment(plan)
+        self.observer.record({'kind': 'lease', 'assignment': 1, 'agent': 'worker', 'run': 'run',
+                              'runtime': 'codex:gpt-6.1-sol:xhigh', 'state': 'running',
+                              'expires': iso(timestamp()), 'attempt': 4})
+        self.assertEqual(self.memory.snapshots[-1]['assignment']['attempt'], 4)
+        self.observer.record({'kind': 'outcome', 'assignment': 1, 'agent': 'worker', 'run': 'run',
+                              'created': iso(timestamp()), 'status': 'success', 'summary': 'Done', 'handoff': 7})
+        outcome = self.memory.snapshots[-1]['outcomes'][0]
+        self.assertEqual((outcome['kind'], outcome['title'], outcome['handoff']), ('issue', plan.item.title, 7))
 
     def test_observation_preserves_request_order_writes_outcomes_and_lazy_evaluation(self):
         results = []
