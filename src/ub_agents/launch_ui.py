@@ -1,9 +1,7 @@
 """Optional terminal child supervision; no UI dependency imports in the launcher."""
 
-import importlib.util
 import os
 import select
-import shutil
 import signal
 import socket
 import subprocess
@@ -13,31 +11,21 @@ import threading
 
 from . import __version__
 
-INSTALL = "brew install uberblick-ai/tap/ub-agents-ui (Python: see docs/terminal-view.md#installation)"
 RESTORE = ('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l'
            '\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m')
 
 
 def ui_command():
-    if importlib.util.find_spec('textual') is not None:
-        return [sys.executable, '-P', '-m', 'ub_agents.view']
-    executable = shutil.which('ub-agents-ui')
-    return [executable] if executable else None
+    return [sys.executable, '-P', '-m', 'ub_agents.view']
 
 
 def open_view(root, session, output, stop, *, no_ui=False):
     if no_ui or not sys.stdin.isatty() or not output.stdout.isatty():
         return None
     command = ui_command()
-    if command is None:
-        print(f'Terminal view not installed; {INSTALL}')
-        return None
     try:
         probe = subprocess.run([*command, '--probe', '--base-version', __version__],
                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3)
-        if probe.returncode == 3:
-            print(f'Terminal view not installed; {INSTALL}')
-            return None
         if probe.returncode:
             raise ValueError(probe.stdout.strip() or 'incompatible UI/base version')
         if session is None:

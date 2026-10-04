@@ -1,4 +1,4 @@
-"""Verify built-wheel base isolation and UI entrypoint in clean environments."""
+"""Verify a built wheel's plain launch and terminal view in a clean environment."""
 
 import argparse
 from pathlib import Path
@@ -13,19 +13,15 @@ def run(*argv, **kwargs):
 
 
 def check(wheel, destination):
-    for extra in ('base', 'ui'):
-        root = destination / extra
-        venv.EnvBuilder(with_pip=True, clear=True).create(root)
-        python = root / 'bin/python'
-        requirement = str(wheel) + ('[ui]' if extra == 'ui' else '')
-        run(python, '-m', 'pip', 'install', '--quiet', requirement)
-        run(root / 'bin/ub-agents', '--help', stdout=subprocess.DEVNULL)
-        run(python, '-c', 'import ub_agents.cli, sys; assert "textual" not in sys.modules')
-        if extra == 'base':
-            run(python, '-c', 'import importlib.util; assert importlib.util.find_spec("textual") is None')
-            # Exercise argument parsing, launch logging and the loop in the
-            # installed wheel, with only the GitHub boundary replaced by a fake.
-            script = '''
+    root = destination / 'venv'
+    venv.EnvBuilder(with_pip=True, clear=True).create(root)
+    python = root / 'bin/python'
+    run(python, '-m', 'pip', 'install', '--quiet', wheel)
+    run(root / 'bin/ub-agents', '--help', stdout=subprocess.DEVNULL)
+    run(python, '-c', 'import ub_agents.cli, sys; assert "textual" not in sys.modules')
+    # Exercise argument parsing, launch logging and the loop in the installed
+    # wheel, with only the GitHub boundary replaced by a fake.
+    script = '''
 from pathlib import Path
 import sys
 from unittest.mock import patch
@@ -43,16 +39,15 @@ with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.cli.
     assert main(['--config', str(root / 'ub-agents.yaml'), 'launch', '--no-ui', '--once']) == 0
 assert 'textual' not in sys.modules
 '''
-            # No queue, network or operator checkout participates in this check.
-            project = destination / 'project'
-            project.mkdir(exist_ok=True)
-            run(python, '-P', '-c', script, project)
-        else:
-            run(root / 'bin/ub-agents-ui', '--version')
-            run(root / 'bin/ub-agents-ui', '--probe', '--base-version',
-                __import__('tomllib').loads(Path('pyproject.toml').read_text())['project']['version'])
-            run(python, '-c', 'from ub_agents.view_ui import View')
-    print('Clean-wheel base and UI packaging checks passed')
+    # No queue, network or operator checkout participates in this check.
+    project = destination / 'project'
+    project.mkdir(exist_ok=True)
+    run(python, '-P', '-c', script, project)
+    run(root / 'bin/ub-agents-ui', '--version')
+    run(root / 'bin/ub-agents-ui', '--probe', '--base-version',
+        __import__('tomllib').loads(Path('pyproject.toml').read_text())['project']['version'])
+    run(python, '-c', 'from ub_agents.view_ui import View')
+    print('Clean-wheel packaging checks passed')
 
 
 if __name__ == '__main__':

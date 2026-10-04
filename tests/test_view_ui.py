@@ -1,4 +1,3 @@
-import importlib.util
 import json
 from pathlib import Path
 import tempfile
@@ -10,14 +9,11 @@ from tests.test_view_data import event, fixture
 from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response
 
-HAS_UI = importlib.util.find_spec('textual') is not None
-if HAS_UI:
-    from textual.widgets import Static, TabbedContent, Tree
-    from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, View
-    from ub_agents.view_worker import LocalWorker
+from textual.widgets import Static, TabbedContent, Tree
+from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, View
+from ub_agents.view_worker import LocalWorker
 
 
-@unittest.skipUnless(HAS_UI, 'install the opt-in UI extra')
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

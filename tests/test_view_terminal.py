@@ -1,7 +1,6 @@
 """Actual owned 110x32 PTY acceptance, separate from Textual headless pilots."""
 
 import fcntl
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,10 +17,6 @@ import unittest
 
 from tests.test_view_data import fixture
 
-HAS_UI = importlib.util.find_spec('textual') is not None
-
-
-@unittest.skipUnless(HAS_UI, 'install the opt-in UI extra')
 class TerminalViewTests(unittest.TestCase):
     def test_real_terminal_explicit_load_cache_and_quit_during_hung_request(self):
         for quit_key in (b'q', b'\x03'):
@@ -253,7 +248,6 @@ sys.exit(app.return_code or 1)
 if __name__ == '__main__':
     unittest.main()
 
-@unittest.skipUnless(HAS_UI, 'install the opt-in UI extra')
 class TerminalRetentionTests(unittest.TestCase):
     def test_captured_log_pause_retention_and_generation_in_real_terminal(self):
         with tempfile.TemporaryDirectory() as directory:
