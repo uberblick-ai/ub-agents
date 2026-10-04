@@ -183,18 +183,20 @@ elsewhere, `g` loads the comment from GitHub.
 
 ### Runs
 
-Every run of the item, newest first, from any launcher: when, result, agent and
-summary, where it ran, and the outcome.
+The item's history, oldest first: who filed the issue, then every run from any
+launcher with when, result, agent and summary, where it ran, and the outcome. For a
+PR the first row is the issue it closes.
 
 ```text
  1 Log   2 Issue   3 Runs
  ⌥167 Group the terminal view's work list into sections          (bold)
- closes #159 · 3 runs                                            (dim)
+ closes #159 · filed by bk-one · 3 runs                          (dim)
  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  when        result  agent · summary                         where         outcome
- 20 min ago  ✓       integrator · squash-merged at d41f0a2   this machine  merged
- 34 min ago  ✓       reviewer · changelog entry tightened    uberblick     approved
+ 2 days ago  ✓       filed by bk-one                         GitHub        filed
  52 min ago  ✓       implementer · sections from snapshot …  bens-macbook… handed-off
+ 34 min ago  ✓       reviewer · changelog entry tightened    uberblick     approved
+ 20 min ago  ✓       integrator · squash-merged at d41f0a2   this machine  merged
 ```
 
 - `when` is relative (`just now`, `20 min ago`, `3 h ago`, `yesterday`, then a date).
