@@ -7,7 +7,9 @@
         "mcp",
         "serve"
       ],
-      "env": {}
+      "env": {
+        "WORKSPACE_ID": "b3eea2f9-a8dc-40f2-a3d9-b27742620b1f"
+      }
     }
   }
 }
