@@ -2,13 +2,12 @@
 
 from .records import seconds
 
-DISPLAY_FIELDS = ("time", "agent", "summary", "host", "outcome", "acceptance",
-                  "human_blocker", "result", "state", "expires", "rejection")
-
 
 def display_run(row):
-    """Keep deduplication and merge bookkeeping out of the shared byte budget."""
-    return {key: row[key] for key in DISPLAY_FIELDS if key in row}
+    """Keep reduction identities and precedence metadata out of the snapshot."""
+    return {key: row[key] for key in (
+        "time", "agent", "summary", "host", "outcome", "acceptance", "human_blocker",
+        "result", "state", "expires", "rejection") if key in row}
 
 
 def run_key(row):

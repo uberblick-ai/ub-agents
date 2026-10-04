@@ -102,8 +102,7 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(self.memory.snapshots[-1]["latest_pass"]["state"], "complete")
         self.assertIsNone(self.memory.snapshots[-1]["assignment"])
         history = self.memory.snapshots[-1]["histories"]["1"]
-        self.assertEqual(len(history["runs"]), 1)
-        self.assertEqual(history["runs"][0]["time"], lease["created"])
+        self.assertEqual([run["time"] for run in history["runs"]], [lease["created"]])
         self.assertEqual(history["runs"][0]["host"], socket.gethostname())
 
     def test_pr_filing_uses_only_items_already_read_by_discovery(self):
@@ -276,8 +275,9 @@ class ObservationTests(unittest.TestCase):
         self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode()), MAX_BYTES)
         for row in state["latest_pass"]["rows"]:
             self.assertEqual(len(row["title"]), MAX_TEXT)
-            description = row["description"]
-            self.assertEqual(len(description["text"]) + description["omitted_characters"], MAX_TEXT + 100)
+            self.assertGreaterEqual(row["description"]["omitted_characters"], 100)
+            self.assertEqual(len(row["description"]["text"]) + row["description"]["omitted_characters"],
+                             MAX_TEXT + 100)
         self.observer.begin_pass()
         plan = Plan(replace(issue(), body=None), self.cfg.agents[0], None, "parked", "reason", 1)
         self.observer.plan(plan)
@@ -403,7 +403,8 @@ class PublisherTests(unittest.TestCase):
         path = self.root / ".ub-agents" / "sessions" / f"{state['session']}.json"
         self.assertLessEqual(path.stat().st_size, MAX_BYTES)
         self.assertGreater(path.stat().st_size, MAX_BYTES // 2)
-        self.assertGreater(state["omitted"]["plans"], 1)
+        self.assertGreaterEqual(state["omitted"]["plans"], 1)
+        self.assertEqual(len(state["latest_pass"]["rows"]) + state["omitted"]["plans"], MAX_PLANS + 1)
         self.assertGreater(state["shortened"]["characters"], 0)
         observer.close()
         with patch("ub_agents.observations.subprocess.Popen", side_effect=OSError("Cannot start writer")):

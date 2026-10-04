@@ -90,6 +90,9 @@ class ViewDataTests(unittest.TestCase):
         self.assertEqual(item_header(planned, None, session),
                          ('⌥12 Planned PR', 'reviewer · codex gpt-6.1-sol xhigh · 2/5 failures'))
         self.state['assignment'] = {'item': 114}
+        session = Session(self.path, self.state)
+        self.assertEqual(item_header(work_rows(session, self.root)[0], None, session),
+                         ('#114 Cached title', '⌥1235'))
         self.state.pop('histories')  # Missing fields in an older snapshot.
         session = Session(self.path, self.state)
         self.assertEqual(item_header(work_rows(session, self.root)[0], None, session), ('#114', '⌥1235'))

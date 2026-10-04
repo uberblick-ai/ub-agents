@@ -18,6 +18,7 @@ VERSION = 1
 MAX_PLANS = 100
 MAX_OUTCOMES = 20
 MAX_TEXT = 2048
+DESCRIPTION_PREVIEW = 256
 MAX_BYTES = 64 * 1024
 HEARTBEAT_SECONDS = 5
 STALE_SECONDS = 30
@@ -176,9 +177,25 @@ class Observations:
         result["shortened"] = shortened
         return result
 
+    @classmethod
+    def bounded_run(cls, row):
+        shortened = {"fields": 0, "characters": 0}
+        cls.bound(display_run(row), shortened)
+        result = cls.bound(row, {"fields": 0, "characters": 0})
+        result["shortened"] = shortened if shortened["fields"] else row.get("shortened", shortened)
+        return result
+
     def emit(self):
         shortened = {"fields": 0, "characters": 0}
-        state = self.bound(self.state, shortened)
+        histories = {}
+        for key, history in self.state["histories"].items():
+            counts = dict(history.get("shortened", {"fields": 0, "characters": 0}))
+            for run in history["runs"]:
+                for name in counts:
+                    counts[name] += run.get("shortened", {}).get(name, 0)
+            histories[key] = history | {"runs": [display_run(run) for run in history["runs"]],
+                                        "shortened": counts}
+        state = self.bound(self.state | {"histories": histories}, shortened)
         groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"],
                   list(state["histories"].values())]
         for rows in groups:
@@ -186,32 +203,6 @@ class Observations:
                 for key in shortened:
                     shortened[key] += row.get("shortened", {}).get(key, 0)
         state["shortened"] = shortened
-        for history in state["histories"].values():
-            history["runs"] = [display_run(run) for run in history["runs"]]
-        rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
-
-        def size(row):
-            return len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-
-        def trim_descriptions(excess, limit):
-            # Prefer a short Issue preview to losing the newest run of an item.
-            for row in sorted(rows, key=lambda row: size(row.get("description", {})), reverse=True):
-                if excess <= 0:
-                    break
-                description = row.get("description", {})
-                body = description.get("text", "")
-                removed = len(body) - limit
-                if removed <= 0:
-                    continue
-                before = size(description)
-                description["text"] = body[:limit]
-                if not description["omitted_characters"]:
-                    shortened["fields"] += 1
-                description["omitted_characters"] += removed
-                shortened["characters"] += removed
-                excess -= before - size(description)
-            return excess
-
         while True:
             data = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             if len(data) <= MAX_BYTES:
@@ -220,31 +211,49 @@ class Observations:
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
-            excess = trim_descriptions(excess, 256)
-            # Drop the globally oldest runs, reserving each item's newest run.
-            # Insertion order must not penalize the assignment's history.
-            older = [(run, history) for history in state["histories"].values()
-                     for run in history["runs"][:-1]]
-            older.sort(key=lambda pair: (seconds(pair[0]["time"]) if pair[0].get("time") else 0,
-                                         pair[1]["item"]))
-            for row, history in older:
+            rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+            # Prefer a shorter, still-available description over losing history.
+            # Work on this publication's copy, never the retained launcher state.
+            previews = [row["description"] for row in rows if row.get("description", {}).get("available")
+                        and len(row["description"].get("text", "")) > DESCRIPTION_PREVIEW]
+            for description in sorted(previews, key=lambda d: self.byte_size(d), reverse=True):
                 if excess <= 0:
                     break
-                history["runs"].pop(0)
-                excess -= size(row) + 1
+                before = self.byte_size(description)
+                omitted = len(description["text"]) - DESCRIPTION_PREVIEW
+                description["text"] = description["text"][:DESCRIPTION_PREVIEW]
+                description["omitted_characters"] += omitted
+                state["shortened"]["fields"] += 1
+                state["shortened"]["characters"] += omitted
+                excess -= before - self.byte_size(description)
+            # Omit globally oldest surplus runs, preserving the newest run of
+            # every referenced item, including the current assignment.
+            while excess > 0:
+                candidates = [(key, history) for key, history in state["histories"].items()
+                              if len(history["runs"]) > 1]
+                if not candidates:
+                    break
+                _, history = min(candidates, key=lambda pair: (
+                    seconds(pair[1]["runs"][0]["time"]) if pair[1]["runs"][0].get("time") else 0,
+                    pair[0]))
+                row = history["runs"].pop(0)
+                excess -= self.byte_size(row) + 1
                 history["omitted_runs"] += 1
-            excess = trim_descriptions(excess, 0)
-            # If even headers and newest runs do not fit, omit plan/outcome
-            # rows and their unreferenced histories. The assignment stays.
+            # If even one run per item cannot fit, omit later plans and older
+            # session outcomes together with histories no longer referenced.
             for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
                 while excess > 0 and group:
                     row = group.pop(index)
-                    excess -= size(row) + 1
+                    excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
                     state["omitted"][key] += 1
                     for history in self.prune_histories(state):
-                        excess -= size(history) + 1
+                        excess -= len(json.dumps(history, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
             if excess > 0:
                 raise ValueError("Observation envelope exceeds its size limit")
+
+    @staticmethod
+    def byte_size(value):
+        return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
     def warning(self, detail):
         self.publisher.warning(detail)
@@ -291,7 +300,8 @@ class Observations:
                    "closes": closing[0] if closing else None,
                    "filing": ({"author": source.author, "time": source.created_at}
                               if source and source.author and source.created_at else None),
-                   "runs": runs[-MAX_OUTCOMES:], "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
+                   "runs": [self.bounded_run(run) for run in runs[-MAX_OUTCOMES:]],
+                   "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
         cached = self.state["histories"].get(str(plan.item.number))
         if not plan.history_read and cached:
             history.update(runs=[dict(run) for run in cached["runs"]], omitted_runs=cached["omitted_runs"],
@@ -347,7 +357,7 @@ class Observations:
         history = self.state["histories"].get(str(record["assignment"]))
         if history:
             merge_record(history["runs"], record, self.stop_labels)
-            history["runs"] = [self.bounded(row) for row in history["runs"]]
+            history["runs"] = [self.bounded_run(row) for row in history["runs"]]
             sort_runs(history["runs"])
             while len(history["runs"]) > MAX_OUTCOMES:
                 history["runs"].pop(0)

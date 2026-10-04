@@ -70,11 +70,11 @@ A shortened or empty cached description is available and needs no GitHub read.
 
 Runs shows the **selected item's history**, oldest first, from coordination
 records the launcher has already read, including runs by other launchers. Below
-the shared item header, a dim line shows
-`closes #N` for a PR with a local closing issue, `filed by LOGIN` when known, and
-the run count. The count includes omitted runs and excludes the filing row.
-For a PR with multiple local closing references, the lowest issue number supplies
-the filing row. A PR without a closing reference has no filing row.
+the shared header, a dim line shows `closes #N` for a PR with a local closing issue,
+`filed by LOGIN` when known, and the run count. The count includes omitted runs
+and excludes the filing row. For a PR with multiple local closing references,
+the lowest issue number supplies the filing row. A PR without a closing reference
+has no filing row.
 
 The first table row shows who filed the issue and when, with `GitHub` and `filed`
 in the where and outcome columns. On a PR, this is the closing issue's filing,
@@ -95,13 +95,16 @@ other hosts are dim, with their domain removed and long names shortened with
 for handoff copies without a claim; older records without either show `unknown`.
 A claim and its outcome, including handoff copies, count as one run. The snapshot
 retains at most 20 runs per item and stays within its shared 64 KiB limit, with
-a notice counting any earlier runs omitted. Under byte pressure, descriptions
-are shortened first, then older runs across items; each listed item keeps its
-newest run before whole plan rows are omitted. The current assignment is retained.
-Unreadable coordination records preserve an item's earlier cached history. An
-item with no filing or run data
-shows `No item history cached.` Selecting Recent activity itself prompts for
-an item; its expanded rows each show their item's history.
+a notice counting any earlier runs omitted. Under byte pressure, long plan
+descriptions are shortened to 256-character previews before the globally oldest
+runs are omitted. Each item's newest run is retained; if necessary, later plan
+rows and older session outcomes are then omitted with their unreferenced histories.
+The current assignment's history remains. These reductions affect only published
+snapshots; the next snapshot can use the launcher's retained data again.
+Unreadable coordination records preserve an item's earlier cached history.
+An item with no filing or run data shows `No item history cached.` Selecting
+Recent activity itself prompts for an item; its expanded rows each show their
+item's history.
 
 Issue renders only the description body as Markdown, including headings, lists,
 emphasis, inline code and code blocks. Line breaks, including CRLF and lone CR,
@@ -273,14 +276,13 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    with correct counts and planned order within Eligible. The current assignment
    appears once. Empty sections are hidden. A partial pass has a dim marker on
    the pane title, which disappears when the pass completes. Confirm follow reaches
-   recent output and cached Issue and per-item Runs tabs are readable. In Runs,
+   recent output and cached Issue and per-item Runs tabs are readable. Check the
+   shared two-line header and dashed rule on every tab, omission of missing values,
+   and the Log status, spinner, reported acceptance and earlier-run count. In Runs,
    check the filing row, local and foreign hosts, in-progress and completed runs,
    acceptance, blockers, and summary shortening at the minimum width. Select
    another item and confirm its history replaces the prior table without a
    GitHub request; include an item with missing filing data and omitted runs.
-   Check the shared two-line header and dashed rule on every tab, without a
-   repeated title in Runs, and the Log status, spinner, reported acceptance
-   and earlier-run count.
    Include today's and older outcomes; check the collapsed Recent activity count
    against the local date. Use `Enter` to expand it, select an outcome and pause
    its log. Publish refreshes and move a selected plan between sections; check
