@@ -90,8 +90,58 @@ always visible in the footer, including on Issue and Runs. Pausing freezes the
 page and its position while ingestion continues. Revisiting tabs or selected
 rows restores that page and position. Resizing and raw-mode changes retain the
 entry at the reading position, with a proportional position within wrapped text.
-Claude uses the #112 formatter. Unknown runtimes, including Codex, use a labelled
-plain/raw fallback. Runtime output never establishes a workflow outcome.
+When the anchored record is hidden in formatted mode, the pane shows the next
+visible entry (or the preceding entry at the end of a page). Its original byte
+position remains the anchor until scrolling moves away; `u` restores that raw
+record, including across resizes. A page containing only hidden records is empty
+in formatted mode and still available with `u`.
+Byte ranges, lag, older-page boundaries and render-limit counts include every
+record within the line budget, including records hidden by the formatted projection.
+
+Claude's formatted Log pane shows a compact transcript:
+
+```text
+07:41:18  ▸ Read packages/hub/src/directory.ts
+07:41:40  Both paths rebuild stubs independently.
+          Moving to a shared repairStubs() in schema.
+07:41:41  · thinking
+07:42:11  ▸ Edit packages/schema/src/directory.ts +48 -0
+07:42:30  ▸ Bash pnpm test --filter schema
+07:42:31    ✗ Exit code 1
+07:43:00  ✓ run finished
+```
+
+The time column uses the producer's timezone-aware `timestamp`, converted to local
+`HH:MM:SS`. Missing or invalid producer times use a marked capture time
+(`~07:42:30`); pre-existing bytes without either time use `--:--:--`. The text
+column aligns across these cases. Assistant text is dim and italic; its line
+breaks and wrapped continuations align with the text column. All other C0/C1
+controls, including terminal escape sequences, remain visibly escaped.
+
+Tool calls show `▸`, the name and the main argument: `file_path` for Read, Edit and
+Write, `command` for Bash, and `pattern` for Grep and Glob. Other tools use their
+first string input when available. Long or multiline arguments end with `…` and
+calls fit one display line. Edit adds green `+N` and red `-N` line counts from
+`new_string` and `old_string`; Write adds green `+N` from `content`. Missing fields
+have no count. Call IDs and JSON inputs are available only in raw mode.
+Counts use LF-separated lines; a trailing LF adds no extra line.
+
+Successful tool results add no line. Failed results show one red, indented `✗`
+line with the first error line. When another visible line has intervened, it
+includes the tool name, or `tool:` if the call is outside the retained pairing
+history. Thinking
+blocks show one dim `· thinking` line; unfamiliar blocks show a dim type label and
+the rest of the message still renders. System records, including initialization,
+thinking-token updates and task notifications, and rate-limit events are hidden.
+Other complete JSON records show a dim type/subtype label. A final successful
+result shows `✓ run finished`; a failed result shows a red `✗`, its subtype and
+first error line, without repeating the last assistant message. Runtime errors
+also show a red `✗` line.
+
+Raw mode retains every record, including hidden records. Oversized, split,
+unfinished and non-JSON fragments keep their labelled raw display. Unknown
+runtimes, including Codex, use the labelled plain/raw fallback (#126). Runtime
+output never establishes a workflow outcome.
 
 Only `g` on Issue starts a GitHub read. Attachment, selection, tabs, redraws,
 resizes and timers make no GitHub calls. One `gh api graphql` request reads only
@@ -179,6 +229,12 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    position must remain stable; unread and lag must grow.
 3. Read older pages toward byte zero, switch raw mode and resize. Check the byte
    range, omission notices and `p` full raw path. Resume follow.
+   With `tests/fixtures/runtime_logs/claude.log` as the replay source, check the
+   compact timestamps, thinking markers, tool calls, red failed Bash result and
+   final success line. Pause in raw mode on a `system` or `rate_limit_event`
+   record, toggle `u`, resize and toggle back; the same raw record must return.
+   Repeat on the failed tool result, and confirm successful results and system
+   records are visible only in raw mode.
 4. Replace or truncate the replay log. Check generation recovery and refusal of
    older reads from the prior generation.
 5. On Issue, select a row with no local description and press `g`. Confirm loading,

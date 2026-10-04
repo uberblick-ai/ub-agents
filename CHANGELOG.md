@@ -14,6 +14,7 @@ stop label on items you want to stay held (#132).
 
 - Coordination reads only v3 records; attempt counts and blocked or exhausted state on items reset once on upgrade (#132).
 - The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
+- Claude logs use compact local timestamps, tool calls, line counts and distinct errors in the terminal view, with raw records available on demand (#163).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
 
 ## 0.1.11 — 2026-10-04
