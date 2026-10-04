@@ -24,6 +24,7 @@ from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs,
 from ub_agents.view_ui import (KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
+from ub_agents.view_theme import theme_style
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
@@ -740,9 +741,17 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(metadata, 'implementer · claude synthetic-model high · attempt 2 · ⌥1235')
                 self.assertEqual(rule, '┄' * header.content_region.width)
                 self.assertTrue(value.get_style_at_offset(0).bold)
+                accent = app.theme_variables['view-accent'].lower()
+                self.assertEqual(value.get_style_at_offset(0).foreground.hex.lower(), accent)
+                self.assertNotEqual(value.get_style_at_offset(1).foreground,
+                                    value.get_style_at_offset(0).foreground)
                 style = value.get_style_at_offset(len(title) + 1)
                 self.assertTrue(style.dim)
                 self.assertFalse(style.bold)
+                linked = value.plain.index('⌥1235')
+                self.assertEqual(value.get_style_at_offset(linked).foreground.hex.lower(), accent)
+                self.assertTrue(value.get_style_at_offset(linked).dim)
+                self.assertEqual(value.get_style_at_offset(linked + 1), style)
                 self.assertTrue(header.display)
                 self.assertEqual(header.region.height, 3)
                 self.assertLess(header.region.bottom, app.query_one('#' + tab).region.bottom)
@@ -1348,6 +1357,79 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_recent_issue_pr_handoff_markers_preserve_dim_and_selection_styles(self):
+        stamp = self.state['published_at']
+        when = datetime.fromisoformat(stamp).astimezone().strftime('%H:%M')
+        self.state['outcomes'] = [
+            {'item': 10, 'run': 'issue-handoff', 'kind': 'issue', 'title': 'Issue ⌥88',
+             'agent': 'implementer', 'time': stamp, 'result': 'handed-off', 'completed': True,
+             'handoff': 167, 'summary': 'Summary ⌥99 #98'},
+            {'item': 12, 'run': 'pr-merged', 'agent': 'integrator', 'time': stamp,
+             'result': 'merged', 'completed': True, 'target': 12, 'summary': 'squash-merged'},
+        ]
+        self.path.write_text(json.dumps(self.state))
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(160, 40)) as pilot:
+            recent = app.query_one(RecentActivity)
+            await self.ready(app, pilot, lambda: len(recent.rows) == 2)
+            # Expose the complete summary; normal-width clipping is covered separately.
+            app.query_one('#work_pane').styles.width = 80
+            await pilot.pause()
+            for theme in ('ub-agents', 'textual-light'):
+                app.theme = theme
+                await pilot.pause()
+                rendered = recent.render()
+                lines = rendered.plain.splitlines()
+                self.assertTrue(lines[1].startswith('✓ ⌥12 Foreign candidate'))
+                self.assertEqual(lines[2], f'  integrator · {when} · squash-merged')
+                self.assertTrue(lines[3].startswith('✓ #10 Issue ⌥88'))
+                self.assertEqual(lines[4], f'  implementer · {when} · opened ⌥167 · Summary ⌥99 #98')
+                accent = theme_style(app, 'view-accent').color
+                for reference in ('⌥12', '⌥167'):
+                    offset = rendered.plain.index(reference)
+                    marker = rendered.get_style_at_offset(app.console, offset)
+                    number = rendered.get_style_at_offset(app.console, offset + 1)
+                    self.assertEqual(marker.color, accent)
+                    self.assertNotEqual(number.color, accent)
+                    self.assertTrue(marker.dim)
+                    self.assertEqual(marker.dim, number.dim)
+                    self.assertEqual(marker.bgcolor, number.bgcolor)
+                for verbatim in ('⌥88', '⌥99'):
+                    style = rendered.get_style_at_offset(app.console, rendered.plain.index(verbatim))
+                    self.assertNotEqual(style.color, accent)
+
+            recent.focus()
+            recent.cursor = 'outcome:issue-handoff'
+            app.select(recent.cursor)
+            await pilot.pause()
+            rendered = recent.render()
+            offset = rendered.plain.index('⌥167')
+            marker = rendered.get_style_at_offset(app.console, offset)
+            number = rendered.get_style_at_offset(app.console, offset + 1)
+            self.assertEqual(marker.color, theme_style(app, 'view-accent').color)
+            self.assertFalse(marker.dim)
+            self.assertFalse(number.dim)
+            self.assertEqual(marker.bgcolor, theme_style(
+                app, 'view-accent', bgcolor=app.theme_variables['view-selection']).bgcolor)
+            self.assertEqual(marker.bgcolor, number.bgcolor)
+
+            # Missing summaries add no suffix, and legacy target handoffs work.
+            self.state['outcomes'][0].pop('summary')
+            self.state['outcomes'][0]['target'] = self.state['outcomes'][0].pop('handoff')
+            self.state['outcomes'][1].update(kind='issue', title='Snapshot issue')
+            self.state['outcomes'][1].pop('summary')
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'Summary' not in recent.render().plain)
+            lines = recent.render().plain.splitlines()
+            self.assertTrue(lines[1].startswith('✓ #12 Snapshot issue'))
+            self.assertEqual(lines[2], f'  integrator · {when}')
+            self.assertEqual(lines[4], f'  implementer · {when} · opened ⌥167')
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
     async def test_recent_whole_rows_dim_selection_and_clipped_selected_outcome(self):
         self.state['assignment'] = None
         self.state['latest_pass'] = {'state': 'complete', 'rows': []}
@@ -1460,6 +1542,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 else:
                     self.assertTrue(first.text.endswith(status), first.text)
                 self.assertTrue(second.text.startswith(detail), second.text)
+                if '⌥' in prefix:
+                    marker = first.crop(2, 3)
+                    number = first.crop(3, 4)
+                    self.assertEqual(next(iter(marker)).style.color, theme_style(app, 'view-accent').color)
+                    self.assertNotEqual(next(iter(number)).style.color, theme_style(app, 'view-accent').color)
             own, blocked = app.nodes['assignment:owned-run'], app.nodes['plan:20:worker']
             tree.focus()
             tree.move_cursor(own)
