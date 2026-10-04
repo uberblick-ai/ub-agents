@@ -5,7 +5,7 @@ guides the polish issues (#159–#166). [terminal-view.md](../terminal-view.md)
 describes what the view does today. When an issue lands, update both files.
 
 The view stays read-only. It reads the launcher's local session snapshot and run logs
-and makes no GitHub calls except `g` on the Issue tab. It has no workflow controls,
+and makes no GitHub calls except `g` on the Issue and Unblock tabs. It has no workflow controls,
 so there is no retry key and no filter. `q` quits the view and stops the launch, like
 Ctrl-C (#182).
 
