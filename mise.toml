@@ -1,13 +1,28 @@
 # In this repository `ub-agents` runs this checkout's code, never an installed
-# release. Run `mise run setup` once: .venv holds an editable install.
+# release. .venv holds an editable install; with `mise activate`, entering the
+# directory runs `setup` when .venv/bin/ub-agents is missing or older than
+# pyproject.toml, then lists common commands.
 [env]
-_.python.venv = ".venv"
+_.python.venv = { path = ".venv", create = true }
 
 [tasks.setup]
 description = "Install this checkout into .venv in editable mode"
-run = "python3 -m venv .venv && .venv/bin/python -m pip install -q -e ."
+sources = ["pyproject.toml"]
+outputs = [".venv/bin/ub-agents"]
+quiet = true
+run = [
+  "echo 'Installing this checkout into .venv' >&2",
+  "python3 -m venv .venv",
+  ".venv/bin/python -m pip install -q --disable-pip-version-check -e .",
+]
 
 [tasks.ci]
 description = "Local CI: verify a pushed commit in a fresh worktree, then sign off"
 usage = 'arg "<commit>" help="Full SHA of the pushed commit"'
 run = 'sh "{{config_root}}/bin/ci.sh" "${usage_commit?}"'
+
+[hooks]
+enter = [
+  { task = "setup" },
+  "echo 'ub-agents: launch · status · mise run ci <sha> · .venv/bin/python -m unittest discover' >&2",
+]
