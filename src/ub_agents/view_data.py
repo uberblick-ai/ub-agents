@@ -1,6 +1,6 @@
 """Bounded local inputs for the development view; no workflow authority."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -78,7 +78,7 @@ def load_session(path):
         data = read_json(path)
         if type(data.get('version')) is not int or data['version'] != 1:
             raise ValueError('Missing or unsupported snapshot version')
-        for key in ('assignment', 'latest_pass', 'activity', 'omitted'):
+        for key in ('assignment', 'latest_pass', 'activity', 'omitted', 'histories'):
             if data.get(key) is not None and not isinstance(data[key], dict):
                 raise ValueError(f'Invalid {key}')
         if 'outcomes' in data and not isinstance(data['outcomes'], list):
@@ -86,6 +86,14 @@ def load_session(path):
         if mapping(data.get('latest_pass')).get('rows') is not None and not isinstance(data['latest_pass']['rows'], list):
             raise ValueError('Invalid pass rows')
         groups = [data.get('outcomes', []), mapping(data.get('latest_pass')).get('rows', [])]
+        for history in mapping(data.get('histories')).values():
+            if not isinstance(history, dict) or not isinstance(history.get('runs'), list):
+                raise ValueError('Invalid item history')
+            if history.get('filing') is not None and not isinstance(history['filing'], dict):
+                raise ValueError('Invalid filing data')
+            if type(history.get('omitted_runs', 0)) is not int or history.get('omitted_runs', 0) < 0:
+                raise ValueError('Invalid omitted runs')
+            groups.extend(([history], history['runs']))
         if data.get('assignment'):
             groups.append([data['assignment']])
         for group in groups:
@@ -94,7 +102,8 @@ def load_session(path):
                     raise ValueError('Invalid row')
                 if 'item' in row and (type(row['item']) is not int or row['item'] < 1):
                     raise ValueError('Invalid item number')
-                for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary'):
+                for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary',
+                              'result', 'outcome', 'host', 'time', 'expires', 'acceptance'):
                     if row.get(field) is not None and not isinstance(row[field], str):
                         raise ValueError(f'Invalid row {field}')
                 for field in ('owner', 'description'):
@@ -224,6 +233,9 @@ def work_rows(session, root):
         result.append(WorkRow('outcome:' + text(row.get('run'), str(index)), 'Recent activity', row.get('item', '?'),
                               text(row.get('agent')), state, text(row.get('summary')), row, row.get('run'),
                               runtime_type(row.get('runtime')), run / 'process.log' if run else None, run / 'context.json' if run else None))
+    histories = mapping(data.get('histories'))
+    result = [replace(row, data=row.data | {'history': histories[str(row.item)]})
+              if str(row.item) in histories else row for row in result]
     return sorted(result, key=lambda row: WORK_GROUPS.index(row.group))
 
 
@@ -315,10 +327,13 @@ def item_header(row, description, session):
         return 'No item selected.', ''
     source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
                    if r.get('item') == row.item), {}) if session else {}
-    kind = row.data.get('kind') or source.get('kind') or (description.kind if description else '')
+    history = ((mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {}) or
+               mapping(row.data.get('history')))
+    kind = (row.data.get('kind') or source.get('kind') or (description.kind if description else '') or
+            history.get('kind'))
     reference = ('⌥' if kind == 'pr' else '#') + str(row.item)
     title = text(description.title if description and description.title else
-                 row.data.get('title') or source.get('title'), '')
+                 row.data.get('title') or source.get('title') or history.get('title'), '')
     parts = [text(row.data.get('agent'), ''), text(row.data.get('runtime'), '').replace(':', ' ')]
     if row.key.startswith('assignment:') and type(row.data.get('attempt')) is int:
         parts.append(f'attempt {row.data["attempt"]}')

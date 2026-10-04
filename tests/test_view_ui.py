@@ -1,5 +1,7 @@
 import asyncio
+import io
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
@@ -7,6 +9,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from rich.console import Console
 from tests.test_view_data import event, fixture
 from tests.test_log_reader import FIXTURE, record, result, tool
 from tests.test_view_github import reply
@@ -432,6 +435,67 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
             self.assertEqual(tree.root.label.plain, 'Launcher work')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_follows_item_selection_refresh_and_retained_observation_without_github(self):
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        def displayed():
+            stream = io.StringIO()
+            Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
+            return stream.getvalue()
+        def identity():
+            return app.query_one('#item_header', Static).render().plain
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('3')
+            self.assertIn('#114 Cached title', identity())
+            self.assertNotIn('Cached title', displayed())
+            self.assertIn('filed by bk-one', displayed())
+            self.assertIn('BLOCKED:', displayed())
+            self.assertIn('build-01', displayed())
+            app.select('plan:12:reviewer')
+            await self.ready(app, pilot, lambda: '⌥12 Foreign candidate' in identity())
+            self.assertNotIn('Foreign candidate', displayed())
+            self.assertIn('closes #11 · 4 runs', displayed())
+            self.assertIn('3 earlier runs omitted.', displayed())
+            self.assertNotIn('filed by', displayed())
+            self.assertNotIn('#114', displayed())
+            self.state['histories']['12']['title'] = 'Updated candidate'
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: '⌥12 Updated candidate' in identity())
+            self.state['latest_pass']['rows'] = []
+            self.state['histories'].pop('12')
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')
+            self.assertIn('⌥12 Updated candidate', identity())
+            app.select(RECENT_ACTIVITY)
+            self.assertIn('Select an item', displayed())
+            app.select('outcome:previous-run')
+            await self.ready(app, pilot, lambda: '#10 Earlier item' in identity())
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_cursor_follows_reason_when_tree_changes_before_a_render(self):
+        self.state['latest_pass']['rows'].append(
+            {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'})
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            key = 'plan:21:worker'
+            app.select(key)
+            tree = app.query_one('#work', Tree)
+            tree.move_cursor(app.reason_nodes[key])
+            old_reason = tree.cursor_node
+            changed = [replace(row, group='Waiting', state='parked', reason='Waiting for blockers #31')
+                       if row.key == key else row for row in app.rows.values()]
+            app.populate(changed)
+            # Assert before yielding to Textual's next layout or idle callback.
+            self.assertIsNot(old_reason, app.reason_nodes[key])
+            self.assertIs(tree.cursor_node, app.reason_nodes[key])
             await pilot.press('q')
         app.worker.thread.join(2)
 

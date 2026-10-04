@@ -34,6 +34,7 @@ class Plan:
     blockers: tuple[str, ...] = ()
     approval_gate: ApprovalCheck | None = None
     history: tuple[dict, ...] = field(default=(), compare=False, repr=False)
+    history_read: bool = field(default=True, compare=False, repr=False)
     owner: dict | None = field(default=None, compare=False, repr=False)
     matches: AgentMatches | None = field(default=None, compare=False, repr=False)
 
@@ -510,6 +511,8 @@ class Coordinator:
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
+        if lease.get("host"):
+            record["host"] = lease["host"]
         if outcome is not None:
             declaration = declarations[outcome]
             if isinstance(declaration, list):

@@ -43,6 +43,22 @@ def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
                            'runtime': 'claude:synthetic-model:high',
                            'acceptance': 'finalized', 'result': 'prepared', 'summary': 'Waiting for decision',
                            'human_blocker': ['needs-human'], 'time': '2026-10-04T00:00:00Z'}]}
+    state['histories'] = {
+        '114': {'item': 114, 'kind': 'issue', 'title': 'Cached title', 'omitted_runs': 0,
+                'filing': {'author': 'bk-one', 'time': '2026-10-02T00:00:00Z'},
+                'runs': [{'agent': 'preparer', 'run': 'filed-run', 'result': 'success',
+                          'outcome': 'prepared', 'summary': 'Waiting for decision',
+                          'acceptance': 'finalized', 'human_blocker': ['needs-human'],
+                          'host': 'build-01.tail9c.ts.net', 'time': '2026-10-03T00:00:00Z'},
+                         {'agent': 'implementer', 'run': 'owned-run', 'state': 'running',
+                          'host': 'local-test-host', 'time': state['published_at']}]},
+        '10': {'item': 10, 'kind': 'issue', 'title': 'Earlier item', 'omitted_runs': 0,
+               'filing': None, 'runs': [dict(state['outcomes'][0], result='success', outcome='prepared')]},
+        '12': {'item': 12, 'kind': 'pr', 'title': 'Foreign candidate', 'closes': 11,
+               'omitted_runs': 3, 'filing': None,
+               'runs': [{'agent': 'reviewer', 'run': 'foreign-run', 'state': 'running',
+                         'host': 'other-host', 'time': state['published_at']}]},
+    }
     path.write_text(json.dumps(state))
     if count:
         log.write_bytes(b''.join(event(i) for i in range(count)))
@@ -74,6 +90,10 @@ class ViewDataTests(unittest.TestCase):
         self.assertEqual(item_header(planned, None, session),
                          ('⌥12 Planned PR', 'reviewer · codex gpt-6.1-sol xhigh · 2/5 failures'))
         self.state['assignment'] = {'item': 114}
+        session = Session(self.path, self.state)
+        self.assertEqual(item_header(work_rows(session, self.root)[0], None, session),
+                         ('#114 Cached title', '⌥1235'))
+        self.state.pop('histories')  # Missing fields in an older snapshot.
         session = Session(self.path, self.state)
         self.assertEqual(item_header(work_rows(session, self.root)[0], None, session), ('#114', '⌥1235'))
         # Older snapshots can still obtain PR identity from local run context.
@@ -195,7 +215,11 @@ class ViewDataTests(unittest.TestCase):
             self.assertIn(load_session(self.path).state(), ('stale', 'malformed'))
         for value in ({'version': True}, {'version': 1, 'outcomes': [3]},
                       {'version': 1, 'assignment': {'item': 'bad'}},
-                      {'version': 1, 'latest_pass': {'rows': [{'owner': []}]}}):
+                      {'version': 1, 'latest_pass': {'rows': [{'owner': []}]}},
+                      {'version': 1, 'histories': []},
+                      {'version': 1, 'histories': {'1': {'runs': [3]}}},
+                      {'version': 1, 'histories': {'1': {'runs': [], 'filing': []}}},
+                      {'version': 1, 'histories': {'1': {'runs': [], 'omitted_runs': -1}}}):
             self.path.write_text(json.dumps(value))
             self.assertEqual(load_session(self.path).state(), 'malformed')
         self.assertEqual(Session(self.path, dict(self.state, ended=True)).state(), 'ended')

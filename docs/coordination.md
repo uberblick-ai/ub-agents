@@ -364,6 +364,11 @@ recovery.
 
 ## Explicit outcomes
 
+New outcome records include the original lease's `host` when recorded. Handoff
+copies preserve this launcher host, so the terminal Runs tab can show where a
+run happened even without its claim on the PR. The optional field is display
+metadata; older launchers ignore it, and older outcomes without it remain valid.
+
 `ub-agents report` uses the supervised environment to verify the run's current
 ownership and create one versioned outcome comment. Human summaries lead; JSON is
 fenced in `json` blocks inside collapsed details, and arbitrary prose is never parsed for routing. A declared

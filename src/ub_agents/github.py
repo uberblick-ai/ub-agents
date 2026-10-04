@@ -94,6 +94,7 @@ class Item:
     total_blocked_by: int | None = None
     updated_at: str | None = None
     open_blocked_by: int | None = None
+    author: str | None = None
 
 
 @dataclass(frozen=True)
@@ -156,7 +157,9 @@ def parse_item(data, kind, endpoint=None):
                     data["draft"] if kind == "pr" else False,
                     dependency_total(data) if kind == "issue" else None, data.get("updated_at"),
                     data["issue_dependencies_summary"]["blocked_by"]
-                    if kind == "issue" and dependency_total(data) is not None else None)
+                    if kind == "issue" and dependency_total(data) is not None else None,
+                    data["user"].get("login") if isinstance(data.get("user"), dict)
+                    and isinstance(data["user"].get("login"), str) else None)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
             raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc

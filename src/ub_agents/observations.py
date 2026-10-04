@@ -9,13 +9,16 @@ import sys
 import threading
 import uuid
 
-from .records import iso, timestamp
+from .records import iso, seconds, timestamp
+from .github import closing_issues
+from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from . import __version__
 
 VERSION = 1
 MAX_PLANS = 100
 MAX_OUTCOMES = 20
 MAX_TEXT = 2048
+DESCRIPTION_PREVIEW = 256
 MAX_BYTES = 64 * 1024
 HEARTBEAT_SECONDS = 5
 STALE_SECONDS = 30
@@ -146,12 +149,13 @@ class Observations:
             "config_path_reason": None if config_path else "No configuration path supplied",
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None,
-            "outcomes": [], "omitted": {"plans": 0, "outcomes": 0},
+            "outcomes": [], "histories": {}, "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
                        "bytes": MAX_BYTES, "heartbeat_seconds": HEARTBEAT_SECONDS,
                        "stale_seconds": STALE_SECONDS},
         }
         self.source_run = None
+        self.previous_histories = {}
         self.emit()
 
     @staticmethod
@@ -174,10 +178,27 @@ class Observations:
         result["shortened"] = shortened
         return result
 
+    @classmethod
+    def bounded_run(cls, row):
+        shortened = {"fields": 0, "characters": 0}
+        cls.bound(display_run(row), shortened)
+        result = cls.bound(row, {"fields": 0, "characters": 0})
+        result["shortened"] = shortened if shortened["fields"] else row.get("shortened", shortened)
+        return result
+
     def emit(self):
         shortened = {"fields": 0, "characters": 0}
-        state = self.bound(self.state, shortened)
-        groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"]]
+        histories = {}
+        for key, history in self.state["histories"].items():
+            counts = dict(history.get("shortened", {"fields": 0, "characters": 0}))
+            for run in history["runs"]:
+                for name in counts:
+                    counts[name] += run.get("shortened", {}).get(name, 0)
+            histories[key] = history | {"runs": [display_run(run) for run in history["runs"]],
+                                        "shortened": counts}
+        state = self.bound(self.state | {"histories": histories}, shortened)
+        groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"],
+                  list(state["histories"].values())]
         for rows in groups:
             for row in rows:
                 for key in shortened:
@@ -192,13 +213,48 @@ class Observations:
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+            # Prefer a shorter, still-available description over losing history.
+            # Work on this publication's copy, never the retained launcher state.
+            previews = [row["description"] for row in rows if row.get("description", {}).get("available")
+                        and len(row["description"].get("text", "")) > DESCRIPTION_PREVIEW]
+            for description in sorted(previews, key=lambda d: self.byte_size(d), reverse=True):
+                if excess <= 0:
+                    break
+                before = self.byte_size(description)
+                omitted = len(description["text"]) - DESCRIPTION_PREVIEW
+                description["text"] = description["text"][:DESCRIPTION_PREVIEW]
+                description["omitted_characters"] += omitted
+                state["shortened"]["fields"] += 1
+                state["shortened"]["characters"] += omitted
+                excess -= before - self.byte_size(description)
+            # Omit globally oldest surplus runs, preserving the newest run of
+            # every referenced item, including the current assignment.
+            while excess > 0:
+                candidates = [(key, history) for key, history in state["histories"].items()
+                              if len(history["runs"]) > 1]
+                if not candidates:
+                    break
+                _, history = min(candidates, key=lambda pair: (
+                    seconds(pair[1]["runs"][0]["time"]) if pair[1]["runs"][0].get("time") else 0,
+                    pair[0]))
+                row = history["runs"].pop(0)
+                excess -= self.byte_size(row) + 1
+                history["omitted_runs"] += 1
+            # If even one run per item cannot fit, omit later plans and older
+            # session outcomes together with histories no longer referenced.
             for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
                 while excess > 0 and group:
                     row = group.pop(index)
                     excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
                     state["omitted"][key] += 1
+                    for history in self.prune_histories(state):
+                        excess -= len(json.dumps(history, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
             if excess > 0:
                 raise ValueError("Observation envelope exceeds its size limit")
+
+    @staticmethod
+    def byte_size(value):
+        return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
     def warning(self, detail):
         self.publisher.warning(detail)
@@ -216,15 +272,50 @@ class Observations:
         self.emit()
 
     def begin_pass(self):
+        # Keep one bounded pass privately so unreadable records can recover the
+        # last observation without publishing histories for unlisted items.
+        self.previous_histories = dict(self.state["histories"])
         self.state["latest_pass"] = {"started_at": iso(self.clock()), "state": "partial", "rows": []}
         self.state["omitted"]["plans"] = 0
+        self.prune_histories(self.state)
         self.activity("polling")
 
     def complete_pass(self):
         self.state["latest_pass"]["state"] = "complete"
+        self.previous_histories.clear()
         self.emit()
 
-    def plan(self, plan):
+    @staticmethod
+    def prune_histories(state):
+        rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+        referenced = {str(row["item"]) for row in rows + state["outcomes"]}
+        if state["assignment"]:
+            referenced.add(str(state["assignment"]["item"]))
+        return [state["histories"].pop(key) for key in tuple(state["histories"]) if key not in referenced]
+
+    def item_history(self, plan, filing=None):
+        closing = sorted(closing_issues(plan.item, self.state["repository"])) if plan.item.kind == "pr" else []
+        source = (plan.item if plan.item.kind == "issue" else
+                  filing if closing and filing and filing.kind == "issue" and filing.number == closing[0] else None)
+        runs = []
+        for record in plan.history:
+            merge_record(runs, record, self.stop_labels)
+        sort_runs(runs)
+        history = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
+                   "closes": closing[0] if closing else None,
+                   "filing": ({"author": source.author, "time": source.created_at}
+                              if source and source.author and source.created_at else None),
+                   "runs": [self.bounded_run(run) for run in runs[-MAX_OUTCOMES:]],
+                   "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
+        key = str(plan.item.number)
+        cached = self.state["histories"].get(key) or self.previous_histories.get(key)
+        if not plan.history_read and cached:
+            history.update(runs=[dict(run) for run in cached["runs"]], omitted_runs=cached["omitted_runs"],
+                           filing=history["filing"] or cached["filing"])
+        observed_blockers(history, plan.item, self.stop_labels)
+        return self.bounded(history)
+
+    def plan(self, plan, filing=None):
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
                "runtime": plan.runtime.name if plan.runtime else None,
@@ -247,6 +338,8 @@ class Observations:
             rows.append(row)
         else:
             self.state["omitted"]["plans"] += 1
+        if any(row["item"] == plan.item.number for row in rows):
+            self.state["histories"][str(plan.item.number)] = self.item_history(plan, filing)
         for outcome in self.state["outcomes"]:
             if outcome["target"] == plan.item.number and outcome["completed"]:
                 outcome["human_blocker"] = sorted(plan.item.labels.intersection(self.stop_labels))
@@ -254,6 +347,7 @@ class Observations:
         self.emit()
 
     def assignment(self, plan):
+        self.state["histories"].setdefault(str(plan.item.number), self.item_history(plan))
         self.state["assignment"] = {
             "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
             "title": plan.item.title[:MAX_TEXT], "attempt": plan.attempt,
@@ -266,6 +360,14 @@ class Observations:
         self.activity("running assignment")
 
     def record(self, record):
+        history = self.state["histories"].get(str(record["assignment"]))
+        if history:
+            merge_record(history["runs"], record, self.stop_labels)
+            history["runs"] = [self.bounded_run(row) for row in history["runs"]]
+            sort_runs(history["runs"])
+            while len(history["runs"]) > MAX_OUTCOMES:
+                history["runs"].pop(0)
+                history["omitted_runs"] += 1
         assignment = self.state["assignment"]
         if not assignment or (record["assignment"], record["agent"]) != (assignment["item"], assignment["agent"]):
             return
@@ -325,6 +427,7 @@ class Observations:
                 if len(outcomes) > MAX_OUTCOMES:
                     outcomes.pop(0)
                     self.state["omitted"]["outcomes"] += 1
+                    self.prune_histories(self.state)
         self.emit()
 
     def process(self, state, reason):

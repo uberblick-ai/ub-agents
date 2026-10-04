@@ -265,7 +265,7 @@ sys.exit(app.return_code or 1)
                     self.assertNotIn(b'## Cached Markdown', cached)
                     self.assertNotIn(b'**strong**', cached)
                     os.write(master, b'3')
-                    until(b'needs-human')
+                    until(b'filed by bk-one', b'build-01', b'needs-human')
                     os.write(master, b'1p')
                     until(b'process.log')
                     # A focus report right after Escape ends the escape sequence,
