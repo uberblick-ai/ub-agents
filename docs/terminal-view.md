@@ -14,6 +14,8 @@ launcher, produces a one-line error and plain output continues. The view has no
 workflow controls. Only an explicit Issue-tab description request uses the user's
 existing authenticated `gh` access.
 
+The target look for upcoming changes is in [design/terminal-view.md](design/terminal-view.md).
+
 ## Installation
 
 The view is part of every install: `brew install uberblick-ai/tap/ub-agents`, or
