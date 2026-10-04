@@ -13,8 +13,25 @@ python3 -m venv .venv
 git diff --check
 ```
 
-Run them in your own worktree. CI (`.github/workflows/test.yml`) runs the same suite
-on macOS and Linux with Python 3.11 and 3.14.
+Run them in your own worktree while you work.
+
+## Local CI
+
+CI runs on a maintainer's or the integrator's machine, not on GitHub. From a checkout
+at `origin/main`, for a pushed commit:
+
+```sh
+mise run ci <sha>
+```
+
+It checks the commit out into a temporary worktree with a fresh virtualenv, runs
+`git diff --check`, the unit suite without and with the `ui` extra, and
+`ub-agents check`. When all pass it posts a green `signoff` commit status through
+[gh-signoff](https://github.com/basecamp/gh-signoff); a failure posts a red one.
+Install the extension once with `gh extension install basecamp/gh-signoff`. The
+script refuses to run from a checkout other than `origin/main`, because main owns the
+recipe. GitHub Actions runs the suite on Linux with Python 3.11 and 3.14 after each
+merge to main (`.github/workflows/test.yml`).
 
 ## Uberblick corpus
 
@@ -53,7 +70,11 @@ environmental: state it with your results and do not change code or tests to avo
 ## Merging
 
 The integrator squash-merges a PR once every owed review and check applies to its
-current head, with `--match-head-commit` set to the assigned SHA. It leaves the merge
+current head, with `--match-head-commit` set to the assigned SHA. The check is a green
+`signoff` status at that head from local CI. The integrator runs it: detach its own
+worktree at `origin/main` (`git switch --detach origin/main`) and run
+`mise run ci SHA`, every time: a `signoff` already on the commit only says someone
+posted it, not that the checks ran. It leaves the merge
 to a maintainer, and says why, when the PR:
 
 - changes the `ub-agents` command-line experience without the issue it closes

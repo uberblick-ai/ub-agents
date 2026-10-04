@@ -6,3 +6,8 @@ _.python.venv = ".venv"
 [tasks.setup]
 description = "Install this checkout into .venv in editable mode"
 run = "python3 -m venv .venv && .venv/bin/python -m pip install -q -e ."
+
+[tasks.ci]
+description = "Local CI: verify a pushed commit in a fresh worktree, then sign off"
+usage = 'arg "<commit>" help="Full SHA of the pushed commit"'
+run = 'sh "{{config_root}}/bin/ci.sh" "${usage_commit?}"'
