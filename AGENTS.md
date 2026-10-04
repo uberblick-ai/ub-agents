@@ -8,7 +8,7 @@ the loop for this repository; agents run in private worktrees under `.ub-agents/
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -q -e .
-.venv/bin/python -m unittest discover -v
+.venv/bin/python -m tests
 .venv/bin/ub-agents check
 git diff --check
 ```

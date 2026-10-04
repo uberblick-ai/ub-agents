@@ -19,7 +19,7 @@ from ub_agents.config import Runtime
 from ub_agents.errors import GitHubError
 from ub_agents.execution import group_members
 from ub_agents.loop import Loop, _GracefulStop
-from ub_agents.observations import (HEARTBEAT_SECONDS, MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
+from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    MAX_TEXT, RETAINED_SESSIONS, STALE_SECONDS,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
@@ -414,11 +414,13 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(self.lines, [])
 
     def test_heartbeat_keeps_idle_session_fresh(self):
-        observer = Observations(config(self.root), "operator", None, self.publisher())
+        # The real helper with a short heartbeat, so the test need not wait 5 seconds.
+        command = [sys.executable, "-c", "import ub_agents.observation_worker as worker\n"
+                   "worker.HEARTBEAT_SECONDS = 0.2\nworker.main()"]
+        observer = Observations(config(self.root), "operator", None, self.publisher(command))
         observer.activity("waiting", iso(timestamp() + 60), "next poll")
         state = self.wait_for(lambda: self.read(observer.state["session"]))
-        self.wait_for(lambda: self.read(observer.state["session"])["published_at"] != state["published_at"],
-                      timeout=HEARTBEAT_SECONDS + 3)
+        self.wait_for(lambda: self.read(observer.state["session"])["published_at"] != state["published_at"])
         self.assertFalse(stale(self.read(observer.state["session"]), timestamp(), socket.gethostname()))
         observer.close()
 
