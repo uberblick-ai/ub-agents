@@ -6,7 +6,7 @@ from pathlib import Path
 from queue import Empty, Full, Queue
 import threading
 
-from .view_data import item_context, load_session, mapping, rows, work_rows
+from .view_data import context_text, local_description, load_session, mapping, rows, work_rows
 from .view_logs import ViewReader
 
 
@@ -30,6 +30,7 @@ class Result:
     history: object = None
     error: str | None = None
     runtime: str = 'unknown'
+    description: object = None
 
 
 class LocalWorker:
@@ -75,7 +76,7 @@ class LocalWorker:
         context_key = (selected.key, selected.state, selected.reason, repr(selected.data), repr(source)) if selected else None
         context = self.contexts.get(context_key)
         if context is None:
-            context = item_context(selected, session)
+            context = local_description(selected, session)
             self.contexts[context_key] = context
             while len(self.contexts) > 21:
                 self.contexts.popitem(last=False)
@@ -98,7 +99,7 @@ class LocalWorker:
                 except (OSError, ValueError) as exc:
                     error = str(exc)
         return Result(session, tuple(work), selected.key if selected else request.key, request.token,
-                      context, log, page, history, error, runtime)
+                      context_text(selected, context), log, page, history, error, runtime, context)
 
     def run(self):
         while not self.stopping.is_set():

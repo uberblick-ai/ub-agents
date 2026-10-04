@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import time
 
 from .log_format import inert, shorten
 
@@ -191,27 +192,66 @@ def work_rows(session, root):
     return result
 
 
-def item_context(row, session):
+@dataclass(frozen=True)
+class Description:
+    title: str = ''
+    body: str = ''
+    source: str = ''
+    observed_at: float | None = None
+    available: bool = False
+    notice: str = ''
+    error: str = ''
+
+    def display(self, now=None):
+        age = f'{max(0, (time.time() if now is None else now) - self.observed_at):.0f}s old' if self.observed_at is not None else 'age unavailable'
+        value = self.body if self.available else 'Description unavailable (not cached).'
+        if self.error:
+            value = 'Description load failed: ' + self.error
+        source = f'\nSource: {self.source} · {age}' if self.source else ''
+        return value + source + ('\n' + self.notice if self.notice else '')
+
+
+def description_text(value):
+    # Description shortening must not imply that a full raw log file exists.
+    value = inert(value) if isinstance(value, str) else ''
+    limit = 2048
+    return value if len(value) <= limit else value[:limit] + ' … [description shortened]'
+
+
+def local_description(row, session):
     if not row:
-        return 'No item selected.'
+        return Description()
     source = row.data
     if row.group == 'Current assignment':
         source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
                        if r.get('item') == row.item), source)
     description = mapping(source.get('description'))
-    title = text(source.get('title'), '')
-    body = text(description.get('text'), '') if description.get('available') is True else ''
-    notice = ''
-    if description.get('omitted_characters'):
-        notice = '\nDescription shortened in snapshot; full cached context may be available in context.json.'
-    if not body and row.context:
+    title = description_text(source.get('title'))
+    if description.get('available') is True and isinstance(description.get('text'), str):
+        age = session.age()
+        stamp = time.time() - age if age is not None else None
+        notice = 'Description shortened in snapshot.' if description.get('omitted_characters') else ''
+        return Description(title, description_text(description['text']), 'snapshot', stamp, True, notice)
+    if row.context:
         try:
             context = read_json(row.context, CONTEXT_BYTES)
-            title, body = text(context.get('title'), title), text(context.get('body'), '')
-            notice = '\nSource: run context.json (bounded local read).'
+            if isinstance(context.get('body'), str):
+                return Description(description_text(context.get('title')) or title,
+                                   description_text(context['body']), 'run context.json',
+                                   row.context.stat().st_mtime, True)
         except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
-            notice = '\nCached context unavailable: ' + text(str(exc))
-    return f'#{row.item} {title}\n{row.state}\n{row.reason}\n\n{body or "Description unavailable (not cached)."}{notice}'
+            return Description(title=title, notice='Cached context unavailable: ' + text(str(exc)))
+    return Description(title=title)
+
+
+def context_text(row, description):
+    if not row:
+        return 'No item selected.'
+    return f'#{row.item} {description.title}\n{row.state}\n{row.reason}\n\n{description.display()}'
+
+
+def item_context(row, session):
+    return context_text(row, local_description(row, session))
 
 
 def outcome_text(session):
