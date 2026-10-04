@@ -24,6 +24,10 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 
 ### Changed
 
+- Configuration commands accept `--config` before or after the command; `approve`
+  and `retry` take positional numbers, retaining deprecated `--number` for one release (#130).
+- `retry` defaults to the first configured agent whose kind applies and prints
+  the selected agent before acting (#130).
 - Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
 
 ### Removed
