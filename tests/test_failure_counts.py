@@ -455,13 +455,3 @@ class FailureCountTests(unittest.TestCase):
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.count(), 0)
-
-    def test_legacy_records_keep_start_count_until_cli_reset(self):
-        source = self.start()
-        legacy = payload(source)
-        legacy.pop('attempt_effect')
-        legacy.update(state='released', result='success', expires=iso(self.now))
-        self.github.update_comment(source['id'], body(legacy))
-        self.assertEqual(self.count(), 1)
-        self.now += 60
-        self.assertEqual(self.count(), 1)

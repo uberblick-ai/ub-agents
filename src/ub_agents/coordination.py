@@ -12,7 +12,7 @@ from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
-from .records import (LEGACY_MARKER, RECORD_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
+from .records import (MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       payload, records, recovers, same_handoff, same_run, seconds, timestamp)
 from .trust import LauncherTrust
 
@@ -105,15 +105,13 @@ class Coordinator:
             if not isinstance(comment, dict):
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Unreadable repository comment")
-            if not isinstance(comment.get("body"), str) or not comment["body"].startswith(RECORD_MARKERS):
+            if not isinstance(comment.get("body"), str) or not comment["body"].startswith(MARKER):
                 continue
             if not trusted(comment.get("user")):
                 continue
             try:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
             except (KeyError, ValueError, AttributeError, IndexError) as exc:
-                if comment["body"].startswith(LEGACY_MARKER):
-                    continue
                 raise GitHubError("GET", f"repos/{self.github.repository}/issues/comments",
                                   "Coordination comment has no GitHub assignment URL") from exc
             groups.setdefault(number, []).append(comment)
@@ -350,10 +348,9 @@ class Coordinator:
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False,
-                  "attempt_effect": "pending"}
+                  "attempt_effect": "pending", "declared_triggers": list(plan.agent.triggers),
+                  "stop_labels": list(stop_labels)}
         if not recovery:
-            record["declared_triggers"] = list(plan.agent.triggers)
-            record["stop_labels"] = list(stop_labels)
             record["outcomes"] = {
                 name: ({"add": list(changes["add"]), "remove": list(changes["remove"])}
                        if changes["remove"] else list(changes["add"]))
@@ -484,9 +481,8 @@ class Coordinator:
                               else "unchanged" if result == "blocked" and reported
                               and reported["status"] == "blocked" else "failure")
         # A released lease expires now; retry_after is only needed for a backoff.
-        changes = {"attempt_effect": attempt_effect} if "attempt_effect" in lease else {}
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
-                    retry_after=iso(now + backoff) if backoff else None, **changes)
+                    retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect)
         self.notices.advisory("released run comments", lambda:
                               self.notices.released(lease, reported, summary, parking_outcome, max_attempts))
 
@@ -516,10 +512,7 @@ class Coordinator:
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         if outcome is not None:
             declaration = declarations[outcome]
-            if "declared_triggers" not in lease:
-                extra = sorted(set(declaration["remove"]).difference(declaration["triggers"]))
-                declaration = {"add": declaration["add"]} | ({"remove": extra} if extra else {})
-            elif isinstance(declaration, list):
+            if isinstance(declaration, list):
                 declaration = {"add": declaration}
             record |= {"outcome": outcome, "transition": declaration | {"started": False}}
         self.assert_owned(lease)
