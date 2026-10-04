@@ -22,7 +22,8 @@ from .help import HelpParser
 from .loop import Loop, _GracefulStop
 from .launch_log import launch_output
 from .labels import provision_labels
-from .records import body, iso, latest_leases, lease_by_id, live_leases, records, same_run, timestamp
+from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
+                      record_version, records, same_run, timestamp)
 from .status import lease_summary, process_details
 
 
@@ -127,7 +128,7 @@ def init_project(args):
         targets[config_path] = targets[config_path].replace(
             "[--sandbox, danger-full-access]",
             '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
-            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)", --add-dir, "{scratch}"]').replace(
+            '"Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)", --add-dir, "{scratch}"]').replace(
             "Grants full access without the Codex sandbox",
             "Grants unattended edits and git/gh/report commands")
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
@@ -169,7 +170,19 @@ def report_run(args):
         raise AgentError("Invalid supervised assignment environment") from exc
     github = GitHub(env["REPOSITORY"])
     coordinator = Coordinator(github, github.actor())
-    lease = next((r for r in coordinator.history(number) if r["kind"] == "lease"
+    # Only inspect the supervised comment's marker and GitHub author. Future
+    # payloads are not a contract this build can validate or use for authority.
+    comments = github.comments(number)
+    supervised = next((c for c in comments if isinstance(c, dict) and c.get("id") == lease_id
+                       and own_comment(c, coordinator.actor)), None)
+    version = record_version(supervised.get("body")) if supervised else None
+    supported = record_version(MARKER)
+    if version is not None and version > supported:
+        command = os.environ.get("UB_AGENTS_REPORT")
+        instruction = f"{command} report (UB_AGENTS_REPORT)" if command else "the launcher's command in UB_AGENTS_REPORT"
+        raise AgentError(f"Supervised lease uses record format v{version}, newer than this ub-agents "
+                         f"reads (v{supported}). Report with {instruction}.")
+    lease = next((r for r in records(comments, trusted=coordinator.trust.observation()) if r["kind"] == "lease"
                   and r["id"] == lease_id and r["run"] == env["RUN"]), None)
     if lease is None or lease["actor"].casefold() != coordinator.actor.casefold():
         raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")

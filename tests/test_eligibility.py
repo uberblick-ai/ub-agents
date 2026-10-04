@@ -130,5 +130,6 @@ class EligibilityTests(unittest.TestCase):
                 self.assertEqual(plans[0].matches.matched, (workers[0], workers[2]))
                 self.assertTrue(all(p.matches is plans[0].matches for p in plans))
                 self.assertEqual(plans[0].matches.trigger_labels, frozenset({"issue-start", "shared-start"}))
-                prompt = loop.prompt_for(plans[0], {"outcomes": {}}, {"earlier_branches": []}, "")
+                prompt = loop.prompt_for(plans[0], {"outcomes": {}},
+                                         {"earlier_branches": [], "report_command": "/launcher/ub-agents"}, "")
                 self.assertIn('["issue-start", "needs-human", "old", "pr-start", "review", "shared-start"]', prompt)

@@ -54,8 +54,10 @@ environmental: state it with your results and do not change code or tests to avo
 
 ## Inside the loop
 
-- The `ub-agents` on your PATH is the operator's installed launcher; use it for
-  `ub-agents report`. Never report through the development copy in your worktree
+- Report with the launcher's literal `report_command` from the assignment context
+  (also supplied as `UB_AGENTS_REPORT`), appending `report` and its arguments wherever
+  instructions say `ub-agents report`. PATH may find a different installation.
+  Never report through the development copy in your worktree
   (`.venv/bin/ub-agents`, `python -m ub_agents`), and install this checkout only into
   your worktree's `.venv`.
 - Work only in the directory the launcher gives you, on the assigned issue or PR. Do

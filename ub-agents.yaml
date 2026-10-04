@@ -30,7 +30,7 @@ agents:
       - --allowedTools
       - "Bash(git *)"
       - "Bash(gh *)"
-      - "Bash(ub-agents *)"
+      - "Bash({report_command} report *)"
       - "Bash(python3 *)"
       - "Bash(.venv/bin/*)"
       - "Bash(mise *)"

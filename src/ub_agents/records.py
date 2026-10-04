@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import json
+import re
 
 from .errors import AgentError, RecordError
 
@@ -13,6 +14,12 @@ LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
 OUTCOMES = {"success", "retry", "blocked"}
 # Fields that tie an outcome, a recovery or a contender to the run that owns it.
 PROVENANCE = ("run", "agent", "actor", "runtime", "assignment", "assignment_sha")
+
+
+def record_version(text):
+    """Recognize a format marker for diagnostics, without parsing its record."""
+    match = re.match(r"<!-- ub-agents:v([1-9][0-9]*) -->", text) if isinstance(text, str) else None
+    return int(match[1]) if match else None
 
 
 def same_run(record, lease):

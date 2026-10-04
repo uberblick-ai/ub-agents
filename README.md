@@ -105,6 +105,9 @@ Customize these parts:
 A trigger selects work. An agent reports a declared outcome with
 `ub-agents report --outcome NAME --summary TEXT [--handoff PR]`; the launcher validates
 it and applies the project's transition. `--status retry|blocked` changes no labels.
+Agents replace `ub-agents` in that command with the literal `report_command` from
+their assignment context, also supplied as `UB_AGENTS_REPORT`, to use the launcher's
+own installation even when a login shell changes PATH.
 Review the [coordination contract](docs/coordination.md) and
 [configuration reference](docs/configuration.md) for recovery and permissions.
 

@@ -51,8 +51,25 @@ class ExecutionTests(unittest.TestCase):
                                   f"{scratch}:{scratch}"] + list(unchanged))
 
     def test_command_agent_arguments_are_not_expanded(self):
-        configured = agent(self.root, command=("echo", "{scratch}", "{other}"))
+        configured = agent(self.root, command=("echo", "{scratch}", "{report_command}", "{other}"))
         self.assertEqual(command_for(configured, None, self.root / "scratch"), list(configured.command))
+
+    def test_report_permission_expands_the_exact_command_as_one_runtime_argument(self):
+        report = "'/installation with spaces/python' -I '/installation with spaces/report_command.py'"
+        extra = ("--allowedTools", "Bash({report_command} report *)", "--add-dir", "{scratch}")
+        configured = agent(self.root, command=(), runtime_args=extra)
+        for cli in ("codex", "claude"):
+            with self.subTest(cli=cli):
+                command = command_for(configured, Runtime(cli, "model", "high"), self.root, report)
+                self.assertEqual(command[-4:], ["--allowedTools", f"Bash({report} report *)",
+                                                "--add-dir", str(self.root)])
+
+    def test_placeholder_words_in_paths_are_not_expanded_again(self):
+        scratch = self.root / "{report_command}"
+        report = "/installation/{scratch}/python -I /installation/report_command.py"
+        configured = agent(self.root, command=(), runtime_args=("{scratch}", "{report_command}"))
+        command = command_for(configured, Runtime("claude", "model", "high"), scratch, report)
+        self.assertEqual(command[-2:], [str(scratch), report])
 
     def test_prompt_cwd_environment_and_exit_are_delivered_to_recording_command(self):
         script = "import os,sys; print(os.getcwd()); print(os.environ['TEST_UB_CONTEXT']); print(sys.stdin.read())"
