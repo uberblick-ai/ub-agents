@@ -5,8 +5,8 @@
 #
 # The commit is checked out into a temporary worktree with a fresh virtualenv,
 # so nothing from this checkout (its .venv, untracked files, local edits) can
-# make a run pass. The steps mirror what GitHub ran before: the unit suite with
-# the unit suite, `ub-agents check`, and whitespace errors in the
+# make a run pass. The steps mirror what GitHub ran before: the unit suite on
+# every core, `ub-agents check`, and whitespace errors in the
 # diff. When every step passes the commit gets the `signoff` status, which is
 # the merge gate; a failed step posts a red status instead. Signing off needs
 # the gh-signoff extension.
@@ -71,7 +71,7 @@ run() {
 
 run "Whitespace" git --no-pager diff --check "origin/main...$sha" --
 run "Install" sh -c 'python3 -m venv .venv && .venv/bin/python -m pip install -q -e .'
-run "Tests" .venv/bin/python -m unittest discover
+run "Tests" .venv/bin/python -m tests
 run "Config check" .venv/bin/ub-agents check
 
 gh signoff --commit "$sha"
