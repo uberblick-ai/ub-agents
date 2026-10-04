@@ -482,17 +482,22 @@ class ProofView(View):
                                    if ref.value.kind == 'tool ERROR'), 0)
         self.query_one(LogPane).reflow()
     def action_checkpoint(self):
+        self.call_after_refresh(lambda: self.query_one(LogPane).call_after_refresh(self.checkpoint))
+    def checkpoint(self):
         pane = self.query_one(LogPane)
         r = self.reading
-        value = {'raw': r.raw, 'anchor': pane.anchor(), 'entries': len(r.page.refs),
+        refs = r.page.refs if r.page else []
+        value = {'ready': r.page is not None, 'raw': r.raw, 'anchor': pane.anchor(), 'entries': len(refs),
                  'header': self.query_one('#item_header').render().plain,
                  'run_status': self.query_one('#run_status').render().plain,
                  'notice': self.query_one('#log_note').render().plain,
                  'raw_details': self.raw_details(),
                  'lines': [line.text for line in pane.lines],
-                 'refs': [(ref.start, ref.value.kind) for ref in r.page.refs],
+                 'refs': [(ref.start, ref.value.kind) for ref in refs],
                  'positions': pane.positions}
-        pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
+        partial = pathlib.Path(sys.argv[3] + '.partial')
+        partial.write_text(json.dumps(value))
+        partial.replace(sys.argv[3])
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
             master, slave = pty.openpty()
@@ -508,24 +513,28 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 while time.monotonic() < deadline:
                     if select.select([master], [], [], 0.02)[0]:
                         transcript.extend(os.read(master, 65536))
-            def checkpoint():
-                proof.unlink(missing_ok=True)
-                os.write(master, b'x')
-                deadline = time.monotonic() + 3
-                while not proof.exists() and time.monotonic() < deadline:
-                    drain(0.05)
-                self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
-                return json.loads(proof.read_text())
+            def checkpoint(ready=lambda value: True):
+                deadline = time.monotonic() + 5
+                while True:
+                    proof.unlink(missing_ok=True)
+                    os.write(master, b'x')
+                    written = time.monotonic() + 3
+                    while not proof.exists() and time.monotonic() < written:
+                        drain(0.05)
+                    self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                    value = json.loads(proof.read_text())
+                    if ready(value) or time.monotonic() >= deadline:
+                        self.assertTrue(ready(value), value)
+                        return value
             try:
-                drain(0.8)
+                checkpoint(lambda value: value['ready'])
                 # Appending after attachment replays every recorded input from
                 # byte zero, preserving capture times as well as producer times.
                 from tests.test_view_data import event
                 with log.open('ab') as stream:
                     stream.write(capture.read_bytes())
                     stream.write(b''.join(event(i, 20) for i in range(10)))
-                drain(0.8)
-                formatted = checkpoint()
+                formatted = checkpoint(lambda value: value['entries'] == len(capture.read_bytes().splitlines()) + 10)
                 self.assertEqual(formatted['entries'], len(capture.read_bytes().splitlines()) + 10)
                 text = '\n'.join(formatted['lines'])
                 self.assertIn('· thinking', text)
