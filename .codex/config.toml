@@ -1,5 +1,0 @@
-[mcp_servers.uberblick]
-command = "ub"
-args = ["mcp", "serve"]
-env = { WORKSPACE_ID = "uberblick-bd526fa1-4cb6-4590-bda6-ccb7262e30a2" }
-default_tools_approval_mode = "approve"
