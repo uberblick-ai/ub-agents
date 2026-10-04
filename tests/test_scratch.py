@@ -253,6 +253,8 @@ class ScratchTests(unittest.TestCase):
             self.assertFalse(scratch.is_relative_to(worktree))
             self.assertIn("Put temporary files in UB_AGENTS_SCRATCH", prompt)
             self.assertIn("not directly under /tmp", prompt)
+            self.assertIn(f'"scratch": "{scratch}"', prompt)
+            self.assertEqual(json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())["scratch"], str(scratch))
             return 0
 
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
