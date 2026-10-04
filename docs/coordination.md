@@ -281,6 +281,8 @@ and are never renewed. A failed renewal leaves execution running and retries at
 the next interval; ownership is lost if another claim owns the item or the last
 confirmed expiry passes. A renewal write starts only with enough time remaining
 for its 20-second request timeout, so a late renewal cannot revive an expired claim.
+If the renewal worker stops unexpectedly, the launcher reports the failure in its
+terminal output and `.ub-agents/launch.log`; supervision keeps the last confirmed expiry.
 
 Launchers from the preceding release honour renewed comment expiries. New launchers
 also honour older claims' recorded, longer expiries; no coordinated upgrade is

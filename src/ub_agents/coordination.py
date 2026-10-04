@@ -425,11 +425,12 @@ class Coordinator:
             if self.clock() + REQUEST_TIMEOUT_SECONDS + 1 >= seconds(lease["expires"]):
                 return False
             revision = self._lease_revision
+            assignment = lease["assignment"]
         try:
             # Pagination/role reads may outlast the lease. Keep deadlines and
             # local state edits available while those bounded requests finish.
             trusted = LauncherTrust(github, self.trust.launchers).observation()
-            history = records(github.comments(lease["assignment"]), trusted=trusted)
+            history = records(github.comments(assignment), trusted=trusted)
             with self._lease_lock:
                 self.deadline(lease)
                 if revision != self._lease_revision:

@@ -10,6 +10,10 @@ notes are copied from that section.
 
 - Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
 
+### Fixed
+
+- Lease renewal remains active during concurrent state updates, and unexpected renewal worker failures appear in launcher logs (#145).
+
 ### Removed
 
 - Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).

@@ -32,13 +32,16 @@ class LeaseRenewal:
             self.coordinator.renew(self.lease, self.github)
 
     def _run(self):
-        while not self.stop.is_set():
-            try:
+        try:
+            while not self.stop.is_set():
                 self.tick()
-            except LostOwnership:
-                return
-            # Check wall clock on wake, including after a machine sleeps.
-            self.stop.wait(min(1, max(0, self.next_renewal - self.coordinator.clock())))
+                # Check wall clock on wake, including after a machine sleeps.
+                self.stop.wait(min(1, max(0, self.next_renewal - self.coordinator.clock())))
+        except LostOwnership:
+            return
+        except Exception as exc:
+            self.coordinator.output(f"Lease renewal worker stopped unexpectedly: {type(exc).__name__}: {exc}; "
+                                    "using the last confirmed expiry")
 
     def close(self):
         self.stop.set()

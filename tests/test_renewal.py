@@ -1,4 +1,6 @@
+from contextlib import redirect_stdout
 from dataclasses import replace
+import io
 from pathlib import Path
 import tempfile
 import threading
@@ -9,6 +11,7 @@ from ub_agents.config import CleanupHook, LEASE_RENEW_SECONDS, LEASE_SECONDS
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.execution import Workspace
+from ub_agents.launch_log import launch_output
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, payload, seconds
 from ub_agents.renewal import LeaseRenewal
@@ -295,6 +298,69 @@ class RenewalTests(unittest.TestCase):
                 self.assertEqual(payload(stored), payload(lease))
                 self.assertEqual(len(self.github.writes), 2)  # claim and state edit only
 
+    def test_renewal_reads_assignment_before_a_concurrent_update_clears_the_lease(self):
+        read_started, read_finished = threading.Event(), threading.Event()
+        lease_cleared, finish_update = threading.Event(), threading.Event()
+        class ReplacingLease(dict):
+            def clear(self):
+                super().clear()
+                lease_cleared.set()
+                if not finish_update.wait(5):
+                    raise AssertionError("Lease replacement was not resumed")
+
+        lease = ReplacingLease(self.claim())
+        self.now += 600
+        trusted = self.co.trust.observation()
+        comments = self.github.comments
+        errors, renewed = [], []
+        def observation():
+            read_started.set()
+            self.assertTrue(lease_cleared.wait(5))
+            return trusted
+        def read(number):
+            self.assertEqual(lease, {})
+            self.assertEqual(number, 1)
+            try:
+                return comments(number)
+            finally:
+                read_finished.set()
+        def renew():
+            try:
+                renewed.append(self.co.renew(lease, self.github))
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                read_finished.set()
+        def update():
+            try:
+                self.co.update(lease, state="running", started=True)
+            except Exception as exc:
+                errors.append(exc)
+        with patch("ub_agents.coordination.LauncherTrust.observation", side_effect=observation), \
+                patch.object(self.github, "comments", side_effect=read):
+            worker = threading.Thread(target=renew)
+            edit = threading.Thread(target=update)
+            worker.start()
+            try:
+                self.assertTrue(read_started.wait(5))
+                edit.start()
+                self.assertTrue(read_finished.wait(5))
+            finally:
+                finish_update.set()
+                worker.join(5)
+                if edit.ident is not None:
+                    edit.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(edit.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(renewed, [False])  # The concurrent edit invalidates the read.
+        stored = self.co.history(1)[0]
+        self.assertEqual(payload(stored), payload(lease))
+        self.assertEqual((stored["state"], stored["started"], stored["expires"]), ("running", True, iso(2800)))
+        self.assertEqual(len(self.github.writes), 2)
+        self.assertTrue(self.co.renew(lease, self.github))
+        self.assertEqual(seconds(lease["expires"]), 3400)
+
     def test_slow_renewal_read_does_not_block_local_expiry_checks(self):
         lease = self.claim()
         self.now += 600
@@ -359,3 +425,57 @@ class RenewalTests(unittest.TestCase):
                 return self.finish()
             self.execute(run)
         self.assertFalse(self.worker.is_alive())
+
+    def test_unexpected_worker_failures_reach_launcher_diagnostics_without_extending_expiry(self):
+        for operation, failure in (("renew", KeyError("unexpected renewal failure")),
+                                   ("wait", RuntimeError("unexpected wait failure"))):
+            with self.subTest(operation=operation):
+                self.setUp()
+                lease = self.claim()
+                renewal = LeaseRenewal(self.co, self.github)
+                self.co.output = print
+                before, writes = payload(lease), self.github.writes.copy()
+                if operation == "renew":
+                    self.now += 600
+                target = self.co if operation == "renew" else renewal.stop
+                with redirect_stdout(io.StringIO()) as terminal, launch_output(self.root), \
+                        patch.object(target, operation, side_effect=failure):
+                    renewal.claimed(lease)
+                    try:
+                        renewal.thread.join(5)
+                        self.assertFalse(renewal.thread.is_alive())
+                    finally:
+                        renewal.close()
+                message = f"Lease renewal worker stopped unexpectedly: {type(failure).__name__}: {failure}"
+                self.assertIn(message, terminal.getvalue())
+                log = (self.root / ".ub-agents" / "launch.log").read_text()
+                self.assertIn(message, log)
+                self.assertIn("last confirmed expiry", log)
+                self.assertEqual(payload(lease), before)
+                self.assertEqual(self.github.writes, writes)
+                self.assertEqual(self.co.deadline(lease), 2800)
+                self.now = 2800
+                with self.assertRaises(LostOwnership):
+                    self.co.deadline(lease)
+                self.now = 2799
+                with patch.object(self.github, "update_comment") as write, self.assertRaises(LostOwnership):
+                    self.co.renew(lease, self.github)
+                write.assert_not_called()
+
+    def test_worker_ownership_loss_remains_visible_to_supervision(self):
+        lease = self.claim()
+        self.now = seconds(lease["expires"])
+        messages = []
+        self.co.output = messages.append
+        renewal = LeaseRenewal(self.co, self.github)
+        writes = self.github.writes.copy()
+        renewal.claimed(lease)
+        try:
+            renewal.thread.join(5)
+            self.assertFalse(renewal.thread.is_alive())
+        finally:
+            renewal.close()
+        self.assertEqual(messages, [])
+        self.assertEqual(self.github.writes, writes)
+        with self.assertRaises(LostOwnership):
+            self.co.deadline(lease)
