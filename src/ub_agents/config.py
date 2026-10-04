@@ -183,8 +183,8 @@ class Config:
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
 DEFAULTS = {"agent-timeout-minutes": 180, "max-attempts": 5,
             "retry-backoff-seconds": 60, "max-backoff-seconds": 3600}
-# A claim is never renewed: its lease covers the run's timeout, the cleanup hook, setup and completion.
-LEASE_GRACE_SECONDS = 15 * 60
+LEASE_SECONDS = 30 * 60
+LEASE_RENEW_SECONDS = 10 * 60
 
 
 def load_config(path):
@@ -334,7 +334,7 @@ def load_config(path):
             outcomes[outcome] = labels
         agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind, worktree,
-            clocks["agent-timeout-minutes"] * 60 + LEASE_GRACE_SECONDS + (cleanup.timeout_seconds if cleanup else 0),
+            LEASE_SECONDS,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
             clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes))
     for agent in agents:

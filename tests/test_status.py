@@ -11,7 +11,7 @@ from ub_agents.cli import main
 from ub_agents.errors import CleanupError
 from ub_agents.loop import Loop
 from ub_agents.records import iso, seconds
-from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, PollGitHub, agent, config, edit_lease, issue, pr
 
 
 class StatusTests(unittest.TestCase):
@@ -49,8 +49,8 @@ class StatusTests(unittest.TestCase):
 
     def local_lease(self, **changes):
         lease = self.claim()
-        self.loop.coordinator.update(lease, host="local-host", process_group=1234,
-                                     log_dir="/runs/current", **changes)
+        edit_lease(self.github, lease, host="local-host", process_group=1234,
+                   log_dir="/runs/current", **changes)
         return lease
 
     def test_running_lease_summary_and_backward_compatible_json(self):
@@ -84,7 +84,7 @@ class StatusTests(unittest.TestCase):
                       "launcher recovers it after the lease ends at 09:51Z.", plain)
         self.assertNotIn("ub-agents recover", plain)
 
-    def test_exited_with_report_explains_acceptance_and_manual_recovery(self):
+    def test_exited_with_report_explains_acceptance_after_expiry(self):
         lease = self.local_lease()
         report = self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
         rows, plain = self.status()
@@ -92,8 +92,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(rows[0]["outcome"]["id"], report["id"])
         self.assertIn("reported: success (unaccepted)", plain)
         self.assertIn("Agent process has exited. A launcher accepts the reported outcome when it "
-                      "recovers the lease after 09:51Z, or run "
-                      "`ub-agents recover 1 --agent worker --reason TEXT` now.", plain)
+                      "recovers the lease after 09:51Z.", plain)
 
     def test_local_lease_without_process_group_is_starting(self):
         lease = self.claim()
@@ -180,9 +179,9 @@ class StatusTests(unittest.TestCase):
         self.github.reads.clear()
         self.status()
         self.assertEqual(self.github.reads, [
-            ("observe", ()), ("repository_comments", (604860,)), ("role", ("operator",)),
+            ("observe", ()), ("repository_comments", (606600,)), ("role", ("operator",)),
             ("blocked_by", (1,)), ("comments", (1,)),
-            ("observe", ()), ("repository_comments", (604860,)), ("role", ("operator",)),
+            ("observe", ()), ("repository_comments", (606600,)), ("role", ("operator",)),
             ("blocked_by", (1,)), ("comments", (1,))])
 
     def test_recovered_success_is_not_a_later_live_runs_report(self):
@@ -212,7 +211,9 @@ class StatusTests(unittest.TestCase):
         self.assertIsNone(rows[0]["lease"])
         self.assertIsNone(rows[0]["outcome"])
         self.assertNotIn("reported:", plain)
-        self.loop.coordinator.update(later, state="released", result="retry", attempt_effect="failure")
+        # Model an already released remote record; an expired local supervisor
+        # is no longer allowed to write it.
+        edit_lease(self.github, later, state="released", result="retry", attempt_effect="failure", expires=iso(self.now))
         rows, plain = self.status()
         self.assertEqual(rows[0]["result"], "retry")
         self.assertIsNone(rows[0]["outcome"])
@@ -297,7 +298,8 @@ class StatusTests(unittest.TestCase):
                 by_agent = {row["agent"]: row for row in rows}
                 worker_row, other_row = by_agent[self.agent.name], by_agent[other.name]
                 self.assertEqual((worker_row["process"], other_row["process"]), ("exited", "exited"))
-                self.assertIn("recover 1 --agent other --reason TEXT", worker_row["process_reason"])
+                self.assertIn("reported outcome", worker_row["process_reason"])
+                self.assertNotIn("ub-agents recover", worker_row["process_reason"])
                 self.assertNotIn("--agent worker", worker_row["process_reason"])
                 self.assertEqual(worker_row["state"], "owned")
                 self.assertEqual(worker_row["lease"]["run"], lease["run"])

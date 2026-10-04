@@ -54,14 +54,11 @@ def parser():
     retry = commands.add_parser("retry", help="Record a human-authorized reset of blocked work/attempt limits")
     retry.add_argument("--agent", help="Configured agent (default: first matching item kind)")
     retry.add_argument("--reason", required=True)
-    recover = commands.add_parser("recover", help="Recover a stopped local launcher's reported outcome before expiry")
-    recover.add_argument("--agent", help="Configured agent (default: first matching item kind)")
-    recover.add_argument("--reason", required=True, help="Attest that the launcher has stopped")
     approve = commands.add_parser("approve", help="Approve current issue or PR input as a maintainer")
-    for command in (retry, recover, approve):
+    for command in (retry, approve):
         command.add_argument("number", type=int, nargs="?", help="Issue or PR number")
         command.add_argument("--number", dest="legacy_number", type=int, help=argparse.SUPPRESS)
-    for command in (init, check, doctor, launch, status, cleanup, retry, recover, approve):
+    for command in (init, check, doctor, launch, status, cleanup, retry, approve):
         command.add_argument("--config", dest="command_config", metavar="CONFIG",
                              help="Project configuration (default: ub-agents.yaml)")
     return result
@@ -225,17 +222,13 @@ def run(args):
         print(f"Approval posted: {created['html_url']}")
         return
     coordinator = Coordinator(github, actor, launchers=config.launchers)
-    if args.command in {"retry", "recover"} and args.agent is None:
+    if args.command == "retry" and args.agent is None:
         item = github.item(args.number)
         agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)
         if agent is None:
             raise AgentError(f"No configured agent applies to {item.kind} #{item.number}")
         args.agent = agent.name
         print(f"Using agent {agent.name} for {item.kind} #{item.number}.")
-    if args.command == "recover":
-        from .recovery import recover_run
-        recover_run(config, github, actor, args.number, args.agent, args.reason)
-        return
     if args.command == "cleanup":
         from .cleanup import Cleaner
         for _, error in repository_checks(config):
@@ -351,7 +344,7 @@ def main(argv=None):
                 if args.config is not None:
                     parser().error("--config may be given before or after the command, not both")
                 args.config = command_config
-            if args.command in {"approve", "retry", "recover"}:
+            if args.command in {"approve", "retry"}:
                 if args.number is not None and args.legacy_number is not None:
                     parser().error(f"{args.command} accepts either N or --number N, not both")
                 args.number = args.number if args.number is not None else args.legacy_number

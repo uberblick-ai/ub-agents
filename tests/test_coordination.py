@@ -13,7 +13,7 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.records import MARKER, attempts, body, iso, records, timestamp
-from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, edit_lease, issue, pr
 
 
 class FeedbackTests(unittest.TestCase):
@@ -352,7 +352,7 @@ class CoordinationTests(unittest.TestCase):
         for cleanup, expected in ((None, "owned"), ("unconfirmed", "blocked")):
             with self.subTest(cleanup=cleanup):
                 if cleanup:
-                    self.co.update(lease, cleanup=cleanup, expires=iso(self.now - 1))
+                    edit_lease(self.github, lease, cleanup=cleanup, expires=iso(self.now - 1))
                     self.github.store[1][0]["updated_at"] = old
                 # The bounded index contains none of issue #1's old comments.
                 with patch.object(self.github, "repository_comments", return_value=[]):

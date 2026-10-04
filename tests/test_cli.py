@@ -11,7 +11,7 @@ from ub_agents.cli import main
 class ArgumentTests(unittest.TestCase):
     commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"),
-                ("recover", "42", "--reason", "Stopped"), ("approve", "42"))
+                ("approve", "42"))
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -80,7 +80,7 @@ class ArgumentTests(unittest.TestCase):
 
     def test_positional_number_and_hidden_alias(self):
         self.run.return_value = 0
-        for name in ("approve", "retry", "recover"):
+        for name in ("approve", "retry"):
             options = [] if name == "approve" else ["--reason", "Fixed"]
             for number in (["42"], ["--number", "42"]):
                 with self.subTest(command=name, number=number):
@@ -95,7 +95,7 @@ class ArgumentTests(unittest.TestCase):
             self.assertIn("number", self.stdout.getvalue())
 
     def test_conflicting_missing_and_invalid_numbers_are_usage_errors(self):
-        for name in ("approve", "retry", "recover"):
+        for name in ("approve", "retry"):
             options = [] if name == "approve" else ["--reason", "Fixed"]
             for number in (["42", "--number", "42"], ["42", "--number", "43"]):
                 with self.subTest(command=name, number=number):
@@ -103,6 +103,23 @@ class ArgumentTests(unittest.TestCase):
             for number in ([], ["0"], ["-1"], ["--number", "0"], ["--number", "-1"]):
                 with self.subTest(command=name, number=number):
                     self.usage_error([name, *number, *options], "requires a positive item number")
+
+    def test_launch_item_stays_optional_and_accepts_a_positive_number(self):
+        self.run.return_value = 0
+        for number, expected in (([], None), (["42"], 42)):
+            with self.subTest(number=number):
+                self.assertEqual(main(["launch", *number, "--config", str(self.path)]), 0)
+                self.assertEqual(self.run.call_args.args[0].number, expected)
+        self.usage_error(["launch", "--agent", "worker"], "launch --agent requires an item number")
+        for number in ("0", "-1"):
+            self.usage_error(["launch", number], "launch requires a positive item number")
+
+    def test_recover_remains_removed(self):
+        with self.assertRaises(SystemExit) as caught:
+            main(["--help"])
+        self.assertEqual(caught.exception.code, 0)
+        self.assertNotIn("recover", self.stdout.getvalue())
+        self.usage_error(["recover", "42", "--reason", "Stopped"], "invalid choice: 'recover'")
 
     def test_report_keeps_global_config_compatibility_but_no_command_config(self):
         self.run.return_value = 0

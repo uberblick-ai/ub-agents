@@ -110,17 +110,16 @@ Review the [coordination contract](docs/coordination.md) and
 | `ub-agents launch --once` | Run at most one assignment, then exit |
 | `ub-agents launch N [--agent NAME]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
 | `ub-agents cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
-| `ub-agents recover N --reason TEXT [--agent NAME]` | Recover a stopped local launcher's reported outcome before its lease expires |
 | `ub-agents retry N --reason TEXT [--agent NAME]` | Let stopped work run again, with a recorded reason |
 | `ub-agents approve N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
 | `ub-agents check` | Validate the configuration files only |
 | `ub-agents report` | Used by agents to record their outcome |
 
 `--config PATH` works before or after every configuration command; giving it in
-both positions is a usage error. Without `--agent`, `retry` and `recover` print
-and use the first configured agent whose kind applies to the item. Use an explicit
-agent when resetting its attempts or recovering its lease. The deprecated
-`--number N` alias remains available for one release, hidden from help.
+both positions is a usage error. Without `--agent`, `retry` prints and uses the
+first configured agent whose kind applies to the item. Use an explicit agent when
+resetting its attempts. The deprecated `--number N` alias remains available for
+one release, hidden from help.
 
 ## Stopping and restarting
 
@@ -300,7 +299,8 @@ Instruction text and configuration stay fixed for each run; PR candidates are no
 rebased. See [Stopping and restarting](#stopping-and-restarting) for signal handling
 during checkout refresh and how to restart after code updates.
 
-Each claim has a lease that outlasts the run's timeout. If a launcher dies, its
+Each claim has a fixed 30-minute lease, renewed every 10 minutes throughout setup,
+execution, completion and cleanup. If a launcher dies, its
 claims expire and another launcher recovers the work: a recorded outcome is
 validated and its label transition finished without rerunning the role.
 `max-attempts` limits consecutive failures per item and configured agent. Accepted
@@ -361,6 +361,10 @@ Tests use fakes for GitHub and real child processes for supervision; they never 
 model. This repository is developed with its own loop: see [ub-agents.yaml](ub-agents.yaml)
 and [AGENTS.md](AGENTS.md). The roadmap is in the
 [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
+
+An optional [development terminal view](docs/terminal-view.md) shows one launcher's
+local work, cached context, outcomes and paged runtime logs in a separate process.
+Install `.[ui]` in the checkout venv; the base launcher does not depend on Textual.
 
 ## License
 

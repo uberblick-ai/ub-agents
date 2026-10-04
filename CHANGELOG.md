@@ -13,6 +13,8 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 
 ### Added
 
+- A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).
+
 - Every launcher, including `launch --once`, publishes a private, bounded,
   versioned session snapshot under `.ub-agents/sessions/` for a local view,
   with reached plans, process state and session outcomes. Publication adds no
@@ -20,13 +22,15 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 
 ### Changed
 
-- Configuration commands accept `--config` before or after the command; `approve`,
-  `retry` and `recover` take positional numbers, retaining deprecated `--number`
-  for one release (#130).
-- `retry` and `recover` default to the first configured agent whose kind applies
-  and print the selected agent before acting (#130).
+- Configuration commands accept `--config` before or after the command; `approve`
+  and `retry` take positional numbers, retaining deprecated `--number` for one release (#130).
+- `retry` defaults to the first configured agent whose kind applies and prints
+  the selected agent before acting (#130).
+- Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
 
 ### Removed
+
+- Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
 
 - Compatibility with the old `ub-agent` command, configuration, environment,
   coordination markers and artifacts is removed; only `ub-agents` names remain (#137).

@@ -17,7 +17,7 @@ from ub_agents.errors import AgentError, CleanupError
 from ub_agents.execution import git, stop_group
 from ub_agents.github import GitHub
 from ub_agents.records import iso, timestamp
-from tests.support import FakeGitHub, config, issue, pr
+from tests.support import FakeGitHub, config, edit_lease, issue, pr
 
 
 class CleanupTests(unittest.TestCase):
@@ -62,7 +62,9 @@ class CleanupTests(unittest.TestCase):
         return {row["kind"]: row for row in self.cleaner.clean(apply)}
 
     def update(self, **fields):
-        self.coordinator.update(self.lease, **fields)
+        # Cleanup observes already ended/crashed runs, including expired leases.
+        # Fixture edits do not act as a still-owning supervisor.
+        edit_lease(self.github, self.lease, **fields)
 
     def hook(self, script, timeout=3):
         self.cleaner.config = replace(self.config, cleanup=CleanupHook((sys.executable, "-c", script), timeout))
