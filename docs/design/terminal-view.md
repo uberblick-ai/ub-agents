@@ -214,6 +214,10 @@ Paused log (pill at the bottom right of the log pane, footer keys switch to log 
                                                               ⏸ PAUSED · 37 new ↓ · f follow
  ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
 
+Update available (yellow banner above both panes; the view is otherwise unchanged):
+ ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, then restart the launcher   released 2 days ago
+ ⬆ This checkout is 3 commits behind origin/main · git pull, then restart the launcher
+
 Stopping:
  ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
 ```
