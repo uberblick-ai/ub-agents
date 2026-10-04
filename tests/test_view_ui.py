@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import os
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -862,6 +863,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_published_passes_keep_selection_details_focus_and_paused_log(self):
+        def write_snapshot(snapshot):
+            # Match the publisher: readers see a complete old or new snapshot.
+            temporary = self.path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(snapshot))
+            os.replace(temporary, self.path)
+
         memory = MemoryPublisher()
         observer = Observations(config(self.root), 'operator', None, memory)
         observer.state['assignment'] = self.state['assignment']
@@ -876,7 +883,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         for plan in plans:
             observer.plan(plan)
         observer.complete_pass()
-        self.path.write_text(json.dumps(memory.snapshots[-1]))
+        write_snapshot(memory.snapshots[-1])
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -894,7 +901,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             output.focus()
             async def publish():
                 snapshot = memory.snapshots[-1]
-                self.path.write_text(json.dumps(snapshot))
+                write_snapshot(snapshot)
                 await self.ready(app, pilot, lambda: app.session.data['latest_pass'] == snapshot['latest_pass'])
                 self.assertEqual(app.selected, key)
                 self.assertIs(app.focused, output)
