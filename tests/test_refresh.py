@@ -19,6 +19,8 @@ from ub_agents.records import attempts, timestamp
 from ub_agents.refresh import refresh_checkout
 from ub_agents.updates import Updates
 from tests.support import FakeGitHub, PollGitHub, agent, config, isolate_runtime_state, issue, pr
+# Import before setUp patches Updates; parallel workers load modules on demand.
+from tests.test_updates import eventually, stop_checker
 
 
 class RefreshTests(unittest.TestCase):
@@ -55,7 +57,6 @@ class RefreshTests(unittest.TestCase):
         git(self.upstream, "push", "origin", "main")
 
     def test_update_notice_counts_started_code_after_normal_fast_forwards(self):
-        from tests.test_updates import eventually, stop_checker
         started = git(self.root, "rev-parse", "HEAD")
         update = Updates(self.root, detect=lambda _: 'checkout')
         self.addCleanup(stop_checker, update)
