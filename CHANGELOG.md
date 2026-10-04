@@ -15,6 +15,9 @@ Approvals now default off for private and internal repositories; set
 
 ### Added
 
+- `ub-agents help [COMMAND]` provides a compact overview and detailed help with
+  usage and examples, available without project configuration (#143).
+
 - Projects can configure outside-input approvals with `approvals: on` or `off`,
   defaulting from repository visibility; disabled approvals include only feedback
   from authors with `write` or higher (#134).

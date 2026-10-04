@@ -92,7 +92,7 @@ class ArgumentTests(unittest.TestCase):
                 main([name, "--help"])
             self.assertEqual(caught.exception.code, 0)
             self.assertNotIn("--number", self.stdout.getvalue())
-            self.assertIn("number", self.stdout.getvalue())
+            self.assertIn("NUMBER", self.stdout.getvalue())
 
     def test_conflicting_missing_and_invalid_numbers_are_usage_errors(self):
         for name in ("approve", "retry"):

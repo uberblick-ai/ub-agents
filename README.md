@@ -104,8 +104,17 @@ it and applies the project's transition. `--status retry|blocked` changes no lab
 Review the [coordination contract](docs/coordination.md) and
 [configuration reference](docs/configuration.md) for recovery and permissions.
 
+Run `ub-agents`, `ub-agents help` or `ub-agents --help` for the same compact, aligned
+command overview. Rows show one usage form; detailed help includes all options and
+alternatives. Use `ub-agents help COMMAND` or `ub-agents COMMAND --help` for purpose,
+usage, arguments, options and examples. Help works outside a configured repository,
+without GitHub authentication or network access, and creates no files. Square
+brackets indicate optional arguments: `launch [NUMBER]` takes an optional item,
+while `retry NUMBER` and `approve NUMBER` require one.
+
 | Command | What it does |
 |---|---|
+| `ub-agents help [COMMAND]` | Show the overview, or detailed command help with examples |
 | `ub-agents status` | Show matching work, lease details, whether local agents are running, and what they reported |
 | `ub-agents launch --once` | Run at most one assignment, then exit |
 | `ub-agents launch N [--agent NAME]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |

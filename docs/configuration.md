@@ -818,6 +818,18 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
 
 ## Commands
 
+`ub-agents`, `ub-agents help` and `ub-agents --help` print the same compact, aligned
+command overview and exit successfully. Rows show one usage form; detailed help
+includes all options and alternatives. `ub-agents help COMMAND` and
+`ub-agents COMMAND --help` print the same detailed purpose, usage, arguments,
+options and examples. All help forms work without project configuration, GitHub
+authentication or network access, and neither execute commands nor create files.
+Square brackets mean optional: `launch [NUMBER]` accepts an optional item number,
+while `retry NUMBER` and `approve NUMBER` require one. `retry --agent` is optional.
+Unknown commands and missing required arguments exit nonzero on standard error
+with a help command to run.
+
+- `ub-agents help [COMMAND]` shows the overview or detailed help for that command.
 - `ub-agents init [--repository owner/name] [--runtime cli:model:effort]` writes the
   starter `ub-agents.yaml`, shared `AGENTS.md` and `.agents/` files next to the selected
   `--config` file, and adds `.ub-agents/` to `.gitignore`. Fill in the shared guidance's
@@ -917,7 +929,8 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
   `--number N` alias remains available for one release and is hidden from help;
   giving the number both ways is a usage error.
 - `--config PATH` selects a different configuration file before or after any
-  command except `report`, which reads no configuration. Giving it in both
-  positions is a usage error. For example, `ub-agents --config x.yaml launch` and
+  project command. `report` and `help` accept it only before the command and read
+  no configuration. Giving it in both positions is a usage error. For example,
+  `ub-agents --config x.yaml launch` and
   `ub-agents launch --config x.yaml` both write `.ub-agents/launch.log` next to
   `x.yaml`.
