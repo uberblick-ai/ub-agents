@@ -3,7 +3,6 @@
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 import fcntl
-import importlib.util
 import io
 import json
 import os
@@ -26,9 +25,6 @@ from ub_agents.launch_log import launch_output
 from ub_agents.launch_ui import ViewProcess, open_view
 from ub_agents.view import attach
 from tests.test_view_data import fixture
-
-HAS_UI = importlib.util.find_spec('textual') is not None
-
 
 class Tty(io.StringIO):
     def isatty(self):
@@ -59,27 +55,23 @@ class LaunchSelectionTests(unittest.TestCase):
                     self.assertIsNone(open_view(Path(directory), 'own', output, Mock(), no_ui=no_ui))
                 self.assertEqual(terminal.getvalue(), '')
 
-    def test_missing_notice_once_and_matching_external_ui_probe(self):
-        for command, probe in ((None, None), (['ub-agents-ui'], Mock(returncode=3)),
-                               (['ub-agents-ui'], Mock(returncode=2, stdout='UI/base version mismatch')),
-                               (['ub-agents-ui'], Mock(returncode=0))):
-            with self.subTest(command=command, probe=probe), tempfile.TemporaryDirectory() as directory:
+    def test_view_opens_only_after_a_matching_version_probe(self):
+        for probe in (Mock(returncode=2, stdout='UI/base version mismatch'), Mock(returncode=0)):
+            with self.subTest(probe=probe), tempfile.TemporaryDirectory() as directory:
                 terminal = Tty()
                 with redirect_stdout(terminal), patch('sys.stdin', Tty()), launch_output(Path(directory)) as output, \
-                        patch('ub_agents.launch_ui.ui_command', return_value=command), \
                         patch('ub_agents.launch_ui.subprocess.run', return_value=probe), \
                         patch('ub_agents.launch_ui.ViewProcess') as view:
                     result = open_view(Path(directory), 'own-session', output, Mock())
-                    if probe and probe.returncode == 0:
+                    if probe.returncode == 0:
                         self.assertEqual(result, view.return_value)
                         self.assertEqual(view.call_args.args[2], 'own-session')
                         view.return_value.start.assert_called_once()
                     else:
                         self.assertIsNone(result)
                         view.assert_not_called()
+                        self.assertIn('UI/base version mismatch', terminal.getvalue())
                         self.assertEqual(len(terminal.getvalue().splitlines()), 1)
-                if not probe or probe.returncode == 3:
-                    self.assertIn('brew install uberblick-ai/tap/ub-agents-ui', terminal.getvalue())
 
     def test_strict_own_session_errors_never_choose_another_live_session(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -208,7 +200,6 @@ sys.exit(result)
 '''
 
 
-@unittest.skipUnless(HAS_UI, 'install the opt-in UI extra')
 class LaunchTerminalTests(unittest.TestCase):
     def test_launch_forms_q_crash_interrupt_drain_exit_and_restart(self):
         # The clean-wheel interpreter is also used for the recorded acceptance run.

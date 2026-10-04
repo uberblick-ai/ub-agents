@@ -25,7 +25,7 @@ mise run ci <sha>
 ```
 
 It checks the commit out into a temporary worktree with a fresh virtualenv, runs
-`git diff --check`, the unit suite without and with the `ui` extra, and
+`git diff --check`, the unit suite, and
 `ub-agents check`. When all pass it posts a green `signoff` commit status through
 [gh-signoff](https://github.com/basecamp/gh-signoff); a failure posts a red one.
 Install the extension once with `gh extension install basecamp/gh-signoff`. The

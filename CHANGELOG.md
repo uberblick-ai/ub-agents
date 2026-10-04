@@ -6,31 +6,27 @@ notes are copied from that section.
 
 ## Unreleased
 
-**Upgrading:** before starting launchers on this version, remove the trigger label
-or add a stop label on open items whose last run was blocked under `ub-agent`;
-those records are now ignored, making triggered items eligible again. Delete any
-leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
+## 0.1.11 — 2026-10-04
+
+**Upgrading:** stop all of a project's launchers and upgrade them together, since
+claims now use renewed 30-minute leases (#131). Before starting them, remove the
+trigger label or add a stop label on open items whose last run was blocked under
+`ub-agent`; those records are now ignored, making triggered items eligible again.
+Delete any leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
 Approvals now default off for private and internal repositories; set
 `approvals: on` to retain the previous checks (#134).
 
 ### Added
 
-- Interactive launchers open their own session's optional terminal view; `--no-ui` keeps plain output, and closing the view leaves the launcher running (#116).
-
+- Interactive launches open a read-only terminal view of their own session's work, context, outcomes and runtime logs; `--no-ui` keeps plain output and `q` closes only the view (#114, #116).
+- The view is part of every install, from Homebrew or a checkout; ub-agents now depends on Textual (#116).
+- On request, the view loads a selected item's missing description from GitHub, with cached results and rate-limit cooldowns (#115).
+- Every launcher publishes a private, bounded session snapshot under `.ub-agents/sessions/` for the view, without extra GitHub reads (#113).
 - `ub-agents help [COMMAND]` provides a compact overview and detailed help with
   usage and examples, available without project configuration (#143).
-
 - Projects can configure outside-input approvals with `approvals: on` or `off`,
   defaulting from repository visibility; disabled approvals include only feedback
   from authors with `write` or higher (#134).
-- The terminal view can load a selected item's missing description from GitHub on request, with cached results and rate-limit cooldowns (#115).
-
-- A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).
-
-- Every launcher, including `launch --once`, publishes a private, bounded,
-  versioned session snapshot under `.ub-agents/sessions/` for a local view,
-  with reached plans, process state and session outcomes. Publication adds no
-  GitHub reads and cannot hold up execution or shutdown (#113).
 
 ### Changed
 
@@ -39,17 +35,14 @@ Approvals now default off for private and internal repositories; set
 - `retry` defaults to the first configured agent whose kind applies and prints
   the selected agent before acting (#130).
 - Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
-
 - Runtime usage pauses start only when a run reports a limit, remain in launcher memory,
   and appear only in launch output (#135).
 
 ### Removed
 
 - Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
-
 - Compatibility with the old `ub-agent` command, configuration, environment,
   coordination markers and artifacts is removed; only `ub-agents` names remain (#137).
-
 - The 90% runtime usage pause, shared pause state, and pause output in `status` and
   `doctor`, including `status --json`'s `runtime_pauses`, are removed (#135).
 
