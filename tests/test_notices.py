@@ -180,6 +180,9 @@ class NoticeTests(unittest.TestCase):
         self.assertIn("**Action needed**", visible)
         self.assertIn(outcome["summary"], visible)
         self.assertIn("<summary>Evidence and resume instructions</summary>\n\n", details)
+        self.assertIn("Use the following steps only when resuming the same role (`worker`). "
+                      "If a different role must act next, follow the project's documented correction "
+                      "or handoff route instead.\n\nAfter resolving the blocker, run:", details)
         self.assertTrue(details.endswith("\n\n</details>\n"))
         self.assertNotIn("<details open", comment)
         for expected in ("a" * 40, "APPROVED", "SUCCESS",
@@ -236,6 +239,9 @@ class NoticeTests(unittest.TestCase):
         loop, github = self.parked_loop()
         notice = next(c for c in github.comments(2) if c["body"].startswith(ACTION_MARKER))
         for expected in ("**Action needed**", "Maintainer must merge", "a" * 40, "APPROVED", "SUCCESS",
+                         "Use the following steps only when resuming the same role (`worker`). "
+                         "If a different role must act next, follow the project's documented correction "
+                         "or handoff route instead.\n\nRemove the stop label(s)",
                          "Remove the stop label(s) `needs-human`", "`ready`", "`needs-changes`"):
             self.assertIn(expected, notice["body"])
         self.assertNotIn("ub-agents retry", notice["body"])

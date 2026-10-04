@@ -228,10 +228,12 @@ instructions are grouped in a collapsed **Evidence and resume instructions**
 section. This presentation does not add report fields or change their validation.
 
 For a stop-label outcome, the comment names the stop label to remove and the
-agent's triggers to apply to resume work. For a blocked release, it gives an
+agent's triggers to apply to resume that same role. For a blocked release, it gives an
 exact `ub-agents retry N --agent NAME --reason "Human resolved the blocker"`
 command and reminds the human to restore a matching trigger and remove stop
-labels. Exits without an agent report, zero or nonzero, retry with backoff; they
+labels. Both sets of steps are explicitly conditional: when a different role
+must act next, the person follows the project's documented correction or
+handoff route instead. Exits without an agent report, zero or nonzero, retry with backoff; they
 post a notice only when they exhaust `max-attempts` and park. That notice also
 names the launcher host and run log directory. When a transition parks a handoff
 PR, the notice is posted on that PR.

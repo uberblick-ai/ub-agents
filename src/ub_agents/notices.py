@@ -164,6 +164,9 @@ class Notices:
             resume = f"After resolving the blocker, run:\n\n```sh\n{command}\n```"
             if triggers:
                 resume += f"\n\nRestore a matching trigger if absent: {triggers}; remove any stop label."
+        resume = (f"Use the following steps only when resuming the same role (`{lease['agent']}`). "
+                  "If a different role must act next, follow the project's documented correction "
+                  f"or handoff route instead.\n\n{resume}")
         extra = ""
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
