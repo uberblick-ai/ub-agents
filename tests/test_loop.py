@@ -125,7 +125,7 @@ class LoopTests(unittest.TestCase):
     def test_stale_independent_review_cannot_be_accepted(self):
         reviewer = replace(self.agent, different_from="builder", kind="pr")
         candidate = self.github.item(2)
-        plan = self.loop.coordinator.plan(candidate, self.agent, ())
+        plan = self.loop.coordinator.plan(candidate, replace(self.agent, kind="pr"), ())
         lease = self.loop.coordinator.claim(plan)
         self.loop.coordinator.update(lease, state="running", started=True)
         outcome = self.loop.coordinator.report(lease, "success", "Reviewed candidate", outcome="done")
