@@ -17,7 +17,8 @@ from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
-from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, UpdateBanner, View, pane_line
+from ub_agents.view_ui import (KeyHelp, LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY,
+                               RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
 
 
@@ -67,6 +68,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertGreater(header.region.y, banner.region.y)
                 self.assertEqual(header.size.height, 3)
                 self.assertIn('#114', header.render().plain)
+                footer = app.query_one('#status', Static)
+                self.assertEqual(footer.size.height, 1)
+                self.assertEqual(footer.region.y, 31)
+                self.assertLess(header.region.y, footer.region.y)
+                self.assertTrue(footer.render().plain.endswith(
+                    'f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
                 self.assertFalse(banner.can_focus)
                 self.assertEqual(app.selected, selected)
                 self.assertIs(app.focused, focus)
@@ -191,8 +198,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     if app.reading.raw != raw:
                         await pilot.press('u')
                     status = str(app.query_one('#status', Static).render())
-                    self.assertIn('FOLLOW', status)
-                    self.assertIn('unread 0 entries · lag 0B', status)
+                    self.assertNotIn('FOLLOW', status)
+                    self.assertTrue(app.reading.follow)
+                    self.assertEqual(app.log_lag(), (0, 0))
+                    self.assertFalse(app.query_one('#log_state').display)
                     self.assertFalse(app.query_one('#log_note', Static).display)
                     self.assertEqual(output.visible_refs, app.reading.page.refs)
                     self.assertEqual(output.hidden, 0)
@@ -288,6 +297,291 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport.response = parse_response(reply(title, body), b'', 0, 1000)
         return transport
 
+    async def test_one_line_footer_version_activity_and_session_diagnostics(self):
+        now = datetime.now(timezone.utc)
+        self.state['base_version'] = '9.8.7'
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=30)).isoformat()}
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                footer = app.query_one('#status', Static)
+                keys = '↑↓ select ⏎ open 1-3 tabs ? keys q quit'
+                self.assertIn('ub-agents v9.8.7 · next poll 30s', footer.render().plain)
+                self.assertTrue(footer.render().plain.endswith(keys))
+                self.assertEqual(footer.size.height, 1)
+                self.assertEqual(footer.render().cell_length, 110)
+                for removed in ('snapshot', 'Local files', 'GitHub', 'FOLLOW', 'FORMATTED', 'unread', 'lag'):
+                    self.assertNotIn(removed, footer.render().plain)
+                clock.now.return_value = now + timedelta(seconds=4)
+                app.update_status()
+                self.assertIn('next poll 26s', footer.render().plain)
+                clock.now.return_value = now + timedelta(seconds=40)
+                app.update_status()
+                self.assertIn('next poll 0s', footer.render().plain)
+                for state in ('polling', 'running assignment', 'stopping'):
+                    self.state['activity'] = {'state': state}
+                    self.path.write_text(json.dumps(self.state))
+                    await self.ready(app, pilot, lambda: f'· {state}' in footer.render().plain)
+                    self.assertTrue(footer.render().plain.endswith(keys))
+                self.state['published_at'] = (now - timedelta(seconds=60)).isoformat()
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: 'stale' in footer.render().plain)
+                self.assertNotIn('snapshot', footer.render().plain)
+                self.state['ended'] = True
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: 'ended' in footer.render().plain)
+                self.path.write_text('{broken')
+                await self.ready(app, pilot, lambda: 'malformed:' in footer.render().plain)
+                self.assertIn(app.session.error[:20], footer.render().plain)
+                await pilot.resize_terminal(80, 24)
+                app.update_status()
+                self.assertIn('minimum 110×32', footer.render().plain)
+                await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_log_pill_only_when_paused_or_behind_and_contextual_footer_keys(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            pill = app.query_one('#log_state', Static)
+            footer = app.query_one('#status', Static)
+            note = app.query_one('#log_note', Static)
+            self.assertFalse(pill.display)
+            self.assertFalse(note.display)
+            await pilot.press('f')
+            self.assertTrue(pill.display)
+            self.assertIn('⏸ PAUSED', pill.render().plain)
+            self.assertIn('f follow', pill.render().plain)
+            self.assertNotIn('0 new', pill.render().plain)
+            self.assertNotIn('0B lag', pill.render().plain)
+            self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
+            self.assertEqual(footer.render().cell_length, 110)
+            await pilot.press('u')
+            self.assertIn('RAW', pill.render().plain)
+            with self.log.open('ab') as stream:
+                stream.write(event(9000))
+            await self.ready(app, pilot, lambda: app.log_lag()[0] > 0)
+            unread, lag = app.log_lag()
+            self.assertIn(f'{unread} new ↓', pill.render().plain)
+            self.assertIn(f'{lag}B lag', pill.render().plain)
+            self.assertEqual(pill.region.bottom, app.query_one('#run_status').region.y)
+            self.assertLessEqual(app.query_one('#run_status').region.bottom,
+                                 footer.region.y)
+            self.assertEqual(pill.size.height, 1)
+            self.assertLessEqual(pill.region.bottom, footer.region.y)
+            self.assertNotIn('PAUSED', app.query_one('#run_status', Static).render().plain)
+            for tab in ('2', '3'):
+                await pilot.press(tab)
+                self.assertIn('f follow h older', footer.render().plain)
+                self.assertNotIn('PAUSED', footer.render().plain)
+            await pilot.press('1', 'f')
+            await self.ready(app, pilot, lambda: not pill.display)
+            self.assertTrue(app.reading.raw)
+            self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+            # Ingestion can lag while following; it must be visible without a
+            # persistent FOLLOW or RAW badge when caught up.
+            app.reading.log = replace(app.reading.log, unread_bytes=8192)
+            app.update_status()
+            self.assertTrue(pill.display)
+            self.assertIn('↓ BEHIND', pill.render().plain)
+            self.assertIn('8192B lag', pill.render().plain)
+            self.assertIn('RAW', pill.render().plain)
+            self.assertNotIn('BEHIND', app.query_one('#run_status', Static).render().plain)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_height_changes_preserve_paused_position_with_a_pending_anchor_save(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('f', 'home', 'pagedown')
+            await pilot.pause()
+            output = app.query_one(LogPane)
+            page, lines = app.reading.page, tuple(output.lines)
+            previous = app.reading.anchor
+            output.scroll_to(y=output.scroll_y + 5, animate=False, immediate=True)
+            anchor = output.anchor()
+            self.assertNotEqual(anchor, previous)
+            # Deliver a height resize before the scroll's deferred anchor save,
+            # reproducing the f + Page Up callback order without timing a PTY.
+            app.reading.notice = 'Unfinished: 28B (raw preview)'
+            app.update_status()
+            callbacks = []
+            with patch.object(output, 'call_after_refresh',
+                              side_effect=lambda callback, *args: callbacks.append((callback, args))):
+                output.on_resize()
+                if callbacks:
+                    callback, args = callbacks.pop(0)
+                    callback(*args)
+                output.save_anchor()
+                for callback, args in callbacks:
+                    callback(*args)
+            self.assertEqual(output.anchor(), anchor)
+            self.assertEqual(app.reading.anchor, anchor)
+            await pilot.pause()
+            self.assertEqual(output.anchor(), anchor)
+            self.assertEqual(app.reading.anchor, anchor)
+            with patch.object(output, 'reflow', wraps=output.reflow) as reflow:
+                height = output.size.height
+                app.reading.notice = ''
+                app.update_status()
+                await pilot.pause()
+                self.assertGreater(output.size.height, height)
+                self.assertEqual(output.anchor(), anchor)
+                self.assertEqual(app.reading.anchor, anchor)
+                pill = app.query_one('#log_state', Static)
+                # Isolate the pill's layout changes from resuming follow.
+                with patch.object(app, 'update_status'):
+                    for visible in (False, True, False, True):
+                        pill.display = visible
+                        await pilot.pause()
+                        self.assertEqual(output.anchor(), anchor)
+                        self.assertEqual(app.reading.anchor, anchor)
+                self.assertEqual(app.reading.page, page)
+                self.assertEqual(tuple(output.lines), lines)
+                reflow.assert_not_called()
+            # A width resize must still rewrap, using the newer position even
+            # when the preceding scroll has not saved its anchor yet.
+            output.scroll_to(y=output.scroll_y + 5, animate=False, immediate=True)
+            moved = output.anchor()
+            self.assertNotEqual(moved, app.reading.anchor)
+            width = output.render_width
+            await pilot.resize_terminal(130, 32)
+            await pilot.pause()
+            self.assertNotEqual(output.render_width, width)
+            self.assertEqual(output.anchor()[0], moved[0])
+            self.assertAlmostEqual(output.anchor()[1], moved[1], delta=0.05)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_raw_access_has_byte_retention_and_render_diagnostics(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            note = app.query_one('#log_note', Static)
+            for diagnostic in ('bytes', 'evicted', 'skipped', 'shortened', 'Rendered limit'):
+                self.assertNotIn(diagnostic, note.render().plain)
+            output = app.query_one(LogPane)
+            await pilot.press('p')
+            self.assertIsInstance(app.screen, RawAccess)
+            raw = app.screen.query_one('#raw_details', Static).render().plain
+            self.assertIn(str(self.log), raw)
+            self.assertIn(f'Displayed bytes {output.visible_refs[0].start}–{output.visible_refs[-1].end}', raw)
+            self.assertIn(f'Page bytes {app.reading.page.start}–{app.reading.page.end}', raw)
+            self.assertIn(f'evicted {app.reading.log.evicted_entries}', raw)
+            self.assertIn(f'skipped {app.reading.log.skipped_bytes}B', raw)
+            self.assertIn(f'shortened {app.reading.log.shortened_entries}', raw)
+            self.assertIn(f'Rendered limit {MAX_RENDER_LINES}: {output.hidden} entries hidden', raw)
+            await pilot.press('escape', 'q')
+        app.worker.thread.join(2)
+
+    async def test_height_only_layout_changes_preserve_a_pending_paused_scroll(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            for key in ('f', 'home', 'pagedown'):
+                await pilot.press(key)
+                await self.settled(app, output)
+            note = app.query_one('#log_note', Static)
+            pill = app.query_one('#log_state', Static)
+            page = app.reading.page
+            # Hold status updates while changing the actual notice/pill layout.
+            # Move the screen before saving, deterministically representing a
+            # Page Up whose save_anchor callback is pending when Resize arrives.
+            with patch.object(app, 'update_status'):
+                for widget, visible in ((note, True), (note, False), (pill, False), (pill, True)):
+                    with self.subTest(widget=widget.id, visible=visible):
+                        saved = app.reading.anchor
+                        output.scroll_to(y=int(output.scroll_y) + 2, animate=False, immediate=True)
+                        anchor = output.anchor()
+                        self.assertNotEqual(anchor, saved)
+                        width, height = output.size
+                        note.update('Unfinished: 12B (raw preview)')
+                        widget.display = visible
+                        await pilot.pause()
+                        await self.settled(app, output)
+                        self.assertEqual(output.size.width, width)
+                        self.assertNotEqual(output.size.height, height)
+                        # Deliver a resize before the pending scroll is saved,
+                        # then drain its refresh callbacks in that exact order.
+                        callbacks = []
+                        with patch.object(output, 'call_after_refresh', side_effect=lambda callback, *args:
+                                          callbacks.append((callback, args))):
+                            output.on_resize()
+                            if callbacks:
+                                callback, args = callbacks.pop(0)
+                                callback(*args)
+                            output.save_anchor()
+                            for callback, args in callbacks:
+                                callback(*args)
+                        self.assertEqual(output.anchor(), anchor)
+                        self.assertEqual(app.reading.anchor, anchor)
+                        self.assertIs(app.reading.page, page)
+                    output.save_anchor()
+                for height in (36, 32):
+                    anchor = output.anchor()
+                    await pilot.resize_terminal(110, height)
+                    await pilot.pause()
+                    self.assertEqual(output.anchor(), anchor)
+                    self.assertEqual(app.reading.anchor, anchor)
+            await pilot.press('f')
+            with patch.object(app, 'update_status'):
+                for visible in (True, False):
+                    note.display = visible
+                    await pilot.pause()
+                    self.assertTrue(app.reading.follow)
+                    self.assertEqual(output.scroll_y, output.max_scroll_y)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_help_lists_all_keys_closes_with_question_or_escape_and_preserves_reading(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('f', 'home', 'pagedown')
+            selected, page, anchor = app.selected, app.reading.page, app.query_one(LogPane).anchor()
+            for close in ('?', 'escape'):
+                await pilot.press('?')
+                self.assertIsInstance(app.screen, KeyHelp)
+                help_text = app.screen.query_one('#raw_details', Static).render().plain
+                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
+                            'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', '?', 'Escape', 'q   ', 'Ctrl-C'):
+                    self.assertIn(key, help_text)
+                await pilot.press('f', 'h', 'u', 'g', 'p', '2', 'pageup', 'pagedown', 'home', 'end')
+                self.assertIsInstance(app.screen, KeyHelp)
+                await pilot.press(close)
+                self.assertNotIsInstance(app.screen, RawAccess)
+                self.assertEqual(app.selected, selected)
+                self.assertEqual(app.reading.page, page)
+                self.assertEqual(app.query_one(LogPane).anchor(), anchor)
+                self.assertFalse(app.reading.follow)
+                self.assertFalse(app.reading.raw)
+            await pilot.press('?', 'q')
+        app.worker.thread.join(2)
+
+    async def test_only_applicable_log_notices_remain_visible(self):
+        self.path, self.log, self.state = fixture(self.root, runtime='codex:synthetic-model:high')
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            note = app.query_one('#log_note', Static)
+            self.assertEqual(note.render().plain, 'codex: plain/raw fallback')
+            self.log.write_bytes(b'unfinished record')
+            await self.ready(app, pilot, lambda: 'Unfinished:' in note.render().plain)
+            self.assertIn('plain/raw fallback', note.render().plain)
+            with self.log.open('ab') as stream:
+                stream.write(b'\n')
+            await self.ready(app, pilot, lambda: 'Unfinished:' not in note.render().plain)
+            self.log.unlink()
+            await self.ready(app, pilot, lambda: 'Read error:' in note.render().plain)
+            self.assertNotIn('Runtime output is not', note.render().plain)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_shared_header_stays_below_tabs_including_a_later_tab(self):
         self.state['assignment'].update(kind='pr', attempt=2)
         self.state['outcomes'].append({'item': 114, 'run': 'prior', 'handoff': 1235})
@@ -314,6 +608,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(header.display)
                 self.assertEqual(header.region.height, 3)
                 self.assertLess(header.region.bottom, app.query_one('#' + tab).region.bottom)
+                self.assertLessEqual(app.query_one('#' + tab).region.bottom,
+                                     app.query_one('#status').region.y)
             issue = app.query_one('#issue_text', Static).render().plain
             self.assertNotIn('Cached title', issue)
             self.assertNotIn('#114', issue)
@@ -338,6 +634,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(lines[1].endswith('2 earlier runs'))
             self.assertEqual(pane_line(lines[1], 1000).cell_len, status.size.width)
             self.assertEqual(status.region.bottom, app.query_one('#log').region.bottom)
+            self.assertEqual(status.region.bottom, app.query_one('#status').region.y)
             self.assertFalse(app.query_one('#log_note').display)
             self.state['assignment']['process'] = 'exited'
             self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',
@@ -835,7 +1132,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(tuple(output.lines), lines)
                 self.assertEqual(output.anchor(), anchor)
                 self.assertGreater(app.reading.log.total_entries - app.reading.seen, 200)
-                self.assertIn('PAUSED', str(app.query_one('#status', Static).render()))
+                self.assertIn('PAUSED', app.query_one('#log_state', Static).render().plain)
                 focus = app.focused
                 await pilot.press('2', '3', '1')
                 await pilot.pause()
@@ -890,7 +1187,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.action_path()
             app.update_status()
             await self.ready(app, pilot, lambda: app.screen.query('#raw_status'))
-            self.assertIn('FOLLOW', str(app.screen.query_one('#raw_status').render()))
+            footer = app.screen.query_one('#raw_status', Static).render().plain
+            self.assertIn('running assignment', footer)
+            self.assertNotIn('FOLLOW', footer)
             self.assertIn('bytes ', app.screen.query_one('#raw_details', Static).render().plain)
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -936,7 +1235,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('event 00599', app.reading.page.refs[-1].value.text)
             await pilot.press('p')
             await self.ready(app, pilot, lambda: app.screen.__class__.__name__ == 'RawAccess'
-                             and 'FOLLOW' in str(app.screen.query_one('#raw_status').render()))
+                             and 'running assignment' in app.screen.query_one('#raw_status', Static).render().plain)
+            self.assertNotIn('FOLLOW', app.screen.query_one('#raw_status', Static).render().plain)
             await pilot.press('pageup', 'pagedown', 'home', 'end', 'f', 'u', 'h', '2', '3', '1')
             self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
             await pilot.press('q')

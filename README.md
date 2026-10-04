@@ -417,6 +417,8 @@ The [local terminal view](docs/terminal-view.md) shows one launcher's local work
 cached context, outcomes and paged runtime logs in a separate process. On the Issue
 tab, description bodies render as Markdown with inert links, and `g` can load a
 missing title/body through `gh` on request.
+The footer shows launcher activity and main keys; `?` lists all keys, and `p`
+shows the full raw log path and retention diagnostics.
 
 ## License
 

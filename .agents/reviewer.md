@@ -24,8 +24,9 @@ for required corrections, or approved if the project's acceptance criteria pass.
 Both are successful review handoffs: use `ub-agents report --outcome NAME
 --summary "Review verdict for SHA: ..."`.
 
-For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$(...)` or backticks),
-even with allowlisted commands. Insert the literal PR number from the assignment
+For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$?`, `$(...)` or backticks),
+even with allowlisted commands; the tool result already shows each command's exit
+status. Insert the literal PR number from the assignment
 context's `assignment` and the literal full SHA from `candidate_sha` into commands;
 do not read them through shell variables. In the examples below, replace N with
 that number and PATH with the literal body-file path before running the command.

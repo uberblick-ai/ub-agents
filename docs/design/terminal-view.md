@@ -214,7 +214,8 @@ PR the first row is the issue it closes.
 ```text
  ub-agents v0.1.11 · next poll 26s     ↑↓ select ⏎ open 1-3 tabs ? keys q quit
 
-Paused log (pill at the bottom right of the log pane, footer keys switch to log keys):
+Paused log (pill at the bottom right of the log output, above the run status;
+footer keys switch to log keys):
                                                               ⏸ PAUSED · 37 new ↓ · f follow
  ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
 
@@ -226,8 +227,9 @@ Stopping:
  ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
 ```
 
-The update banner is one yellow row above both panes, with the release age at the
-right when space permits. It truncates to the terminal width and takes no focus.
+The update banner is one yellow row above both panes and the shared item header,
+with the release age at the right when space permits. It truncates to the terminal
+width and takes no focus. The activity footer remains at the bottom.
 Pip releases name `pip install -U ub-agents` instead of the Homebrew command.
 The launcher supplies the result in its session snapshot; the view does not read
 GitHub for it. Plain launch output prints each new banner text once (#183).
