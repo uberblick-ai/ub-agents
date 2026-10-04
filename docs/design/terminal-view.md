@@ -194,12 +194,13 @@ summary, where it ran, and the outcome.
  when        result  agent · summary                         where         outcome
  20 min ago  ✓       integrator · squash-merged at d41f0a2   this machine  merged
  34 min ago  ✓       reviewer · changelog entry tightened    uberblick     approved
- 52 min ago  ✓       implementer · sections from snapshot …  uberblick     handed-off
+ 52 min ago  ✓       implementer · sections from snapshot …  bens-macbook… handed-off
 ```
 
 - `when` is relative (`just now`, `20 min ago`, `3 h ago`, `yesterday`, then a date).
 - `where` is `this machine` for this host and the launcher's host name otherwise
-  (dim).
+  (dim), in a fixed 14-column slot: the domain part is dropped (`build-01.tail9c.ts.net`
+  shows as `build-01`) and longer names are shortened with `…`.
 - Result glyphs: `✓` green, `✗` red, spinner for a run in progress.
 
 ## Footer and states
