@@ -350,6 +350,10 @@ def run(args):
     publisher = None
     view = None
     try:
+        from .updates import Updates
+        loop.updates = Updates(config.root)
+        if loop.updates is not None:
+            loop.updates.start()
         try:
             publisher = Publisher(config.root, output=loop.output)
             loop._before_claim()
@@ -372,6 +376,8 @@ def run(args):
     except _GracefulStop:
         return
     finally:
+        if loop.updates is not None:
+            loop.updates.close()
         if view is not None:
             view.close()
         if publisher is not None:

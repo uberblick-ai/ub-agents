@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- Launchers show an update banner with upgrade or restart instructions when a newer release or control-checkout code is available (#183).
+
 ### Changed
 
 - The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).

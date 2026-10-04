@@ -28,6 +28,25 @@ strict. Ctrl-C in a standalone view closes only that view.
 
 ## Using the view
 
+When newer ub-agents code is available, a yellow, one-line banner appears above
+both panes. It takes no focus and truncates to the terminal width. Installed
+releases say `⬆ ub-agents X is available · you run Y · brew upgrade ub-agents,
+then restart the launcher`, or name `pip install -U ub-agents` for pip installs;
+the release age appears at the right when space permits. The launcher makes one
+GitHub REST request at startup and at most one per day while running.
+
+An editable install from the control checkout instead says `⬆ This launcher runs
+code N commits behind origin/main · restart the launcher` after a normal launcher
+fetch discovers commits the started code lacks. Refresh already fast-forwards
+that checkout, so restarting loads the newer code. An idle launcher that has not
+fetched, or an editable install from another directory, shows no banner. Checkout
+installs make no release request or extra fetch.
+
+Checks run in the background; a slow or failed check keeps the last successful
+result without delaying work. The result is included in the session snapshot;
+the view makes no GitHub reads for updates. Plain launch output prints each new
+banner text once. Restart with the current code to clear the notice.
+
 At least **110 columns × 32 rows** are needed for the combined view. The left
 pane groups work from the session snapshot into sections, hiding empty sections
 and showing each section's row count:
@@ -201,6 +220,14 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    fresh snapshot present, stale/version errors, restart, view crash/kill, SIGTERM
    drain and SIGHUP. Confirm final launcher output, unchanged exit codes, reaped UI
    and request processes, and cleaned owned agent groups.
+
+8. Publish both an installed-release update and a checkout update in the replay
+   snapshot. Confirm one yellow row above both panes, the release age at the
+   right, and the checkout's restart instruction. Resize narrower and wider;
+   neither variant may wrap or take focus, and pane selection and paused reading
+   positions must survive. Clear the result and confirm the row disappears.
+   Confirm plain output prints each new text once across repeated polls, and
+   a pending or failed check leaves the previous successful notice in place.
 
 Record the terminal type, dimensions, replay or live source, exercised controls,
 restoration and launcher-isolation result in the implementation PR. Owned real

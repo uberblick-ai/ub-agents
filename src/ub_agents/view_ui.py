@@ -19,9 +19,34 @@ from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
 from .view_data import WORK_GROUPS, context_header, context_text, mapping, outcome_text, outcomes_today, text
 from .view_github import DescriptionLoads
 from .view_worker import LocalWorker, Request
+from .updates import release_age
 
 MAX_RENDER_LINES = 400
 RECENT_ACTIVITY = 'recent-activity'
+
+
+class UpdateBanner(Static):
+    """A single inert row; Rich measures truncation in terminal cells."""
+    def __init__(self):
+        super().__init__('', id='update', markup=False)
+        self.banner = {}
+
+    def set_banner(self, banner):
+        banner = mapping(banner)
+        self.display = bool(banner.get('text')) and isinstance(banner.get('text'), str)
+        if self.banner != banner:
+            self.banner = banner
+            self.refresh()
+
+    def render(self):
+        width = max(0, self.content_size.width)
+        line = Text(text(self.banner.get('text'), ''), no_wrap=True)
+        age = release_age(self.banner.get('released_at')) if width >= 60 else ''
+        room = max(0, width - len(age) - 2) if age else width
+        line.truncate(room, overflow='ellipsis')
+        if age:
+            line.append(' ' * max(2, width - line.cell_len - len(age)) + age)
+        return line
 
 
 def description_parser():
@@ -190,6 +215,7 @@ class LogPane(ScrollView):
 class View(App):
     TITLE = 'ub-agents · one launcher · read-only view'
     CSS = '''
+    #update { height: 1; padding: 0 1; background: #d7af00; color: #161616; display: none; overflow: hidden; }
     #body { height: 1fr; }
     #work { width: 36; border: solid $accent; }
     #panes { width: 1fr; }
@@ -234,6 +260,7 @@ class View(App):
         self.recent_expanded = False
 
     def compose(self) -> ComposeResult:
+        yield UpdateBanner()
         with Horizontal(id='body'):
             yield Tree('Launcher work', id='work')
             with TabbedContent(id='panes'):
@@ -282,6 +309,7 @@ class View(App):
         if result:
             self.busy = False
             self.session = result.session
+            self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
             self.populate(result.rows)
             if result.token == self.token and result.key == self.selected:
                 self.apply(result)

@@ -19,6 +19,121 @@ import unittest
 from tests.test_view_data import fixture
 
 class TerminalViewTests(unittest.TestCase):
+    def test_update_banners_in_real_terminal_with_live_replay_and_resize(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root, count=100)
+            replay = subprocess.Popen([sys.executable, '-c', '''
+import pathlib, select, sys
+log = pathlib.Path(sys.argv[1])
+while not select.select([sys.stdin], [], [], 0.01)[0]:
+    with log.open('ab') as stream: stream.write(b'owned update replay\\n')
+''', str(log)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            proof = root / 'proof.json'
+            script = '''
+import json, pathlib, sys
+from textual.binding import Binding
+from ub_agents.view_ui import UpdateBanner, View
+class ProofView(View):
+    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True)]
+    def action_checkpoint(self):
+        banner = self.query_one(UpdateBanner)
+        value = {'display': banner.display, 'height': banner.size.height,
+                 'width': banner.content_size.width, 'line': banner.render().plain,
+                 'cells': banner.render().cell_len, 'yellow': str(banner.styles.background),
+                 'banner_y': banner.region.y, 'body_y': self.query_one('#body').region.y,
+                 'selected': self.selected, 'focus': self.focused.id,
+                 'follow': self.reading.follow, 'starts': [r.start for r in self.reading.page.refs]}
+        pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
+'''
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+            modes = termios.tcgetattr(slave)
+            env = dict(os.environ, TERM='xterm-256color')
+            env.pop('NO_COLOR', None)
+            app = subprocess.Popen([sys.executable, '-P', '-c', script, str(root), str(path), str(proof)],
+                                   stdin=slave, stdout=slave, stderr=slave, start_new_session=True, env=env)
+            transcript = bytearray()
+            def drain(seconds=0.2):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.02)[0]:
+                        transcript.extend(os.read(master, 65536))
+            def checkpoint():
+                proof.unlink(missing_ok=True)
+                os.write(master, b'x')
+                deadline = time.monotonic() + 3
+                while not proof.exists() and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                return json.loads(proof.read_text())
+            try:
+                drain(1)
+                self.assertIn(b'FOLLOW', transcript)
+                self.assertFalse(checkpoint()['display'])
+                os.write(master, b'f2')
+                drain()
+                paused = checkpoint()
+                self.assertFalse(paused['follow'])
+                from tests.test_updates import release
+                from ub_agents.updates import release_banner
+                cases = [release_banner(release(), 'brew'), release_banner(release(), 'pip'),
+                         {'text': '⬆ This launcher runs code 2 commits behind origin/main · restart the launcher'}]
+                for banner in cases:
+                    if 'released_at' in banner:
+                        banner['released_at'] = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+                    state['update'] = banner
+                    path.write_text(json.dumps(state))
+                    drain(0.5)
+                    for width in (110, 70, 170):
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, width, 0, 0))
+                        os.kill(app.pid, signal.SIGWINCH)
+                        drain(0.2)
+                        current = checkpoint()
+                        self.assertTrue(current['display'])
+                        self.assertEqual(current['height'], 1)
+                        self.assertEqual(current['banner_y'], 0)
+                        self.assertEqual(current['body_y'], 1)
+                        self.assertEqual(current['yellow'], 'Color(215, 175, 0)')
+                        self.assertLessEqual(current['cells'], width - 2)
+                        self.assertEqual(current['selected'], paused['selected'])
+                        self.assertEqual(current['focus'], paused['focus'])
+                        self.assertEqual(current['starts'], paused['starts'])
+                        self.assertFalse(current['follow'])
+                        if 'released_at' in banner:
+                            self.assertTrue(current['line'].endswith('released 2 days ago'))
+                        if width == 170:
+                            self.assertIn(banner['text'], current['line'])
+                self.assertIn(b'released 2 days ago', transcript)
+                self.assertIn(b'restart the launcher', transcript)
+                state['update'] = None
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                cleared = checkpoint()
+                self.assertFalse(cleared['display'])
+                self.assertEqual(cleared['body_y'], 0)
+                before = log.stat().st_size
+                os.write(master, b'q')
+                deadline = time.monotonic() + 3
+                while app.poll() is None and time.monotonic() < deadline:
+                    drain(0.05)
+                self.assertEqual(app.wait(timeout=1), 0, bytes(transcript[-1000:]))
+                drain()
+                self.assertEqual(termios.tcgetattr(slave), modes)
+                self.assertIn(b'\x1b[?1049l', transcript)
+                self.assertIn(b'\x1b[?25h', transcript)
+                self.assertIsNone(replay.poll())
+                self.assertGreater(log.stat().st_size, before)
+            finally:
+                if app.poll() is None:
+                    app.terminate()
+                app.wait(timeout=3)
+                replay.communicate(b'stop\n', timeout=3)
+                self.assertEqual(replay.returncode, 0)
+                os.close(master)
+                os.close(slave)
+
     def test_real_terminal_explicit_load_cache_and_quit_during_hung_request(self):
         for quit_key in (b'q', b'\x03'):
             with self.subTest(quit_key=quit_key), tempfile.TemporaryDirectory() as directory:
