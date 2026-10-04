@@ -271,6 +271,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(f'{unread} new ↓', pill.render().plain)
             self.assertIn(f'{lag}B lag', pill.render().plain)
             self.assertEqual(pill.region.bottom, app.query_one('#run_status').region.y)
+            self.assertEqual(pill.size.height, 1)
+            self.assertLessEqual(pill.region.bottom, footer.region.y)
+            self.assertNotIn('PAUSED', app.query_one('#run_status', Static).render().plain)
             for tab in ('2', '3'):
                 await pilot.press(tab)
                 self.assertIn('f follow h older', footer.render().plain)
@@ -287,6 +290,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('↓ BEHIND', pill.render().plain)
             self.assertIn('8192B lag', pill.render().plain)
             self.assertIn('RAW', pill.render().plain)
+            self.assertNotIn('BEHIND', app.query_one('#run_status', Static).render().plain)
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -419,6 +423,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(header.display)
                 self.assertEqual(header.region.height, 3)
                 self.assertLess(header.region.bottom, app.query_one('#' + tab).region.bottom)
+                self.assertLessEqual(app.query_one('#' + tab).region.bottom,
+                                     app.query_one('#status').region.y)
             issue = app.query_one('#issue_text', Static).render().plain
             self.assertNotIn('Cached title', issue)
             self.assertNotIn('#114', issue)
@@ -443,6 +449,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(lines[1].endswith('2 earlier runs'))
             self.assertEqual(pane_line(lines[1], 1000).cell_len, status.size.width)
             self.assertEqual(status.region.bottom, app.query_one('#log').region.bottom)
+            self.assertEqual(status.region.bottom, app.query_one('#status').region.y)
             self.assertFalse(app.query_one('#log_note').display)
             self.state['assignment']['process'] = 'exited'
             self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',

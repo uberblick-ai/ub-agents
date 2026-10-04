@@ -285,6 +285,7 @@ class View(App):
     #body { height: 1fr; }
     #work { width: 36; border: solid $accent; }
     #panes { width: 1fr; }
+    #panes > ContentSwitcher { height: 1fr; }
     TabPane { padding: 0 1; }
     #item_header { height: 3; padding: 0 1; overflow: hidden; }
     #log_note { height: 1; overflow: hidden; }
