@@ -1,10 +1,10 @@
-"""Read structured usage only, from an owned run's log and Codex session."""
+"""Detect reported limits and reset times from an owned run's output."""
 
 import json
 from pathlib import Path
 import uuid
 
-from .runtime_usage import WINDOWS, number
+from .runtime_usage import number
 
 
 class JsonLines:
@@ -41,7 +41,8 @@ class UsageOutput:
         self.thread = None
         self.session = None
         self.reached = False
-        self.hint = ("limit", None, None)
+        self.reset_time = None
+        self.summary = None
 
     def poll(self, final=False):
         for event in self.log.read(final):
@@ -51,7 +52,7 @@ class UsageOutput:
                 except (KeyError, ValueError, TypeError, AttributeError):
                     continue
             self.event(event)
-        if self.cli == "codex" and self.thread:
+        if final and self.cli == "codex" and self.thread and not self.reached:
             if self.session is None:
                 # The exact fresh thread, never --last or another run's transcript.
                 try:
@@ -67,55 +68,37 @@ class UsageOutput:
                         self.event(event["payload"])
 
     def event(self, event):
+        reached = False
         if self.cli == "claude":
             if event.get("type") == "rate_limit_event":
                 info = event.get("rate_limit_info")
                 if not isinstance(info, dict):
                     return
-                status = info.get("status")
+                reset = info.get("resetsAt")
                 windows = info.get("unifiedWindows")
-                hints = []
-                if isinstance(windows, dict):
-                    for name, length in WINDOWS.items():
-                        window = windows.get(name)
-                        if isinstance(window, dict):
-                            used = number(window.get("utilization"))
-                            self.usage.record(self.cli, name, used * 100 if used is not None else None,
-                                              window.get("resetsAt"), length, status)
-                            hints.append((used or 0, name, window.get("resetsAt"), length))
-                if hints and not self.reached:
-                    _, name, reset, length = max(hints, key=lambda w: w[0])
-                    self.hint = (name, reset, length)
-                if status == "rejected":
-                    name = info.get("rateLimitType") or "five_hour"
-                    name = name if isinstance(name, str) and name in WINDOWS else "limit"
-                    self.hint = (name, info.get("resetsAt"), WINDOWS.get(name))
-                    if isinstance(windows, dict) and isinstance(windows.get(name), dict):
-                        reset = windows[name].get("resetsAt")
-                        self.hint = (name, reset if reset is not None else info.get("resetsAt"), WINDOWS.get(name))
-                    self.reached = True
-            elif (event.get("type") in ("assistant", "result", "error")
-                  and (event.get("error") == "rate_limit" or event.get("api_error_status") == 429)):
-                self.reached = True
-        else:
-            if (event.get("type") == "error"
-                    and event.get("codex_error_info") == "usage_limit_exceeded"):
-                self.reached = True
+                name = info.get("rateLimitType")
+                if reset is None and isinstance(windows, dict) and isinstance(name, str):
+                    window = windows.get(name)
+                    if isinstance(window, dict):
+                        reset = window.get("resetsAt")
+                self.reset_time = reset
+                reached = info.get("status") == "rejected"
+            elif event.get("type") in ("assistant", "result", "error"):
+                reached = event.get("error") == "rate_limit" or event.get("api_error_status") == 429
+                if "resetsAt" in event:
+                    self.reset_time = event["resetsAt"]
+        elif self.cli == "codex":
             snapshot = event.get("rate_limits")
-            if not isinstance(snapshot, dict):
-                return
-            windows = []
-            for name in ("primary", "secondary"):
-                window = snapshot.get(name)
-                if isinstance(window, dict):
-                    minutes = number(window.get("window_minutes"))
-                    length = minutes * 60 if minutes is not None else None
-                    used = number(window.get("used_percent"))
-                    self.usage.record(self.cli, name, used, window.get("resets_at"), length,
-                                      "rejected" if snapshot.get("rate_limit_reached_type") else None)
-                    windows.append((used or 0, name, window.get("resets_at"), length))
-            if windows:
-                _, name, reset, length = max(windows, key=lambda w: w[0])
-                self.hint = (name, reset, length)
-            if snapshot.get("rate_limit_reached_type"):
-                self.reached = True
+            if isinstance(snapshot, dict):
+                # With no utilization tracking, use the latest reported reset.
+                resets = [number(window.get("resets_at")) for name in ("primary", "secondary")
+                          if isinstance(window := snapshot.get(name), dict)]
+                self.reset_time = max((reset for reset in resets if reset is not None), default=None)
+                reached = bool(snapshot.get("rate_limit_reached_type"))
+            if event.get("type") == "error" and event.get("codex_error_info") == "usage_limit_exceeded":
+                reached = True
+            if "resets_at" in event:
+                self.reset_time = event["resets_at"]
+        if reached:
+            self.reached = True
+            self.summary = self.usage.limit(self.cli, self.reset_time)

@@ -11,6 +11,7 @@ errors; `ub-agents check` validates the file. Commands use this file by default;
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `launchers` | Optional nonempty list of GitHub logins that narrows coordination trust; every account still needs `write` or higher. |
+| `approvals` | `on` or `off` (quoted or unquoted); defaults from GitHub visibility each pass: `on` for public, `off` for private and internal repositories. See [approvals](approvals.md). |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
@@ -18,6 +19,14 @@ errors; `ub-agents check` validates the file. Commands use this file by default;
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `runtime-updates` | Optional daily maintenance policy for configured Claude Code and Codex runtimes. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
+
+With `approvals: off`, current titles and bodies are input, trigger labels need no
+maintainer start, and PR heads need no approval. Feedback is limited to authors
+with `write`, `maintain` or `admin`; approval records cannot clear other feedback.
+The launcher makes no approval reads or approval-parking writes. When `approvals`
+is unset, an unreadable visibility fails the pass before any claim or parking
+write. `doctor` shows the effective value and source; `check` shows the configured
+value or that it comes from visibility, without contacting GitHub.
 
 `ub-agents launch`, including `--once`, appends stdout and stderr to
 `.ub-agents/launch.log` in the control checkout. Every file line starts with a UTC
@@ -549,8 +558,9 @@ recorded `cli:model:effort` and every run starts fresh.
 For agents with a Claude runtime, `runtime-args` must not set `--output-format`
 (including `--output-format=…`); `check` rejects it because the launcher owns the
 stream format. A redundant `--verbose` is accepted.
-Codex `runtime-args` must not set `--ephemeral`: the launcher needs the fresh
-session's usage records. A redundant `--json` is accepted.
+Codex `runtime-args` must not set `--ephemeral`: the launcher may need the fresh
+session's limit signal when it is absent from the JSON stream. A redundant `--json`
+is accepted.
 
 `process.log` records each CLI's stdout and stderr directly. Codex runs log their
 JSON event stream. Claude runs log the JSON stream of tool calls, tool results and
@@ -560,52 +570,41 @@ interpret structured usage metadata; an accepted outcome still comes only from
 
 ### Runtime usage pauses
 
-Usage pauses apply to one CLI (`claude` or `codex`) on one launcher, across all
-models and efforts. Claude `rate_limit_event` records supply `rate_limit_info.status`
-and the latest `unifiedWindows.five_hour` and `.seven_day` utilization and `resetsAt`
-epoch seconds. For Codex, `--json` identifies the new session with `thread.started`.
-The launcher reads only that session's `event_msg` usage metadata from
+A launcher pauses new runs on one CLI (`claude` or `codex`), across all models
+and efforts, only when one of its runs reports a usage limit. It holds the pause
+in memory; restarting the launcher clears every pause. Other launchers keep their
+own independent pauses, and the current run keeps running.
+
+Claude's rejected `rate_limit_event`, `error: rate_limit`, and `api_error_status: 429`
+identify limits. Codex's limit-reached snapshots and structured
+`usage_limit_exceeded` errors identify limits. The launcher takes only reset times
+from this metadata, ignoring usage percentages. If Codex's `--json` stream ends
+without a limit signal, the launcher may read the run's own session's `event_msg`
+metadata, identified by `thread.started`, from
 `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-THREAD_ID.jsonl` (default
-`~/.codex/sessions/`): `rate_limits.primary` and `.secondary` supply `used_percent`,
-`window_minutes`, and `resets_at`, plus `rate_limit_reached_type`. It never resumes
-a session or uses another session's usage or transcript.
+`~/.codex/sessions/`). It never resumes a session or reads another run's session.
 
-At 90% usage in any window, the launcher pauses new runs on that CLI; the current
-run keeps running. If a run ends without an accepted outcome and reports a usage
-limit, it releases as `retry` with the CLI and UTC reset in its summary, leaving
-attempts unchanged and adding no retry backoff. Claude's rejected rate-limit
-events, `error: rate_limit`, and `api_error_status: 429` identify limits. Codex's
-limit-reached snapshots and structured `usage_limit_exceeded` errors identify
-limits. A CLI with no reading starts normally.
-
-Pauses end on the clock, at the reset plus a fixed one-minute margin. Missing,
-unreadable, past, or beyond-window resets instead pause for 15 minutes from the
-first untrusted reading. Repeated untrusted readings do not extend that fallback.
-New resets from an active run update the window's pause. All limiting windows
-must expire before a CLI starts again; expired readings cannot pause it again.
-The next fresh run supplies new readings and can establish another pause.
+A pause ends at the reported reset plus a fixed one-minute margin. Missing,
+unreadable, non-future resets, or resets more than seven days away, instead pause for
+15 minutes from the limit report. A later limit report for the same CLI replaces
+its end time. When a Codex snapshot supplies multiple reset times, the latest is used.
+A run that ends with a usage limit and no accepted outcome releases as `retry`,
+leaving attempts unchanged and adding no retry backoff. An accepted outcome is
+preserved even when the run reports a limit.
 
 Runtime alternatives are tried in order, skipping paused CLIs while retaining
 `different-runtime-from` rules. An item whose eligible runtimes are all paused
-shows `waiting`, without label changes or attempts. Other CLIs keep working.
-Continuous launch keeps polling even when every CLI is paused; ordinary, idle,
-and empty-poll waits wake by the earliest CLI pause expiry. Signals interrupt
-these waits normally. `launch --once` still observes just once.
+shows `waiting`, without label changes or attempts. Other CLIs and their runtime
+alternatives keep working. Continuous launch keeps polling even when every CLI is
+paused; ordinary, idle, and empty-poll waits wake by the earliest CLI pause expiry.
+Signals interrupt these waits normally. `launch --once` still observes just once.
 
-One line announces each CLI pause with its reason and UTC end. Each launcher
-publishes its unexpired readings and pauses atomically in its own
-`.ub-agents/runtime-usage/LAUNCHER_ID.json` file. `status` and `doctor` read the
-unexpired pauses of live launchers on this host without changing those files;
-a pause does not fail `doctor`. Launchers schedule from their own readings.
-Restarting a launcher starts with no pauses, providing an override when usage is
-lifted early. A launcher removes its own state when it exits and prunes abandoned
-state from this host at startup. Process start times distinguish live launchers
-from recycled PIDs; state from stopped launchers is ignored. Other hosts' state
-and state whose owner cannot be inspected are preserved.
+When a pause starts or its end time changes, one line in launch output names the
+CLI and its UTC end time, for example:
+`claude usage limit reached; pausing claude runs until 2026-10-04T12:01:00Z`.
+The line is also written to `.ub-agents/launch.log`.
 
-`status --json` returns an object with `assignments` (the assignment rows) and
-`runtime_pauses` (entries with `cli`, `reason`, UTC `ends_at`, and `launcher`).
-The pause list is present even when no assignments match.
+`status --json` returns an object with `assignments` (the assignment rows).
 
 ### Daily runtime maintenance
 

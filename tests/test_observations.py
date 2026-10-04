@@ -16,13 +16,13 @@ from unittest.mock import patch
 
 from ub_agents.coordination import Plan
 from ub_agents.errors import GitHubError
+from ub_agents.execution import group_members
 from ub_agents.loop import Loop, _GracefulStop
 from ub_agents.observations import (HEARTBEAT_SECONDS, MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    MAX_TEXT, RETAINED_SESSIONS, STALE_SECONDS,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
-from ub_agents.runtime_usage import process_started
 from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, observation_writer_command, stub_refresh
 
 
@@ -116,16 +116,14 @@ class ObservationTests(unittest.TestCase):
         self.assertIsNone(state["assignment"])
         self.assertTrue(state["ended"])
 
-    def test_interrupt_during_observer_close_still_closes_usage(self):
+    def test_interrupt_during_observer_close_still_clears_launch_selection(self):
         for error in (KeyboardInterrupt, _GracefulStop):
             with self.subTest(error=error):
                 loop = self.loop(PollGitHub())
                 with patch.object(loop, "_launch"), \
                         patch.object(self.observer, "close", side_effect=error), \
-                        patch.object(loop.usage, "close") as close, \
                         self.assertRaises(error):
                     loop.launch(number=1, agent_name="worker")
-                close.assert_called_once()
                 self.assertIsNone(loop._launch_number)
                 self.assertIsNone(loop._launch_agent)
 
@@ -498,7 +496,7 @@ class PublisherTests(unittest.TestCase):
                 launcher.kill()
             launcher.wait(timeout=5)
         helper_pid = int((self.root / "helper-pid").read_text())
-        self.wait_for(lambda: process_started(helper_pid) == "")
+        self.wait_for(lambda: group_members(helper_pid) == [])
 
     def test_crashed_sessions_are_pruned_to_bound_and_live_sessions_survive(self):
         directory = self.root / ".ub-agents" / "sessions"

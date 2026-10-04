@@ -621,7 +621,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         loop.coordinator.clock = lambda: self.now
         loop.maintenance = self.manager
         loop.coordinator.runtime_available = self.manager.available
-        loop.usage.record("claude", "five_hour", 90, self.now + 100, 18000)
+        loop.usage.limit("claude", self.now + 100)
         self.assertFalse(loop.tick())
         self.assertEqual(github.writes, [])
         self.assertEqual(loop.plans()[0].state, "waiting")
@@ -637,7 +637,7 @@ class RuntimeUpdateTests(unittest.TestCase):
     def test_supervision_inherits_run_lock_while_observing_usage(self):
         self.npm("claude")
         settings = self.settings("claude")
-        usage = RuntimeUsage(self.root, lambda: self.now, self.lines.append)
+        usage = RuntimeUsage(lambda: self.now, self.lines.append)
         run_dir = self.root / "run"
         output = UsageOutput("claude", run_dir, usage, {})
         observed = []
@@ -651,7 +651,7 @@ class RuntimeUpdateTests(unittest.TestCase):
 
         with self.manager.reserve("claude") as reserved:
             event = {"type": "rate_limit_event", "rate_limit_info": {
-                "status": "allowed_warning", "unifiedWindows": {"five_hour": {
+                "status": "rejected", "rateLimitType": "five_hour", "unifiedWindows": {"five_hour": {
                     "utilization": .9, "resetsAt": self.now + 100}}}}
             script = (f"import os, time; os.fstat({reserved.descriptor}); "
                       f"print({json.dumps(event)!r}, flush=True); "

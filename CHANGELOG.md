@@ -10,12 +10,17 @@ notes are copied from that section.
 or add a stop label on open items whose last run was blocked under `ub-agent`;
 those records are now ignored, making triggered items eligible again. Delete any
 leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
+Approvals now default off for private and internal repositories; set
+`approvals: on` to retain the previous checks (#134).
 
 ### Added
 
 - `ub-agents help [COMMAND]` provides a compact overview and detailed help with
   usage and examples, available without project configuration (#143).
 
+- Projects can configure outside-input approvals with `approvals: on` or `off`,
+  defaulting from repository visibility; disabled approvals include only feedback
+  from authors with `write` or higher (#134).
 - The terminal view can load a selected item's missing description from GitHub on request, with cached results and rate-limit cooldowns (#115).
 
 - A separate read-only terminal view shows one launcher's local work, cached context, outcomes and paged runtime logs through an opt-in UI extra (#114).
@@ -33,12 +38,18 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
   the selected agent before acting (#130).
 - Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
 
+- Runtime usage pauses start only when a run reports a limit, remain in launcher memory,
+  and appear only in launch output (#135).
+
 ### Removed
 
 - Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
 
 - Compatibility with the old `ub-agent` command, configuration, environment,
   coordination markers and artifacts is removed; only `ub-agents` names remain (#137).
+
+- The 90% runtime usage pause, shared pause state, and pause output in `status` and
+  `doctor`, including `status --json`'s `runtime_pauses`, are removed (#135).
 
 ## 0.1.10 — 2026-10-03
 

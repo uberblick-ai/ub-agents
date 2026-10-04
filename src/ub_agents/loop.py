@@ -7,7 +7,7 @@ import threading
 from time import monotonic
 from dataclasses import replace
 
-from .approvals import ApprovalCheck, check_issue, check_pr
+from .approvals import ApprovalCheck, check_issue, check_pr, resolve_policy, trusted_input
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
@@ -46,11 +46,12 @@ class _InvalidReload(AgentError):
 
 class Loop:
     def __init__(self, config, github, actor, stop_event=None, output=print,
-                 config_path=None, interrupt_event=None, usage_read_only=False,
+                 config_path=None, interrupt_event=None,
                  default_config=False, observer=None):
         self.observer = observer
         self._observation_warning = False
         self.config = config
+        self.approvals = config.approvals or "on"
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
                                        on_claim=self.claimed, launchers=config.launchers,
@@ -61,8 +62,7 @@ class Loop:
         self.config_path = config_path
         self.default_config = default_config
         self.output = output
-        self.usage = RuntimeUsage(config.root, clock=lambda: self.coordinator.clock(),
-                                  output=output, read_only=usage_read_only)
+        self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output)
         self.coordinator.runtime_paused = self.usage.paused
         self.discovery = Discovery(self.github)
         self._shown = {}
@@ -158,6 +158,8 @@ class Loop:
 
     def input_check(self, item, github=None, matches=None):
         github = github or self.github
+        if self.approvals == "off":
+            return trusted_input(github, item)
         if matches is None or matches.configured != self.config.agents:
             matches = AgentMatches.for_item(item, self.config.agents)
         triggers = matches.trigger_labels
@@ -183,6 +185,7 @@ class Loop:
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
     def iter_plans(self, cached=True):
+        self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         github = self.discovery if cached else Discovery(self.github)
         lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
@@ -291,6 +294,7 @@ class Loop:
         return replace(plan, blockers=blockers)
 
     def item_plans(self, number, agent_name=None):
+        self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         # Share this item's history and approval reads, without repository
         # discovery, priority inheritance or milestone ordering.
         github = Discovery(self.github)
@@ -828,7 +832,7 @@ class Loop:
                     self.output(f"Scratch removal failed: {exc}")
         if usage_output and usage_output.reached and effect != "reset" and not interrupted:
             result, effect = "retry", "unchanged"
-            summary = self.usage.limit(plan.runtime.cli, usage_output.hint)
+            summary = usage_output.summary
         delay = backoff(plan.agent, lease["attempt"]) if result == "retry" and effect == "failure" else 0
         if result != "success":
             # Persist the supervised verdict before a report/release can crash.
@@ -1069,7 +1073,6 @@ class Loop:
             try:
                 self._observe("close")
             finally:
-                self.usage.close()
                 self._launch_number = None
                 self._launch_agent = None
 

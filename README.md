@@ -161,6 +161,23 @@ upgrading any.
 
 ## Issue and PR approvals
 
+Set top-level `approvals: on` or `approvals: off` in `ub-agents.yaml` to choose the
+policy. By default it is on for public repositories and off for private and
+internal repositories, resolved from GitHub visibility each discovery pass. An
+unreadable visibility fails the pass without claims or parking writes. `doctor`
+shows the effective value and source; `check` shows the configured value or the
+visibility default without contacting GitHub.
+
+With approvals off, a configured trigger label starts work regardless of who
+applied it. Agents receive the current title and body, and comments, reviews and
+review comments only from authors with `write`, `maintain` or `admin`. Other
+feedback remains excluded even with an approval record. PR heads, including fork
+heads, need no approval; the launcher makes no approval reads or approval-parking
+writes. `ub-agents approve` still works, but its records have no effect. Other
+eligibility gates, stop labels and fork revision restrictions still apply.
+
+The following rules apply with approvals on.
+
 People who start and approve work use their own accounts with `maintain` or `admin`.
 
 Every issue run, including preparation, needs a maintainer start. The launcher
@@ -288,8 +305,8 @@ your-project/
 Commit these files with your project and review changes to them like code. Credentials
 stay in each tool's own login. `.ub-agents/`, which `init` adds to `.gitignore`,
 holds `launch.log`, run logs and scratch under `runs/`, private `worktrees/`,
-launcher usage state under `runtime-usage/`, and bounded local launcher snapshots
-under `sessions/`. The private snapshots contain already observed issue text;
+and bounded local launcher snapshots under `sessions/`. The private snapshots
+contain already observed issue text;
 see [session publication](docs/configuration.md) for their format and lifecycle.
 
 ## When things go wrong
@@ -332,9 +349,12 @@ code alone never does.
 A report followed by a nonzero exit is validated and applied normally after
 confirmed cleanup; the launcher logs the exit code.
 
-Claude and Codex usage limits pause new runs on that CLI until reset, without
-charging item attempts. Runtime alternatives and other CLIs keep working;
-`status` and `doctor` show local pauses. See
+When a run reports a Claude or Codex usage limit, its launcher pauses new runs
+on that CLI in memory until reset plus one minute, without charging item attempts.
+An unusable reset uses a 15-minute pause. Other CLIs and their runtime alternatives
+keep working. Each pause start or changed end time prints the CLI and UTC end time
+in launch output and `.ub-agents/launch.log`. Restarting the launcher clears its
+pauses. See
 [runtime usage pauses](docs/configuration.md#runtime-usage-pauses).
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a
