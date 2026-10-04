@@ -53,8 +53,6 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
         glyph, state = '○', row.state
     elif own:
         glyph, state = ('■', 'stopping') if stopping else ('⠹', assignment_elapsed(row, now, claimed_at))
-    elif row.group == 'Running':
-        glyph, state = '◌', 'owned'
     elif row.group == 'Eligible':
         glyph, state = '●', 'next' if next_row else row.state
     elif row.group == 'Waiting':
@@ -79,10 +77,7 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
         first.truncate(room, overflow='ellipsis')
     first.append(' ' * max(0, width - first.cell_len - status.cell_len))
     first.append_text(status)
-    owner = mapping(row.data.get('owner'))
-    actor, host = text(owner.get('actor'), ''), text(owner.get('host'), '')
-    ownership = 'this launcher' if own else (
-        f'@{actor} on {host}' if actor and host else f'@{actor}' if actor else host)
+    ownership = 'this launcher' if own else ''
     count = (f'attempt {row.data["attempt"]}' if own and type(row.data.get('attempt')) is int else
              f'{failures}/{maximum} failures' if not own and counted else '')
     detail = Text('  ' + ' · '.join(part for part in (text(row.data.get('agent'), ''), ownership, count)

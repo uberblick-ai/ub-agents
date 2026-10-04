@@ -51,15 +51,22 @@ the view makes no GitHub reads for updates. Plain launch output prints each new
 banner text once. Restart with the current code to clear the notice.
 
 At least **110 columns × 32 rows** are needed for the combined view. The left
-pane groups work from the session snapshot into sections, hiding empty sections
-and showing each section's row count:
+pane groups work from the session snapshot into sections and shows each section's
+row count. Running always appears first; other empty sections are hidden:
 
 | Section | Work |
 | --- | --- |
-| Running | The current assignment, once, and plans owned by another launcher, with their owner |
+| Running | Only this launcher's current assignment, with a count of 0 or 1 |
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
 | Eligible | Ready and recovery plans, in the pass's planned order |
 | Waiting | Dependency and milestone waits, retry backoff and paused-runtime plans |
+
+With no assignment, Running shows one dim placeholder line,
+`Idle · nothing eligible for this launcher`. It is not a work item and has no
+log, Issue or Runs content. The line truncates to the pane width when needed.
+When no row is selected, the Log status line reads
+`○ Idle · waiting for the next poll`. Plans claimed by other launchers do not
+appear in the Work pane; their runs remain in an item's Runs tab.
 
 Each live work row occupies two compact lines. The first shows a status glyph,
 `#N` for an issue or `⌥N` for a pull request from the snapshot's kind, the title
@@ -68,17 +75,15 @@ shortened with `…`, and a short state aligned to the right:
 | Row | Glyph | Right-aligned state |
 | --- | --- | --- |
 | This launcher's assignment | `⠹`, or `■` while stopping | Elapsed claim time (`04:12`, `1:04:12`), `claiming` before the claim is known, or `stopping` |
-| Owned by another launcher | `◌` | `owned` |
 | Parked and needing attention | `?` | `parked` |
 | Blocked | `!` | `blocked` |
 | Attempt limit reached | `✗` | `failed F/M` |
 | Eligible | `●` | `next` for the first row in planned order; otherwise `ready` or `recover` |
 | Waiting | `◷` | `backoff` for retry backoff; `waiting` for runtime, dependency or milestone waits |
 
-The second line is indented and joins the agent, owner and count with ` · `.
-The owner is `this launcher` for the assignment, or `@actor on host` for a
-foreign claim. The count is `attempt N` for the assignment, or `F/M failures`
-for plans with at least one failure. Missing parts are omitted. Both lines fit
+The second line is indented and joins the agent, `this launcher` for the
+assignment, and count with ` · `. The count is `attempt N` for the assignment,
+or `F/M failures` for plans with at least one failure. Missing parts are omitted. Both lines fit
 the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
 Arrow keys move by row, and either line can be clicked to select its item.
@@ -112,8 +117,8 @@ Outcome completion and a human blocker are shown separately: a completed step
 can still be blocked. Until you select a row, the view selects the launcher's own
 run whenever one starts. Selection, focus and paused log positions survive refreshes,
 including when a row moves between sections. A selected row that disappears
-remains an earlier local observation. Claims held by another launcher show their
-owner and have no log access.
+remains an earlier local observation in the right pane. A previous assignment or
+a plan now claimed by another launcher is omitted from the live work sections.
 
 The right pane has Log, Issue and Runs tabs. Each starts below the tab bar with
 the same two-line item header and a dashed rule. The bold first line shows `#N`

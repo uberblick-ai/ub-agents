@@ -779,18 +779,131 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             tree = app.query_one('#work', Tree)
             self.assertEqual([node.label.plain for node in tree.root.children[:4]],
-                             ['Running · 2', 'Needs attention · 1', 'Eligible · 1', 'Waiting · 1'])
+                             ['Running · 1', 'Needs attention · 1', 'Eligible · 2', 'Waiting · 1'])
             self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
+            self.assertNotIn('plan:13:reviewer', app.rows)
             self.assertIn('partial', tree.root.label.plain)
             self.assertTrue(any(span.style == 'dim' for span in tree.root.label.spans))
             self.assertIn('Recent activity', app.query_one(RecentActivity).render().plain)
             self.state['latest_pass'] = {'state': 'complete', 'rows': []}
             self.state['outcomes'] = []
             self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
+            await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and
+                             app.groups['Running'].label.plain == 'Running · 1')
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
             self.assertEqual(tree.root.label.plain, 'Launcher work')
             self.assertEqual(app.query_one(RecentActivity).render().plain, 'Recent activity · 0 today')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_idle_placeholder_is_one_dim_inert_line_and_running_stays_first(self):
+        assignment = self.state['assignment']
+        self.state['assignment'] = None
+        self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][2]]
+        self.state['outcomes'] = []
+        self.path.write_text(json.dumps(self.state))
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.idle_node is not None)
+            tree = app.query_one('#work', Tree)
+            tree.get_node_at_line(0)
+            idle = app.idle_node
+            self.assertEqual([node.label.plain for node in tree.root.children], ['Running · 0'])
+            self.assertEqual(tree.virtual_size.height, 3)
+            self.assertEqual(tree._get_label_region(idle._line).height, 1)
+            line = tree.render_line(idle._line - tree.scroll_offset.y)
+            self.assertEqual(idle.label.plain, '    Idle · nothing eligible for this launcher')
+            self.assertTrue(line.text.strip().startswith('Idle · nothing eligible'))
+            self.assertEqual(line.cell_length, tree.scrollable_content_region.width)
+            self.assertTrue(any(segment.style.dim for segment in line))
+            self.assertIsNone(idle.data)
+            tree.focus()
+            tree.move_cursor(idle)
+            await pilot.press('enter')
+            await pilot.click('#work', offset=(6, idle._line - tree.scroll_offset.y))
+            self.assertIsNone(app.selected)
+            self.assertEqual(app.rows, {})
+            self.assertEqual(app.nodes, {})
+            self.assertIsNone(app.reading.page)
+            self.assertIsNone(app.worker.selected_row)
+            self.assertIn('○ Idle · waiting for the next poll', app.query_one('#run_status', Static).render().plain)
+            await pilot.press('2', '3', '1')
+            self.assertEqual(transport.calls, [])
+            self.state['latest_pass']['rows'].append(
+                {'item': 21, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'Needs attention' in app.groups)
+            self.assertIs(app.idle_node, idle)
+            self.assertEqual([node.label.plain for node in tree.root.children],
+                             ['Running · 0', 'Needs attention · 1'])
+            self.state['assignment'] = assignment
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run')
+            self.assertIsNone(app.idle_node)
+            self.assertEqual([node.label.plain for node in tree.root.children],
+                             ['Running · 1', 'Needs attention · 1'])
+            self.assertEqual([node.data for node in app.groups['Running'].children], ['assignment:owned-run'])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_picked_previous_assignment_keeps_details_without_a_running_row(self):
+        assignment = self.state['assignment']
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            key = app.selected
+            app.select(key)  # Keep this run selected when another starts.
+            await pilot.press('f')
+            page = app.reading.page
+            self.state['assignment'] = None
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            self.assertEqual(app.selected, key)
+            self.assertNotIn(key, app.nodes)
+            self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
+            self.assertIsNotNone(app.idle_node)
+            self.assertEqual(app.reading.page, page)
+            self.state['assignment'] = dict(assignment, run='next-run')
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'assignment:next-run' in app.nodes)
+            self.assertEqual(app.selected, key)
+            self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
+            self.assertEqual([node.data for node in app.groups['Running'].children], ['assignment:next-run'])
+            self.assertEqual(app.reading.page, page)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_selected_plan_claimed_elsewhere_leaves_work_but_keeps_item_history(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            key = 'plan:12:reviewer'
+            app.select(key)
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            self.state['latest_pass']['rows'][1]['state'] = 'owned'
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            self.assertEqual(app.selected, key)
+            self.assertNotIn(key, app.nodes)
+            self.assertEqual(list(app.groups), ['Running'])
+            self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
+            await pilot.press('3')
+            stream = io.StringIO()
+            Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
+            self.assertIn('other-host', stream.getvalue())
+            self.state['latest_pass']['state'] = 'complete'
+            self.state['latest_pass']['rows'] = []
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.session.data['latest_pass']['state'] == 'complete')
+            self.assertNotIn(key, app.nodes)
+            self.assertEqual(app.selected, key)
+            self.state['latest_pass']['rows'] = [
+                {'item': 12, 'agent': 'reviewer', 'state': 'ready', 'reason': 'Trigger matched'}]
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: key in app.nodes)
+            self.assertEqual(app.selected, key)
+            self.assertEqual(app.rows[key].state, 'ready')
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -1017,7 +1130,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     for n in range(1, 50)]
                 self.path.write_text(json.dumps(self.state))
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
-                                 len(app.groups['Eligible'].children) == 49)
+                                 len(app.groups['Eligible'].children) == 49 and
+                                 tree.virtual_size.height > tree.size.height)
                 tree.scroll_end(animate=False, immediate=True)
                 await pilot.pause()
                 self.assertGreater(tree.scroll_y, 0)
@@ -1029,7 +1143,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.state['outcomes'] = []
                 app.select('outcome:previous-run')  # Retain only a right-pane outcome, not live work.
                 self.path.write_text(json.dumps(self.state))
-                await self.ready(app, pilot, lambda: not app.groups and not recent.rows)
+                await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not recent.rows)
+                self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
                 self.assertEqual(recent.region.y, boundary)
                 self.assertEqual(recent.render().plain, 'Recent activity · 0 today')
             await pilot.press('q')
@@ -1127,10 +1242,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', '⠹ #114', '00:00', '  implementer · this launcher'),
-                        ('plan:12:reviewer', '◌ ⌥12', 'owned', '  reviewer · @other-launcher'),
+                        ('plan:12:reviewer', '● ⌥12', 'next', '  reviewer'),
                         ('plan:20:worker', '! #20', 'blocked', '  worker'),
                         ('plan:21:worker', '✗ #21', 'failed 3/3', '  worker · 3/3 failures'),
-                        ('plan:22:worker', '● ⌥22', 'next', '  worker')]
+                        ('plan:22:worker', '● ⌥22', 'ready', '  worker')]
             for key, prefix, status, detail in expected:
                 node = app.nodes[key]
                 self.assertFalse(node.children)
@@ -1147,18 +1262,19 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 else:
                     self.assertTrue(first.text.endswith(status), first.text)
                 self.assertTrue(second.text.startswith(detail), second.text)
-            own, foreign = app.nodes['assignment:owned-run'], app.nodes['plan:12:reviewer']
+            own, blocked = app.nodes['assignment:owned-run'], app.nodes['plan:20:worker']
             tree.focus()
             tree.move_cursor(own)
             await pilot.press('down')
-            self.assertIs(tree.cursor_node, foreign)
-            await pilot.press('up')
+            self.assertIs(tree.cursor_node, app.groups['Needs attention'])
+            await pilot.press('down')
+            self.assertIs(tree.cursor_node, blocked)
+            await pilot.press('up', 'up')
             self.assertIs(tree.cursor_node, own)
             for offset in (0, 1):
-                await pilot.click('#work', offset=(3, foreign._line + offset - tree.scroll_offset.y))
-                self.assertEqual(app.selected, foreign.data)
-                self.assertIs(tree.cursor_node, foreign)
-            blocked = app.nodes['plan:20:worker']
+                await pilot.click('#work', offset=(3, blocked._line + offset - tree.scroll_offset.y))
+                self.assertEqual(app.selected, blocked.data)
+                self.assertIs(tree.cursor_node, blocked)
             # Empty space after a short metadata line still belongs to its row.
             await pilot.click('#work', offset=(width - 2, blocked._line + 1 - tree.scroll_offset.y))
             self.assertEqual(app.selected, blocked.data)
@@ -1420,7 +1536,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.select(foreign)
                 await pilot.pause(0.3)
                 self.assertIsNone(app.reading.page)
-                self.assertIn('Owner: @other-launcher', app.reading.empty_message)
+                self.assertEqual(app.reading.empty_message, 'No local log cached for this row.')
                 self.assertNotIn('entries hidden', app.query_one('#log_note').render().plain)
                 self.assertNotIn('evicted ', app.query_one('#log_note').render().plain)
                 app.select(key)

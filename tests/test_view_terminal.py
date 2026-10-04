@@ -711,6 +711,9 @@ class ProofView(View):
                  'cursor': tree.cursor_node.data if tree.cursor_node else None,
                  'focus': self.focused.id if self.focused else None, 'title': tree.root.label.plain,
                  'sections': [node.label.plain for node in tree.root.children],
+                 'nodes': list(self.nodes),
+                 'idle': self.idle_node.label.plain if self.idle_node else None,
+                 'idle_dim': self.idle_node.label.style == 'dim' if self.idle_node else False,
                  'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
                  'recent': recent.render().plain,
                  'recent_rows': [row.key for row in recent.visible_rows],
@@ -724,8 +727,9 @@ class ProofView(View):
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
             proof = root / 'proof.json'
-            assignment, latest_pass = state['assignment'], state['latest_pass']
-            state.update(assignment=None, latest_pass={'state': 'complete', 'rows': []})
+            assignment, latest_pass, outcomes = state['assignment'], state['latest_pass'], state['outcomes']
+            state.update(assignment=None, latest_pass={'state': 'partial', 'rows': [latest_pass['rows'][2]]},
+                         outcomes=[])
             path.write_text(json.dumps(state))
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
@@ -770,9 +774,20 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(scrolled['anchor'], scrolled['saved_anchor'])
                 return scrolled
             try:
+                idle = checkpoint(lambda value: value['sections'] == ['Running · 0'] and value['idle'])
+                self.assertIsNone(idle['selected'])
+                self.assertEqual(idle['nodes'], [])
+                self.assertEqual(idle['idle'], '    Idle · nothing eligible for this launcher')
+                self.assertTrue(idle['idle_dim'])
+                self.assertIn('○ Idle · waiting for the next poll', idle['run_status'])
+                self.assertIn(b'Idle', transcript)
+                os.write(master, b'\x1b[B\x1b[B\r')
+                self.assertIsNone(checkpoint()['selected'])
+                state.update(latest_pass={'state': 'complete', 'rows': []}, outcomes=outcomes)
+                path.write_text(json.dumps(state))
                 newest = checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                     and value['anchor'] is not None)
-                self.assertEqual(newest['sections'], [])
+                self.assertEqual(newest['sections'], ['Running · 0'])
                 self.assertEqual(newest['focus'], 'recent')
                 self.assertEqual(newest['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
                 state.update(assignment=assignment, latest_pass=latest_pass)
@@ -787,9 +802,11 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(initial['footer_height'], 1)
                 self.assertFalse(initial['pill_visible'])
                 self.assertEqual(initial['notice'], '')
-                self.assertEqual(initial['sections'], ['Running · 2', 'Needs attention · 3',
-                                                       'Eligible · 2', 'Waiting · 4'])
-                self.assertEqual(initial['eligible'], ['plan:20:worker', 'plan:21:worker'])
+                self.assertEqual(initial['sections'], ['Running · 1', 'Needs attention · 3',
+                                                       'Eligible · 3', 'Waiting · 4'])
+                self.assertEqual(initial['eligible'], ['plan:12:reviewer', 'plan:20:worker', 'plan:21:worker'])
+                self.assertNotIn('plan:13:reviewer', initial['nodes'])
+                self.assertIsNone(initial['idle'])
                 self.assertIn('partial', initial['title'])
                 self.assertEqual(initial['recent'].splitlines()[0], 'Recent activity · 1 today')
                 self.assertEqual(initial['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
@@ -987,13 +1004,13 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertGreater(checkpoint(lambda value: value['generation'] > resumed['generation'])['generation'],
                                    resumed['generation'])
                 # Exercise the fixed split in both real terminal sizes, including
-                # an empty upper viewport and zero cached outcomes.
+                # an idle upper viewport and zero cached outcomes.
                 os.write(master, b'r\r')
                 checkpoint(lambda value: value['selected'] == 'outcome:previous-run')
                 state['assignment'] = None
                 state['latest_pass'] = {'state': 'complete', 'rows': []}
                 path.write_text(json.dumps(state))
-                empty = checkpoint(lambda value: not value['sections'])
+                empty = checkpoint(lambda value: value['sections'] == ['Running · 0'])
                 self.assertLessEqual(abs(empty['upper_bounds'][1] - empty['recent_bounds'][1]), 1)
                 self.assertEqual(sum(empty['upper_bounds']), empty['recent_bounds'][0])
                 state['outcomes'] = []
@@ -1004,7 +1021,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
                 path.write_text(json.dumps(state))
-                overflow = checkpoint(lambda value: value['sections'] == ['Eligible · 49'])
+                overflow = checkpoint(lambda value: value['sections'] == ['Running · 0', 'Eligible · 49'])
                 self.assertEqual(overflow['recent_bounds'], empty['recent_bounds'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
@@ -1013,7 +1030,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(minimum['recent_bounds'], initial['recent_bounds'])
                 state['latest_pass']['rows'] = []
                 path.write_text(json.dumps(state))
-                minimum_empty = checkpoint(lambda value: not value['sections'])
+                minimum_empty = checkpoint(lambda value: value['sections'] == ['Running · 0'])
                 self.assertEqual(minimum_empty['recent_bounds'], initial['recent_bounds'])
                 os.write(master, b'q')
                 deadline = time.monotonic() + 3

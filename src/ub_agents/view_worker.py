@@ -64,6 +64,11 @@ class LocalWorker:
             selected = work[0]
         if selected is None and self.selected_row and self.selected_row.key == request.key:
             selected = self.selected_row
+            foreign = any(row.get('state') == 'owned' and
+                          (row.get('item'), row.get('agent')) == (selected.item, selected.agent)
+                          for row in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
+            if selected.key.startswith('plan:') and foreign:
+                selected = replace(selected, hidden=True)
             if selected.state != 'earlier observation':
                 selected = replace(selected, state='earlier observation',
                                    reason=f'Last observed state: {selected.state}. {selected.reason}')
