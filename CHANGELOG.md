@@ -24,11 +24,10 @@ stop label on items you want to stay held (#132).
 - The terminal view uses a one-line activity footer, contextual keys and optional log-state pill; `?` lists keys and `p` shows diagnostics (#161).
 - The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
 - Claude logs use compact local timestamps, tool calls, line counts and distinct errors in the terminal view, with raw records available on demand (#163).
-- The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
+- The terminal work list groups Running, Needs attention, Eligible and Waiting items with counts, above a fixed lower half listing recent outcomes (#159, #171).
 
 ### Fixed
 
-- Recent activity always fills the terminal Work pane's lower half, with independently scrolling live work and whole outcome rows clipped from the oldest end (#171).
 - Terminal work rows and their cached details stay visible while polling; completed passes remove omitted rows and apply the new planned order (#166).
 - The terminal view shows the launcher's run when it starts after the view opened, until a row is selected, and keeps the tree cursor on a moved row (#189).
 - Opening raw access (`p`) no longer crashes the terminal view when the log updates before the screen draws (#189).
