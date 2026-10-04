@@ -36,7 +36,8 @@ def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
              'latest_pass': {'state': 'partial', 'rows': [
                  {'item': 114, 'agent': 'implementer', 'state': 'running', 'reason': 'selected',
                   'description': {'available': False}},
-                 {'item': 12, 'agent': 'reviewer', 'state': 'owned', 'reason': 'occupied',
+                 {'item': 12, 'agent': 'reviewer', 'state': 'ready', 'reason': 'Trigger matched'},
+                 {'item': 13, 'agent': 'reviewer', 'state': 'owned', 'reason': 'occupied',
                   'owner': {'actor': 'other-launcher', 'host': 'other-host', 'run': 'foreign-run'},
                   'process_log': str(log)}]},
              'outcomes': [{'item': 10, 'agent': 'preparer', 'run': 'previous-run', 'completed': True,
@@ -123,7 +124,7 @@ class ViewDataTests(unittest.TestCase):
         outcome = next(row for row in work_rows(session, self.root) if row.run == 'before')
         self.assertEqual(run_status(outcome, session), ('preparer exited · outcome reported', '', False))
         planned = next(row for row in work_rows(session, self.root) if row.item == 12)
-        self.assertEqual(run_status(planned, session), ('reviewer owned · no outcome reported', '', False))
+        self.assertEqual(run_status(planned, session), ('reviewer ready · no outcome reported', '', False))
         self.state['assignment'] = None
         from dataclasses import replace
         earlier = replace(assignment, state='earlier observation')
@@ -156,14 +157,14 @@ class ViewDataTests(unittest.TestCase):
             for n, (state, reason, _) in enumerate(plans, 20))
         work = work_rows(Session(self.path, self.state), self.root)
         self.assertEqual([row.group for row in work if row.item == 114], ['Running'])
-        self.assertEqual(next(row for row in work if row.item == 12).group, 'Running')
+        self.assertFalse(any(row.item == 13 for row in work))
         for n, (_, _, expected) in enumerate(plans, 20):
             self.assertEqual(next(row for row in work if row.item == n).group, expected)
-        self.assertEqual([row.item for row in work if row.group == 'Eligible'], [20, 22])
+        self.assertEqual([row.item for row in work if row.group == 'Eligible'], [12, 20, 22])
         keys = {row.item: row.key for row in work}
         self.state['latest_pass']['rows'].reverse()
         reordered = work_rows(Session(self.path, self.state), self.root)
-        self.assertEqual([row.item for row in reordered if row.group == 'Eligible'], [22, 20])
+        self.assertEqual([row.item for row in reordered if row.group == 'Eligible'], [22, 20, 12])
         self.assertEqual({row.item: row.key for row in reordered}, keys)
 
     def test_eligibility_wait_wording_classifies_as_waiting(self):
@@ -178,6 +179,19 @@ class ViewDataTests(unittest.TestCase):
                 snapshot = Session(self.path, {'latest_pass': {'rows': [
                     {'item': item.number, 'agent': worker.name, 'state': 'parked', 'reason': check.reason}]}})
                 self.assertEqual(work_rows(snapshot, self.root)[0].group, 'Waiting')
+
+    def test_foreign_claims_are_omitted_from_partial_and_complete_passes(self):
+        foreign = self.state['latest_pass']['rows'][2]
+        for assignment in (self.state['assignment'], None):
+            for state in ('partial', 'complete'):
+                with self.subTest(assignment=bool(assignment), state=state):
+                    session = Session(self.path, {'assignment': assignment,
+                        'latest_pass': {'state': state, 'rows': [foreign]}})
+                    work = work_rows(session, self.root)
+                    self.assertEqual([row.key for row in work],
+                                     ['assignment:owned-run'] if assignment else [])
+                    self.assertEqual(run_status(None, session)[0], 'No item selected.' if assignment else
+                                     '○ Idle · waiting for the next poll')
 
     def test_today_count_uses_local_dates_and_ignores_missing_invalid_times(self):
         local = timezone(timedelta(hours=2))
@@ -226,7 +240,7 @@ class ViewDataTests(unittest.TestCase):
         old = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
         self.assertEqual(Session(self.path, dict(self.state, published_at=old)).state(), 'stale')
 
-    def test_context_is_cached_local_and_foreign_owner_has_no_log(self):
+    def test_context_is_cached_local_and_plan_has_no_log(self):
         session = load_session(self.path)
         work = work_rows(session, self.root)
         self.assertEqual(work[0].runtime, 'claude')
@@ -234,7 +248,7 @@ class ViewDataTests(unittest.TestCase):
         foreign = next(row for row in work if row.item == 12)
         self.assertIsNone(foreign.log)
         self.assertIsNone(foreign.context)
-        self.assertIn('@other-launcher', foreign.reason)
+        self.assertEqual(foreign.reason, 'Trigger matched')
         self.assertIn('Description unavailable', item_context(foreign, session))
         self.assertIn('BLOCKED: needs-human', work[-1].state)
         self.assertIn('BLOCKED: needs-human', outcome_text(session))

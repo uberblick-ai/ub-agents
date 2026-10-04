@@ -38,10 +38,10 @@ class WorkLineTests(unittest.TestCase):
                                                  'acceptance': 'unaccepted'}]}}, run='own')
         self.assertTrue(work_lines(reported, 50, now=now)[0].plain.endswith('claiming'))
 
-    def test_foreign_owned_blocked_attempt_limit_and_eligible(self):
+    def test_blocked_attempt_limit_and_eligible(self):
         cases = [
-            (self.row('Running', 'owned', kind='pr', owner={'actor': 'worker', 'host': 'build-01'}),
-             '◌ ⌥160 Compact work rows', 'owned', '  implementer · @worker on build-01'),
+            (self.row('Eligible', 'ready', kind='pr'),
+             '● ⌥160 Compact work rows', 'ready', '  implementer'),
             (self.row('Needs attention', 'blocked', failures=3, max_attempts=3, reason='Last run blocked'),
              '! #160 Compact work rows', 'blocked', '  implementer · 3/3 failures'),
             (self.row('Needs attention', 'blocked', failures=3, max_attempts=3,
@@ -68,8 +68,8 @@ class WorkLineTests(unittest.TestCase):
         self.assertTrue(work_lines(cases[3][0], 50, next_row=True)[0].plain.endswith('next'))
 
     def test_cell_clipping_and_missing_metadata(self):
-        row = self.row('Running', 'owned', title='Wide 界 titles and long queue descriptions ' * 5,
-                       owner={'actor': 'long-actor-name', 'host': 'long-host-name'})
+        row = self.row('Eligible', 'ready', title='Wide 界 titles and long queue descriptions ' * 5,
+                       agent='long-agent-name' * 5)
         for width in (0, 1, 15, 32, 50):
             with self.subTest(width=width):
                 first, second = work_lines(row, width)
@@ -78,7 +78,7 @@ class WorkLineTests(unittest.TestCase):
                 self.assertNotIn('\n', first.plain + second.plain)
         first, second = work_lines(row, 32)
         self.assertIn('…', first.plain)
-        self.assertTrue(first.plain.endswith('owned'))
+        self.assertTrue(first.plain.endswith('ready'))
         self.assertTrue(second.plain.endswith('…'))
         row = self.row('Eligible', 'ready', agent='', title='', failures=0, max_attempts=3)
         self.assertEqual(work_lines(row, 32)[1].plain.strip(), '')

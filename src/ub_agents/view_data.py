@@ -163,6 +163,7 @@ class WorkRow:
     runtime: str = 'unknown'
     log: Path | None = None
     context: Path | None = None
+    hidden: bool = False
 
     def label(self):
         return f'#{text(str(self.item))} {self.state} · {self.agent}'
@@ -181,8 +182,6 @@ def runtime_type(value):
 
 def plan_group(row):
     state = row.get('state')
-    if state == 'owned':
-        return 'Running'
     if state in {'ready', 'recover'}:
         return 'Eligible'
     if state in {'backoff', 'waiting'} or (state == 'parked' and
@@ -218,6 +217,8 @@ def work_rows(session, root):
                               run / 'context.json' if run else None))
     latest = mapping(data.get('latest_pass'))
     for row in rows(latest.get('rows'), 100):
+        if row.get('state') == 'owned':
+            continue
         if assignment and (row.get('item'), row.get('agent')) == (assignment.get('item'), assignment.get('agent')):
             continue
         owner = mapping(row.get('owner'))
@@ -360,6 +361,8 @@ def item_header(row, description, session):
 def run_status(row, session):
     """Keep process/plan state separate from explicitly reported outcomes."""
     if not row:
+        if session and not mapping(session.data.get('assignment')):
+            return '○ Idle · waiting for the next poll', '', False
         return 'No item selected.', '', False
     outcomes = [outcome for outcome in rows(session.data.get('outcomes'), 20)
                 if outcome.get('item') == row.item] if session else []

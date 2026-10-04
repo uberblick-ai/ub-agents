@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Running shows only this launcher's assignment or an idle placeholder; other launchers' claims are omitted from the terminal Work pane (#172).
+
 ## 0.1.11 — 2026-10-04
 
 **Upgrading:** stop all of a project's launchers and wait until every one has exited,

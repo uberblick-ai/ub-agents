@@ -19,7 +19,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
 from .view_data import (WORK_GROUPS, context_header, context_text, item_header, item_history, mapping,
-                        run_status, text)
+                        rows as snapshot_rows, run_status, text)
 from .view_github import DescriptionLoads
 from .view_runs import run_status as history_status, runs_view
 from .view_worker import LocalWorker, Request
@@ -361,6 +361,7 @@ class View(App):
         self.local_description = None
         self.session = None
         self.rows, self.nodes, self.groups = {}, {}, {}
+        self.idle_node = None
         self.selected = None
         self.chosen = False  # a person picked a row; the view stops following the run
         self.readings = {}
@@ -444,19 +445,32 @@ class View(App):
         incoming = {row.key: row for row in rows}
         # Until a person picks a row, the view follows the launcher's own run,
         # which can start after the view first read the snapshot.
-        own = next((key for key in incoming if key.startswith('assignment:')), None)
+        assignment = mapping(self.session.data.get('assignment'))
+        own = 'assignment:' + text(assignment.get('run'), 'claiming') if assignment else None
         follow = own is not None and not self.chosen and own != self.selected
+        # A worker may still return the previous selection while the view follows
+        # a new assignment. Only the current picked observation needs retaining.
+        incoming = {key: row for key, row in incoming.items() if row.state != 'earlier observation'
+                    or key == self.selected and not follow}
         # A selected row disappearing from a snapshot is retained as an earlier
         # observation; updates never replace a picked row or steal pane focus.
         if self.selected in self.rows and self.selected not in incoming and not follow:
             incoming[self.selected] = self.rows[self.selected]
+        # Retain a picked row's right-pane details without presenting an old run
+        # or a newly foreign-owned plan as this launcher's work.
+        foreign = {(plan.get('item'), text(plan.get('agent'))) for plan in
+                   snapshot_rows(mapping(self.session.data.get('latest_pass')).get('rows'), 100)
+                   if plan.get('state') == 'owned'}
+        live = {key: row for key, row in incoming.items() if not row.hidden and row.group != 'Recent activity'
+                and (row.group != 'Running' or key == own)
+                and (not key.startswith('plan:') or (row.item, row.agent) not in foreign)}
         for key in tuple(self.nodes):
-            if key not in incoming:
+            if key not in live:
                 self.nodes.pop(key).remove()
         previous = None
         for name in WORK_GROUPS[:-1]:
-            grouped = [row for row in incoming.values() if row.group == name]
-            if not grouped:
+            grouped = [row for row in live.values() if row.group == name]
+            if not grouped and name != 'Running':
                 continue
             group = self.groups.get(name)
             if group is None:
@@ -465,6 +479,13 @@ class View(App):
                     expand=True)
             previous = group
             group.set_label(Text(f'{name} · {len(grouped)}'))
+            if name == 'Running':
+                if grouped and self.idle_node is not None:
+                    self.idle_node.remove()
+                    self.idle_node = None
+                elif not grouped and self.idle_node is None:
+                    self.idle_node = group.add_leaf(
+                        Text('    Idle · nothing eligible for this launcher', style='dim'))
             for index, row in enumerate(grouped):
                 node = self.nodes.get(row.key)
                 if node is not None and (node.parent is not group or group.children[index] is not node):
