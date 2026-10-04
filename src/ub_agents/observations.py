@@ -156,6 +156,10 @@ class Observations:
         }
         self.source_run = None
         self.previous_histories = {}
+        self.pass_rows = {}
+        self.pass_histories = {}
+        self.pass_omitted = 0
+        self.kept_keys = set()
         self.emit()
 
     @staticmethod
@@ -276,23 +280,35 @@ class Observations:
         self.emit()
 
     def begin_pass(self):
-        # Keep one bounded pass privately so unreadable records can recover the
-        # last observation without publishing histories for unlisted items.
+        # Keep the displayed rows and their histories until this pass finishes.
+        # Track its plans separately to apply the new order only on completion.
         self.previous_histories = dict(self.state["histories"])
-        self.state["latest_pass"] = {"started_at": iso(self.clock()), "state": "partial", "rows": []}
+        rows = self.state["latest_pass"]["rows"] if self.state["latest_pass"] else []
+        self.state["latest_pass"] = {"started_at": iso(self.clock()), "state": "partial", "rows": list(rows)}
+        self.pass_rows = {}
+        self.pass_histories = {}
+        self.pass_omitted = 0
+        self.kept_keys = {(row["item"], row["agent"]) for row in rows}
         self.state["omitted"]["plans"] = 0
         self.prune_histories(self.state)
         self.activity("polling")
 
     def complete_pass(self):
-        self.state["latest_pass"]["state"] = "complete"
+        self.state["latest_pass"].update(state="complete", rows=list(self.pass_rows.values()))
+        self.state["histories"].update(self.pass_histories)
+        self.state["omitted"]["plans"] = self.pass_omitted
+        self.prune_histories(self.state)
         self.previous_histories.clear()
+        self.pass_rows = {}
+        self.pass_histories = {}
+        self.kept_keys.clear()
         self.emit()
 
     @staticmethod
     def prune_histories(state):
         rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
         referenced = {str(row["item"]) for row in rows + state["outcomes"]}
+        referenced.update(row["history_key"] for row in rows if "history_key" in row)
         if state["assignment"]:
             referenced.add(str(state["assignment"]["item"]))
         return [state["histories"].pop(key) for key in tuple(state["histories"]) if key not in referenced]
@@ -312,7 +328,8 @@ class Observations:
                    "runs": [self.bounded_run(run) for run in runs[-MAX_OUTCOMES:]],
                    "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
         key = str(plan.item.number)
-        cached = self.state["histories"].get(key) or self.previous_histories.get(key)
+        cached = (self.pass_histories.get(key) or self.state["histories"].get(key) or
+                  self.previous_histories.get(key))
         if not plan.history_read and cached:
             history.update(runs=[dict(run) for run in cached["runs"]], omitted_runs=cached["omitted_runs"],
                            filing=history["filing"] or cached["filing"])
@@ -333,17 +350,39 @@ class Observations:
             row["owner"] = {key: plan.owner.get(key) for key in ("actor", "host", "run")}
             row["owner"]["host_reason"] = None if plan.owner.get("host") else "Host not recorded"
         row = self.bounded(row)
+        key = (row["item"], row["agent"])
+        self.kept_keys.discard(key)
+        if key in self.pass_rows or len(self.pass_rows) < MAX_PLANS:
+            self.pass_rows[key] = row
+        else:
+            self.pass_omitted += 1
         rows = self.state["latest_pass"]["rows"]
         existing = next((i for i, r in enumerate(rows)
-                         if (r["item"], r["agent"]) == (row["item"], row["agent"])), None)
+                         if (r["item"], r["agent"]) == key), None)
         if existing is not None:
             rows[existing] = row
         elif len(rows) < MAX_PLANS:
             rows.append(row)
-        else:
-            self.state["omitted"]["plans"] += 1
-        if any(row["item"] == plan.item.number for row in rows):
-            self.state["histories"][str(plan.item.number)] = self.item_history(plan, filing)
+        visible = {(r["item"], r["agent"]) for r in rows}
+        self.state["omitted"]["plans"] = self.pass_omitted + len(self.pass_rows.keys() - visible)
+        listed = any(r["item"] == plan.item.number for r in rows)
+        if listed or key in self.pass_rows:
+            history = self.item_history(plan, filing)
+            if key in self.pass_rows:
+                self.pass_histories[str(plan.item.number)] = history
+            if listed:
+                # Other agents for this item may still show the prior pass. Give
+                # those rows their own history reference before replacing it.
+                cached = self.state["histories"].get(str(plan.item.number))
+                for index, kept in enumerate(rows):
+                    kept_key = (kept["item"], kept["agent"])
+                    if (kept["item"] == plan.item.number and kept_key in self.kept_keys
+                            and "history_key" not in kept and cached and cached != history):
+                        history_key = f'{kept["item"]}:{kept["agent"]}'
+                        self.state["histories"][history_key] = cached
+                        rows[index] = kept | {"history_key": history_key}
+                self.state["histories"][str(plan.item.number)] = history
+                self.prune_histories(self.state)
         for outcome in self.state["outcomes"]:
             if outcome["target"] == plan.item.number and outcome["completed"]:
                 outcome["human_blocker"] = sorted(plan.item.labels.intersection(self.stop_labels))
@@ -351,7 +390,8 @@ class Observations:
         self.emit()
 
     def assignment(self, plan):
-        self.state["histories"].setdefault(str(plan.item.number), self.item_history(plan))
+        self.state["histories"].setdefault(str(plan.item.number),
+                                         self.pass_histories.get(str(plan.item.number)) or self.item_history(plan))
         self.state["assignment"] = {
             "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
             "title": plan.item.title[:MAX_TEXT], "attempt": plan.attempt,

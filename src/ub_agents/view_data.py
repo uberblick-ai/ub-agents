@@ -103,7 +103,7 @@ def load_session(path):
                 if 'item' in row and (type(row['item']) is not int or row['item'] < 1):
                     raise ValueError('Invalid item number')
                 for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary',
-                              'result', 'outcome', 'host', 'time', 'expires', 'acceptance'):
+                              'result', 'outcome', 'host', 'time', 'expires', 'acceptance', 'history_key'):
                     if row.get(field) is not None and not isinstance(row[field], str):
                         raise ValueError(f'Invalid row {field}')
                 for field in ('owner', 'description'):
@@ -234,9 +234,16 @@ def work_rows(session, root):
                               text(row.get('agent')), state, text(row.get('summary')), row, row.get('run'),
                               runtime_type(row.get('runtime')), run / 'process.log' if run else None, run / 'context.json' if run else None))
     histories = mapping(data.get('histories'))
-    result = [replace(row, data=row.data | {'history': histories[str(row.item)]})
-              if str(row.item) in histories else row for row in result]
+    result = [replace(row, data=row.data | {'history': histories[row.data.get('history_key', str(row.item))]})
+              if row.data.get('history_key', str(row.item)) in histories else row for row in result]
     return sorted(result, key=lambda row: WORK_GROUPS.index(row.group))
+
+
+def item_history(row, session):
+    if not row:
+        return {}
+    history = mapping(row.data.get('history'))
+    return history or (mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {})
 
 
 @dataclass(frozen=True)
@@ -292,8 +299,9 @@ def local_description(row, session):
     if not row:
         return Description()
     source = row.data
-    source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
-                   if r.get('item') == row.item), source)
+    if not row.key.startswith('plan:'):
+        source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
+                       if r.get('item') == row.item), source)
     description = mapping(source.get('description'))
     title = source.get('title')
     if description.get('available') is True and isinstance(description.get('text'), str):
@@ -327,8 +335,7 @@ def item_header(row, description, session):
         return 'No item selected.', ''
     source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
                    if r.get('item') == row.item), {}) if session else {}
-    history = ((mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {}) or
-               mapping(row.data.get('history')))
+    history = item_history(row, session)
     kind = (row.data.get('kind') or source.get('kind') or (description.kind if description else '') or
             history.get('kind'))
     reference = ('⌥' if kind == 'pr' else '#') + str(row.item)

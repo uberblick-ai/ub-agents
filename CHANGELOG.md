@@ -30,6 +30,7 @@ or add a stop label on items you want to stay held (#132).
 ### Fixed
 
 - Agents report through the launcher's own installation regardless of PATH; incompatible record formats direct agents to that command instead of a missing-lease error (#198).
+- Terminal work rows and their cached details stay visible while polling; completed passes remove omitted rows and apply the new planned order (#166).
 - The terminal view shows the launcher's run when it starts after the view opened, until a row is selected, and keeps the tree cursor on a moved row (#189).
 - Opening raw access (`p`) no longer crashes the terminal view when the log updates before the screen draws (#189).
 

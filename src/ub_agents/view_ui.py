@@ -18,7 +18,7 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
-from .view_data import (WORK_GROUPS, context_header, context_text, item_header, mapping,
+from .view_data import (WORK_GROUPS, context_header, context_text, item_header, item_history, mapping,
                         outcomes_today, run_status, text)
 from .view_github import DescriptionLoads
 from .view_runs import run_status as history_status, runs_view
@@ -451,7 +451,7 @@ class View(App):
         # which can start after the view first read the snapshot.
         own = next((key for key in incoming if key.startswith('assignment:')), None)
         follow = own is not None and not self.chosen and own != self.selected
-        # A selected row disappearing in a partial pass is retained as an earlier
+        # A selected row disappearing from a snapshot is retained as an earlier
         # observation; updates never replace a picked row or steal pane focus.
         if self.selected in self.rows and self.selected not in incoming and not follow:
             incoming[self.selected] = self.rows[self.selected]
@@ -578,8 +578,7 @@ class View(App):
         if self.session is None:
             return
         row = self.rows.get(self.selected)
-        history = (mapping(mapping(self.session.data.get('histories')).get(str(row.item))) or
-                   mapping(row.data.get('history'))) if row else {}
+        history = item_history(row, self.session)
         now = datetime.now().astimezone()
         active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
         signature = (row.key if row else None, repr(history), int(now.timestamp() * (5 if active else 1)))

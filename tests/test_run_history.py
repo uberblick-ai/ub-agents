@@ -192,8 +192,9 @@ class RunsTests(unittest.TestCase):
         expected = self.memory.snapshots[-1]['histories']['1']
         self.observer.complete_pass()
         for _ in range(2):
+            retained = self.memory.snapshots[-1]['histories']['1']
             self.observer.begin_pass()
-            self.assertNotIn('1', self.memory.snapshots[-1]['histories'])
+            self.assertEqual(self.memory.snapshots[-1]['histories']['1'], retained)
             self.observer.plan(replace(plan, item=replace(filed, labels=frozenset(), author=None),
                                        state='blocked', reason='Unreadable record',
                                        history=(), history_read=False))
@@ -272,6 +273,7 @@ class RunsTests(unittest.TestCase):
             self.assertEqual(history['omitted_runs'], 0)
         self.observer.begin_pass()
         self.observer.plan(plans[-1])
+        self.observer.complete_pass()
         state = self.memory.snapshots[-1]
         self.assertEqual(state['omitted']['plans'], 0)
         self.assertEqual(state['latest_pass']['rows'][0]['description']['text'], 'B' * 2000)

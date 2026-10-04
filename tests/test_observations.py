@@ -24,6 +24,8 @@ from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
+from ub_agents.view_data import Session, local_description, work_rows
+from ub_agents.view_worker import LocalWorker, Request
 from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
 
 
@@ -40,6 +42,110 @@ class ObservationTests(unittest.TestCase):
     def loop(self, github, observer=True):
         return Loop(self.cfg, github, "operator", output=lambda *_: None,
                     observer=self.observer if observer else None)
+
+    def test_partial_pass_keeps_rows_details_and_order_until_completion(self):
+        plans = [Plan(replace(issue(n), body=f'Body {n}'), self.cfg.agents[0], None,
+                      state, 'Reason', 1, history=({'kind': 'lease', 'assignment': n,
+                      'agent': 'worker', 'run': f'run-{n}', 'created': iso(1000 + n),
+                      'expires': iso(2000 + n), 'state': 'released', 'summary': f'History {n}'},))
+                 for n, state in ((1, 'ready'), (2, 'ready'), (3, 'waiting'), (4, 'blocked'))]
+        self.observer.begin_pass()
+        for plan in plans:
+            self.observer.plan(plan)
+        self.observer.complete_pass()
+        previous = deepcopy(self.memory.snapshots[-1])
+        path = self.root / '.ub-agents' / 'sessions' / 'launcher.json'
+        path.parent.mkdir(parents=True)
+        worker = LocalWorker(self.root, path)
+        def published(selected='plan:4:worker'):
+            snapshot = self.memory.snapshots[-1]
+            path.write_text(json.dumps(snapshot))
+            result = worker.read(Request(selected, 1))
+            self.assertIsNone(result.session.error)
+            return snapshot, work_rows(result.session, self.root), result
+        published()
+        self.observer.begin_pass()
+        changes = [replace(plans[1], item=replace(plans[1].item, body='New body 2')),
+                   Plan(issue(5), self.cfg.agents[0], None, 'ready', 'New', 1),
+                   replace(plans[2], state='ready'), plans[0]]
+        expected_order = ([1, 2], [1, 2], [1, 2, 5], [1, 2, 3, 5], [1, 2, 3, 5])
+        for step, eligible in enumerate(expected_order):
+            if step:
+                self.observer.plan(changes[step - 1])
+            snapshot, work, result = published()
+            self.assertEqual(snapshot['latest_pass']['state'], 'partial')
+            self.assertEqual(len(work), len({row.key for row in work}))
+            self.assertTrue({1, 2, 3, 4}.issubset(row.item for row in work))
+            self.assertEqual([row.item for row in work if row.group == 'Eligible'], eligible)
+            kept = next(row for row in work if row.item == 4)
+            self.assertEqual(kept.data['history'], previous['histories']['4'])
+            self.assertEqual(local_description(kept, result.session).body, 'Body 4')
+            self.assertEqual(next(row for row in result.rows if row.item == 4).state, 'blocked')
+        self.observer.complete_pass()
+        snapshot, work, result = published()
+        self.assertEqual(snapshot['latest_pass']['state'], 'complete')
+        self.assertEqual([row.item for row in work], [2, 5, 3, 1])
+        self.assertNotIn('4', snapshot['histories'])
+        earlier = next(row for row in result.rows if row.item == 4)
+        self.assertEqual(earlier.state, 'earlier observation')
+        self.assertEqual(earlier.data['history'], previous['histories']['4'])
+        self.assertEqual(result.description.body, 'Body 4')
+        # A later begin also keeps rows from a pass interrupted by execution.
+        self.observer.begin_pass()
+        self.observer.plan(replace(changes[0], state='waiting'))
+        self.observer.begin_pass()
+        self.assertEqual([row['item'] for row in self.memory.snapshots[-1]['latest_pass']['rows']], [2, 5, 3, 1])
+
+    def test_kept_agent_uses_its_previous_description_and_item_history(self):
+        first = Plan(replace(issue(), body='Previous body'), self.cfg.agents[0], None,
+                     'ready', 'Ready', 1)
+        second = replace(first, agent=replace(first.agent, name='reviewer'))
+        self.observer.begin_pass()
+        self.observer.plan(first)
+        self.observer.plan(second)
+        self.observer.complete_pass()
+        previous = self.memory.snapshots[-1]['histories']['1']
+        self.observer.begin_pass()
+        self.observer.plan(replace(first, item=replace(first.item, body='New body'), history=({
+            'kind': 'lease', 'assignment': 1, 'agent': 'worker', 'run': 'new-run',
+            'created': iso(1000), 'expires': iso(2000), 'state': 'released'},)))
+        session = Session(self.root / 'launcher.json', self.memory.snapshots[-1])
+        refreshed, kept = work_rows(session, self.root)
+        self.assertEqual(local_description(refreshed, session).body, 'New body')
+        self.assertEqual(local_description(kept, session).body, 'Previous body')
+        self.assertEqual(kept.data['history'], previous)
+        self.assertEqual(len(refreshed.data['history']['runs']), 1)
+        self.observer.complete_pass()
+        self.assertEqual(list(self.memory.snapshots[-1]['histories']), ['1'])
+
+    def test_retained_rows_do_not_use_the_new_pass_plan_budget(self):
+        def plan(n):
+            return Plan(issue(n), self.cfg.agents[0], None, 'ready', 'Ready', 1)
+        self.observer.begin_pass()
+        for n in range(1, MAX_PLANS + 1):
+            self.observer.plan(plan(n))
+        self.observer.complete_pass()
+        self.observer.begin_pass()
+        for n in range(MAX_PLANS + 1, MAX_PLANS * 2 + 8):
+            self.observer.plan(plan(n))
+        partial = self.memory.snapshots[-1]
+        self.assertEqual(len(partial['latest_pass']['rows']), MAX_PLANS)
+        self.assertEqual(partial['omitted']['plans'], MAX_PLANS + 7)
+        self.assertEqual(len(self.observer.pass_rows), MAX_PLANS)
+        self.assertLessEqual(self.observer.byte_size(partial), MAX_BYTES)
+        # A newly assigned item can be outside the partial display's row budget.
+        # Its live records must also survive promotion of the new pass's rows.
+        self.observer.assignment(plan(MAX_PLANS + 1))
+        self.observer.record({'kind': 'lease', 'assignment': MAX_PLANS + 1, 'agent': 'worker',
+                              'run': 'current-run', 'created': iso(3000), 'runtime': 'direct',
+                              'state': 'running', 'expires': iso(4000)})
+        self.observer.complete_pass()
+        complete = self.memory.snapshots[-1]
+        self.assertEqual([row['item'] for row in complete['latest_pass']['rows']],
+                         list(range(MAX_PLANS + 1, MAX_PLANS * 2 + 1)))
+        self.assertEqual(complete['omitted']['plans'], 7)
+        self.assertEqual(set(complete['histories']), {str(n) for n in range(MAX_PLANS + 1, MAX_PLANS * 2 + 1)})
+        self.assertEqual(complete['histories'][str(MAX_PLANS + 1)]['runs'][0]['state'], 'running')
 
     def test_header_context_uses_plan_failures_and_claims_authoritative_attempt(self):
         plan = Plan(issue(), self.cfg.agents[0], Runtime('codex', 'gpt-6.1-sol', 'xhigh'),
