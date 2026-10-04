@@ -102,6 +102,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             try:
                 initial = until(lambda value: value['starts'] and value['focus'] is not None
                                 and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+                window_title = 'ub-agents launch — example/repo'.encode()
+                self.assertTrue(b'\x1b]0;' + window_title + b'\x07' in transcript,
+                                'Terminal output is missing the window-title OSC sequence')
                 self.assertNotIn(b'FOLLOW', transcript)
                 self.assertFalse(initial['display'])
                 os.write(master, b'f')
@@ -165,6 +168,15 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertFalse(cleared['display'])
                 self.assertEqual(cleared['body_y'], 0)
                 self.assertEqual(cleared['anchor'], paused['anchor'])
+                # Repeated snapshot reads do not re-emit an unchanged title.
+                self.assertEqual(transcript.count(b'\x1b]0;' + window_title + b'\x07'), 1)
+                self.assertNotIn(b'\x1b]0;\x07', transcript)
+                # Repository controls must remain inert inside the OSC payload.
+                state['repository'] = 'other/repo\x07\x1b]0;injected\x1b\\\n'
+                path.write_text(json.dumps(state))
+                changed_title = ('ub-agents launch — ' + r'other/repo\x07\x1b]0;injected\x1b\\n').encode()
+                until(lambda _: b'\x1b]0;' + changed_title + b'\x07' in transcript)
+                self.assertNotIn(b'\x1b]0;injected', transcript)
                 before = log.stat().st_size
                 os.write(master, b'q')
                 deadline = time.monotonic() + 5
@@ -178,6 +190,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(termios.tcgetattr(slave), modes)
                 self.assertIn(b'\x1b[?1049l', transcript)
                 self.assertIn(b'\x1b[?25h', transcript)
+                self.assertEqual(transcript.count(b'\x1b]0;' + changed_title + b'\x07'), 1)
+                self.assertEqual(transcript.count(b'\x1b]0;\x07'), 1)
                 self.assertIsNone(replay.poll())
                 self.assertGreater(log.stat().st_size, before)
             finally:
@@ -461,6 +475,9 @@ sys.exit(app.return_code or 1)
                         self.assertIn(b'Intentional rendering failure', transcript)
                     self.assertIn(b'\x1b[?1049l', transcript)
                     self.assertIn(b'\x1b[?25h', transcript)
+                    self.assertTrue(b'\x1b]0;' + 'ub-agents launch — example/repo'.encode() + b'\x07' in transcript,
+                                    'Terminal output is missing the window-title OSC sequence')
+                    self.assertEqual(transcript.count(b'\x1b]0;\x07'), 1)
                     self.assertEqual(termios.tcgetattr(slave), initial_modes)
                     self.assertIsNone(replay.poll(), 'View stopped replay process')
                     drain(0.05)

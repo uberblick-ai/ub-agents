@@ -42,6 +42,7 @@ green Eligible. Selection uses a shaded row. All colors follow the current
 theme, including update notices, Runs marks and log diff counts. Textual's
 `textual-light` theme recolors the view; `NO_COLOR=1` renders it in monochrome.
 The terminal title is `ub-agents launch — OWNER/REPOSITORY`, from the session.
+The view writes it when it changes and clears it on exit.
 
 When newer ub-agents code is available, a themed, one-line banner appears at the
 top, above both panes and the shared item header. It takes no focus and truncates

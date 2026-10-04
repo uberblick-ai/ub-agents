@@ -7,6 +7,7 @@ from queue import Empty
 import time
 
 from markdown_it import MarkdownIt
+from rich.control import Control
 from rich.segment import Segment
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -399,6 +400,7 @@ class View(App):
         self.busy = False
         self.pending_history = None
         self.last_context = self.last_runs = None
+        self._window_title = None
 
     def compose(self) -> ComposeResult:
         yield UpdateBanner()
@@ -439,6 +441,9 @@ class View(App):
         self.exit()
 
     def on_unmount(self):
+        if self._window_title is not None and self._driver is not None:
+            self._driver.write(str(Control.title('')))
+            self._window_title = None
         self.descriptions.close()
         self.worker.close()
         if self.launcher is not None:
@@ -458,6 +463,10 @@ class View(App):
             self.busy = False
             self.session = result.session
             self.title = 'ub-agents launch — ' + text(self.session.data.get('repository'), 'unknown')
+            # App.title only updates Header widgets in the pinned Textual.
+            if self._driver is not None and not self.is_headless and self.title != self._window_title:
+                self._driver.write(str(Control.title(self.title)))
+                self._window_title = self.title
             self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
             self.populate(result.rows)
             if result.token == self.token and result.key == self.selected:

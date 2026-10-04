@@ -292,4 +292,4 @@ The view registers this palette as its default `ub-agents` Textual theme. Custom
 variables fall back to the active theme's colors, so `textual-light` recolors
 all panes, notices and retained log/Runs content. `NO_COLOR=1` renders in
 monochrome. The terminal window title is `ub-agents launch — OWNER/REPOSITORY`,
-using the session's repository.
+using the session's repository. It updates when the title changes and clears on exit.
