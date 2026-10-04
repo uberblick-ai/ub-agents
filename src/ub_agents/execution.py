@@ -11,7 +11,7 @@ import time
 from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 
 
-def command_for(agent, runtime):
+def command_for(agent, runtime, scratch):
     if agent.command:
         return list(agent.command)
     if runtime.cli == "codex":
@@ -21,7 +21,7 @@ def command_for(agent, runtime):
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
                    "--model", runtime.model, "--effort", runtime.effort]
     # No permission flags, auth stores, or hidden provider fallback; never a shell.
-    return command + list(agent.runtime_args)
+    return command + [arg.replace("{scratch}", str(scratch)) for arg in agent.runtime_args]
 
 
 def git(root, *arguments, strip=True):

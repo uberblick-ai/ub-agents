@@ -12,6 +12,7 @@ stop label on items you want to stay held (#132).
 
 ### Added
 
+- Runtime arguments can use `{scratch}` to grant runtimes access to each run's private scratch directory ([configuration](docs/configuration.md#runtime-permissions), #194).
 - Launchers show an update banner with upgrade or restart instructions when a newer release or control-checkout code is available (#183).
 
 ### Changed

@@ -127,7 +127,7 @@ def init_project(args):
         targets[config_path] = targets[config_path].replace(
             "[--sandbox, danger-full-access]",
             '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
-            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)"]').replace(
+            '"Bash(git *)", "Bash(gh *)", "Bash(ub-agents *)", --add-dir, "{scratch}"]').replace(
             "Grants full access without the Codex sandbox",
             "Grants unattended edits and git/gh/report commands")
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
