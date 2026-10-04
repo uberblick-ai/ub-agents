@@ -151,6 +151,10 @@ class WorkTree(Tree):
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
             value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
                                claimed_at=self.claim_times.get(row.key))[line_no != node._line]
+        elif node is self.app.idle_node:
+            label_style += theme_style(self.app, 'view-muted', dim=True)
+            value = node.label.copy()
+            value.truncate(width, overflow='ellipsis')
         else:
             label_style = theme_style(self.app, SECTION_COLORS.get(node.label.plain.split(' · ')[0], 'view-muted'))
             value = section_rule(node.label.plain, width, label_style)
