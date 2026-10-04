@@ -155,9 +155,6 @@ class Notices:
         self.superseded(lease["assignment"], lease["agent"], lease["run"])
         if reported and reported.get("handoff") and reported["handoff"] != lease["assignment"]:
             self.superseded(reported["handoff"], lease["agent"], reported["run"])
-        if (lease["result"] == "success" and reported and reported.get("accepted")
-                and reported.get("handoff") and reported.get("candidate_sha")):
-            self.superseded_candidates(reported)
         exhausted = (lease["result"] == "retry" and lease.get("unreported")
                      and lease.get("attempt_effect") == "failure" and max_attempts is not None
                      and lease["attempt"] >= max_attempts)
@@ -167,6 +164,11 @@ class Notices:
             self.advisory(f"Action needed post on #{target}",
                           lambda: self.post_action(target, lease, reported, summary, stops if parked else (),
                                                    transition.get("triggers", ())))
+        # A parking handoff can post a new notice. Preserve its evidence rather
+        # than the links of the notice it just superseded.
+        if (lease["result"] == "success" and reported and reported.get("accepted")
+                and not reported.get("rejected") and reported.get("handoff") and reported.get("candidate_sha")):
+            self.superseded_candidates(reported)
 
     def post_action(self, number, lease, outcome, summary, stops, resume_triggers=()):
         marker = f"{ACTION_MARKER}{lease['run']} -->"

@@ -170,6 +170,10 @@ class NoticeTests(unittest.TestCase):
         current = self.start(2, agent(self.root, name="current-reviewer"))
         source = self.start()
         outcome = self.co.report(source, "success", "New candidate", handoff=2, outcome="done")
+        # The handoff item's copied outcome, rather than its source comment on
+        # the issue, sets the ordering boundary for candidate cleanup.
+        between = self.github.create_comment(2, body(payload(lease) | {"run": "before-copy"}))
+        older.append(between["id"])
         self.co.accept(source, outcome)
         history = self.co.history(2)
         counts = {name: attempts(history, name, self.now) for name in ("reviewer", "integrator")}
@@ -182,7 +186,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_handoff_preserves_its_run_and_records_written_after_its_outcome(self):
         first = self.start(2, agent(self.root, name="reviewer"))
-        self.co.report(first, "retry", "Earlier candidate")
+        first_outcome = self.co.report(first, "retry", "Earlier candidate")
         self.co.release(first, "retry", "Earlier candidate")
         source = self.start(2)
         self.github.change(2, head="b" * 40)
@@ -190,7 +194,7 @@ class NoticeTests(unittest.TestCase):
         self.co.accept(source, outcome)
         late = self.github.create_comment(2, body(payload(first) | {"run": "late-record"}))
         self.co.release(source, "success", outcome["summary"])
-        self.assertEqual(self.github.minimized_ids, {first["id"], first["id"] + 1})
+        self.assertEqual(self.github.minimized_ids, {first["id"], first_outcome["id"]})
         self.assertNotIn(source["id"], self.github.minimized_ids)
         self.assertNotIn(outcome["id"], self.github.minimized_ids)
         self.assertNotIn(late["id"], self.github.minimized_ids)
@@ -247,6 +251,58 @@ class NoticeTests(unittest.TestCase):
             self.co.release(source, "success", outcome["summary"])
         self.assertEqual(source["result"], "success")
         self.assertEqual(self.co.history(2), history)
+        self.assertFalse(self.github.minimized_ids)
+        self.assertTrue(any("Advisory minimize comment" in line for line in self.output))
+
+    def test_parking_handoff_preserves_new_notice_links_and_folds_previous_notice_evidence(self):
+        old = self.start(2, agent(self.root, name="integrator"))
+        old_outcome = self.co.report(old, "blocked", "Previous decision")
+        self.co.release(old, "blocked", old_outcome["summary"])
+        worker = agent(self.root, outcomes={"human": {"add": ("needs-human",), "remove": ()}})
+        source = self.start(worker=worker)
+        self.github.change(2, head="b" * 40)
+        outcome = self.co.report(source, "success", "Human must merge", handoff=2, outcome="human")
+        self.co.update_outcome(source, outcome, transition_complete=True)
+        self.co.accept(source, outcome)
+        self.co.release(source, "success", outcome["summary"])
+        self.assertEqual(self.github.minimized_ids, {old["id"], old_outcome["id"]})
+        latest = self.notices(2)[-1]
+        self.assertIn(source["url"], latest["body"])
+        self.assertIn(outcome["url"], latest["body"])
+        self.assertNotIn(latest["id"], self.github.minimized_ids)
+        self.assertNotIn(self.co.history(2)[-1]["id"], self.github.minimized_ids)
+
+    def test_recovered_handoff_minimizes_old_candidates(self):
+        old = self.start(2, agent(self.root, name="reviewer"))
+        old_outcome = self.co.report(old, "retry", "Earlier candidate")
+        self.co.release(old, "retry", old_outcome["summary"])
+        worker = agent(self.root, kind="issue")
+        source = self.start(worker=worker)
+        self.github.change(2, head="b" * 40)
+        outcome = self.co.report(source, "success", "Recovered candidate", handoff=2, outcome="done")
+        self.now += 61
+        loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
+        loop.coordinator.clock = lambda: self.now
+        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+            self.assertTrue(loop.recover(loop.coordinator.plan(self.github.item(1), worker, ("needs-human",))))
+        self.assertEqual({c["id"] for c in self.github.comments(2) if c["id"] in self.github.minimized_ids},
+                         {old["id"], old_outcome["id"]})
+        copied = next(r for r in loop.coordinator.history(2) if r["run"] == outcome["run"])
+        self.assertTrue(copied["accepted"])
+        self.assertNotIn(copied["id"], self.github.minimized_ids)
+
+    def test_election_minimization_failure_does_not_change_the_winner(self):
+        plan = self.co.plan(self.github.item(1), self.worker, ())
+        self.github.claim_barrier = threading.Barrier(2)
+        self.github.claim_read_barrier = threading.Barrier(2)
+        other = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
+        with patch.object(self.github, "minimize_comment", side_effect=GitHubError("POST", "graphql", "Unavailable")), \
+                ThreadPoolExecutor(max_workers=2) as pool:
+            claims = list(pool.map(lambda co: co.claim(plan), (self.co, other)))
+        winner = next(c for c in claims if c is not None)
+        self.assertEqual(sum(c is not None for c in claims), 1)
+        self.co.assert_owned(winner)
+        self.assertEqual([r["state"] for r in self.co.history(1)], ["claiming", "withdrawn"])
         self.assertFalse(self.github.minimized_ids)
         self.assertTrue(any("Advisory minimize comment" in line for line in self.output))
 
