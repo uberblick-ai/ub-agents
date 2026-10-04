@@ -9,6 +9,7 @@ notes are copied from that section.
 ### Changed
 
 - The Runs tab shows each item's filing and run history across launchers, with relative times, hosts, outcomes and visible omission counts (#179).
+- The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
 
 ## 0.1.11 — 2026-10-04

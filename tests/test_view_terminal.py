@@ -28,7 +28,13 @@ class TerminalViewTests(unittest.TestCase):
                 calls, release, mode = root / 'calls.jsonl', root / 'release', root / 'mode'
                 mode.write_text('success')
                 shim = root / 'gh'
-                shim.write_text(f'#!{sys.executable}\n' + '''
+                body = ('## Terminal Markdown\n\nTerminal loaded body\nSecond line\n\n'
+                        '- **strong** and *emphasis* with `code`\n'
+                        '- [bold]literal[/bold] \x1b[31m\n\n'
+                        '```text\ncode\tline\n```\n\n'
+                        '[web](https://example.invalid)\n'
+                        '![pic](https://example.invalid/pic) <b>HTML</b>')
+                shim.write_text(f'#!{sys.executable}\nbody = {body!r}\n' + '''
 import json, os, pathlib, signal, sys, time
 root = pathlib.Path(__file__).parent
 with (root / 'calls.jsonl').open('a') as stream:
@@ -38,7 +44,7 @@ while (root / 'mode').read_text() == 'hang' or not (root / 'release').exists():
     time.sleep(0.02)
 print('HTTP/2.0 200 OK\\nX-Ratelimit-Remaining: 500\\n')
 print(json.dumps({'data': {'repository': {'issueOrPullRequest': {
-    'title': 'Terminal loaded title', 'body': 'Terminal loaded body'}}}}))
+    'title': 'Terminal loaded title', 'body': body}}}}))
 ''')
                 shim.chmod(0o700)
                 replay = subprocess.Popen([sys.executable, '-c', '''
@@ -83,9 +89,30 @@ while not select.select([sys.stdin], [], [], 0.01)[0]:
                     release.touch()
                     loaded = drain(0.8)
                     self.assertIn(b'Terminal loaded body', loaded)
+                    self.assertIn(b'Terminal Markdown', loaded)
+                    self.assertIn(b'Second line', loaded)
+                    self.assertIn(b'[bold]literal[/bold]', loaded)
+                    self.assertIn(br'\x1b[31m', loaded)
+                    self.assertNotIn(b'\x1b[31m', loaded)
+                    self.assertNotIn(b'**strong**', loaded)
+                    self.assertNotIn(b'## Terminal Markdown', loaded)
                     self.assertIn(b'Source: GitHub', loaded)
                     os.write(master, b'3g1g2g')
                     drain()
+                    self.assertEqual(len(recorded()), 1)
+                    state['latest_pass']['rows'][0]['description'] = {
+                        'available': True, 'text': '## Snapshot Markdown\n\nSnapshot body\nSecond line\n\n- **strong**'}
+                    path.write_text(json.dumps(state))
+                    snapshot = drain(0.5)
+                    self.assertIn(b'Snapshot Markdown', snapshot)
+                    self.assertIn(b'Source: snapshot', snapshot)
+                    self.assertNotIn(b'## Snapshot Markdown', snapshot)
+                    state['latest_pass']['rows'][0]['description'] = {
+                        'available': True, 'text': '```text\n' + 'x' * 3000,
+                        'omitted_characters': 1000}
+                    path.write_text(json.dumps(state))
+                    shortened = drain(0.5)
+                    self.assertIn(b'Description shortened', shortened)
                     self.assertEqual(len(recorded()), 1)
                     # A new selected item has no local or in-memory description.
                     state['assignment']['item'] = 116
@@ -137,6 +164,10 @@ while not select.select([sys.stdin], [], [], 0.01)[0]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, log, _ = fixture(root, count=900)
+            (log.parent / 'context.json').write_text(json.dumps({
+                'title': 'Cached title [bold]literal[/bold]',
+                'body': '## Cached Markdown\n\nCached description\r\nSecond line\rThird line\n\n'
+                        '- **strong** and *emphasis* with `code`\n\n```text\ncode\tline\n```'}))
             # This owned process stands in for a launcher publishing live output.
             replay = subprocess.Popen([sys.executable, '-c', '''
 import pathlib, select, sys
@@ -210,7 +241,13 @@ sys.exit(app.return_code or 1)
                         os.write(master, b'u')
                         self.assertIn(b'RAW', drain())
                         os.write(master, b'2')
-                        self.assertIn(b'Cached description', drain())
+                        cached = drain()
+                        self.assertIn(b'Cached description', cached)
+                        self.assertIn(b'Cached Markdown', cached)
+                        self.assertIn(b'Second line', cached)
+                        self.assertIn(b'Third line', cached)
+                        self.assertNotIn(b'## Cached Markdown', cached)
+                        self.assertNotIn(b'**strong**', cached)
                         os.write(master, b'3')
                         runs = drain()
                         self.assertIn(b'filed by bk-one', runs)
