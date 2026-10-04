@@ -9,6 +9,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 
 from .view_data import Description, description_text
@@ -85,16 +86,27 @@ class GhTransport:
     def __init__(self, clock=time.monotonic, wall_clock=time.time):
         self.clock, self.wall_clock = clock, wall_clock
         self.process = None
+        self.life = None
 
     def start(self, repository, item):
         owner, repo = repository.split('/')
         env = dict(os.environ, GH_PROMPT_DISABLED='1', GH_PAGER='cat')
         env.pop('GH_DEBUG', None)
-        self.process = subprocess.Popen(
-            ['gh', 'api', 'graphql', '--hostname', 'github.com', '--include',
+        command = ['gh', 'api', 'graphql', '--hostname', 'github.com', '--include',
              '-f', 'query=' + QUERY, '-f', 'owner=' + owner, '-f', 'repo=' + repo,
-             '-F', f'number={item}'], stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, env=env)
+             '-F', f'number={item}']
+        read, self.life = os.pipe()
+        try:
+            self.process = subprocess.Popen(
+                [sys.executable, '-P', '-m', 'ub_agents.view_request', str(read), *command],
+                pass_fds=(read,), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, start_new_session=True, env=env)
+        except BaseException:
+            os.close(self.life)
+            self.life = None
+            raise
+        finally:
+            os.close(read)
         self.deadline = self.clock() + REQUEST_SECONDS
         self.buffers = [bytearray(), bytearray()]
         self.eof = [False, False]
@@ -135,17 +147,19 @@ class GhTransport:
             return Response(error=description_text(str(exc)))
 
     def close(self):
+        if self.life is not None:
+            os.close(self.life)
+            self.life = None
         process, self.process = self.process, None
         if process is None:
             return
-        # Even an exited gh may have a child retaining its pipes. Only this
-        # request's private process group is signalled, never the launcher.
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=1)
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                # Only the owned helper, never another view or the launcher.
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
         finally:
             process.stdout.close()
             process.stderr.close()

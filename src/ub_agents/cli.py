@@ -55,6 +55,7 @@ def parser():
     launch.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="Run only this item, then exit (optional)")
     launch.add_argument("--agent", help="Evaluate only this configured agent (requires an item number)")
     launch.add_argument("--once", action="store_true", help="Observe once and execute at most one assignment")
+    launch.add_argument("--no-ui", action="store_true", help="Keep plain line output in an interactive terminal")
     status = commands.add_parser("status", help="Inspect matching work and runs",
                                  description="Read matching assignments, leases, attempts and reported outcomes. "
                                  "Use to inspect queue progress or why an item is waiting without changing it.",
@@ -347,6 +348,7 @@ def run(args):
     handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: loop.stop_gracefully())
     from .observations import Observations, Publisher
     publisher = None
+    view = None
     try:
         try:
             publisher = Publisher(config.root, output=loop.output)
@@ -360,12 +362,18 @@ def run(args):
                 publisher.warning(str(exc))
             else:
                 loop.output(f"Cannot publish launcher observations: {exc}")
+        if not stop.is_set():
+            from .launch_ui import open_view
+            session = loop.observer.state['session'] if loop.observer is not None else None
+            view = open_view(config.root, session, args.launch_output, stop, no_ui=args.no_ui)
         if args.number is not None:
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
         loop.launch(once=args.once)
     except _GracefulStop:
         return
     finally:
+        if view is not None:
+            view.close()
         if publisher is not None:
             publisher.close()
         for sig, handler in handlers.items():
@@ -399,7 +407,7 @@ def main(argv=None):
                     command_parser.error("launch --agent requires an item number")
                 if args.number is not None and args.number < 1:
                     command_parser.error("launch requires a positive item number")
-                stack.enter_context(launch_output(Path(args.config or DEFAULT_CONFIG).resolve().parent))
+                args.launch_output = stack.enter_context(launch_output(Path(args.config or DEFAULT_CONFIG).resolve().parent))
             args.config = (Path(args.config or DEFAULT_CONFIG).resolve()
                            if args.command in {"init", "report"} else resolve_config_path(args.config))
             return run(args) or 0

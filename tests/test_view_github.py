@@ -105,7 +105,7 @@ class GhTransportTests(unittest.TestCase):
                 self.assertIsNotNone(result)
                 self.assertIn('[description shortened]', result.body)
                 self.assertEqual(len(calls), 1)
-                self.assertEqual(calls[0], ['gh', 'api', 'graphql', '--hostname', 'github.com', '--include',
+                self.assertEqual(calls[0][5:], ['gh', 'api', 'graphql', '--hostname', 'github.com', '--include',
                                           '-f', 'query=' + QUERY, '-f', 'owner=example', '-f', 'repo=repo', '-F', 'number=115'])
                 self.assertNotIn('comments', QUERY)
                 self.assertNotIn('history', QUERY)

@@ -13,10 +13,11 @@ license-files = ["LICENSE"]
 dependencies = ["PyYAML>=6.0,<7"]
 
 [project.optional-dependencies]
-ui = ["textual>=8.2.8,<9"]
+ui = ["textual==8.2.8"]
 
 [project.scripts]
 ub-agents = "ub_agents.cli:main"
+ub-agents-ui = "ub_agents.view:main"
 
 [project.urls]
 Repository = "https://github.com/uberblick-ai/ub-agents"

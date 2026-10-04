@@ -54,7 +54,16 @@ ub-agents doctor       # check the machine, GitHub labels/access and runtimes
 ub-agents launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
-Launch output is flushed immediately to the terminal and appended to
+The base install has no UI dependencies. For the optional read-only terminal view,
+install `brew install uberblick-ai/tap/ub-agents-ui`. Interactive launches then
+open their own session's view; `q` closes it and leaves the launcher running,
+and Ctrl-C stops the launcher. Use `launch --no-ui` for plain lines. Pipes and
+services stay plain. Without the UI, interactive launch prints one installation
+notice. See [terminal view installation](docs/terminal-view.md#installation) for
+version-pinned Python checkout installs in a dedicated environment, requirements
+and raw-log access.
+
+Launch output is flushed immediately to the terminal when the view is closed and appended to
 `.ub-agents/launch.log` in the control checkout, with a UTC timestamp on each file
 line, including stop and error messages. This also applies to `launch --once`;
 the log is never truncated or rotated. Follow it from another terminal with
@@ -116,8 +125,9 @@ while `retry NUMBER` and `approve NUMBER` require one.
 |---|---|
 | `ub-agents help [COMMAND]` | Show the overview, or detailed command help with examples |
 | `ub-agents status` | Show matching work, lease details, whether local agents are running, and what they reported |
-| `ub-agents launch --once` | Run at most one assignment, then exit |
-| `ub-agents launch N [--agent NAME]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
+| `ub-agents launch [--no-ui]` | Watch the queue; open the installed view on a TTY or keep plain output with `--no-ui` |
+| `ub-agents launch --once [--no-ui]` | Run at most one assignment, then exit |
+| `ub-agents launch N [--agent NAME] [--no-ui]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
 | `ub-agents cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
 | `ub-agents retry N --reason TEXT [--agent NAME]` | Let stopped work run again, with a recorded reason |
 | `ub-agents approve N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
@@ -132,8 +142,9 @@ one release, hidden from help.
 
 ## Stopping and restarting
 
-| Signal | Effect | Exit |
+| Signal or key | Effect | Exit |
 |---|---|---|
+| `q` in the view | Close only the view and restore the terminal; launcher continues with new plain output, and earlier lines remain in `launch.log`. | launcher unchanged |
 | `SIGTERM` (`kill -TERM <pid>`) | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup; an in-progress checkout refresh finishes without a claim. When idle it exits promptly. | 0 |
 | `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`, including when idle or during a GitHub request. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
 | `SIGHUP` | Same as Ctrl-C. | 130 |
@@ -146,6 +157,10 @@ error keeps its nonzero exit even during a drain. See the
 [configuration reference](docs/configuration.md#top-level) for detailed wait rules
 and the [coordination contract](docs/coordination.md#execution-boundaries) for
 execution and cleanup boundaries.
+
+The view closes and restores the terminal on launcher exit, including errors. A
+view crash or kill restores the terminal and resumes plain output with one line
+reporting the failure. Launcher and view reap their owned processes.
 
 The launcher does not reload code; restart it after an upgrade or after checkout
 refresh pulls code changes.
@@ -391,10 +406,11 @@ model. This repository is developed with its own loop: see [ub-agents.yaml](ub-a
 and [AGENTS.md](AGENTS.md). The roadmap is in the
 [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
-An optional [development terminal view](docs/terminal-view.md) shows one launcher's
+An optional [local terminal view](docs/terminal-view.md) shows one launcher's
 local work, cached context, outcomes and paged runtime logs in a separate process.
 On the Issue tab, `g` can load a missing title/body through `gh` on request.
-Install `.[ui]` in the checkout venv; the base launcher does not depend on Textual.
+Use the supported opt-in Homebrew package or a version-pinned Python install;
+interactive `launch` opens the view automatically, and the base launcher stays UI-free.
 
 ## License
 

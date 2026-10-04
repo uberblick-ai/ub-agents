@@ -10,6 +10,7 @@ import threading
 import uuid
 
 from .records import iso, timestamp
+from . import __version__
 
 VERSION = 1
 MAX_PLANS = 100
@@ -138,7 +139,7 @@ class Observations:
         self.root = config.root.resolve()
         self.stop_labels = config.stop_labels
         self.state = {
-            "version": VERSION, "session": uuid.uuid4().hex, "pid": os.getpid(),
+            "version": VERSION, "base_version": __version__, "session": uuid.uuid4().hex, "pid": os.getpid(),
             "host": socket.gethostname(), "actor": actor,
             "actor_reason": None if actor else "Authentication has not completed",
             "repository": config.repository, "config_path": str(config_path) if config_path else None,

@@ -1,27 +1,62 @@
-# Development terminal view
+# Local terminal view
 
-The optional view reads one launcher's local files in a separate process. On
-explicit request it can read a missing item description through the operator's
-existing `gh` read access. It cannot approve, retry workflow runs, merge, stop or
-otherwise change work.
-The launcher and base package work without Textual. This development entrypoint
-is not a new `ub-agents` command or a supported Homebrew installation route.
+`ub-agents launch`, `launch --once` and `launch N` automatically open the read-only
+view for their own session when stdin and stdout are terminals and the opt-in UI
+is installed. `launch --no-ui` keeps plain line output. Pipes, CI and services
+remain plain. An interactive launch without the UI prints one installation notice
+and continues; nothing is installed at runtime. Other commands neither import UI
+packages nor print that notice.
 
-Install the extra in a development checkout's own virtual environment:
+The view runs in its own process. It reads local files on the same macOS or Linux
+host, as the same user as the launcher, from the **control checkout** rather than
+an agent's private worktree. A launcher passes its exact session ID; it never
+selects another fresh session. A missing, stale (over 30 seconds), ended or
+incompatible snapshot, or a UI/base version mismatch, produces a one-line error
+and plain output continues. The view has no workflow controls. Only an explicit
+Issue-tab description request uses the user's existing authenticated `gh` access.
+
+## Installation
+
+The base Homebrew package stays UI-free. Install the separate opt-in package:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -e '.[ui]'
-.venv/bin/python -m ub_agents.view /path/to/control-checkout
-.venv/bin/python -m ub_agents.view /path/to/control-checkout --session SESSION_ID
+brew install uberblick-ai/tap/ub-agents
+brew install uberblick-ai/tap/ub-agents-ui
 ```
 
-Use the **control checkout**, whose `.ub-agents/sessions/` and `runs/` directories
-belong to the launcher, rather than an agent's private worktree. With no ID, the
-view opens the only fresh, unended session (including an idle launcher). Otherwise
-it lists local sessions as live, idle, stale, ended or malformed and exits.
-An explicit ID can open an ended or unavailable session. Missing timestamps are
-stale with unknown freshness; a heartbeat older than 30 seconds is stale.
+The UI package has its own environment and pinned Python resources. The launcher
+finds `ub-agents-ui` on PATH, and checks that its version matches the base package.
+Upgrade both packages together when updating the UI. The tap change accompanies
+this implementation as a separate reviewable PR; publishing a release and
+upgrading operator installations are separate actions. Installation changes no
+operator service or permissions.
+
+For Python, use Python 3.11+ and a dedicated environment. Select a tagged release
+that contains this feature, or the full reviewed commit from the implementation PR;
+older releases such as v0.1.10 do not contain this launch integration. Pin the
+checkout before installing; do not use the experiment's development environment:
+
+```sh
+git clone https://github.com/uberblick-ai/ub-agents.git
+cd ub-agents
+git checkout --detach REVIEWED_COMMIT_OR_RELEASE_TAG
+python3 -m venv "$HOME/.local/share/ub-agents-ui"
+"$HOME/.local/share/ub-agents-ui/bin/python" -m pip install '.[ui]'
+"$HOME/.local/share/ub-agents-ui/bin/ub-agents" --version
+```
+
+Run that environment's `ub-agents` in the control checkout, or put its `bin` on
+PATH. This installs a fixed checkout version of `ub-agents[ui]` and Textual 8.2.8;
+PyPI publication is not required. For upgrades, stop the launcher, select the next
+release tag or full commit, reinstall into this environment, and restart.
+
+`ub-agents-ui /path/to/control-checkout --session SESSION_ID` is available for
+manual local observation. Without an ID this standalone view opens the only
+fresh, unended local session or lists available sessions. Only this manual form
+allows an explicit ended/unavailable session; automatic launch attachment is
+strict. Ctrl-C in a standalone view closes only that view.
+
+## Using the view
 
 At least **110 columns × 32 rows** are needed for the combined view. The left
 pane contains the current assignment, the latest pass (marked partial until
@@ -45,7 +80,8 @@ session outcomes, including acceptance and human blockers.
 | `u` | Toggle formatted/raw projection of the same page |
 | `p` | Show the full raw file path; `Escape` closes it |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
-| `q`, `Ctrl-C` | Quit only the view |
+| `q` | Close only the view; launcher continues with plain output |
+| `Ctrl-C` | Interrupt the launching process with its normal SIGINT handling (exit 130) |
 
 FOLLOW/PAUSED, RAW/FORMATTED, snapshot freshness, unread entries and byte lag are
 always visible in the footer, including on Issue and Runs. Pausing freezes the
@@ -61,8 +97,9 @@ the selected issue or PR's title and body, without comments, history, queue scan
 or prefetch. No reads or retries happen automatically. There is at most one read
 in flight: pressing `g` while any read is pending queues nothing. Input and local
 snapshot/log reading continue while it is pending, with a loading notice on Issue.
-Quitting terminates and reaps the view's own request process group, leaving the
-observed launcher running.
+Closing the view terminates and reaps its owned request processes. A request
+supervisor also cleans them up if the view is killed. `q` leaves the launcher
+running; Ctrl-C interrupts an attached launcher.
 
 Descriptions show their source and age: snapshot publication time, run context
 file modification time, or GitHub load completion time; missing local timestamps
@@ -94,14 +131,24 @@ reads validate the file identity and byte anchor before and after reading; a
 changed file's page is rejected. Snapshot, context and log reads run on one daemon
 thread with single-slot request/result mailboxes. A slow read never blocks input
 or grows a backlog. The separate GitHub transport reads bounded nonblocking pipes.
-No file writes or launcher imports occur in the view. Cached own-run readers are
+No file writes or launcher execution imports occur in the view. Cached own-run readers are
 limited to 21, matching the session's bounded
 20 recent outcomes plus its current assignment.
+
+Launcher lines written while the view is open continue to append, with the same
+UTC timestamps, to `.ub-agents/launch.log`. Closing with `q` resumes new plain
+lines without replaying past output. On launcher exit the view closes, the
+terminal is restored, and the final launcher message is visible. A crashed or
+killed view produces one diagnostic and resumes plain output. SIGTERM drains the
+launcher normally; SIGHUP interrupts it like Ctrl-C. Reopening a closed view from
+a running launcher is not supported.
 
 ## Validation
 
 CI runs the base suite without the extra, then installs `.[ui]` and runs the same
-suite with the UI regressions enabled. Local checks:
+suite with UI regressions enabled. It builds a wheel and source distribution,
+installs the wheel into clean base/UI environments, checks base help and plain
+launch without Textual, and resolves the UI entrypoint. Local checks:
 
 ```sh
 .venv/bin/python -m unittest discover -v
@@ -127,9 +174,15 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    tabs/rows and return; confirm no further call. Retry a failure explicitly.
 6. Start a pending or hung description load and quit with `q`; repeat with
    `Ctrl-C`. Verify prompt exit and no request process left behind, as well as
-   normal terminal input, cursor and
-   alternate-screen restoration. Confirm the launcher/replay process is still
-   running and output still grows. Stop only the replay owned by this check.
+   normal terminal input, cursor and alternate-screen restoration. With `q`,
+   confirm the launcher continues and output still grows. With Ctrl-C in an
+   automatic launch view, confirm launcher exit 130 and owned execution cleanup.
+   A standalone replay observer closes only itself on either key.
+
+7. Exercise `launch`, `--once` and `launch N`, exact-session attachment with another
+   fresh snapshot present, stale/version errors, restart, view crash/kill, SIGTERM
+   drain and SIGHUP. Confirm final launcher output, unchanged exit codes, reaped UI
+   and request processes, and cleaned owned agent groups.
 
 Record the terminal type, dimensions, replay or live source, exercised controls,
 restoration and launcher-isolation result in the implementation PR. Owned real

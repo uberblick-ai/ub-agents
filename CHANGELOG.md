@@ -15,6 +15,8 @@ Approvals now default off for private and internal repositories; set
 
 ### Added
 
+- Interactive launchers open their own session's optional terminal view; `--no-ui` keeps plain output, and closing the view leaves the launcher running (#116).
+
 - `ub-agents help [COMMAND]` provides a compact overview and detailed help with
   usage and examples, available without project configuration (#143).
 
