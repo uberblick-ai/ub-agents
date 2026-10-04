@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).
+
 ## 0.1.11 — 2026-10-04
 
 **Upgrading:** stop all of a project's launchers and upgrade them together, since
