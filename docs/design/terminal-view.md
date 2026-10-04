@@ -95,11 +95,19 @@ Recent activity rows keep their two-line layout: glyph, item reference, shortene
 title and result; then agent · time · summary. A row keeps its place and selection
 across polls. An item appears once in the live sections.
 
-The pane title shows the pass state: `Work · pass complete`, or a dim `pass partial`.
+The rounded pane border's title shows the pass state: `Work · pass complete` or
+`Work · pass partial`, followed by any omitted count. The tree has no separate
+root line. Work section headings and Recent activity use thin dashed rules;
+there are no interior pane boxes. The focus border and its title use the accent
+color; the other border and title are dim.
 
 ## Item pane
 
-Tabs `1 Log  2 Issue  3 Runs`, plus `4 Unblock` when the item needs attention, then `│ Formatted  Raw u` on the Log tab. Each tab
+The current tabs read `1 Log  2 Issue  3 Runs │ Formatted  Raw`. Formatted/Raw is
+an inert indicator of the selected log's `u` mode, visible on every tab. The active
+tab is inverted, the others are dim, and a thin dashed rule replaces Textual's
+underline. The pane's rounded border is titled `Log`, `Issue` or `Runs`.
+An Unblock tab remains a future design below. Each tab
 starts with the same item header: `#N title` (issue) or `⌥N title` (PR) in bold,
 then agent · runtime · attempt · PR in dim text and a dashed rule. Missing values
 are omitted. The running assignment shows `attempt N`; planned work shows
@@ -239,7 +247,7 @@ footer keys switch to log keys):
                                                               ⏸ PAUSED · 37 new ↓ · f follow
  ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
 
-Update available (yellow banner above both panes; the view is otherwise unchanged):
+Update available (themed banner above both panes):
  ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, then restart the launcher   released 2 days ago
  ⬆ This launcher runs code 3 commits behind origin/main · restart the launcher
 
@@ -247,7 +255,7 @@ Stopping:
  ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
 ```
 
-The update banner is one yellow row above both panes and the shared item header,
+The update banner is one themed row above both panes and the shared item header,
 with the release age at the right when space permits. It truncates to the terminal
 width and takes no focus. The activity footer remains at the bottom.
 Pip releases name `pip install -U ub-agents` instead of the Homebrew command.
@@ -279,3 +287,9 @@ Colors, as Textual theme variables with these dark-theme values:
 Focused pane: accent border with its title in the border ("Work", "Log", "Issue"); unfocused: #2a303b border.
 Tab bar: active tab inverted (dark text on light), others dim; "Formatted" underlined in accent when on.
 ```
+
+The view registers this palette as its default `ub-agents` Textual theme. Custom
+variables fall back to the active theme's colors, so `textual-light` recolors
+all panes, notices and retained log/Runs content. `NO_COLOR=1` renders in
+monochrome. The terminal window title is `ub-agents launch — OWNER/REPOSITORY`,
+using the session's repository. It updates when the title changes and clears on exit.

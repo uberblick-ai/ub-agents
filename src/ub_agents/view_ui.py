@@ -7,6 +7,7 @@ from queue import Empty
 import time
 
 from markdown_it import MarkdownIt
+from rich.control import Control
 from rich.segment import Segment
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -24,6 +25,7 @@ from .view_github import DescriptionLoads
 from .view_runs import run_status as history_status, runs_view
 from .view_worker import LocalWorker, Request
 from .view_work import RecentActivity, WorkTree
+from .view_theme import VIEW_THEME, log_style, theme_style, variable_defaults
 from .updates import release_age
 
 MAX_RENDER_LINES = 400
@@ -66,6 +68,8 @@ class ItemTabs(TabbedContent):
         for widget in super().compose():
             yield widget
             if isinstance(widget, Tabs):
+                yield Static('', id='log_mode', markup=False)
+                yield Static('', id='tab_rule', markup=False)
                 yield Static('', id='item_header', markup=False)
 
 
@@ -174,17 +178,18 @@ class LogPane(ScrollView):
         if raw or not value.compact:
             return rich.wrap(self.app.console, width, overflow='fold')
         for start, end, style in value.styles:
-            rich.stylize(style, start, end)
+            rich.stylize(log_style(self.app, style), start, end)
         lines = []
         for line in rich.split('\n') if rich.plain else ():
-            if any(span.style in ('dim italic', 'italic') for span in line.spans):
+            if any(span.style.italic for span in line.spans):
                 # Wrapped assistant continuations share the explicit LF indent.
                 column, body = line[:10], line[10:]
                 for index, part in enumerate(body.wrap(self.app.console, width - 10, overflow='fold')):
                     lines.append((column if index == 0 else Text(' ' * 10, style=self.rich_style)) + part)
             else:
-                counts = [span.start for span in line.spans if span.style in ('green', 'red')
-                          and line.plain[span.start:span.end].lstrip('+-').isdigit()]
+                counts = [span.start for span in line.spans
+                          if line.plain[span.start:span.end][:1] in ('+', '-')
+                          and line.plain[span.start:span.end][1:].isdigit()]
                 if counts:
                     start = min(counts) - 1
                     suffix = line[start:]
@@ -317,14 +322,35 @@ class LogPane(ScrollView):
 
 
 class View(App):
-    TITLE = 'ub-agents · one launcher · read-only view'
+    TITLE = 'ub-agents launch'
     CSS = '''
-    #update { height: 1; padding: 0 1; background: #d7af00; color: #161616; display: none; overflow: hidden; }
+    Screen { background: $background; color: $foreground; }
+    #update { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
     #body { height: 1fr; }
-    #work_pane { width: 36; border: solid $accent; }
+    #work_pane { width: 36; }
+    #work_pane, #panes {
+        border: round $view-border; border-title-color: $view-border;
+        border-title-align: left; border-title-style: none;
+    }
+    #work_pane:focus-within, #panes:focus-within {
+        border: round $view-accent; border-title-color: $view-accent;
+    }
     #work { height: 1fr; }
+    #work, #work:focus { background: $background; background-tint: $background 0%; }
+    #work > .tree--cursor, #work:focus > .tree--cursor {
+        background: $view-selection; color: $view-accent; text-style: none;
+    }
+    #work > .tree--highlight { background: $view-selection; }
     #recent { height: 1fr; overflow: hidden; }
     #panes { width: 1fr; }
+    #panes Tabs { height: 1; }
+    #panes Underline { display: none; }
+    #panes Tab { color: $view-muted; text-style: none; }
+    #panes Tab.-active, #panes Tabs:focus Tab.-active {
+        color: $background; background: $foreground; text-style: none;
+    }
+    #log_mode { overlay: screen; position: absolute; offset: 24 0; width: 21; height: 1; }
+    #tab_rule { height: 1; color: $view-muted; }
     #panes > ContentSwitcher { height: 1fr; }
     TabPane { height: 1fr; padding: 0 1; }
     #item_header { height: 3; padding: 0 1; overflow: hidden; }
@@ -333,6 +359,9 @@ class View(App):
     #run_status { height: 2; overflow: hidden; }
     #log_state { height: 1; content-align: right middle; }
     #issue_body { padding: 0; }
+    #issue_body MarkdownFence { color: $foreground; background: $panel; }
+    #issue_body MarkdownBlockQuote { border: none; background: $panel; }
+    #issue_body MarkdownHorizontalRule { border-bottom: dashed $view-muted; }
     #status { height: 1; background: $panel; }
     '''
     BINDINGS = [
@@ -355,6 +384,8 @@ class View(App):
 
     def __init__(self, root, session_path, worker=None, descriptions=None, launcher=None):
         super().__init__()
+        self.register_theme(VIEW_THEME)
+        self.theme = VIEW_THEME.name
         self.launcher = launcher
         self.worker = worker or LocalWorker(root, session_path)
         self.descriptions = descriptions or DescriptionLoads()
@@ -369,30 +400,35 @@ class View(App):
         self.busy = False
         self.pending_history = None
         self.last_context = self.last_runs = None
+        self._window_title = None
 
     def compose(self) -> ComposeResult:
         yield UpdateBanner()
         with Horizontal(id='body'):
             with Vertical(id='work_pane'):
-                yield WorkTree('Launcher work', id='work')
+                yield WorkTree('Work', id='work')
                 yield RecentActivity()
             with ItemTabs(id='panes'):
-                with TabPane('Log', id='log'):
+                with TabPane('1 Log', id='log'):
                     yield Static('', id='log_note', markup=False)
                     yield LogPane(id='output')
                     yield Static('', id='log_state', markup=False)
                     yield Static('', id='run_status', markup=False)
-                with TabPane('Issue', id='issue'):
+                with TabPane('2 Issue', id='issue'):
                     with VerticalScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
                         yield Markdown('', id='issue_body', parser_factory=description_parser, open_links=False)
                         yield Static('', id='issue_note', markup=False)
-                with TabPane('Runs', id='runs'):
+                with TabPane('3 Runs', id='runs'):
                     with VerticalScroll():
                         yield Static('Select an item to see its history.', id='runs_text', markup=False)
         yield Static('', id='status', markup=False)
 
     def on_mount(self):
+        self.query_one('#work_pane').border_title = 'Work'
+        self.query_one(ItemTabs).border_title = 'Log'
+        self.query_one(WorkTree).show_root = False
+        self.theme_changed_signal.subscribe(self, self.restyle)
         self.worker.start()
         self.set_interval(0.1, self.tick)
         self.tick()
@@ -405,6 +441,9 @@ class View(App):
         self.exit()
 
     def on_unmount(self):
+        if self._window_title is not None and self._driver is not None:
+            self._driver.write(str(Control.title('')))
+            self._window_title = None
         self.descriptions.close()
         self.worker.close()
         if self.launcher is not None:
@@ -423,6 +462,11 @@ class View(App):
         if result:
             self.busy = False
             self.session = result.session
+            self.title = 'ub-agents launch — ' + text(self.session.data.get('repository'), 'unknown')
+            # App.title only updates Header widgets in the pinned Textual.
+            if self._driver is not None and not self.is_headless and self.title != self._window_title:
+                self._driver.write(str(Control.title(self.title)))
+                self._window_title = self.title
             self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
             self.populate(result.rows)
             if result.token == self.token and result.key == self.selected:
@@ -502,14 +546,14 @@ class View(App):
         self.rows = incoming
         tree.remember_claims(incoming)
         tree.root.expand()
-        title = Text('Launcher work')
+        title = 'Work'
         latest = mapping(self.session.data.get('latest_pass'))
-        if latest and latest.get('state') != 'complete':
-            title.append(' · ' + text(latest.get('state'), 'partial'), style='dim')
+        if latest:
+            title += ' · pass ' + text(latest.get('state'), 'partial')
         omitted = mapping(self.session.data.get('omitted')).get('plans', 0)
         if omitted:
-            title.append(f' · omitted {text(str(omitted))}', style='dim')
-        tree.root.set_label(title)
+            title += f' · omitted {text(str(omitted))}'
+        self.query_one('#work_pane').border_title = Text(title)
         if follow or self.selected is None and incoming:
             first = next(iter(incoming.values()))
             self.select(own if follow else first.key, chosen=False)
@@ -578,7 +622,7 @@ class View(App):
         active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
         signature = (row.key if row else None, repr(history), int(now.timestamp() * (5 if active else 1)))
         if signature != self.last_runs:
-            self.query_one('#runs_text', Static).update(runs_view(row, self.session))
+            self.query_one('#runs_text', Static).update(runs_view(row, self.session, app=self))
             self.last_runs = signature
 
     def description_key(self):
@@ -697,6 +741,17 @@ class View(App):
         if not self.is_mounted:
             return
         reading = self.reading
+        mode = Text('│ ', style=theme_style(self, 'view-muted'))
+        mode.append('Formatted', style=theme_style(self, 'view-muted' if reading.raw else 'view-accent',
+                                                   underline=not reading.raw))
+        mode.append('  ')
+        mode.append('Raw', style=theme_style(self, 'view-accent' if reading.raw else 'view-muted',
+                                           reverse=reading.raw))
+        indicator = self.query_one('#log_mode', Static)
+        indicator.styles.offset = (sum(tab.region.width for tab in self.query('#panes Tab')), 0)
+        indicator.update(mode)
+        rule = self.query_one('#tab_rule', Static)
+        rule.update('┄' * rule.content_size.width)
         page, log = reading.page, reading.log
         unread, lag = self.log_lag()
         keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit' if not reading.follow else
@@ -724,8 +779,8 @@ class View(App):
         title, metadata = item_header(row, self.current_description(), self.session)
         header_text = Text()
         header_text.append_text(pane_line(title, width, 'bold'))
-        header_text.append('\n').append_text(pane_line(metadata, width, 'dim'))
-        header_text.append('\n' + '┄' * width, style='dim')
+        header_text.append('\n').append_text(pane_line(metadata, width, theme_style(self, 'view-muted', dim=True)))
+        header_text.append('\n' + '┄' * width, style=theme_style(self, 'view-muted'))
         header.update(header_text)
         width = output.size.width
         notices = []
@@ -744,7 +799,7 @@ class View(App):
                 notices.append(f'{reading.runtime}: plain/raw fallback')
         note = self.query_one('#log_note', Static)
         note.display = bool(notices)
-        note.update(pane_line(' · '.join(notices), width, 'bold yellow'))
+        note.update(pane_line(' · '.join(notices), width, theme_style(self, 'view-warning', bold=True)))
         empty_message = (row.reason if row and mapping(row.data.get('owner')) else
                          'No local log cached for this row.' if not row or not row.log else 'No log output yet.')
         if reading.empty_message != empty_message:
@@ -758,7 +813,7 @@ class View(App):
         status_line = left_line
         if right_line.cell_len:
             status_line.append(' ' * max(1, width - left_line.cell_len - right_line.cell_len)).append_text(right_line)
-        run_note = Text('┄' * width + '\n', style='dim')
+        run_note = Text('┄' * width + '\n', style=theme_style(self, 'view-muted'))
         run_note.append_text(status_line)
         self.query_one('#run_status', Static).update(run_note)
         if isinstance(self.screen, RawAccess) and not isinstance(self.screen, KeyHelp):
@@ -818,8 +873,24 @@ class View(App):
         self.query_one(TabbedContent).active = tab
 
     def on_tabbed_content_tab_activated(self, event):
+        self.query_one(ItemTabs).border_title = Text(
+            {'log': 'Log', 'issue': 'Issue', 'runs': 'Runs'}.get(event.pane.id, event.tab.label.plain))
         if event.pane.id == 'log' and self.is_mounted:
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
+
+    def get_theme_variable_defaults(self):
+        return variable_defaults(self.current_theme)
+
+    def restyle(self, theme):
+        # Rich strips and tables retain resolved colors; rebuild them when CSS changes.
+        output = self.query_one(LogPane)
+        output.save_anchor()
+        output.reflow()
+        self.last_runs = None
+        self.update_runs()
+        self.update_status()
+        self.query_one(WorkTree).refresh()
+        self.query_one(RecentActivity).refresh()
 
     def action_path(self):
         if isinstance(self.screen, RawAccess):

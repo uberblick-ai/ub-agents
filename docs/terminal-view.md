@@ -30,7 +30,21 @@ strict. Ctrl-C in a standalone view closes only that view.
 
 ## Using the view
 
-When newer ub-agents code is available, a yellow, one-line banner appears at the
+The Work pane and active tab each have one rounded border, with the title in its
+top edge. Work shows `Work · pass complete` (or the latest pass state) and any
+omitted-plan count. The focused pane's border and title use the accent color;
+the other pane's border is dim. Dashed rules separate the Work sections, Recent
+activity, and the tab bar from the shared item header.
+
+The default `ub-agents` Textual theme has a dark background, purple focus and
+selection accents, blue Running headings and glyphs, red Needs attention, and
+green Eligible. Selection uses a shaded row. All colors follow the current
+theme, including update notices, Runs marks and log diff counts. Textual's
+`textual-light` theme recolors the view; `NO_COLOR=1` renders it in monochrome.
+The terminal title is `ub-agents launch — OWNER/REPOSITORY`, from the session.
+The view writes it when it changes and clears it on exit.
+
+When newer ub-agents code is available, a themed, one-line banner appears at the
 top, above both panes and the shared item header. It takes no focus and truncates
 to the terminal width. Installed releases say
 `⬆ ub-agents X is available · you run Y · brew upgrade ub-agents,
@@ -95,7 +109,7 @@ markers are absent because the snapshot has no priority.
 
 Dependency and milestone waits are parked plans whose reasons start with
 `Waiting for blockers …` or `Waiting for active milestone #…`. While a pass is
-incomplete, a dim `partial` marker appears on the `Launcher work` pane title.
+incomplete, the Work border title shows `Work · pass partial`.
 Rows from the previous pass stay visible, with their cached descriptions and item
 history, until the new pass completes. Each re-planned item and agent updates in
 place, moving sections if its state changes; new rows follow the kept rows in
@@ -120,7 +134,11 @@ including when a row moves between sections. A selected row that disappears
 remains an earlier local observation in the right pane. A previous assignment or
 a plan now claimed by another launcher is omitted from the live work sections.
 
-The right pane has Log, Issue and Runs tabs. Each starts below the tab bar with
+The right pane has `1 Log`, `2 Issue` and `3 Runs` tabs. The active tab is inverted
+and the others are dim. After a `│` separator, the inert `Formatted  Raw` indicator
+shows the selected log's `u` mode: Formatted is underlined in accent when active,
+and Raw is highlighted when active. The indicator has no key or focus target.
+Each tab starts below the tab bar with
 the same two-line item header and a dashed rule. The bold first line shows `#N`
 for an issue or `⌥N` for a PR, followed by its title. The dim second line joins
 the agent, runtime (`cli model effort`), running assignment's `attempt N` or

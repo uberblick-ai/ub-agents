@@ -102,6 +102,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             try:
                 initial = until(lambda value: value['starts'] and value['focus'] is not None
                                 and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+                window_title = 'ub-agents launch — example/repo'.encode()
+                self.assertTrue(b'\x1b]0;' + window_title + b'\x07' in transcript,
+                                'Terminal output is missing the window-title OSC sequence')
                 self.assertNotIn(b'FOLLOW', transcript)
                 self.assertFalse(initial['display'])
                 os.write(master, b'f')
@@ -139,7 +142,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         self.assertEqual(current['header_height'], 3)
                         self.assertLessEqual(current['header_y'] + current['header_height'], current['output_y'])
                         self.assertIn('#114', current['header'])
-                        self.assertEqual(current['yellow'], 'Color(215, 175, 0)')
+                        self.assertEqual(current['yellow'], 'Color(255, 139, 127)')
                         self.assertLessEqual(current['cells'], width - 2)
                         self.assertEqual(current['selected'], paused['selected'])
                         self.assertEqual(current['focus'], paused['focus'])
@@ -165,6 +168,15 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertFalse(cleared['display'])
                 self.assertEqual(cleared['body_y'], 0)
                 self.assertEqual(cleared['anchor'], paused['anchor'])
+                # Repeated snapshot reads do not re-emit an unchanged title.
+                self.assertEqual(transcript.count(b'\x1b]0;' + window_title + b'\x07'), 1)
+                self.assertNotIn(b'\x1b]0;\x07', transcript)
+                # Repository controls must remain inert inside the OSC payload.
+                state['repository'] = 'other/repo\x07\x1b]0;injected\x1b\\\n'
+                path.write_text(json.dumps(state))
+                changed_title = ('ub-agents launch — ' + r'other/repo\x07\x1b]0;injected\x1b\\n').encode()
+                until(lambda _: b'\x1b]0;' + changed_title + b'\x07' in transcript)
+                self.assertNotIn(b'\x1b]0;injected', transcript)
                 before = log.stat().st_size
                 os.write(master, b'q')
                 deadline = time.monotonic() + 5
@@ -178,6 +190,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(termios.tcgetattr(slave), modes)
                 self.assertIn(b'\x1b[?1049l', transcript)
                 self.assertIn(b'\x1b[?25h', transcript)
+                self.assertEqual(transcript.count(b'\x1b]0;' + changed_title + b'\x07'), 1)
+                self.assertEqual(transcript.count(b'\x1b]0;\x07'), 1)
                 self.assertIsNone(replay.poll())
                 self.assertGreater(log.stat().st_size, before)
             finally:
@@ -461,6 +475,9 @@ sys.exit(app.return_code or 1)
                         self.assertIn(b'Intentional rendering failure', transcript)
                     self.assertIn(b'\x1b[?1049l', transcript)
                     self.assertIn(b'\x1b[?25h', transcript)
+                    self.assertTrue(b'\x1b]0;' + 'ub-agents launch — example/repo'.encode() + b'\x07' in transcript,
+                                    'Terminal output is missing the window-title OSC sequence')
+                    self.assertEqual(transcript.count(b'\x1b]0;\x07'), 1)
                     self.assertEqual(termios.tcgetattr(slave), initial_modes)
                     self.assertIsNone(replay.poll(), 'View stopped replay process')
                     drain(0.05)
@@ -709,7 +726,8 @@ class ProofView(View):
                  'selected': self.selected, 'group': row.group if row else None,
                  'state': row.state if row else None,
                  'cursor': tree.cursor_node.data if tree.cursor_node else None,
-                 'focus': self.focused.id if self.focused else None, 'title': tree.root.label.plain,
+                 'focus': self.focused.id if self.focused else None,
+                 'title': self.query_one('#work_pane').border_title,
                  'sections': [node.label.plain for node in tree.root.children],
                  'nodes': list(self.nodes),
                  'idle': self.idle_node.label.plain if self.idle_node else None,
@@ -808,7 +826,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn('plan:13:reviewer', initial['nodes'])
                 self.assertIsNone(initial['idle'])
                 self.assertIn('partial', initial['title'])
-                self.assertEqual(initial['recent'].splitlines()[0], 'Recent activity · 1 today')
+                self.assertTrue(initial['recent'].splitlines()[0].startswith('Recent activity · 1 today'))
                 self.assertEqual(initial['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
                 self.assertLessEqual(abs(initial['upper_bounds'][1] - initial['recent_bounds'][1]), 1)
                 self.assertEqual(sum(initial['upper_bounds']), initial['recent_bounds'][0])
@@ -1015,7 +1033,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(sum(empty['upper_bounds']), empty['recent_bounds'][0])
                 state['outcomes'] = []
                 path.write_text(json.dumps(state))
-                zero = checkpoint(lambda value: value['recent'] == 'Recent activity · 0 today')
+                zero = checkpoint(lambda value: value['recent'].startswith('Recent activity · 0 today'))
                 self.assertEqual(zero['recent_bounds'], empty['recent_bounds'])
                 state['latest_pass']['rows'] = [
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}

@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from xml.etree import ElementTree
 from unittest.mock import patch
 
 from rich.console import Console
@@ -19,7 +20,7 @@ from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
-from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
+from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_ui import (KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
@@ -43,6 +44,140 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             if condition() if condition else app.reading.page is not None:
                 return
         self.fail('View did not become ready')
+
+    def themed_fixture(self):
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': 20, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'},
+            {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
+        ]}
+        self.state['omitted'] = {'plans': 2}
+        self.state['update'] = {'text': 'New version available'}
+        self.state['histories']['114']['runs'].append(
+            {'agent': 'worker', 'result': 'blocked', 'time': self.state['published_at']})
+        self.path.write_text(json.dumps(self.state))
+        self.log.write_bytes(record(content=[{**tool(name='Edit'), 'input': {
+            'file_path': 'a.py', 'new_string': 'one\ntwo\n', 'old_string': 'old'}}]))
+
+    def screenshot_text(self, svg):
+        return ''.join(ElementTree.fromstring(svg).itertext()).replace('\xa0', ' ')
+
+    async def test_theme_screenshot_at_110_by_32_and_numbered_inert_mode_indicator(self):
+        self.themed_fixture()
+        with patch.dict(os.environ):
+            os.environ.pop('NO_COLOR', None)
+            app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one(Tree)
+            tree.focus()
+            await pilot.pause()
+            svg = app.export_screenshot()
+            (self.root / 'terminal-theme.svg').write_text(svg)
+            visible = self.screenshot_text(svg)
+            for value in ('╭', '╮', '╰', '╯', 'Work · pass complete',
+                          'Log', '1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw',
+                          'Running', 'Needs attention', 'Eligible', '┄'):
+                self.assertIn(value, visible)
+            self.assertNotIn('Launcher work', visible)
+            self.assertEqual(app.theme, 'ub-agents')
+            self.assertEqual(app.title, 'ub-agents launch — example/repo')
+            work, panes = app.query_one('#work_pane'), app.query_one('#panes')
+            self.assertEqual(work.border_title, 'Work · pass complete · omitted 2')
+            self.assertEqual(app.query_one('#log_mode', Static).render().plain,
+                             '│ Formatted  Raw')
+            self.assertEqual(work.styles.border_top[0], 'round')
+            self.assertEqual(panes.styles.border_top[0], 'round')
+            self.assertEqual(work.styles.border_top[1].hex.lower(), '#b79cff')
+            self.assertEqual(panes.styles.border_top[1].hex.lower(), '#2a303b')
+            strips = app.screen._compositor.render_strips()
+            border = strips[work.region.y].crop(work.region.x, work.region.x + 1)
+            self.assertEqual(next(iter(border)).style.color.name, '#b79cff')
+            for heading, color in (('Running', '#6cb6ff'), ('Needs attention', '#ff8b7f'),
+                                   ('Eligible', '#7ee2a0')):
+                line = tree.render_line(app.groups[heading]._line - int(tree.scroll_y))
+                self.assertTrue(any(heading in segment.text and segment.style.color.name == color
+                                    for segment in line))
+                self.assertIn(color, svg)
+            indicator = app.query_one('#log_mode', Static)
+            self.assertFalse(indicator.can_focus)
+            self.assertEqual(len(app.query('#panes Tab')), 3)
+            self.assertTrue(all(not widget.display for widget in app.query('#panes Underline')))
+            mode = indicator.render()
+            self.assertTrue(mode.get_style_at_offset(mode.plain.index('Formatted')).underline)
+            active = app.query_one('#panes Tab.-active', Tab)
+            self.assertEqual(active.styles.color, app.screen.styles.background)
+            self.assertEqual(active.styles.background.hex.lower(), '#d4d9e1')
+            selected = app.selected
+            await pilot.click('#log_mode')
+            self.assertEqual(app.query_one(TabbedContent).active, 'log')
+            self.assertEqual(app.selected, selected)
+            self.assertIsNot(app.focused, indicator)
+            await pilot.press('u')
+            mode = indicator.render()
+            self.assertFalse(mode.get_style_at_offset(mode.plain.index('Formatted')).underline)
+            self.assertTrue(mode.get_style_at_offset(mode.plain.index('Raw')).reverse)
+            app.query_one(LogPane).focus()
+            await pilot.pause()
+            self.assertEqual(panes.styles.border_top[1].hex.lower(), '#b79cff')
+            self.assertEqual(work.styles.border_top[1].hex.lower(), '#2a303b')
+            for key, title in (('2', 'Issue'), ('3', 'Runs'), ('1', 'Log')):
+                await pilot.press(key)
+                self.assertEqual(panes.border_title, title)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_light_theme_recolors_cached_log_runs_and_all_pane_styles(self):
+        self.themed_fixture()
+        with patch.dict(os.environ):
+            os.environ.pop('NO_COLOR', None)
+            app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            await pilot.press('f', 'home')
+            await self.settled(app, output)
+            anchor, selected, focus = output.anchor(), app.selected, app.focused
+            app.theme = 'textual-light'
+            await pilot.pause()
+            await self.settled(app, output)
+            self.assertEqual((output.anchor(), app.selected, app.focused), (anchor, selected, focus))
+            colors = app.theme_variables
+            for value, variable in (('+2', 'view-success'), ('-1', 'view-error')):
+                self.assertTrue(any(value in segment.text and segment.style.color.name.lower() == colors[variable].lower()
+                                    for line in output.lines for segment in line))
+            banner = app.query_one(UpdateBanner)
+            self.assertEqual(banner.styles.background.hex, colors['view-warning'])
+            await pilot.press('3')
+            svg = app.export_screenshot()
+            (self.root / 'terminal-light.svg').write_text(svg)
+            for color in ('#b79cff', '#1b2030', '#6cb6ff', '#ff8b7f', '#7ee2a0', '#2a303b'):
+                self.assertNotIn(color, svg)
+            self.assertIn(colors['view-success'].lower(), svg)
+            self.assertIn(colors['view-error'].lower(), svg)
+            self.assertIn('✓', self.screenshot_text(svg))
+            self.assertIn('✗', self.screenshot_text(svg))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_no_color_screenshot_is_monochrome(self):
+        self.themed_fixture()
+        with patch.dict(os.environ, {'NO_COLOR': '1'}):
+            app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            self.assertTrue(app.no_color)
+            svg = app.export_screenshot()
+            (self.root / 'terminal-no-color.svg').write_text(svg)
+            # The compositor applies Textual's monochrome filter to Rich and CSS alike.
+            colors = [segment.style.color.get_truecolor() for strip in app.screen._compositor.render_strips()
+                      for segment in strip if segment.style and segment.style.color]
+            for color in colors:
+                self.assertEqual(color.red, color.green)
+                self.assertEqual(color.green, color.blue)
+            self.assertIn('1 Log', self.screenshot_text(svg))
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_update_banner_is_one_snapshot_row_and_preserves_focus_and_selection(self):
         transport = RecordingDescriptionTransport()
@@ -145,9 +280,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.reading.page.refs[-1].value.kind == 'runtime ERROR')
             self.assertTrue(all(line.cell_length <= output.render_width for line in output.lines))
             segments = [segment for line in output.lines for segment in line]
-            self.assertTrue(any('+2' in segment.text and segment.style.color.name == 'green' for segment in segments))
-            self.assertTrue(any('-1' in segment.text and segment.style.color.name == 'red' for segment in segments))
-            self.assertTrue(any('✗' in segment.text and segment.style.color.name == 'red' for segment in segments))
+            self.assertTrue(any('+2' in segment.text and segment.style.color.name == '#7ee2a0' for segment in segments))
+            self.assertTrue(any('-1' in segment.text and segment.style.color.name == '#ff8b7f' for segment in segments))
+            self.assertTrue(any('✗' in segment.text and segment.style.color.name == '#ff8b7f' for segment in segments))
             self.assertTrue(any('· thinking' in segment.text and segment.style.dim for segment in segments))
             self.assertTrue(any('SPIKE111_MESSAGE_BEGIN' in segment.text and segment.style.italic for segment in segments))
             # In raw mode Home lands on a hidden system record. Keep its byte
@@ -637,7 +772,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(lines[1].endswith('2 earlier runs'))
             self.assertEqual(pane_line(lines[1], 1000).cell_len, status.size.width)
             self.assertEqual(status.region.bottom, app.query_one('#log').region.bottom)
-            self.assertEqual(status.region.bottom, app.query_one('#status').region.y)
+            self.assertEqual(status.region.bottom + 1, app.query_one('#status').region.y)
             self.assertFalse(app.query_one('#log_note').display)
             self.state['assignment']['process'] = 'exited'
             self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',
@@ -664,7 +799,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(note.size.height, 1)
             self.assertIn('Unfinished:', note.render().plain)
             self.assertIn('plain/raw fallback', note.render().plain)
-            self.assertTrue(any(span.style == 'bold yellow' for span in note.render().spans))
+            self.assertTrue(any(span.style.bold and span.style.foreground.hex.lower() == app.theme_variables['view-warning']
+                                for span in note.render().spans))
             self.assertNotIn('bytes ', note.render().plain)
             self.log.write_bytes(b'finished\n')
             await self.ready(app, pilot, lambda: app.reading.page.generation > 0)
@@ -782,17 +918,18 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                              ['Running · 1', 'Needs attention · 1', 'Eligible · 2', 'Waiting · 1'])
             self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
             self.assertNotIn('plan:13:reviewer', app.rows)
-            self.assertIn('partial', tree.root.label.plain)
-            self.assertTrue(any(span.style == 'dim' for span in tree.root.label.spans))
+            self.assertEqual(app.query_one('#work_pane').border_title, 'Work · pass partial')
+            self.assertFalse(tree.show_root)
             self.assertIn('Recent activity', app.query_one(RecentActivity).render().plain)
             self.state['latest_pass'] = {'state': 'complete', 'rows': []}
             self.state['outcomes'] = []
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and
-                             app.groups['Running'].label.plain == 'Running · 1')
+                             app.groups['Running'].label.plain == 'Running · 1' and
+                             app.session.data.get('latest_pass', {}).get('state') == 'complete')
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
-            self.assertEqual(tree.root.label.plain, 'Launcher work')
-            self.assertEqual(app.query_one(RecentActivity).render().plain, 'Recent activity · 0 today')
+            self.assertEqual(app.query_one('#work_pane').border_title, 'Work · pass complete')
+            self.assertTrue(app.query_one(RecentActivity).render().plain.startswith('Recent activity · 0 today'))
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -810,11 +947,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree.get_node_at_line(0)
             idle = app.idle_node
             self.assertEqual([node.label.plain for node in tree.root.children], ['Running · 0'])
-            self.assertEqual(tree.virtual_size.height, 3)
+            self.assertFalse(tree.show_root)
+            self.assertEqual(tree.virtual_size.height, 2)
             self.assertEqual(tree._get_label_region(idle._line).height, 1)
             line = tree.render_line(idle._line - tree.scroll_offset.y)
             self.assertEqual(idle.label.plain, '    Idle · nothing eligible for this launcher')
             self.assertTrue(line.text.strip().startswith('Idle · nothing eligible'))
+            self.assertNotIn('┄', line.text)
             self.assertEqual(line.cell_length, tree.scrollable_content_region.width)
             self.assertTrue(any(segment.style.dim for segment in line))
             self.assertIsNone(idle.data)
@@ -1095,14 +1234,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await publish()
                 self.assertTrue(all(f'plan:{n}:worker' in app.rows for n in (20, 21, 22, 23)))
                 self.assertEqual(app.rows[key].state, 'ready')
-                self.assertIn('partial', tree.root.label.plain)
+                self.assertIn('partial', app.query_one('#work_pane').border_title)
             self.assertEqual([node.data for node in app.groups['Eligible'].children],
                              ['plan:20:worker', key, 'plan:22:worker', 'plan:23:worker', 'plan:24:worker'])
             observer.complete_pass()
             await publish()
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
             self.assertNotIn('plan:22:worker', app.rows)
-            self.assertNotIn('partial', tree.root.label.plain)
+            self.assertNotIn('partial', app.query_one('#work_pane').border_title)
             self.assertEqual([node.data for node in app.groups['Eligible'].children if node.data != key],
                              ['plan:23:worker', 'plan:24:worker', 'plan:20:worker'])
             app.select(own)
@@ -1146,7 +1285,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not recent.rows)
                 self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
                 self.assertEqual(recent.region.y, boundary)
-                self.assertEqual(recent.render().plain, 'Recent activity · 0 today')
+                self.assertTrue(recent.render().plain.startswith('Recent activity · 0 today'))
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -1170,7 +1309,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             lines = rendered.plain.splitlines()
             self.assertEqual(len(lines), 1 + 2 * len(visible))
             self.assertLessEqual(len(lines), recent.size.height)
-            self.assertEqual(lines[0], 'Recent activity · 0 today')
+            self.assertTrue(lines[0].startswith('Recent activity · 0 today'))
             selected_offset = rendered.plain.index('Outcome 19')
             dim_offset = rendered.plain.index('Outcome 18')
             self.assertFalse(rendered.get_style_at_offset(Console(), selected_offset).dim)
@@ -1238,7 +1377,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             tree = app.query_one('#work', Tree)
             tree.get_node_at_line(0)
-            self.assertEqual(tree.virtual_size.height, 1 + 3 + 2 * 5)
+            self.assertEqual(tree.virtual_size.height, 3 + 2 * 5)
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', '⠹ #114', '00:00', '  implementer · this launcher'),
@@ -1348,7 +1487,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             recent = app.query_one(RecentActivity)
-            self.assertEqual(recent.render().plain.splitlines()[0], 'Recent activity · 1 today')
+            self.assertTrue(recent.render().plain.splitlines()[0].startswith('Recent activity · 1 today'))
             self.assertEqual([row.key for row in recent.visible_rows], ['outcome:previous-run', 'outcome:older-run'])
             recent.focus()
             await pilot.press('enter')
@@ -1683,7 +1822,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['latest_pass']['state'] = '[/red]'
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: app.session.data.get('latest_pass', {}).get('state') == '[/red]')
-            self.assertIn('[/red]', app.query_one('#work', Tree).root.label.plain)
+            self.assertIn('[/red]', app.query_one('#work_pane').border_title)
             self.state['assignment'] = None
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')

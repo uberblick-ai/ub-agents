@@ -241,8 +241,8 @@ class ClaudeFormatter:
                     if isinstance(argument, str):
                         text += " " + _one_line(argument)
                     spans = []
-                    fields = (("new_string", "+", "green"), ("old_string", "-", "red")) if name == "Edit" else (
-                        (("content", "+", "green"),) if name == "Write" else ())
+                    fields = (("new_string", "+", "diff-add"), ("old_string", "-", "diff-remove")) if name == "Edit" else (
+                        (("content", "+", "diff-add"),) if name == "Write" else ())
                     for field, sign, style in fields:
                         if isinstance(inputs.get(field), str):
                             start = len(text) + 1
@@ -261,7 +261,7 @@ class ClaudeFormatter:
                     if failed:
                         error = _result_text(block.get('content'))
                         name = _one_line(name) + ": " if last_call != tool_id else ""
-                        parts.append(Line("  ✗ " + name + _one_line(error.split("\n", 1)[0]), "red"))
+                        parts.append(Line("  ✗ " + name + _one_line(error.split("\n", 1)[0]), "error"))
                         last_call = None
                 elif block_type == "thinking":
                     kinds.append("thinking")
@@ -285,14 +285,14 @@ class ClaudeFormatter:
             if label == "runtime result":
                 return label, [Line("✓ run finished")], [], None
             detail = _one_line(errors[0].split("\n", 1)[0]) if errors else ""
-            return label, [Line("✗ " + _one_line(subtype) + (": " + detail if detail else ""), "red")], [], None
+            return label, [Line("✗ " + _one_line(subtype) + (": " + detail if detail else ""), "error")], [], None
         if kind == "error":
             value = data.get("error", data.get("message"))
             if isinstance(value, dict):
                 value = value.get("message")
             if not isinstance(value, str):
                 raise ValueError("Unfamiliar runtime error")
-            return "runtime ERROR", [Line("✗ " + _one_line(value.split("\n", 1)[0]), "red")], [], None
+            return "runtime ERROR", [Line("✗ " + _one_line(value.split("\n", 1)[0]), "error")], [], None
         return "other", [self._label(data)], [], None
 
 

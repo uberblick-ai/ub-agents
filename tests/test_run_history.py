@@ -107,7 +107,8 @@ class RunsTests(unittest.TestCase):
         self.assertIn('2 days ago', value)
         self.assertIn('GitHub', value)
         self.assertIn('filed', value)
-        self.assertEqual(list(view.renderables)[0].style, 'dim')
+        self.assertTrue(list(view.renderables)[0].style.dim)
+        self.assertEqual(list(view.renderables)[0].style.color.name, '#6b7484')
         for item, filing, closing in ((pr(), filed, True), (pr(), None, True),
                                       (pr(body='No closing reference'), filed, False),
                                       (issue(), None, False)):
@@ -292,10 +293,10 @@ class RunsTests(unittest.TestCase):
         self.assertIn('needs-human', value)
         self.assertIn('…', value)
         table = list(view.renderables)[1]
-        self.assertEqual(table.columns[1]._cells[0].style, 'green')  # Filing.
-        self.assertEqual(table.columns[1]._cells[1].style, 'green')
-        self.assertEqual(table.columns[1]._cells[2].style, 'red')
-        self.assertEqual(table.columns[1]._cells[3].style, 'red')
+        self.assertEqual(table.columns[1]._cells[0].style.color.name, '#7ee2a0')  # Filing.
+        self.assertEqual(table.columns[1]._cells[1].style.color.name, '#7ee2a0')
+        self.assertEqual(table.columns[1]._cells[2].style.color.name, '#ff8b7f')
+        self.assertEqual(table.columns[1]._cells[3].style.color.name, '#ff8b7f')
         self.assertIn(table.columns[1]._cells[4].plain, '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
         self.assertEqual(table.columns[3].width, 14)
 
