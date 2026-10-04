@@ -183,8 +183,24 @@ elsewhere, `g` loads the comment from GitHub.
 
 ### Runs
 
-A table of this session's runs for the item: time, result glyph, agent and summary,
-outcome.
+Every run of the item, newest first, from any launcher: when, result, agent and
+summary, where it ran, and the outcome.
+
+```text
+ 1 Log   2 Issue   3 Runs
+ ⌥167 Group the terminal view's work list into sections          (bold)
+ closes #159 · 3 runs                                            (dim)
+ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+ when        result  agent · summary                         where         outcome
+ 20 min ago  ✓       integrator · squash-merged at d41f0a2   this machine  merged
+ 34 min ago  ✓       reviewer · changelog entry tightened    uberblick     approved
+ 52 min ago  ✓       implementer · sections from snapshot …  uberblick     handed-off
+```
+
+- `when` is relative (`just now`, `20 min ago`, `3 h ago`, `yesterday`, then a date).
+- `where` is `this machine` for this host and the launcher's host name otherwise
+  (dim).
+- Result glyphs: `✓` green, `✗` red, spinner for a run in progress.
 
 ## Footer and states
 
