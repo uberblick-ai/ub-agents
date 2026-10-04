@@ -99,8 +99,8 @@ class Reading:
 class LogPane(ScrollView):
     """A fixed retained page, with a logical entry anchor instead of RichLog redraw.
 
-    At most 400 wrapped lines are rendered. Whole hidden entries are accounted for
-    at the boundary, and older paging starts at the first rendered entry's byte.
+    At most 400 wrapped lines are rendered. Accounting and older paging include
+    every entry inside that budget, even when its projection has no lines.
     """
     can_focus = True
 
@@ -112,12 +112,44 @@ class LogPane(ScrollView):
         self.visible_refs = ()
         self.hidden = 0
         self.render_width = 0
+        self.held_anchor = None
+        self.held_y = None
 
     def anchor(self):
         y = int(self.scroll_y)
+        if self.held_anchor is not None and y == self.held_y:
+            return self.held_anchor
         if self.positions and y < len(self.positions):
             return self.positions[y]
         return None
+
+    def _wrap_entry(self, ref, raw, width):
+        value = ref.value
+        rich = Text(value.display(raw), style=self.rich_style)
+        if raw or not value.compact:
+            return rich.wrap(self.app.console, width, overflow='fold')
+        for start, end, style in value.styles:
+            rich.stylize(style, start, end)
+        lines = []
+        for line in rich.split('\n') if rich.plain else ():
+            if any(span.style in ('dim italic', 'italic') for span in line.spans):
+                # Wrapped assistant continuations share the explicit LF indent.
+                column, body = line[:10], line[10:]
+                for index, part in enumerate(body.wrap(self.app.console, width - 10, overflow='fold')):
+                    lines.append((column if index == 0 else Text(' ' * 10, style=self.rich_style)) + part)
+            else:
+                counts = [span.start for span in line.spans if span.style in ('green', 'red')
+                          and line.plain[span.start:span.end].lstrip('+-').isdigit()]
+                if counts:
+                    start = min(counts) - 1
+                    suffix = line[start:]
+                    line = line[:start]
+                    line.truncate(width - suffix.cell_len, overflow='ellipsis')
+                    line += suffix
+                else:
+                    line.truncate(width, overflow='ellipsis')
+                lines.append(line)
+        return lines
 
     def set_reading(self, reading):
         if self.reading is not None and self.app.query_one(TabbedContent).active == 'log':
@@ -133,47 +165,56 @@ class LogPane(ScrollView):
         wrapped = []
         if reading and reading.page:
             for ref in reversed(reading.page.refs):
-                value = ref.value.display(reading.raw)
-                lines = Text(value).wrap(self.app.console, width, overflow='fold')
+                lines = self._wrap_entry(ref, reading.raw, width)
                 if sum(len(part[1]) for part in wrapped) + len(lines) > MAX_RENDER_LINES:
                     break
                 wrapped.append((ref, lines))
         wrapped.reverse()
-        if reading and reading.page and not reading.follow and anchor and not any(ref.start == anchor[0] for ref, _ in wrapped):
+        target = anchor[0] if anchor else None
+        if reading and reading.page and anchor:
+            visible = [ref for ref in reading.page.refs if ref.value.display(reading.raw)]
+            if not any(ref.start == target for ref in visible) and visible:
+                # Keep the logical hidden anchor; display its next visible
+                # neighbor, or the last visible entry at the end of the page.
+                target = next((ref.start for ref in visible if ref.start > target), visible[-1].start)
+        if reading and reading.page and not reading.follow and anchor and not any(ref.start == target for ref, _ in wrapped):
             # Raw text can wrap to more rows than its formatted projection. Keep
             # the anchored entry even when it falls outside the tail line budget.
-            start = next((i for i, ref in enumerate(reading.page.refs) if ref.start == anchor[0]), None)
+            start = next((i for i, ref in enumerate(reading.page.refs) if ref.start == target), None)
             if start is not None:
                 wrapped = []
                 count = 0
                 for ref in reading.page.refs[start:]:
-                    lines = Text(ref.value.display(reading.raw)).wrap(self.app.console, width, overflow='fold')
+                    lines = self._wrap_entry(ref, reading.raw, width)
                     if count + len(lines) > MAX_RENDER_LINES:
                         break
                     count += len(lines)
                     wrapped.append((ref, lines))
-        self.visible_refs = tuple(part[0] for part in wrapped)
-        self.hidden = len(reading.page.refs) - len(wrapped) if reading and reading.page else 0
+        self.visible_refs = tuple(ref for ref, _ in wrapped)
+        self.hidden = len(reading.page.refs) - len(self.visible_refs) if reading and reading.page else 0
         self.lines, self.positions = [], []
         for ref, lines in wrapped:
             for index, line in enumerate(lines):
-                self.lines.append(Strip([Segment(line.plain, self.rich_style)], line.cell_len))
+                self.lines.append(Strip(Segment.apply_style(line.render(self.app.console), self.rich_style), line.cell_len))
                 self.positions.append((ref.start, index / max(1, len(lines))))
         self.virtual_size = Size(width, len(self.lines))
-        self.call_after_refresh(self.restore, reading, anchor)
+        self.call_after_refresh(self.restore, reading, anchor, target)
 
-    def restore(self, reading, anchor):
+    def restore(self, reading, anchor, target):
         if self.reading is not reading:
             return
+        self.held_anchor = self.held_y = None
         if reading and reading.follow:
             self.scroll_end(animate=False, immediate=True)
         elif anchor and self.positions:
-            candidates = [(index, position) for index, position in enumerate(self.positions) if position[0] == anchor[0]]
+            candidates = [(index, position) for index, position in enumerate(self.positions) if position[0] == target]
             if candidates:
                 y = min(candidates, key=lambda item: abs(item[1][1] - anchor[1]))[0]
                 self.scroll_to(y=y, animate=False, immediate=True)
         elif not anchor:
             self.scroll_home(animate=False, immediate=True)
+        if reading and not reading.follow and anchor and (target != anchor[0] or not self.positions):
+            self.held_anchor, self.held_y = anchor, int(self.scroll_y)
         self.refresh()
 
     def render_line(self, y):
@@ -188,6 +229,8 @@ class LogPane(ScrollView):
 
     def watch_scroll_y(self, old, value):
         super().watch_scroll_y(old, value)
+        if self.held_anchor is not None and int(value) != self.held_y:
+            self.held_anchor = self.held_y = None
 
     def save_anchor(self):
         if self.reading:

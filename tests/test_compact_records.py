@@ -6,9 +6,8 @@ import unittest
 
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import RecordError
-from ub_agents.loop import Loop
-from ub_agents.records import body, declared_transition, payload, records
-from tests.support import FakeGitHub, agent, config, issue, write_legacy_records
+from ub_agents.records import MARKER, body, declared_transition, payload, records
+from tests.support import FakeGitHub, agent, issue
 
 
 class CompactRecordTests(unittest.TestCase):
@@ -28,6 +27,8 @@ class CompactRecordTests(unittest.TestCase):
 
     def test_new_lease_and_outcomes_only_store_shared_context_once(self):
         lease = self.claim()
+        self.assertEqual(MARKER, '<!-- ub-agents:v3 -->')
+        self.assertTrue(self.github.comments(1)[0]['body'].startswith(MARKER))
         self.assertEqual(lease['triggers'], ['ready'])
         self.assertEqual(lease['declared_triggers'], ['ready', 'needs-changes'])
         self.assertEqual(lease['stop_labels'], ['needs-human'])
@@ -43,17 +44,6 @@ class CompactRecordTests(unittest.TestCase):
         outcome = self.co.report(self.claim(), 'success', 'Cleaned', outcome='cleaned')
         self.assertEqual(outcome['transition'], {'add': [], 'remove': ['old'], 'started': False})
 
-    def test_upgraded_reporter_writes_compact_outcome_for_a_legacy_lease(self):
-        write_legacy_records(self.github)
-        lease = self.claim()
-        self.assertNotIn('declared_triggers', lease)
-        # Restore the upgraded writer after simulating the old claim.
-        self.github.create_comment = FakeGitHub.create_comment.__get__(self.github)
-        outcome = self.co.report(lease, 'success', 'Cleaned', outcome='cleaned')
-        self.assertEqual(outcome['transition'], {'add': [], 'remove': ['old'], 'started': False})
-        loop = Loop(config(self.root, self.worker), self.github, 'operator')
-        self.assertEqual(loop.validate_report(outcome)['remove'], ['needs-changes', 'old', 'ready'])
-
     def test_five_outcome_snapshot_shrinks_by_more_than_half(self):
         self.worker = agent(self.root, triggers=('needs-preparation',), outcomes={
             name: {'add': labels, 'remove': ()} for name, labels in {
@@ -62,8 +52,8 @@ class CompactRecordTests(unittest.TestCase):
         self.github.change(1, labels=frozenset({'needs-preparation'}))
         lease = self.claim()
         compact = {key: lease[key] for key in ('outcomes', 'declared_triggers', 'stop_labels')}
-        legacy = {'outcomes': {name: declared_transition(lease, name) for name in lease['outcomes']}}
-        self.assertLess(len(json.dumps(compact)), len(json.dumps(legacy)) / 2)
+        expanded = {'outcomes': {name: declared_transition(lease, name) for name in lease['outcomes']}}
+        self.assertLess(len(json.dumps(compact)), len(json.dumps(expanded)) / 2)
         self.assertLess(len(json.dumps(compact)), 300)
 
     def test_invalid_compact_snapshots_and_transitions_fail_closed(self):
@@ -72,14 +62,42 @@ class CompactRecordTests(unittest.TestCase):
         for key, value in (('declared_triggers', 'ready'), ('stop_labels', [None]),
                            ('stop_labels', None), ('outcomes', {'done': {'remove': []}}),
                            ('outcomes', {'done': ['']}),
-                           ('outcomes', {'done': {'add': [], 'triggers': ['ready']}})):
+                           ('outcomes', {'done': {'add': [], 'triggers': ['ready']}}),
+                           ('outcomes', {'done': {'add': [], 'remove': ['ready'],
+                                                  'triggers': ['ready'], 'stop_labels': []}})):
             with self.subTest(key=key, value=value):
                 forged = payload(lease) | {key: value}
                 with self.assertRaises(RecordError):
                     records([{'id': 1, 'body': body(forged), 'user': {'login': 'operator'}}])
         for transition in ({'add': [], 'started': 1}, {'add': [], 'started': False, 'remove': 'ready'},
-                           {'add': [], 'started': False, 'stop_labels': []}):
+                           {'add': [], 'started': False, 'stop_labels': []},
+                           {'add': [], 'remove': ['ready'], 'triggers': ['ready'],
+                            'stop_labels': [], 'started': False}):
             with self.subTest(transition=transition):
                 forged = deepcopy(outcome) | {'transition': transition}
                 with self.assertRaises(RecordError):
                     records([{'id': 1, 'body': body(forged), 'user': {'login': 'operator'}}])
+
+    def test_every_lease_requires_attempt_effect_and_shared_context(self):
+        lease = self.claim()
+        for recovery in (False, True):
+            for field in ('attempt_effect', 'declared_triggers', 'stop_labels'):
+                with self.subTest(recovery=recovery, field=field):
+                    forged = payload(lease)
+                    if recovery:
+                        forged.pop('outcomes')
+                        forged.update(mode='recovery', recovered_lease_id=1, recovered_run='source')
+                    forged.pop(field)
+                    with self.assertRaises(RecordError):
+                        records([{'id': 1, 'body': body(forged), 'user': {'login': 'operator'}}])
+
+    def test_recovery_lease_also_writes_attempt_effect_and_shared_context(self):
+        lease = self.claim()
+        self.co.report(lease, 'success', 'Done', outcome='done')
+        self.co.clock = lambda: 1061
+        plan = self.co.plan(self.github.item(1), self.worker, ('needs-human',))
+        self.assertEqual(plan.state, 'recover')
+        recovered = self.co.claim(plan, ('needs-human',), recovery=True)
+        self.assertEqual(recovered['attempt_effect'], 'pending')
+        self.assertEqual(recovered['declared_triggers'], ['ready', 'needs-changes'])
+        self.assertEqual(recovered['stop_labels'], ['needs-human'])

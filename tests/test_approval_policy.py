@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.approvals import approval_body, trusted_input
+from ub_agents.approvals import approval_body, approve_issue, parse_approval, trusted_input
 from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError, GitHubError
@@ -120,6 +120,44 @@ class ApprovalPolicyTests(unittest.TestCase):
                         self.execute(verify, targeted)
                     self.assertFalse({name for name, _ in self.github.reads} &
                                      {"timeline", "issue_content", "pr_content", "visibility"})
+
+    def test_old_records_are_excluded_from_assignment_and_approval_snapshots(self):
+        for kind in ('issue', 'pr'):
+            for policy in ('on', 'off'):
+                with self.subTest(kind=kind, policy=policy):
+                    self.setUp()
+                    item = issue() if kind == 'issue' else pr()
+                    self.github.items = {item.number: item}
+                    self.github.timelines[item.number] = [{
+                        'event': 'labeled', 'actor': {'login': 'maintainer'},
+                        'label': {'name': next(iter(item.labels))}, 'created_at': item.created_at}]
+                    rows = [feedback(100, 'operator', 'Current feedback'),
+                            feedback(101, 'outsider', 'Outside feedback')]
+                    for version in (1, 2):
+                        for login in ('operator', 'outsider'):
+                            for text in ('unreadable record', '```json\n{}\n```'):
+                                rows.append(feedback(len(rows) + 200, login,
+                                    f'<!-- ub-agents:v{version} -->\n{text}'))
+                    self.github.store[item.number] = rows[:]
+                    self.github.review_store[item.number] = rows[:]
+                    self.github.review_comment_store[item.number] = rows[:]
+                    self.loop.config = replace(self.loop.config, approvals=policy)
+                    groups = ('comments', 'reviews', 'review_comments') if kind == 'pr' else ('comments',)
+                    snapshot = self.loop.input_check(item).snapshot
+                    for name in groups:
+                        self.assertEqual([r['id'] for r in snapshot[name]], [100])
+                    def verify(context):
+                        for name in groups:
+                            self.assertEqual([r['id'] for r in context[name]], [100])
+                        self.assertEqual(context['feedback'], [])
+                    self.execute(verify)
+                    with redirect_stdout(io.StringIO()) as output:
+                        posted = approve_issue(self.github, item.number, 'maintainer')
+                    approved = parse_approval(posted['body'], item.number, kind)
+                    for name in groups:
+                        self.assertEqual([r['id'] for r in approved[name]], [101])
+                    self.assertNotIn('<!-- ub-agents:v1 -->', output.getvalue())
+                    self.assertNotIn('<!-- ub-agents:v2 -->', output.getvalue())
 
     def test_off_fork_head_is_ready_without_approval_reads(self):
         item = pr()

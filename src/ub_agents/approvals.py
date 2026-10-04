@@ -196,6 +196,7 @@ def check_pr(github, number, trigger_labels, actor=None, *, launchers=None):
 
 
 def is_record(comment):
+    # Unsupported coordination versions remain machine comments, never input.
     return comment["body"].startswith((MARKER, ACTION_MARKER) + RECORD_MARKERS)
 
 
