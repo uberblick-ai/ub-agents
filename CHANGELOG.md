@@ -35,12 +35,18 @@ Approvals now default off for private and internal repositories; set
   the selected agent before acting (#130).
 - Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
 
+- Runtime usage pauses start only when a run reports a limit, remain in launcher memory,
+  and appear only in launch output (#135).
+
 ### Removed
 
 - Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
 
 - Compatibility with the old `ub-agent` command, configuration, environment,
   coordination markers and artifacts is removed; only `ub-agents` names remain (#137).
+
+- The 90% runtime usage pause, shared pause state, and pause output in `status` and
+  `doctor`, including `status --json`'s `runtime_pauses`, are removed (#135).
 
 ## 0.1.10 — 2026-10-03
 

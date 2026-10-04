@@ -16,7 +16,6 @@ from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import configured_labels
 from .records import iso
-from .runtime_usage import local_pauses
 from .trust import WRITERS
 
 
@@ -193,10 +192,6 @@ class Doctor:
         if config:
             self.agents(config)
             self.local(config, git_ready)
-            for pause in local_pauses(config.root):
-                self.add(f"runtime-pause:{pause['cli']}:{pause['launcher']}", "ok",
-                         f"{pause['cli']} paused: {pause['reason']}; pause ends {pause['ends_at']}",
-                         required=False)
         else:
             for id in ("commands", "runtimes", "different-runtime-from", "local-state", "local-state-ignored"):
                 self.add(id, "skip", "configuration unavailable")
