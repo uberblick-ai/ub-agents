@@ -105,14 +105,16 @@ Below 110×32, it also shows the minimum-size hint. Main keys appear on the righ
 they switch to log keys while the selected log is paused, including on Issue and
 Runs. `?` lists all keys in a help overlay.
 
-A pill at the right of Log, above the run-status row, appears only when paused or
-behind. It shows PAUSED or BEHIND, nonzero unread entries and byte lag, and RAW when
-that projection is on. There is no FOLLOW badge. Log notices appear only when
-applicable: file changes or an earlier generation, read errors, unfinished records,
-unknown-runtime fallback and older-page notices. Pausing freezes the page and its position while
-ingestion continues. Notices and the pill can change the pane's height without
-rewrapping or moving the paused page. Revisiting tabs or selected rows restores
-that page and position. Width changes and raw-mode changes retain the
+A pill at the bottom right of the log output, above the run status, appears only
+when paused or behind. It shows PAUSED or BEHIND, nonzero unread entries and byte
+lag, and RAW when that projection is on. There is no FOLLOW badge. Log notices
+appear only when applicable: file changes or an earlier generation, read errors,
+unfinished records, unknown-runtime fallback and older-page notices. Pausing
+freezes the page and its position while ingestion continues. Notices and the
+pill can change the pane's height without rewrapping or moving the paused page.
+The separate run status describes the process and reported outcome. Revisiting
+tabs or selected rows restores that page and position. Width changes and
+raw-mode changes retain the
 entry at the reading position, with a proportional position within wrapped text.
 When the anchored record is hidden in formatted mode, the pane shows the next
 visible entry (or the preceding entry at the end of a page). Its original byte
@@ -254,16 +256,16 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    with correct counts and planned order within Eligible. The current assignment
    appears once. Empty sections are hidden. A partial pass has a dim marker on
    the pane title, which disappears when the pass completes. Confirm follow reaches
-   recent output and cached Issue and session Runs tabs are readable.
+   recent output and cached Issue and session Runs tabs are readable. Check the
+   shared two-line header and dashed rule on every tab, omission of missing
+   values, and the Log status, spinner, reported acceptance and earlier-run count.
    Check the single footer line shows the snapshot's version and activity, including
    the waiting countdown and stopping state, with readable main keys at 110 columns.
    Check stale, ended and malformed snapshots are labelled, with the malformed error,
    and that a smaller terminal shows `minimum 110×32`. There is no snapshot age or
    Local files/GitHub diagnostic line. Open `?`, check every key, and close it with
    both `?` and `Escape` without losing selection or the reading position.
-   Check the shared two-line header and dashed rule on every tab, omission of
-   missing values, and the Log status, spinner, reported acceptance and earlier-run
-   count. Show and hide a notice while paused; the reading position must not move.
+   Show and hide a notice while paused; the reading position must not move.
    Include today's and older outcomes; check the collapsed Recent activity count
    against the local date. Use `Enter` to expand it, select an outcome and pause
    its log. Publish refreshes and move a selected plan between sections; check

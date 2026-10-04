@@ -246,6 +246,8 @@ class LogPane(ScrollView):
             width = self.scrollable_content_region.width
             if width > 0 and max(20, width) != self.render_width:
                 self.call_after_refresh(self.reflow_for_resize)
+            elif width > 0 and self.reading.follow:
+                self.scroll_end(animate=False, immediate=True)
 
     def reflow_for_resize(self):
         width = self.scrollable_content_region.width

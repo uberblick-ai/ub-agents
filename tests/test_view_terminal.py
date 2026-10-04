@@ -441,8 +441,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, log, state = fixture(root)
-            state['base_version'] = '9.8.7'
             state['assignment'].update(kind='issue', attempt=1)
+            state['base_version'] = '9.8.7'
             capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
             log.write_bytes(capture.read_bytes() * 20)
             state['latest_pass']['rows'].extend([
@@ -493,6 +493,9 @@ class ProofView(View):
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
                  'entries': r.log.total_entries if r.log else 0, 'lag': r.log.unread_bytes if r.log else 0,
                  'notice': self.query_one('#log_note').render().plain,
+                 'header': self.query_one('#item_header').render().plain,
+                 'run_status': self.query_one('#run_status').render().plain,
+                 'raw_details': self.raw_details(),
                  'footer': self.query_one('#status', Static).render().plain,
                  'footer_height': self.query_one('#status').size.height,
                  'pill': self.query_one('#log_state', Static).render().plain,
@@ -500,9 +503,6 @@ class ProofView(View):
                  'screen': type(self.screen).__name__,
                  'modal': self.screen.query_one('#raw_details', Static).render().plain
                           if self.screen.query('#raw_details') else '',
-                 'header': self.query_one('#item_header').render().plain,
-                 'run_status': self.query_one('#run_status').render().plain,
-                 'raw_details': self.raw_details(),
                  'selected': self.selected, 'group': row.group if row else None,
                  'state': row.state if row else None, 'cursor': tree.cursor_node.data,
                  'focus': self.focused.id, 'title': tree.root.label.plain,

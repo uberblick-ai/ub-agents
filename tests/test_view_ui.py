@@ -113,6 +113,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await pilot.press('u')
                     status = str(app.query_one('#status', Static).render())
                     self.assertNotIn('FOLLOW', status)
+                    self.assertTrue(app.reading.follow)
+                    self.assertEqual(app.log_lag(), (0, 0))
                     self.assertFalse(app.query_one('#log_state').display)
                     self.assertFalse(app.query_one('#log_note', Static).display)
                     self.assertEqual(output.visible_refs, app.reading.page.refs)
@@ -273,6 +275,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(pill.region.bottom, app.query_one('#run_status').region.y)
             self.assertLessEqual(app.query_one('#run_status').region.bottom,
                                  footer.region.y)
+            self.assertEqual(pill.size.height, 1)
+            self.assertLessEqual(pill.region.bottom, footer.region.y)
+            self.assertNotIn('PAUSED', app.query_one('#run_status', Static).render().plain)
             for tab in ('2', '3'):
                 await pilot.press(tab)
                 self.assertIn('f follow h older', footer.render().plain)
@@ -289,6 +294,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('↓ BEHIND', pill.render().plain)
             self.assertIn('8192B lag', pill.render().plain)
             self.assertIn('RAW', pill.render().plain)
+            self.assertNotIn('BEHIND', app.query_one('#run_status', Static).render().plain)
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -377,6 +383,51 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('escape', 'q')
         app.worker.thread.join(2)
 
+    async def test_height_only_layout_changes_preserve_a_pending_paused_scroll(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('f', 'home', 'pagedown')
+            output = app.query_one(LogPane)
+            note = app.query_one('#log_note', Static)
+            pill = app.query_one('#log_state', Static)
+            page = app.reading.page
+            # Hold status updates while changing the actual notice/pill layout.
+            # Move the screen before saving, deterministically representing a
+            # Page Up whose save_anchor callback is pending when Resize arrives.
+            with patch.object(app, 'update_status'):
+                for widget, visible in ((note, True), (note, False), (pill, False), (pill, True)):
+                    with self.subTest(widget=widget.id, visible=visible):
+                        saved = app.reading.anchor
+                        output.scroll_to(y=int(output.scroll_y) + 2, animate=False, immediate=True)
+                        anchor = output.anchor()
+                        self.assertNotEqual(anchor, saved)
+                        width, height = output.size
+                        note.update('Unfinished: 12B (raw preview)')
+                        widget.display = visible
+                        await pilot.pause()
+                        self.assertEqual(output.size.width, width)
+                        self.assertNotEqual(output.size.height, height)
+                        self.assertEqual(output.anchor(), anchor)
+                        output.save_anchor()
+                        self.assertEqual(app.reading.anchor, anchor)
+                        self.assertIs(app.reading.page, page)
+                for height in (36, 32):
+                    anchor = output.anchor()
+                    await pilot.resize_terminal(110, height)
+                    await pilot.pause()
+                    self.assertEqual(output.anchor(), anchor)
+                    self.assertEqual(app.reading.anchor, anchor)
+            await pilot.press('f')
+            with patch.object(app, 'update_status'):
+                for visible in (True, False):
+                    note.display = visible
+                    await pilot.pause()
+                    self.assertTrue(app.reading.follow)
+                    self.assertEqual(output.scroll_y, output.max_scroll_y)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_help_lists_all_keys_closes_with_question_or_escape_and_preserves_reading(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
@@ -447,6 +498,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(header.display)
                 self.assertEqual(header.region.height, 3)
                 self.assertLess(header.region.bottom, app.query_one('#' + tab).region.bottom)
+                self.assertLessEqual(app.query_one('#' + tab).region.bottom,
+                                     app.query_one('#status').region.y)
             issue = app.query_one('#issue_text', Static).render().plain
             self.assertNotIn('Cached title', issue)
             self.assertNotIn('#114', issue)
@@ -471,6 +524,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(lines[1].endswith('2 earlier runs'))
             self.assertEqual(pane_line(lines[1], 1000).cell_len, status.size.width)
             self.assertEqual(status.region.bottom, app.query_one('#log').region.bottom)
+            self.assertEqual(status.region.bottom, app.query_one('#status').region.y)
             self.assertFalse(app.query_one('#log_note').display)
             self.state['assignment']['process'] = 'exited'
             self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',
@@ -964,8 +1018,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('p')
             await pilot.pause()
             self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
-            self.assertNotIn('FOLLOW', str(app.screen.query_one('#raw_status').render()))
-            self.assertIn('ub-agents', app.screen.query_one('#raw_status').render().plain)
+            self.assertNotIn('FOLLOW', app.screen.query_one('#raw_status', Static).render().plain)
+            self.assertIn('running assignment', app.screen.query_one('#raw_status', Static).render().plain)
             await pilot.press('pageup', 'pagedown', 'home', 'end', 'f', 'u', 'h', '2', '3', '1')
             self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
             await pilot.press('q')
