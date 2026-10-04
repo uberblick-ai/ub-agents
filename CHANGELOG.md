@@ -43,6 +43,7 @@ repositories; set `approvals: on` to retain the previous checks (#134).
 - The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
 - Claude logs use compact local timestamps, tool calls, line counts and distinct errors in the terminal view, with raw records available on demand (#163).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items with counts, above a fixed lower half listing recent outcomes (#159, #171).
+- Live terminal work rows show two compact lines with status glyphs, titles, ownership and counts; full reasons stay on the Issue tab (#160).
 
 ### Removed
 

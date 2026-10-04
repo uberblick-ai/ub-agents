@@ -75,11 +75,14 @@ environmental: state it with your results and do not change code or tests to avo
 
 ## Retrospectives
 
-Post one to your role's board only when the run lost something — a retry, rework, a
-denied command you had to work around, a long search, tokens spent for nothing — or
-missed something it needed, and you can name the change that would have prevented
-it. Otherwise post nothing. In one short paragraph, link the item, state the cost and
-its cause, and the smallest useful change. Post it before `ub-agents report`; a
+Post one to your role's board only when the run lost something real — an extra
+run or review round, rework, or about fifteen minutes on a denied command, a long
+search or a missing pointer — or missed something it needed, and you can name the
+change that would have prevented it. Otherwise post nothing, and post at most once
+per item: a retry does not repeat what an earlier run of yours already posted. In
+one short paragraph, link the item, state the cost and its cause, and the smallest
+useful change. The boards are public: never include credentials, environment values,
+local paths, hostnames or log excerpts. Post it before `ub-agents report`; a
 retrospective is telemetry, never a gate, so a failed post blocks nothing.
 
 | Board | Discussion | Node id |
@@ -90,7 +93,8 @@ retrospective is telemetry, never a gate, so a failed post blocks nothing.
 | integrator | #205 | `D_kwDOU3EDKc4ApxOt` |
 | workflow-audit | #206 | `D_kwDOU3EDKc4ApxOu` |
 
-Write the paragraph with the file-writing tool to a file in your worktree, then post
+Write the paragraph with the file-writing tool to a file in the run's `scratch`
+directory (assignment context), never the worktree, where it could be committed. Post
 it with the node id from the table, never a guessed one:
 
 ```sh
