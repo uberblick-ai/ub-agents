@@ -925,7 +925,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['outcomes'] = []
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and
-                             app.groups['Running'].label.plain == 'Running · 1')
+                             app.groups['Running'].label.plain == 'Running · 1' and
+                             app.session.data.get('latest_pass', {}).get('state') == 'complete')
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
             self.assertEqual(app.query_one('#work_pane').border_title, 'Work · pass complete')
             self.assertTrue(app.query_one(RecentActivity).render().plain.startswith('Recent activity · 0 today'))
