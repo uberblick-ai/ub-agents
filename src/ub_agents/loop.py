@@ -456,7 +456,8 @@ class Loop:
         current = self.github.item(plan.item.number, plan.item.kind)
         matches = AgentMatches.for_item(current, self.config.agents)
         start = check_start(current, plan.agent, matches, self.config.stop_labels, self.config.queue)
-        if not start.allowed:
+        # Preserve the durable history read even when a stop label appeared.
+        if not start.allowed and start.reason != start.stop_reason:
             return
         if self.coordinator.plan(current, plan.agent, self.config.stop_labels,
                                  start=start, matches=matches).state != "ready":

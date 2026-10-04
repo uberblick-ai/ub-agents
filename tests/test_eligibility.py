@@ -7,6 +7,7 @@ from unittest.mock import patch
 from ub_agents.config import Queue
 from ub_agents.coordination import Plan
 from ub_agents.eligibility import AgentMatches, check_start
+from ub_agents.errors import AgentError
 from ub_agents.loop import Loop
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
@@ -100,6 +101,17 @@ class EligibilityTests(unittest.TestCase):
                     lease = recovery.coordinator.claim(recovery_plan, recovery.config.stop_labels, recovery=True)
                 self.assertIsNotNone(lease)
                 self.assertEqual(lease["mode"], "recovery")
+
+    def test_stop_label_preserves_durable_history_read_before_writes(self):
+        loop = self.loop(issue(), agent(self.root), Queue())
+        plan = loop.plans()[0]
+        loop.github.change(1, labels=frozenset({"ready", "needs-human"}))
+        loop.github.github.unreadable = True
+        for operation in (lambda: loop.park_approval(plan),
+                          lambda: loop.coordinator.claim(plan, loop.config.stop_labels)):
+            with self.subTest(operation=operation), self.assertRaisesRegex(AgentError, "GitHub unavailable"):
+                operation()
+        self.assertEqual(loop.github.writes, [])
 
     def test_matches_and_label_unions_are_shared_without_changing_prompt_labels(self):
         workers = (agent(self.root, name="issue-worker", kind="issue", triggers=("issue-start",)),

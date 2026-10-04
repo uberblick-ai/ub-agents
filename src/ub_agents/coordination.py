@@ -310,7 +310,9 @@ class Coordinator:
         matches = AgentMatches.for_item(current, plan.matches.configured if plan.matches else (plan.agent,))
         if not recovery:
             start = check_start(current, plan.agent, matches, stop_labels, self.queue)
-            if not start.allowed:
+            # Stop labels still reach durable planning: its history reads and
+            # precedence for ownership and pending outcomes must stay intact.
+            if not start.allowed and start.reason != start.stop_reason:
                 return None
         history = self.history(current.number)
         if recovery:
