@@ -25,8 +25,8 @@ maintainer start, and PR heads need no approval. Feedback is limited to authors
 with `write`, `maintain` or `admin`; approval records cannot clear other feedback.
 The launcher makes no approval reads or approval-parking writes. When `approvals`
 is unset, an unreadable visibility fails the pass before any claim or parking
-write. `doctor` shows the effective value and source; `check` shows the configured
-value or that it comes from visibility, without contacting GitHub.
+write. `doctor --verbose` shows the effective value and source; `check` shows the
+configured value or that it comes from visibility, without contacting GitHub.
 
 `ub-agents launch`, including `--once`, appends stdout and stderr to
 `.ub-agents/launch.log` in the control checkout. Every file line starts with a UTC
@@ -883,9 +883,15 @@ with a help command to run.
   are written regardless of the label-creation answer. Each agent includes commented
   permission arguments matching `--runtime`; see [Runtime permissions](#runtime-permissions).
 - `ub-agents check` validates the configuration and instruction files.
-- `ub-agents doctor [--json]` reports remaining GitHub requests and the reset time in
-  UTC from real request headers. It warns below 10% remaining and whenever doctor
-  itself is rate limited. It checks everything `check` does, plus Python, the platform,
+- `ub-agents doctor [--json] [--verbose]` shows every warning and failure with its
+  remedy, grouped in machine, configuration, GitHub and runtimes order. Each area
+  has one summary line for passed and skipped checks; labels are counted once per
+  distinct label. Areas whose non-failing checks were all skipped use `skip`; areas with only
+  warnings or failures have no summary. The final failure and warning counts are
+  unchanged. `--verbose` shows the full per-check list, including remaining GitHub
+  requests and the reset time in UTC from real request headers.
+  Doctor warns below 10% remaining and whenever it is rate limited.
+  It checks everything `check` does, plus Python, the platform,
   `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
   A token that cannot change labels is a required failure, because the launcher
   applies outcome transitions itself. Missing trigger or outcome transition labels
@@ -900,7 +906,7 @@ with a help command to run.
   see [Issue approvals](approvals.md#repository-roles). Runtime agents without
   `runtime-args` produce a warning linking the permission guidance. Doctor makes no
   writes. It exits 1 when a required check fails; warnings and skips exit 0. The
-  JSON has `version`, `ok` and `checks`,
+  JSON is unchanged by `--verbose` and has `version: 1`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
 - `ub-agents approve N` prints the current issue or PR title, body and

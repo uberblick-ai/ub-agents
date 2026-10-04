@@ -8,6 +8,7 @@ notes are copied from that section.
 
 ### Changed
 
+- `doctor` shows warnings and failures with area summaries by default; `--verbose` retains the full per-check list (#191).
 - The terminal Work pane grows with terminal width at 110×32 and above, making more of each item title and run line visible (#213).
 - Quitting an attached terminal view with `q` interrupts the launcher and cleans up owned runs, matching Ctrl-C (#182).
 - The terminal Work pane hides dependency and milestone waits, with retry backoff and paused-runtime plans following ready work in Eligible (#173).

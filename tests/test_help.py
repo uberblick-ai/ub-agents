@@ -68,6 +68,14 @@ class HelpTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertLessEqual(len(line), 100)
 
+    def test_doctor_help_describes_summary_verbose_and_json(self):
+        code, output, errors = self.invoke(["doctor", "--help"])
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("summary per area by default", output)
+        self.assertIn("--verbose", output)
+        self.assertIn("Show the full per-check list", output)
+        self.assertIn("does not change --json", output)
+
     def test_overview_stays_aligned_with_forced_color(self):
         env = os.environ.copy()
         for variable in ("FORCE_COLOR", "PYTHON_COLORS", "NO_COLOR"):

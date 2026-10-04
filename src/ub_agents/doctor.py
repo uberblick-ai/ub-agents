@@ -26,6 +26,18 @@ AUTH_PROBES = {"codex": ("codex", "login", "status"),
                "claude": ("claude", "auth", "status")}
 
 
+AREAS = {
+    "machine": ("python", "platform", "git", "gh", "process-inspection", "local-state", "local-state-ignored"),
+    "configuration": ("config", "instructions", "repository-root", "repository-remote", "approvals"),
+    "GitHub": ("github-auth", "github-repository", "github-permissions", "github-labels", "github-label",
+               "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit"),
+    # "commands" is the existing skip check when configuration is unavailable.
+    "runtimes": ("command", "commands", "runtime-permissions", "runtime-executable", "runtime-auth", "runtimes",
+                 "different-runtime-from"),
+}
+CHECK_AREAS = {id: area for area, ids in AREAS.items() for id in ids}
+
+
 # Configuration errors can quote YAML. Keep diagnostics on one line and redact
 # recognizable credential forms.
 def public(value):
@@ -365,15 +377,55 @@ def diagnose(path, **kwargs):
     return Doctor(**kwargs).run(path)
 
 
-def render(result, json_output=False):
+def render_check(check):
+    scope = "/".join(value for value in (check["agent"], check["runtime"]) if value)
+    print(f"{check['status']} {check['id']} {scope or '-'} {check['message']}")
+    if check["status"] in {"warn", "fail"}:
+        print(f"  remedy: {check['remedy']}")
+
+
+def render_area(area, checks):
+    passed = 0
+    labels = set()
+    skipped = 0
+    for check in checks:
+        if check["status"] in {"warn", "fail"}:
+            render_check(check)
+        elif check["status"] == "skip":
+            skipped += 1
+        elif check["id"].startswith("github-label:"):
+            # Remove only the agent scope; label names can themselves contain colons.
+            id = check["id"]
+            if check["agent"]:
+                id = id.removesuffix(f":{check['agent']}")
+            labels.add(id.casefold())
+        else:
+            passed += 1
+    summary = []
+    if passed:
+        summary.append(f"{passed} check{'s' if passed != 1 else ''} passed")
+    if labels:
+        summary.append(f"{len(labels)} label{'s' if len(labels) != 1 else ''} present")
+    if skipped:
+        summary.append(f"{skipped} skipped")
+    if summary:
+        status = "ok" if passed or labels else "skip"
+        print(f"{status} {area}: {', '.join(summary)}")
+
+
+def render(result, json_output=False, verbose=False):
     if json_output:
         print(json.dumps(result, indent=2))
         return
-    for check in result["checks"]:
-        scope = "/".join(value for value in (check["agent"], check["runtime"]) if value)
-        print(f"{check['status']} {check['id']} {scope or '-'} {check['message']}")
-        if check["status"] in {"warn", "fail"}:
-            print(f"  remedy: {check['remedy']}")
+    if verbose:
+        for check in result["checks"]:
+            render_check(check)
+    else:
+        groups = {area: [] for area in AREAS}
+        for check in result["checks"]:
+            groups[CHECK_AREAS[check["id"].split(":", 1)[0]]].append(check)
+        for area, checks in groups.items():
+            render_area(area, checks)
     failures = sum(c["required"] and c["status"] == "fail" for c in result["checks"])
     warnings = sum(c["status"] == "warn" for c in result["checks"])
     print(f"{failures} required failures, {warnings} warnings")

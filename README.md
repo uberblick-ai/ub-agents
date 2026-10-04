@@ -54,6 +54,11 @@ ub-agents doctor       # check the machine, GitHub labels/access and runtimes
 ub-agents launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
+`doctor` shows every warning and failure with its remedy, then summarizes passed
+and skipped checks by area. Labels are counted once per distinct label. Use
+`doctor --verbose` for the full per-check list, or `doctor --json` for all
+structured results; `--verbose` does not change JSON output.
+
 Interactive launches open a read-only [terminal view](docs/terminal-view.md) of
 their own session; `q` and Ctrl-C interrupt the launcher and clean up owned runs.
 Use `launch --no-ui` for plain lines. Pipes and services stay plain.
@@ -73,7 +78,7 @@ normal `poll-seconds` pacing. The continuous loop retries transient GitHub
 discovery failures with bounded waits.
 Continuous launch waits out GitHub rate limits without charging poll failures or
 item attempts. Owned runs retry rate-limited reads while the lease permits; writes
-keep their existing handling. `doctor` reports request quota and reset time in UTC,
+keep their existing handling. `doctor --verbose` reports request quota and reset time in UTC,
 warning below 10% remaining. See [polling and retry limits](docs/configuration.md#top-level)
 for the waits and failure limit. `launch --once` and `status` fail on the first
 error.
@@ -180,7 +185,7 @@ upgrading any.
 Set top-level `approvals: on` or `approvals: off` in `ub-agents.yaml` to choose the
 policy. By default it is on for public repositories and off for private and
 internal repositories, resolved from GitHub visibility each discovery pass. An
-unreadable visibility fails the pass without claims or parking writes. `doctor`
+unreadable visibility fails the pass without claims or parking writes. `doctor --verbose`
 shows the effective value and source; `check` shows the configured value or the
 visibility default without contacting GitHub.
 
