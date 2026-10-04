@@ -12,7 +12,7 @@ writes. An explicit setting does not require a visibility read.
 approvals: on
 ```
 
-`ub-agents doctor` shows the effective value and its source: `config` or
+`ub-agents doctor --verbose` shows the effective value and its source: `config` or
 `visibility (public|private|internal)`. `ub-agents check` stays local-only: it shows
 the configured value or says the value comes from repository visibility.
 

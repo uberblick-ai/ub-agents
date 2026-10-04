@@ -54,17 +54,18 @@ agents:
         self.assertEqual(len(values), 1, values)
         return values[0]
 
-    def capture(self, result, json_output=False):
+    def capture(self, result, json_output=False, verbose=False):
         with redirect_stdout(io.StringIO()) as output:
-            render(result, json_output)
+            render(result, json_output, verbose)
         return output.getvalue()
 
-    def cli(self, json_output=False):
+    def cli(self, json_output=False, verbose=False):
         with patch("ub_agents.doctor.subprocess.run", self.runner), \
                 patch("ub_agents.doctor.shutil.which", self.which), \
                 patch("ub_agents.doctor.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
-            code = main(["--config", str(self.path), "doctor"] + (["--json"] if json_output else []))
+            code = main(["--config", str(self.path), "doctor"]
+                        + (["--json"] if json_output else []) + (["--verbose"] if verbose else []))
         self.assertEqual(stderr.getvalue(), "")
         return code, stdout.getvalue()
 
@@ -83,6 +84,118 @@ agents:
         code, output = self.cli(True)
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
+
+    def test_healthy_default_has_one_summary_per_area_and_deduplicates_shared_labels(self):
+        worker = self.path.read_text().split("  worker:\n", 1)[1].replace(
+            "runtime: codex:model-a:high", "runtime: [codex:model-a:high, claude:model-b:high]")
+        worker = worker.replace("trigger: ready", "trigger: [ready, workflow:next]")
+        self.path.write_text("repository: org/project\nagents:\n"
+                             + "".join(f"  {name}:\n{worker}" for name in ("worker", "reviewer", "preparer", "integrator")))
+        self.github.label_names.append("workflow:next")
+        result = self.diagnose()
+        self.assertTrue(all(c["status"] == "ok" for c in result["checks"]))
+        self.assertEqual(len(self.checks(result, "github-label")), 9)
+        expected = ("ok machine: 7 checks passed\n"
+                    "ok configuration: 8 checks passed\n"
+                    "ok GitHub: 5 checks passed, 3 labels present\n"
+                    "ok runtimes: 20 checks passed\n"
+                    "0 required failures, 0 warnings\n")
+        self.assertEqual(self.capture(result), expected)
+        self.assertEqual(self.cli(), (0, expected))
+
+    def test_default_keeps_every_warning_failure_and_remedy_from_verbose(self):
+        self.github.roles["operator"] = "admin"
+        self.github.label_names = []
+        self.missing.add("codex")
+        self.path.write_text(self.path.read_text() + '''  reviewer:
+    command: [missing-command]
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        self.missing.add("missing-command")
+        result = self.diagnose()
+        default, verbose = self.capture(result), self.capture(result, verbose=True)
+        def attention(output):
+            return [line for line in output.splitlines()
+                    if line.startswith(("warn ", "fail ", "  remedy:"))]
+        # Area grouping may reorder checks, but must retain every repeated consumer.
+        self.assertCountEqual(attention(default), attention(verbose))
+        self.assertEqual(default.splitlines()[-1], verbose.splitlines()[-1])
+        self.assertIn("fail github-label:ready:worker worker Label ready is missing", default)
+        self.assertIn("fail github-label:ready:reviewer reviewer Label ready is missing", default)
+        self.assertIn("warn github-launcher-role - Launcher account operator has admin", default)
+        self.assertIn("ok GitHub: 4 checks passed\n", default)
+        self.assertIn("skip runtimes: 1 skipped\n", default)
+        self.assertEqual(self.cli()[0], 1)
+        self.assertEqual(self.cli(verbose=True)[0], 1)
+
+    def test_missing_gh_shows_failure_and_github_skip_summary(self):
+        self.missing.add("gh")
+        result = self.diagnose()
+        output = self.capture(result)
+        self.assertIn("fail gh - gh is not on PATH\n  remedy: Install GitHub CLI", output)
+        self.assertIn("skip GitHub: 5 skipped\n", output)
+        self.assertIn("ok configuration: 4 checks passed, 1 skipped\n", output)
+        self.assertNotIn("skip github-auth", output)
+        self.assertEqual(self.cli()[0], self.cli(verbose=True)[0])
+        self.assertEqual(output.splitlines()[-1], self.capture(result, verbose=True).splitlines()[-1])
+
+    def test_mixed_passes_and_skips_are_counted_without_individual_skip_lines(self):
+        self.path.write_text(self.path.read_text().replace(
+            "runtime: codex:model-a:high", "runtime: [codex:model-a:high, claude:model-b:high]") + '''  command:
+    command: [git, --version]
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        self.missing.add("codex")
+        output = self.capture(self.diagnose())
+        self.assertIn("ok configuration: 5 checks passed, 1 skipped\n", output)
+        self.assertIn("ok runtimes: 4 checks passed, 1 skipped\n", output)
+        self.assertNotIn("skip instructions", output)
+        self.assertNotIn("skip runtime-auth", output)
+
+    def test_invalid_configuration_retains_existing_commands_skip_id(self):
+        self.path.write_text("agents: [\n")
+        result = self.diagnose()
+        self.assertEqual(self.one(result, "commands")["status"], "skip")
+        self.assertIn("skip runtimes: 3 skipped\n", self.capture(result))
+        self.assertIn("skip commands - configuration unavailable\n", self.capture(result, verbose=True))
+
+    def test_json_is_byte_identical_to_existing_rendering_with_or_without_verbose(self):
+        for unhealthy in (False, True):
+            with self.subTest(unhealthy=unhealthy):
+                if unhealthy:
+                    self.github.label_names = []
+                    self.missing.add("gh")
+                result = self.diagnose()
+                expected = json.dumps(result, indent=2) + "\n"
+                self.assertEqual(self.capture(result, True), expected)
+                self.assertEqual(self.capture(result, True, verbose=True), expected)
+                self.assertEqual(self.cli(True), self.cli(True, verbose=True))
+
+    def test_verbose_preserves_legacy_line_format_and_original_check_order(self):
+        checks = [
+            dict(id="runtime-auth:worker:codex:model-a:high", status="skip", required=True,
+                 agent="worker", runtime="codex:model-a:high", message="executable unavailable", remedy=None),
+            dict(id="github-label:ready:worker", status="fail", required=True,
+                 agent="worker", runtime=None, message="Label ready is missing", remedy="Create ready"),
+            dict(id="github-auth", status="ok", required=True,
+                 agent=None, runtime=None, message="authenticated as operator", remedy=None),
+            dict(id="github-launcher-role", status="warn", required=False,
+                 agent=None, runtime=None, message="elevated account", remedy="Use write"),
+        ]
+        result = {"version": 1, "ok": False, "checks": checks}
+        self.assertEqual(self.capture(result, verbose=True),
+                         "skip runtime-auth:worker:codex:model-a:high worker/codex:model-a:high executable unavailable\n"
+                         "fail github-label:ready:worker worker Label ready is missing\n"
+                         "  remedy: Create ready\n"
+                         "ok github-auth - authenticated as operator\n"
+                         "warn github-launcher-role - elevated account\n"
+                         "  remedy: Use write\n"
+                         "1 required failures, 1 warnings\n")
+        # Areas consisting entirely of failures/warnings have no summary line.
+        checks[:] = [c for c in checks if c["status"] in {"warn", "fail"}]
+        self.assertEqual(self.capture(result), self.capture(result, verbose=True))
 
     def test_approvals_effective_policy_and_source(self):
         for visibility, value in (("public", "on"), ("private", "off"), ("internal", "off")):

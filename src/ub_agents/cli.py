@@ -45,9 +45,12 @@ def parser():
                                  examples=("ub-agents check", "ub-agents check --config workflow.yaml"))
     doctor = commands.add_parser("doctor", help="Diagnose setup or launch issues",
                                  description="Check machine, GitHub and runtime prerequisites without changing them. "
+                                 "Show warnings and failures with a summary per area by default; "
+                                 "use --verbose for every check. "
                                  "Use during setup or to diagnose launch failures; required failures exit nonzero.",
-                                 examples=("ub-agents doctor", "ub-agents doctor --json"))
+                                 examples=("ub-agents doctor", "ub-agents doctor --verbose", "ub-agents doctor --json"))
     doctor.add_argument("--json", action="store_true", help="Emit versioned prerequisite results")
+    doctor.add_argument("--verbose", action="store_true", help="Show the full per-check list (does not change --json)")
     launch = commands.add_parser("launch", help="Run queue or handle one item",
                                  description="Run the serial foreground loop under the configured eligibility gates. "
                                  "Use without a number to watch the queue, or with a number to handle only that item.",
@@ -256,7 +259,7 @@ def run(args):
     if args.command == "doctor":
         from .doctor import diagnose, render
         result = diagnose(args.config)
-        render(result, json_output=args.json)
+        render(result, json_output=args.json, verbose=args.verbose)
         return 0 if result["ok"] else 1
     config = load_config(args.config)
     if args.command == "launch" and args.agent is not None:
