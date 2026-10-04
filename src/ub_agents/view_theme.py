@@ -47,7 +47,9 @@ def variable_defaults(theme):
 
 
 def theme_style(app, variable, **attributes):
-    return Style(color=Color.parse(app.theme_variables[variable]).rich_color, **attributes)
+    variables = app.theme_variables if app else {
+        **VIEW_THEME.to_color_system().generate(), **VIEW_THEME.variables}
+    return Style(color=Color.parse(variables[variable]).rich_color, **attributes)
 
 
 def log_style(app, token):

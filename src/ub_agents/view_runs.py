@@ -70,9 +70,9 @@ def run_status(row, now):
 
 def runs_view(row, session, now=None, *, app=None):
     # The plain projection remains usable without a running Textual app.
-    muted = theme_style(app, 'view-muted', dim=True) if app else 'dim'
-    success = theme_style(app, 'view-success') if app else ''
-    error = theme_style(app, 'view-error') if app else ''
+    muted = theme_style(app, 'view-muted', dim=True)
+    success = theme_style(app, 'view-success')
+    error = theme_style(app, 'view-error')
     if row is None:
         return Text('Select an item to see its history.')
     relative_now = now
