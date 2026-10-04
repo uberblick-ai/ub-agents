@@ -332,6 +332,20 @@ def local_description(row, session):
     return Description(title=title, kind=source.get('kind', ''))
 
 
+def item_handoff(row, session=None):
+    """The linked PR for an outcome, or the item's latest cached handoff."""
+    if not row:
+        return None
+    outcomes = [row.data, *(rows(session.data.get('outcomes'), 20) if session else [])]
+    for outcome in reversed(outcomes):
+        if outcome.get('item') != row.item:
+            continue
+        handoff = outcome.get('handoff') or outcome.get('target')
+        if type(handoff) is int and handoff > 0 and handoff != row.item:
+            return handoff
+    return None
+
+
 def item_header(row, description, session):
     """Shared item identity and optional context for every right-pane tab."""
     if not row:
@@ -349,14 +363,9 @@ def item_header(row, description, session):
         parts.append(f'attempt {row.data["attempt"]}')
     elif type(row.data.get('failures')) is int and type(row.data.get('max_attempts')) is int:
         parts.append(f'{row.data["failures"]}/{row.data["max_attempts"]} failures')
-    outcomes = [row.data, *(rows(session.data.get('outcomes'), 20) if session else [])]
-    for outcome in reversed(outcomes):
-        if outcome.get('item') != row.item:
-            continue
-        handoff = outcome.get('handoff') or outcome.get('target')
-        if type(handoff) is int and handoff > 0 and handoff != row.item:
-            parts.append(f'⌥{handoff}')
-            break
+    handoff = item_handoff(row, session)
+    if handoff is not None:
+        parts.append(f'⌥{handoff}')
     return ' '.join(part for part in (reference, title) if part), ' · '.join(part for part in parts if part)
 
 

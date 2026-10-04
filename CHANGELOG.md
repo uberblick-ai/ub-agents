@@ -12,6 +12,10 @@ notes are copied from that section.
 - Running shows only this launcher's assignment or an idle placeholder; other launchers' claims are omitted from the terminal Work pane (#172).
 - The terminal view uses a consistent theme, rounded pane titles, colored work sections, numbered tabs, a formatted/raw indicator and a repository window title (#164).
 
+### Fixed
+
+- The terminal view distinguishes PRs with accent-colored ⌥ markers, including Recent activity rows and their linked PR handoffs (#174).
+
 ## 0.1.11 — 2026-10-04
 
 **Upgrading:** stop all of a project's launchers and wait until every one has exited,

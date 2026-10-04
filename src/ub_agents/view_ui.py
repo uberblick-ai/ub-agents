@@ -19,7 +19,7 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
-from .view_data import (WORK_GROUPS, context_header, context_text, item_header, item_history, mapping, plan_group,
+from .view_data import (WORK_GROUPS, context_header, context_text, item_handoff, item_header, item_history, mapping, plan_group,
                         rows as snapshot_rows, run_status, text)
 from .view_github import DescriptionLoads
 from .view_runs import run_status as history_status, runs_view
@@ -56,7 +56,8 @@ class UpdateBanner(Static):
 
 
 def pane_line(value, width, style=''):
-    line = Text(text(value, ''), style=style)
+    line = value.copy() if isinstance(value, Text) else Text(text(value, ''))
+    line.stylize_before(style)
     line.truncate(max(0, width), overflow='ellipsis')
     return line
 
@@ -777,9 +778,17 @@ class View(App):
         header = self.query_one('#item_header', Static)
         width = header.content_region.width
         title, metadata = item_header(row, self.current_description(), self.session)
+        title_text, metadata_text = Text(title), Text(metadata)
+        accent = theme_style(self, 'view-accent')
+        if title.startswith('⌥'):
+            title_text.stylize(accent, 0, 1)
+        handoff = item_handoff(row, self.session)
+        if handoff is not None:
+            offset = len(metadata) - len(f'⌥{handoff}')
+            metadata_text.stylize(accent, offset, offset + 1)
         header_text = Text()
-        header_text.append_text(pane_line(title, width, 'bold'))
-        header_text.append('\n').append_text(pane_line(metadata, width, theme_style(self, 'view-muted', dim=True)))
+        header_text.append_text(pane_line(title_text, width, 'bold'))
+        header_text.append('\n').append_text(pane_line(metadata_text, width, theme_style(self, 'view-muted', dim=True)))
         header_text.append('\n' + '┄' * width, style=theme_style(self, 'view-muted'))
         header.update(header_text)
         width = output.size.width

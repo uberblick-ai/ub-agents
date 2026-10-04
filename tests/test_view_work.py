@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta, timezone
 import unittest
 
+from rich.console import Console
+
 from ub_agents.view_data import WorkRow
 from ub_agents.view_work import work_lines
+from ub_agents.view_theme import theme_style
 
 
 class WorkLineTests(unittest.TestCase):
@@ -84,3 +87,18 @@ class WorkLineTests(unittest.TestCase):
         self.assertTrue(second.plain.endswith('…'))
         row = self.row('Eligible', 'ready', agent='', title='', failures=0, max_attempts=3)
         self.assertEqual(work_lines(row, 32)[1].plain.strip(), '')
+
+    def test_pr_marker_accent_is_bounded_and_does_not_restyle_title(self):
+        row = self.row('Eligible', 'ready', kind='pr', title='Verbatim ⌥99 #98')
+        accent = theme_style(None, 'view-accent').color
+        console = Console()
+        for width in (0, 1, 6, 15, 50):
+            with self.subTest(width=width):
+                first, _ = work_lines(row, width)
+                if first.plain[2:3] == '⌥':
+                    self.assertEqual(first.get_style_at_offset(console, 2).color, accent)
+                    self.assertNotEqual(first.get_style_at_offset(console, 3).color, accent)
+                self.assertTrue(all(first.plain[span.start:span.end] == '⌥' for span in first.spans))
+        first, _ = work_lines(row, 50)
+        self.assertIn('Verbatim ⌥99 #98', first.plain)
+        self.assertNotEqual(first.get_style_at_offset(console, first.plain.index('⌥99')).color, accent)

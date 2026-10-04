@@ -1,6 +1,7 @@
 """Terminal palette and theme-resolved Rich styles."""
 
 from rich.style import Style
+from rich.text import Text
 from textual.color import Color
 from textual.theme import Theme
 
@@ -50,6 +51,13 @@ def theme_style(app, variable, **attributes):
     variables = app.theme_variables if app else {
         **VIEW_THEME.to_color_system().generate(), **VIEW_THEME.variables}
     return Style(color=Color.parse(variables[variable]).rich_color, **attributes)
+
+
+def item_reference(number, kind, *, app=None):
+    reference = Text(('⌥' if kind == 'pr' else '#') + str(number))
+    if kind == 'pr':
+        reference.stylize(theme_style(app, 'view-accent'), 0, 1)
+    return reference
 
 
 def log_style(app, token):

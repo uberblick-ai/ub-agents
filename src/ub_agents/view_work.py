@@ -9,8 +9,8 @@ from textual.geometry import Region, Size
 from textual.strip import Strip
 from textual.widgets import Static, Tree
 
-from .view_data import mapping, outcomes_today, rows, text
-from .view_theme import SECTION_COLORS, theme_style
+from .view_data import item_handoff, mapping, outcomes_today, rows, text
+from .view_theme import SECTION_COLORS, item_reference, theme_style
 
 
 def section_rule(label, width, style):
@@ -51,7 +51,7 @@ def assignment_elapsed(row, now=None, claimed_at=None):
     return f'{hours}:{minutes:02}:{seconds:02}' if hours else f'{minutes:02}:{seconds:02}'
 
 
-def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None):
+def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None):
     """Two cell-bounded lines for one logical live-work row."""
     if width <= 0:
         return Text('', no_wrap=True), Text('', no_wrap=True)
@@ -75,8 +75,9 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     history = mapping(row.data.get('history'))
     kind = row.data.get('kind') or history.get('kind')
     title = text(row.data.get('title') or history.get('title'), '')
-    reference = ('⌥' if kind == 'pr' else '#') + text(str(row.item))
-    first = Text(f'{glyph} {reference}' + (f' {title}' if title else ''), no_wrap=True)
+    first = Text(f'{glyph} ', no_wrap=True)
+    first.append_text(item_reference(row.item, kind, app=app))
+    first.append(f' {title}' if title else '')
     status = Text(text(state, '') if width > 1 else '', no_wrap=True)
     status.truncate(max(0, width // 2), overflow='ellipsis')
     room = width - status.cell_len - 1
@@ -151,7 +152,7 @@ class WorkTree(Tree):
                              if value.group == 'Eligible' and value.state in {'ready', 'recover'}), None)
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
             value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
-                               claimed_at=self.claim_times.get(row.key))[line_no != node._line]
+                               claimed_at=self.claim_times.get(row.key), app=self.app)[line_no != node._line]
         elif node is self.app.idle_node:
             label_style += theme_style(self.app, 'view-muted', dim=True)
             value = node.label.copy()
@@ -160,7 +161,7 @@ class WorkTree(Tree):
             label_style = theme_style(self.app, SECTION_COLORS.get(node.label.plain.split(' · ')[0], 'view-muted'))
             value = section_rule(node.label.plain, width, label_style)
         line_style = label_style + Style(meta={'line': line_no, 'node': node.id})
-        value.stylize(line_style)
+        value.stylize_before(line_style)
         if row:
             if line_no == node._line:
                 value.stylize(theme_style(self.app, SECTION_COLORS.get(row.group, 'view-muted')), 0, 1)
@@ -228,8 +229,12 @@ class RecentActivity(Static, can_focus=True):
             result = text(row.data.get('result'))
             glyph = '✗' if result in {'retry', 'blocked', 'failed', 'abandoned'} else (
                 '✓' if row.data.get('completed') else '○')
-            title = text(row.data.get('title'), text(mapping(row.data.get('history')).get('title'), ''))
-            first = Text(f'{glyph} #{row.item} {title}', no_wrap=True)
+            history = mapping(row.data.get('history'))
+            title = text(row.data.get('title'), text(history.get('title'), ''))
+            kind = row.data.get('kind') or history.get('kind')
+            first = Text(f'{glyph} ', no_wrap=True)
+            first.append_text(item_reference(row.item, kind, app=self.app))
+            first.append(f' {title}')
             status = Text(result, no_wrap=True)
             status.truncate(max(0, width // 2), overflow='ellipsis')
             first.truncate(max(0, width - status.cell_len - 1), overflow='ellipsis')
@@ -240,13 +245,20 @@ class RecentActivity(Static, can_focus=True):
                 when = stamp.astimezone().strftime('%H:%M') if stamp.tzinfo else ''
             except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
                 when = ''
-            detail = Text('  ' + ' · '.join(value for value in (row.agent, when, row.reason) if value), no_wrap=True)
+            detail = Text('  ' + ' · '.join(value for value in (row.agent, when) if value), no_wrap=True)
+            handoff = item_handoff(row)
+            if handoff is not None:
+                detail.append(' · opened ')
+                detail.append_text(item_reference(handoff, 'pr', app=self.app))
+            summary = text(row.data.get('summary'), '')
+            if summary:
+                detail.append(' · ' + summary)
             detail.truncate(width, overflow='ellipsis')
             header.append('\n')
-            first.stylize(style)
+            first.stylize_before(style)
             header.append_text(first)
             header.append('\n')
-            detail.stylize(style)
+            detail.stylize_before(style)
             header.append_text(detail)
         return header
 
