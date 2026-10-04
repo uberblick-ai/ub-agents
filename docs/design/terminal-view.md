@@ -6,7 +6,8 @@ describes what the view does today. When an issue lands, update both files.
 
 The view stays read-only. It reads the launcher's local session snapshot and run logs
 and makes no GitHub calls except `g` on the Issue tab. It has no workflow controls,
-so there is no stop or retry key and no filter.
+so there is no retry key and no filter. `q` quits the view and stops the launch, like
+Ctrl-C (#182).
 
 ## Layout
 
@@ -189,15 +190,15 @@ outcome.
 ## Footer and states
 
 ```text
- ub-agents v0.1.11 · ↻ refreshed 4s ago · next poll 26s     ↑↓ select ⏎ open 1-3 tabs ? keys q close view ^C stop launcher
+ ub-agents v0.1.11 · ↻ refreshed 4s ago · next poll 26s     ↑↓ select ⏎ open 1-3 tabs ? keys q quit
 
 Paused log (pill at the bottom right of the log pane, footer keys switch to log keys):
                                                               ⏸ PAUSED · 37 new ↓ · f follow
- ub-agents v0.1.11 · ↻ refreshed 3s ago · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q close view
+ ub-agents v0.1.11 · ↻ refreshed 3s ago · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
 
 Stale snapshot (banner above both panes, work pane dimmed, footer warns):
  ⚠ Launcher snapshot is 2m 10s old. Showing the last known state; the launcher may be busy or stuck.
- ⚠ snapshot 2m old · ub-agents v0.1.11 · stopping            ↑↓ select 1-3 tabs ? keys q close view ^C stop launcher now
+ ⚠ snapshot 2m old · ub-agents v0.1.11 · stopping            ↑↓ select 1-3 tabs ? keys q quit
 ```
 
 - Idle: Running shows the idle line, and the status reads `○ Idle · waiting for the next poll`.
