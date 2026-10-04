@@ -70,12 +70,16 @@ place, moving sections if its state changes; new rows follow the kept rows in
 their section. Completion removes omitted rows and applies the new planned order
 within Eligible. A selected removed row remains as an earlier observation.
 
-When the session has outcomes, a collapsed **Recent activity · N today** row
-follows the sections. N counts cached session outcomes dated today in the
-viewer's local timezone; older outcomes remain available when expanded. Select
-the row and press `Enter` to expand or collapse it. Expanded outcomes have the
-same local log access as other own runs. Expansion survives refreshes; collapsing
-while an outcome is selected selects the Recent activity row.
+**Recent activity · N today** always fills the lower half of the Work pane,
+including `0 today` when there are no outcomes. N counts cached session outcomes
+dated today in the viewer's local timezone. Up to 20 cached outcomes appear
+newest first, including older outcomes, as dim two-line rows; the selected row
+shows at full brightness. Whole rows that do not fit are cut from the oldest end.
+The lower half does not scroll or collapse, and its header cannot be selected.
+The live sections fill the upper half and scroll independently. Arrow keys move
+between the two halves; `Enter` selects an outcome with the same local log access
+as other own runs. With no live rows, the newest outcome is selected first.
+A selected outcome pushed out of view remains selected in the right pane.
 
 Outcome completion and a human blocker are shown separately: a completed step
 can still be blocked. Until you select a row, the view selects the launcher's own
@@ -129,9 +133,8 @@ The current assignment's history remains. These reductions affect only published
 snapshots; the next snapshot can use the launcher's retained data again.
 Unreadable coordination records preserve an item's cached history from the
 previous polling pass.
-An item with no filing or run data shows `No item history cached.` Selecting
-Recent activity itself prompts for an item; its expanded rows each show their
-item's history.
+An item with no filing or run data shows `No item history cached.` Recent activity
+rows each show their item's history.
 
 Issue renders only the description body as Markdown, including headings, lists,
 emphasis, inline code and code blocks. Line breaks, including CRLF and lone CR,
@@ -148,7 +151,6 @@ Log transcript is described below.
 | Key | Action |
 | --- | --- |
 | `Tab`, arrows, `Enter` | Focus a pane and select a work row |
-| `Enter` on Recent activity | Expand or collapse session outcomes |
 | `1`, `2`, `3` | Log, Issue, Runs |
 | `g` on Issue | Load the selected item's missing title/body, or retry a failed description read |
 | `f` | Toggle follow/pause; resuming loads the latest generation |
@@ -333,12 +335,19 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    Local files/GitHub diagnostic line. Open `?`, check every key, and close it with
    both `?` and `Escape` without losing selection or the reading position.
    Show and hide a notice while paused; the reading position must not move.
-   Include today's and older outcomes; check the collapsed Recent activity count
-   against the local date. Use `Enter` to expand it, select an outcome and pause
-   its log. Publish refreshes and move a selected plan between sections; check
-   selection, focus and paused positions. Collapse Recent activity with an outcome
-   selected, then expand and revisit it; check header selection and the restored
-   paused page. Remove a selected plan and check its earlier observation remains.
+   Include today's and older outcomes; check Recent activity's count against the
+   local date and its newest-first, dim two-line rows. Confirm its header cannot
+   be selected and there is no collapse key. At 110×32 and a larger size, empty
+   and overflow the live sections: the split must remain halfway down the Work
+   pane and upper scrolling must not move Recent activity. Check `0 today` with
+   no outcomes, whole-row clipping from the oldest end without lower scrolling,
+   and the newest outcome selected first with no live work. Use arrows across
+   the split and `Enter` to select an outcome; it must show at full brightness.
+   Pause its log, publish refreshes and move a selected plan between sections;
+   check selection, focus and paused positions. Revisit the outcome and check
+   the restored paused page. Add newer outcomes until the selected outcome is
+   clipped; its right pane must keep showing it. Remove a selected plan and
+   check its earlier observation remains.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading
    position must remain stable; unread and lag must grow in the Log pill, which

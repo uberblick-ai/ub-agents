@@ -11,7 +11,7 @@ from rich.segment import Segment
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.geometry import Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
@@ -19,14 +19,14 @@ from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
 from .view_data import (WORK_GROUPS, context_header, context_text, item_header, item_history, mapping,
-                        outcomes_today, run_status, text)
+                        run_status, text)
 from .view_github import DescriptionLoads
 from .view_runs import run_status as history_status, runs_view
 from .view_worker import LocalWorker, Request
+from .view_work import RecentActivity, WorkTree
 from .updates import release_age
 
 MAX_RENDER_LINES = 400
-RECENT_ACTIVITY = 'recent-activity'
 
 
 class UpdateBanner(Static):
@@ -115,7 +115,6 @@ class KeyHelp(RawAccess, inherit_bindings=False):
         super().__init__(
             'Keys\n\n'
             'Tab / arrows / Enter   Focus a pane and select a work row\n'
-            'Enter on Recent activity   Expand or collapse outcomes\n'
             '1 / 2 / 3   Log / Issue / Runs\n'
             'g on Issue   Load a missing description or retry a failed read\n'
             'f   Toggle follow/pause; resuming loads the latest generation\n'
@@ -317,20 +316,14 @@ class LogPane(ScrollView):
         self.call_after_refresh(self.save_anchor)
 
 
-class WorkTree(Tree):
-    def move_cursor(self, node, animate=False):
-        # Textual's move_cursor reads node._line before rebuilding invalidated
-        # lines. Resolve the public line lookup first, even between refreshes.
-        self.get_node_at_line(0)
-        super().move_cursor(node, animate=animate)
-
-
 class View(App):
     TITLE = 'ub-agents · one launcher · read-only view'
     CSS = '''
     #update { height: 1; padding: 0 1; background: #d7af00; color: #161616; display: none; overflow: hidden; }
     #body { height: 1fr; }
-    #work { width: 36; border: solid $accent; }
+    #work_pane { width: 36; border: solid $accent; }
+    #work { height: 1fr; }
+    #recent { height: 1fr; overflow: hidden; }
     #panes { width: 1fr; }
     #panes > ContentSwitcher { height: 1fr; }
     TabPane { height: 1fr; padding: 0 1; }
@@ -375,12 +368,13 @@ class View(App):
         self.busy = False
         self.pending_history = None
         self.last_context = self.last_runs = None
-        self.recent_expanded = False
 
     def compose(self) -> ComposeResult:
         yield UpdateBanner()
         with Horizontal(id='body'):
-            yield WorkTree('Launcher work', id='work')
+            with Vertical(id='work_pane'):
+                yield WorkTree('Launcher work', id='work')
+                yield RecentActivity()
             with ItemTabs(id='panes'):
                 with TabPane('Log', id='log'):
                     yield Static('', id='log_note', markup=False)
@@ -443,6 +437,8 @@ class View(App):
 
     def populate(self, rows):
         tree = self.query_one('#work', Tree)
+        recent = self.query_one(RecentActivity)
+        recent.populate(rows, self.session)
         cursor = tree.cursor_node
         cursor_reason = cursor is not None and cursor is self.reason_nodes.get(cursor.data)
         cursor_group = next((name for name, node in self.groups.items() if node is cursor), None)
@@ -460,7 +456,7 @@ class View(App):
                 self.nodes.pop(key).remove()
                 self.reason_nodes.pop(key, None)
         previous = None
-        for name in WORK_GROUPS:
+        for name in WORK_GROUPS[:-1]:
             grouped = [row for row in incoming.values() if row.group == name]
             if not grouped:
                 continue
@@ -468,13 +464,9 @@ class View(App):
             if group is None:
                 group = self.groups[name] = tree.root.add(
                     Text(name), after=previous, before=0 if previous is None else None,
-                    data=RECENT_ACTIVITY if name == 'Recent activity' else None,
-                    expand=self.recent_expanded if name == 'Recent activity' else True)
+                    expand=True)
             previous = group
-            if name == 'Recent activity':
-                group.set_label(Text(f'Recent activity · {outcomes_today(self.session)} today'))
-            else:
-                group.set_label(Text(f'{name} · {len(grouped)}'))
+            group.set_label(Text(f'{name} · {len(grouped)}'))
             for index, row in enumerate(grouped):
                 node = self.nodes.get(row.key)
                 expanded = node.is_expanded if node else True
@@ -504,10 +496,12 @@ class View(App):
         tree.root.set_label(title)
         if follow or self.selected is None and incoming:
             first = next(iter(incoming.values()))
-            self.select(own if follow else RECENT_ACTIVITY if first.group == 'Recent activity' else first.key,
-                        chosen=False)
-            target = self.groups['Recent activity'] if self.selected == RECENT_ACTIVITY else self.nodes[self.selected]
-            tree.move_cursor(target)
+            self.select(own if follow else first.key, chosen=False)
+            if self.selected in self.nodes:
+                tree.move_cursor(self.nodes[self.selected])
+            else:
+                recent.cursor = self.selected
+                recent.focus()
         elif cursor:
             target = (self.groups.get(cursor_group) if cursor_group else
                       (self.reason_nodes if cursor_reason else self.nodes).get(cursor.data))
@@ -518,29 +512,15 @@ class View(App):
         self.query_one('#work', Tree).move_cursor(node)
 
     def on_tree_node_selected(self, event):
-        if event.node.data == RECENT_ACTIVITY or event.node.data in self.rows:
+        if event.node.data in self.rows:
             self.select(event.node.data)
-
-    def on_tree_node_expanded(self, event):
-        if event.node is self.groups.get('Recent activity'):
-            self.recent_expanded = True
-
-    def on_tree_node_collapsed(self, event):
-        if event.node is self.groups.get('Recent activity'):
-            self.recent_expanded = False
-            row = self.rows.get(self.selected)
-            if row and row.group == 'Recent activity':
-                self.select(RECENT_ACTIVITY)
-                self.query_one('#work', Tree).move_cursor(event.node)
 
     def select(self, key, chosen=True):
         self.chosen = self.chosen or chosen
         if key == self.selected:
             return
         self.selected = key
-        row = self.rows.get(key)
-        if row and row.group == 'Recent activity':
-            self.groups['Recent activity'].expand()
+        self.query_one(RecentActivity).refresh()
         self.token += 1
         self.pending_history = None
         self.query_one('#output', LogPane).set_reading(self.reading)
