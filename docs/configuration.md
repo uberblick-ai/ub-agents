@@ -59,7 +59,7 @@ The version 1 envelope contains:
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
 | `assignment` | Current item, kind, agent, run, runtime, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery has no agent log or context. |
 | `latest_pass` | Start time, `partial` or `complete`, and the plans actually reached, including item, kind, title, agent, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
-| `outcomes` | This session's recent reports and recovered outcomes: item, agent, run, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. |
+| `outcomes` | This session's recent reports and recovered outcomes: item, agent, run, runtime, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit runtime. |
 | `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
 
 Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and

@@ -293,6 +293,7 @@ class Observations:
             acceptance = ("rejected" if record.get("rejected") else "finalized" if finalized else
                           "accepted" if record.get("accepted") else "unaccepted")
             row = {"item": record["assignment"], "agent": record["agent"], "run": record["run"],
+                   "runtime": record.get("runtime") or assignment.get("runtime"),
                    "result": assignment.get("result", record["status"]),
                    "summary": assignment.get("summary", record["summary"]),
                    "report_result": record["status"],
