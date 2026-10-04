@@ -63,14 +63,12 @@ class RawAccess(ModalScreen):
     BINDINGS = [Binding('escape,p', 'dismiss', 'Close', priority=True)]
     DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; } #raw_status { height: 2; background: $panel; }'
 
-    def __init__(self, message):
-        super().__init__()
-        self.message = message
-
     def compose(self):
+        # Read the view's state now: updates that land between the push and
+        # this compose find no widgets to update.
         with VerticalScroll():
-            yield Static(Text(self.message), id='raw_details')
-        yield Static('', id='raw_status', markup=False)
+            yield Static(Text(self.app.raw_details()), id='raw_details')
+        yield Static(self.app.status_text, id='raw_status', markup=False)
 
     def action_dismiss(self):
         self.dismiss()
@@ -294,6 +292,7 @@ class View(App):
         self.rows, self.nodes, self.reason_nodes, self.groups = {}, {}, {}, {}
         self.selected = None
         self.chosen = False  # a person picked a row; the view stops following the run
+        self.status_text = Text('')
         self.readings = {}
         self.token = 0
         self.busy = False
@@ -583,9 +582,11 @@ class View(App):
         size = ' · minimum 110×32' if self.size.width < 110 or self.size.height < 32 else ''
         status = Text(f'{freshness} · {state} · {mode} · unread {unread} entries · lag {lag}B{size}\n'
                       f'Local files · {"reading" if self.busy else "idle"} · GitHub {"pending" if self.descriptions.pending else "on request"}{errors}')
+        self.status_text = status
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
-            self.screen.query_one('#raw_status', Static).update(status)
+            for widget in self.screen.query('#raw_status'):
+                widget.update(status)
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
         header = self.query_one('#item_header', Static)
@@ -631,7 +632,8 @@ class View(App):
         run_note.append_text(status_line)
         self.query_one('#run_status', Static).update(run_note)
         if isinstance(self.screen, RawAccess):
-            self.screen.query_one('#raw_details', Static).update(Text(self.raw_details()))
+            for widget in self.screen.query('#raw_details'):
+                widget.update(Text(self.raw_details()))
 
     def action_follow(self):
         if isinstance(self.screen, RawAccess):
@@ -692,7 +694,7 @@ class View(App):
     def action_path(self):
         row = self.rows.get(self.selected)
         if row and row.log:
-            self.push_screen(RawAccess(self.raw_details()))
+            self.push_screen(RawAccess())
 
     def action_page_up(self):
         if isinstance(self.screen, RawAccess):

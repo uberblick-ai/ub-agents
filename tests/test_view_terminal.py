@@ -578,7 +578,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 checkpoint(lambda value: value['entries'] - paused['entries'] > 200)
                 os.write(master, b'231')
                 drain(0.3)
-                retained = checkpoint()
+                retained = checkpoint(lambda value: value['anchor'] is not None
+                                      and value['anchor'][0] == paused['anchor'][0]
+                                      and abs(value['anchor'][1] - paused['anchor'][1]) <= 0.05)
                 self.assertEqual(retained['starts'], paused['starts'])
                 self.assertEqual(retained['anchor'][0], paused['anchor'][0])
                 # Tab relayout may settle the scrollbar and change wrapping;
@@ -611,7 +613,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'\x1b[B\r')
                 revisited = checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                        and value['starts'] == outcome_paused['starts'] and value['anchor'] is not None
-                                       and value['anchor'][0] == outcome_paused['anchor'][0])
+                                       and value['anchor'][0] == outcome_paused['anchor'][0]
+                                       and abs(value['anchor'][1] - outcome_paused['anchor'][1]) <= 0.05)
                 self.assertEqual(revisited['starts'], outcome_paused['starts'])
                 self.assertEqual(revisited['anchor'][0], outcome_paused['anchor'][0])
                 self.assertAlmostEqual(revisited['anchor'][1], outcome_paused['anchor'][1], delta=0.05)
@@ -635,7 +638,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                                  'earlier observation')
                 os.write(master, b'a\r')
                 restored = checkpoint(lambda value: value['starts'] == paused['starts'] and value['anchor'] is not None
-                                      and value['anchor'][0] == paused['anchor'][0])
+                                      and value['anchor'][0] == paused['anchor'][0]
+                                      and abs(value['anchor'][1] - paused['anchor'][1]) <= 0.05)
                 self.assertEqual(restored['starts'], paused['starts'])
                 self.assertEqual(restored['anchor'][0], paused['anchor'][0])
                 self.assertAlmostEqual(restored['anchor'][1], paused['anchor'][1], delta=0.05)
