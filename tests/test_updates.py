@@ -32,6 +32,14 @@ def eventually(condition, seconds=3):
     return condition()
 
 
+def stop_checker(update):
+    update.close()
+    if update.thread is not None:
+        update.thread.join(3)
+        if update.thread.is_alive():
+            raise AssertionError('Owned update checker did not exit')
+
+
 class UpdateTests(unittest.TestCase):
     def setUp(self):
         isolate_runtime_state(self)
@@ -42,7 +50,7 @@ class UpdateTests(unittest.TestCase):
     def checker(self, method, runner, clock=None):
         update = Updates(self.root, detect=lambda _: method, runner=runner,
                          **({'clock': clock} if clock else {}))
-        self.addCleanup(update.close)
+        self.addCleanup(stop_checker, update)
         update.start()
         return update
 
@@ -207,6 +215,25 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(memory.snapshots[-1]['update'], loop.updates.banner)
         self.assertEqual(len(lines), 1)
 
+    def test_slow_metadata_does_not_delay_checker_close_or_start_a_request_after_exit(self):
+        entered, finish = threading.Event(), threading.Event()
+        runner = RecordingUpdateRunner()
+        def delayed_detection(_):
+            entered.set()
+            finish.wait(3)
+            return 'pip'
+        update = Updates(self.root, detect=delayed_detection, runner=runner)
+        self.addCleanup(stop_checker, update)
+        self.addCleanup(finish.set)
+        update.start()
+        self.assertTrue(entered.wait(1))
+        started = time.monotonic()
+        update.close()
+        self.assertLess(time.monotonic() - started, 0.1)
+        finish.set()
+        stop_checker(update)
+        self.assertEqual(runner.calls, [])
+
     def test_hung_owned_request_is_cancelled_and_reaped(self):
         shim = self.root / 'gh'
         pid = self.root / 'request.pid'
@@ -219,14 +246,15 @@ while True: time.sleep(1)
         shim.chmod(0o700)
         with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
             update = Updates(self.root, detect=lambda _: 'pip')
-            self.addCleanup(update.close)
+            self.addCleanup(stop_checker, update)
             update.start()
             self.assertTrue(eventually(pid.exists))
             owned = int(pid.read_text())
             try:
                 started = time.monotonic()
                 update.close()
-                self.assertLess(time.monotonic() - started, 1)
+                self.assertLess(time.monotonic() - started, 0.1)
+                update.thread.join(1)
                 self.assertFalse(update.thread.is_alive())
                 with self.assertRaises(ProcessLookupError):
                     os.kill(owned, 0)
@@ -249,7 +277,7 @@ while True: time.sleep(1)
                 patch('ub_agents.updates.CHECK_SECONDS', 0.5):
             update = Updates(self.root, detect=lambda _: 'pip')
             update.banner = previous = release_banner(release(), 'pip')
-            self.addCleanup(update.close)
+            self.addCleanup(stop_checker, update)
             update.start()
             self.assertTrue(eventually(pid.exists))
             owned = int(pid.read_text())

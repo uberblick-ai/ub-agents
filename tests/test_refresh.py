@@ -55,10 +55,10 @@ class RefreshTests(unittest.TestCase):
         git(self.upstream, "push", "origin", "main")
 
     def test_update_notice_counts_started_code_after_normal_fast_forwards(self):
-        from tests.test_updates import eventually
+        from tests.test_updates import eventually, stop_checker
         started = git(self.root, "rev-parse", "HEAD")
         update = Updates(self.root, detect=lambda _: 'checkout')
-        self.addCleanup(update.close)
+        self.addCleanup(stop_checker, update)
         update.start()
         self.assertTrue(eventually(lambda: update.started == started))
         self.assertIsNone(update.banner)
@@ -72,12 +72,12 @@ class RefreshTests(unittest.TestCase):
             self.assertEqual(update.started, started)
         # A newly started launcher has the fast-forwarded code and no notice.
         restarted = Updates(self.root, detect=lambda _: 'checkout')
-        self.addCleanup(restarted.close)
+        self.addCleanup(stop_checker, restarted)
         restarted.start()
         self.assertTrue(eventually(lambda: restarted.started == git(self.root, 'rev-parse', 'HEAD')))
         refresh_checkout(self.loop.config, self.github, on_fetch=restarted.fetched)
         self.assertTrue(eventually(lambda: restarted.generation == 1))
-        restarted.close()
+        stop_checker(restarted)
         self.assertIsNone(restarted.banner)
 
     def snapshot(self):

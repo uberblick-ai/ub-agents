@@ -207,5 +207,5 @@ class Updates:
             if self.life is not None:
                 os.close(self.life)
                 self.life = None
-        if self.thread is not None:
-            self.thread.join(timeout=1)
+        # A stalled metadata read must not delay even a --once launcher exit.
+        # The daemon reaps its request; EOF also cancels it on process death.

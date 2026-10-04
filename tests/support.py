@@ -83,11 +83,6 @@ def isolate_runtime_state(test):
     """Keep launcher lock and health files out of the developer's state directory."""
     from unittest.mock import patch
     isolate_observations(test)
-    # Advisory requests have their own suite. Synthetic CLI roots should not
-    # start a thread (several launch tests replace Event.wait globally).
-    updates = patch("ub_agents.updates.Updates", return_value=None)
-    test.addCleanup(updates.stop)
-    updates.start()
     state = tempfile.TemporaryDirectory()
     test.addCleanup(state.cleanup)
     environment = patch.dict(os.environ, {"XDG_STATE_HOME": state.name})
@@ -126,6 +121,11 @@ def isolate_observations(test):
     mock = patch("ub_agents.observations.Publisher", MemoryPublisher)
     test.addCleanup(mock.stop)
     mock.start()
+    # Advisory requests have their own suite. Synthetic CLI roots should not
+    # start a thread (several launch tests replace Event.wait globally).
+    updates = patch("ub_agents.updates.Updates", return_value=None)
+    test.addCleanup(updates.stop)
+    updates.start()
 
 
 def stub_refresh(test):
