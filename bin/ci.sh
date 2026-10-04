@@ -69,7 +69,7 @@ run() {
 	fi
 }
 
-run "Whitespace" git diff --check "origin/main...$sha" --
+run "Whitespace" git --no-pager diff --check "origin/main...$sha" --
 run "Install" sh -c 'python3 -m venv .venv && .venv/bin/python -m pip install -q -e .'
 run "Tests" .venv/bin/python -m unittest discover
 run "Config check" .venv/bin/ub-agents check
