@@ -16,6 +16,7 @@ stop label on items you want to stay held (#132).
 - The assignment context includes the run's scratch path as `scratch`, so agents use it without expanding `UB_AGENTS_SCRATCH` in a shell command, which Claude's permission rules can deny (#124).
 - Coordination reads only v3 records; attempt counts and blocked or exhausted state on items reset once on upgrade (#132).
 - Every terminal-view tab shares an item header; Log shows run status and earlier runs, with byte and retention diagnostics under raw access (#162).
+- The terminal view uses a one-line activity footer, contextual keys and optional log-state pill; `?` lists keys and `p` shows diagnostics (#161).
 - The terminal view's Issue tab renders description bodies as Markdown with real line breaks, while keeping links and terminal controls inert (#165).
 - Claude logs use compact local timestamps, tool calls, line counts and distinct errors in the terminal view, with raw records available on demand (#163).
 - The terminal work list groups Running, Needs attention, Eligible and Waiting items, with counts and expandable Recent activity (#159).

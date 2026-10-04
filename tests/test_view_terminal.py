@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import signal
 import struct
@@ -93,7 +94,7 @@ while not select.select([sys.stdin], [], [], 0.01)[0]:
                     return bytes(chunk)
                 def recorded():
                     return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
-                until(b'FORMATTED')
+                until(b'running assignment', b'owned replay output')
                 os.write(master, b'2')
                 until(b'Press g on Issue')
                 self.assertEqual(recorded(), [])
@@ -249,7 +250,10 @@ sys.exit(app.return_code or 1)
                         self.assertTrue(met(), bytes(transcript[-2000:]))
                         return bytes(chunk)
                     # The page is loaded once live replay output is on screen.
-                    until(b'FOLLOW', b'FORMATTED', b'Running', b'partial', b'\x1b[?1049h', b'replay output')
+                    until(b'running assignment', b'? keys q quit', b'Running', b'partial',
+                          b'\x1b[?1049h', b'replay output')
+                    self.assertNotIn(b'FOLLOW', transcript)
+                    self.assertNotIn(b'FORMATTED', transcript)
                     self.assertIsNone(app.poll(), bytes(transcript[-1000:]))
                     os.write(master, b'f')
                     until(b'PAUSED')
@@ -267,13 +271,14 @@ sys.exit(app.return_code or 1)
                     os.write(master, b'3')
                     until(b'filed by bk-one', b'build-01', b'needs-human')
                     os.write(master, b'1p')
-                    until(b'process.log')
+                    until(b'process.log', b'Displayed bytes', b'evicted', b'Rendered limit 400')
                     # A focus report right after Escape ends the escape sequence,
                     # so a busy machine cannot merge Escape and f into Alt+f.
                     os.write(master, b'\x1b\x1b[I')
                     drain()
                     os.write(master, b'f')
-                    until(b'FOLLOW')
+                    until('↑↓ select'.encode())
+                    self.assertNotIn(b'FOLLOW', transcript)
                     before_size = log.stat().st_size
                     os.write(master, quit_key)
                     # Keep draining until exit. A rich crash traceback can fill
@@ -453,6 +458,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             root = Path(directory)
             path, log, state = fixture(root)
             state['assignment'].update(kind='issue', attempt=1)
+            state['base_version'] = '9.8.7'
             capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
             log.write_bytes(capture.read_bytes() * 20)
             state['latest_pass']['rows'].extend([
@@ -478,7 +484,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             script = '''
 import json, pathlib, sys
 from textual.binding import Binding
-from textual.widgets import Tree
+from textual.widgets import Static, Tree
 from ub_agents.view_ui import LogPane, View
 class ProofView(View):
     BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
@@ -506,6 +512,13 @@ class ProofView(View):
                  'header': self.query_one('#item_header').render().plain,
                  'run_status': self.query_one('#run_status').render().plain,
                  'raw_details': self.raw_details(),
+                 'footer': self.query_one('#status', Static).render().plain,
+                 'footer_height': self.query_one('#status').size.height,
+                 'pill': self.query_one('#log_state', Static).render().plain,
+                 'pill_visible': self.query_one('#log_state').display,
+                 'screen': type(self.screen).__name__,
+                 'modal': self.screen.query_one('#raw_details', Static).render().plain
+                          if self.screen.query('#raw_details') else '',
                  'selected': self.selected, 'group': row.group if row else None,
                  'state': row.state if row else None,
                  'cursor': tree.cursor_node.data if tree.cursor_node else None,
@@ -549,9 +562,14 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         return value
                     drain(0.05)
             try:
-                while b'FORMATTED' not in transcript and app.poll() is None:
-                    drain(0.05)
                 initial = checkpoint(lambda value: len(value['sections']) == 5 and value['anchor'] is not None)
+                self.assertNotIn(b'FORMATTED', transcript)
+                self.assertNotIn(b'FOLLOW', transcript)
+                self.assertIn('ub-agents v9.8.7 · running assignment', initial['footer'])
+                self.assertTrue(initial['footer'].endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+                self.assertEqual(initial['footer_height'], 1)
+                self.assertFalse(initial['pill_visible'])
+                self.assertEqual(initial['notice'], '')
                 self.assertEqual(initial['sections'], ['Running · 2', 'Needs attention · 3',
                                                        'Eligible · 2', 'Waiting · 4',
                                                        'Recent activity · 1 today'])
@@ -566,10 +584,60 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     os.write(master, tab)
                     drain()
                     self.assertEqual(checkpoint()['header'], initial['header'])
+                state['activity'] = {'state': 'waiting', 'until': (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()}
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                waiting = checkpoint()
+                remaining = int(re.search(r'next poll (\d+)s', waiting['footer']).group(1))
+                drain(1.1)
+                self.assertLess(int(re.search(r'next poll (\d+)s', checkpoint()['footer']).group(1)), remaining)
+                state['activity'] = {'state': 'stopping'}
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                self.assertIn('· stopping', checkpoint()['footer'])
+                state['published_at'] = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                self.assertIn('· stale', checkpoint()['footer'])
+                state['ended'] = True
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                self.assertIn('· ended', checkpoint()['footer'])
+                path.write_text('{broken')
+                drain(0.3)
+                malformed = checkpoint()
+                self.assertIn('malformed: Expecting property', malformed['footer'])
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                drain(0.3)
+                self.assertIn('minimum 110×32', checkpoint()['footer'])
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                state['ended'] = False
+                state['published_at'] = datetime.now(timezone.utc).isoformat()
+                state['activity'] = {'state': 'running assignment'}
+                path.write_text(json.dumps(state))
+                drain(0.3)
+                os.write(master, b'?')
+                drain()
+                help_view = checkpoint()
+                self.assertEqual(help_view['screen'], 'KeyHelp')
+                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
+                            'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', 'Escape', 'q   ', 'Ctrl-C'):
+                    self.assertIn(key, help_view['modal'])
+                os.write(master, b'?')
+                drain()
+                self.assertNotEqual(checkpoint()['screen'], 'KeyHelp')
+                os.write(master, b'?\x1b')
+                drain(0.4)
+                self.assertNotEqual(checkpoint()['screen'], 'KeyHelp')
                 os.write(master, b'f\x1b[5~')
                 drain(0.2)
                 paused = checkpoint(lambda value: not value['follow'])
                 self.assertFalse(paused['follow'])
+                self.assertTrue(paused['pill_visible'])
+                self.assertIn('⏸ PAUSED', paused['pill'])
+                self.assertTrue(paused['footer'].endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
                 # More than both ingestion retention (200 entries) and renderer
                 # retention (400 wrapped rows) arrive while the page is paused.
                 from tests.test_view_data import event
@@ -587,6 +655,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 # the same entry and proportional reading position survive.
                 self.assertAlmostEqual(retained['anchor'][1], paused['anchor'][1], delta=0.05)
                 self.assertGreater(retained['entries'] - paused['entries'], 200)
+                self.assertIn('new ↓', retained['pill'])
+                self.assertIn('B lag', retained['pill'])
+                self.assertNotIn('evicted', retained['notice'])
+                os.write(master, b'p')
+                drain()
+                raw = checkpoint()
+                self.assertEqual(raw['screen'], 'RawAccess')
+                for diagnostic in (str(log), 'Displayed bytes', 'Page bytes', 'evicted', 'skipped',
+                                   'shortened', 'Rendered limit 400', 'entries hidden'):
+                    self.assertIn(diagnostic, raw['modal'])
+                os.write(master, b'\x1b')
+                drain()
                 os.write(master, b'r\r')  # Focus Recent activity, then real Enter.
                 self.assertTrue(checkpoint(lambda value: value['recent_expanded'])['recent_expanded'])
                 os.write(master, b'\x1b[B\r')  # Down to the latest outcome and Enter.
@@ -659,7 +739,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'\x1b')
                 drain()
                 os.write(master, b'u')
-                self.assertTrue(checkpoint(lambda value: value['raw'])['raw'])
+                raw_mode = checkpoint(lambda value: value['raw'])
+                self.assertTrue(raw_mode['raw'])
+                self.assertIn('RAW', raw_mode['pill'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
                 drain(0.2)
@@ -675,6 +757,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'f')
                 resumed = checkpoint(lambda value: value['follow'] and value['generation'] > changed['generation'])
                 self.assertTrue(resumed['follow'])
+                self.assertFalse(resumed['pill_visible'])
                 self.assertGreater(resumed['generation'], changed['generation'])
                 log.write_bytes(capture.read_bytes().splitlines(keepends=True)[0])
                 self.assertGreater(checkpoint(lambda value: value['generation'] > resumed['generation'])['generation'],
