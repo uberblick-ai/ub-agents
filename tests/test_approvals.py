@@ -259,5 +259,5 @@ class ApprovalTests(unittest.TestCase):
             with patch("ub_agents.cli.load_config", return_value=cfg), \
                     patch("ub_agents.cli.GitHub", return_value=self.github), \
                     redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as error:
-                self.assertEqual(main(["approve", "--number", "1"]), expected)
+                self.assertEqual(main(["approve", "1"]), expected)
             self.assertIn("maintainer" if expected else "Approval posted", error.getvalue() if expected else output.getvalue())

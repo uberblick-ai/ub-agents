@@ -94,7 +94,7 @@ class HelpTests(unittest.TestCase):
     def test_compact_report_row_preserves_detailed_choices_and_parsing(self):
         rows = {line.split()[1]: line.split(" # ")[0].strip()
                 for line in self.command_line.format_help().splitlines() if " # " in line}
-        self.assertEqual(rows["report"], "ub-agents report --status STATUS --summary SUMMARY")
+        self.assertEqual(rows["report"], "ub-agents report --outcome OUTCOME --summary SUMMARY")
         details = self.command_line.commands()["report"].format_help()
         self.assertIn("--status {retry,blocked}", details)
         self.assertIn("--outcome OUTCOME", details)
@@ -108,11 +108,35 @@ class HelpTests(unittest.TestCase):
         rows = {line.split()[1]: line.split(" # ")[0].strip()
                 for line in self.invoke([])[1].splitlines() if " # " in line}
         self.assertEqual(rows["launch"], "ub-agents launch [NUMBER]")
-        for name in ("retry", "recover", "approve"):
-            self.assertIn("--number NUMBER", rows[name])
+        self.assertEqual(rows["retry"], "ub-agents retry --reason REASON NUMBER")
+        self.assertEqual(rows["approve"], "ub-agents approve NUMBER")
+        for name in ("retry", "approve"):
             self.assertNotIn("[", rows[name])
-        for name in ("retry", "recover"):
-            self.assertIn("--agent AGENT --reason REASON", rows[name])
+            details = self.invoke(["help", name])[1]
+            self.assertNotIn("[NUMBER]", details)
+            self.assertNotIn("--number", details)
+            self.assertIn("Issue or PR number (required)", details)
+        self.assertNotIn("--agent", rows["retry"])
+        self.assertIn("[--agent AGENT]", self.invoke(["help", "retry"])[1])
+        self.assertIn("default: first matching item kind", self.invoke(["help", "retry"])[1])
+
+    def test_rendering_required_number_preserves_positional_and_legacy_parsing(self):
+        for name in ("retry", "approve"):
+            with self.subTest(command=name):
+                command = self.command_line.commands()[name]
+                number_action = next(action for action in command._actions if action.dest == "number")
+                options = ["--reason", "Resolved"] if name == "retry" else []
+                command.format_help()
+                self.command_line.format_help()
+                self.assertEqual(number_action.nargs, "?")
+                self.assertFalse(number_action.required)
+                positional = self.command_line.parse_args([name, "143", *options])
+                legacy = self.command_line.parse_args([name, "--number", "143", *options])
+                self.assertEqual((positional.number, positional.legacy_number), (143, None))
+                self.assertEqual((legacy.number, legacy.legacy_number), (None, 143))
+                missing = self.invoke([name, *options])
+                self.assertEqual(missing[0], 2)
+                self.assertIn("requires a positive item number", missing[2])
 
     def test_every_command_has_equivalent_detailed_help_and_valid_examples(self):
         for name, command in self.command_line.commands().items():
@@ -122,6 +146,8 @@ class HelpTests(unittest.TestCase):
                 self.assertEqual(self.invoke(["help", name]), detailed)
                 self.assertEqual(self.invoke(["--config", "missing.yaml", "help", name]), detailed)
                 self.assertEqual(self.invoke(["--config", "missing.yaml", name, "--help"]), detailed)
+                if any(action.dest == "command_config" for action in command._actions):
+                    self.assertEqual(self.invoke([name, "--config", "missing.yaml", "--help"]), detailed)
                 self.assertIn(f"usage: ub-agents {name}", detailed[1])
                 self.assertIn("options:", detailed[1])
                 self.assertIn("Examples:", detailed[1])
@@ -139,7 +165,7 @@ class HelpTests(unittest.TestCase):
             with self.subTest(command=name):
                 details = self.invoke(["help", name])[1]
                 for action in command._actions:
-                    if action.required and action.help != argparse.SUPPRESS:
+                    if (action.required or getattr(action, "required_for_help", False)) and action.help != argparse.SUPPRESS:
                         self.assertIn(f"{action.help} (required)", " ".join(details.split()))
         self.assertIn("NUMBER", self.invoke(["help", "launch"])[1])
         self.assertIn("(optional)", self.invoke(["help", "launch"])[1])
@@ -160,8 +186,13 @@ class HelpTests(unittest.TestCase):
     def test_unknown_commands_and_missing_required_arguments_are_errors(self):
         for argv, hint in ((["nope"], "ub-agents help"), (["help", "nope"], "ub-agents help"),
                            (["retry"], "ub-agents help retry"),
+                           (["retry", "143"], "ub-agents help retry"),
                            (["retry", "--agent", "implementer", "--reason", "Resolved"], "ub-agents help retry"),
-                           (["recover"], "ub-agents help recover"), (["approve"], "ub-agents help approve"),
+                           (["recover"], "ub-agents help"), (["help", "recover"], "ub-agents help"),
+                           (["approve"], "ub-agents help approve"),
+                           (["approve", "0"], "ub-agents help approve"),
+                           (["approve", "143", "--number", "143"], "ub-agents help approve"),
+                           (["--config", "x.yaml", "check", "--config", "x.yaml"], "ub-agents help check"),
                            (["report"], "ub-agents help report"),
                            (["launch", "--agent", "implementer"], "ub-agents help launch")):
             with self.subTest(argv=argv):
@@ -170,6 +201,12 @@ class HelpTests(unittest.TestCase):
                 self.assertEqual(output, "")
                 self.assertIn("error:", errors)
                 self.assertIn(f"Run {hint} for usage and examples.", errors)
+
+    def test_recover_has_no_help_or_examples(self):
+        self.assertNotIn("recover", self.command_line.commands())
+        self.assertNotIn("recover", self.invoke([])[1])
+        self.assertTrue(all("recover" not in example for command in self.command_line.commands().values()
+                            for example in command.examples))
 
     def test_version_is_unchanged_and_isolated(self):
         self.assertEqual(self.invoke(["--version"]), (0, f"ub-agents {__version__}\n", ""))

@@ -6,6 +6,18 @@ import sys
 
 
 class HelpFormatter(argparse.RawDescriptionHelpFormatter):
+    def add_usage(self, usage, actions, groups, prefix=None):
+        # Canonical positionals can be required by post-parse validation while
+        # argparse accepts a hidden compatibility alias. Only change rendering.
+        rendered = []
+        for action in actions:
+            if getattr(action, "required_for_help", False):
+                action = copy(action)
+                action.nargs = None
+                action.required = True
+            rendered.append(action)
+        return super().add_usage(usage, rendered, groups, prefix)
+
     def _fill_text(self, text, width, indent):
         if text.startswith("Examples:"):
             return super()._fill_text(text, width, indent)
@@ -13,7 +25,7 @@ class HelpFormatter(argparse.RawDescriptionHelpFormatter):
 
     def _get_help_string(self, action):
         text = action.help or ""
-        if action.required:
+        if action.required or getattr(action, "required_for_help", False):
             text += " (required)"
         return text
 
@@ -25,6 +37,11 @@ class HelpParser(argparse.ArgumentParser):
             kwargs["epilog"] = "Examples:\n" + "\n".join(f"  {example}" for example in examples)
         super().__init__(*args, **kwargs)
         self.examples = examples
+
+    def add_argument(self, *args, required_for_help=False, **kwargs):
+        action = super().add_argument(*args, **kwargs)
+        action.required_for_help = required_for_help
+        return action
 
     def commands(self):
         # argparse's private metadata deliberately keeps help tied to registration.
@@ -64,7 +81,7 @@ class HelpParser(argparse.ArgumentParser):
         width = max(len(usage) for usage, _ in rows)
         lines = [self.description, "", "Commands:"]
         lines.extend(f"  {usage:<{width}} # {description}" for usage, description in rows)
-        lines.extend(["", "Global options (before the command):"])
+        lines.extend(["", "Global options:"])
         formatter = self._get_formatter()
         formatter.start_section(None)
         formatter.add_arguments([action for action in self._actions

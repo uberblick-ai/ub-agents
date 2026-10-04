@@ -12,6 +12,9 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = ["PyYAML>=6.0,<7"]
 
+[project.optional-dependencies]
+ui = ["textual>=8.2.8,<9"]
+
 [project.scripts]
 ub-agents = "ub_agents.cli:main"
 

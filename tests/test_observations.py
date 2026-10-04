@@ -65,6 +65,7 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual([r["item"] for r in state["latest_pass"]["rows"]], [1, 2])
         self.assertEqual(state["latest_pass"]["state"], "partial")
         self.assertEqual(state["outcomes"][0]["acceptance"], "finalized")
+        self.assertEqual(state["outcomes"][0]["runtime"], "direct")
         self.assertTrue(state["ended"])
 
     def test_complete_pass_includes_only_evaluated_plans_and_foreign_owner_without_paths(self):

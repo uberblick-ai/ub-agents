@@ -3,13 +3,14 @@
 from dataclasses import dataclass, field
 import re
 import shutil
+import threading
 import uuid
 
 from .approvals import ApprovalCheck
-from .config import Agent, Queue, Runtime
+from .config import Agent, Queue, Runtime, LEASE_SECONDS
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
-from .github import Item
+from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
 from .records import (LEGACY_MARKER, RECORD_MARKERS, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       payload, records, recovers, same_handoff, same_run, seconds, timestamp)
@@ -51,6 +52,11 @@ class Coordinator:
         self.runtime_available = runtime_available
         self.runtime_paused = runtime_paused or (lambda cli: None)
         self.notices = Notices(github, actor, output, trusted=self.trust)
+        # Renewal and the supervising launcher's state edits share one writer.
+        # Never hold this lock over a rate-limit wait.
+        self._lease_lock = threading.RLock()
+        self._lease_revision = 0
+        self._lost = {}
 
     def observed(self, record):
         if self.on_record is not None:
@@ -154,9 +160,11 @@ class Coordinator:
             state, reason = "parked", start.stop_reason + (f": {summary}" if summary else "")
         elif finished and finished[-1].get("result") == "blocked":
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
-                                        "inspect outcome and use ub-agents retry")
+                                        f"inspect outcome and use ub-agents retry {item.number} "
+                                        f"--agent {agent.name} --reason TEXT")
         elif attempt > agent.max_attempts:
-            state, reason = "blocked", "Attempt limit exhausted; inspect failures and use ub-agents retry"
+            state, reason = "blocked", ("Attempt limit exhausted; inspect failures and use "
+                                        f"ub-agents retry {item.number} --agent {agent.name} --reason TEXT")
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
             state, reason = "backoff", "Durable retry backoff has not elapsed"
         elif (latest and latest[-1].get("attempt_effect") == "pending" and previous
@@ -296,8 +304,7 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
-              recovery_check=None, recovery_reason=None):
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None):
         reason = self.trust.reason(self.actor)
         if reason:
             self.output(f"{reason}; claiming no work")
@@ -316,8 +323,7 @@ class Coordinator:
                 return None
         history = self.history(current.number)
         if recovery:
-            outcome = (recovery_check(history) if recovery_check is not None else
-                       self.pending_completion(history, plan.agent.name, self.clock()))
+            outcome = self.pending_completion(history, plan.agent.name, self.clock())
             if outcome is None or any(r["id"] != outcome["lease_id"]
                                       for r in live_leases(history, self.clock())):
                 return None
@@ -355,9 +361,6 @@ class Coordinator:
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
-            if recovery_reason is not None:
-                record |= {"recovery_reason": recovery_reason,
-                           "summary": f"Operator recovery by @{self.actor}: {recovery_reason}"}
         if before_write is not None:
             before_write()
         created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
@@ -384,21 +387,92 @@ class Coordinator:
         return created
 
     def update(self, lease, **changes):
-        updated = payload(lease) | changes
-        result = records([self.github.update_comment(lease["id"], body(updated))])[0]
-        lease.clear()
-        lease.update(result)
+        with self._lease_lock:
+            if changes.get("state") != "withdrawn" and lease["state"] in {"claiming", "running"}:
+                self.deadline(lease)
+            updated = payload(lease) | changes
+            if changes.get("state") in {"released", "withdrawn"}:
+                updated["expires"] = iso(self.clock())
+            elif updated["state"] in {"claiming", "running"}:
+                updated["expires"] = iso(max(seconds(lease["expires"]), seconds(updated["expires"])))
+            # Even a failed write may have reached GitHub. A renewal read that
+            # overlapped it cannot supply a safe payload for a later PATCH.
+            self._lease_revision += 1
+            result = records([self.github.update_comment(lease["id"], body(updated))])[0]
+            lease.clear()
+            lease.update(result)
         self.observed(lease)
         return lease
 
+    def deadline(self, lease):
+        """The last confirmed expiry, including sleeping-machine wall-clock loss."""
+        with self._lease_lock:
+            expiry = seconds(lease["expires"])
+            if lease["id"] in self._lost:
+                raise LostOwnership(self._lost[lease["id"]])
+            if lease["state"] not in {"claiming", "running"}:
+                raise LostOwnership("Lease was released or withdrawn")
+            if self.clock() >= expiry:
+                self._lost[lease["id"]] = "Local lease deadline expired"
+                raise LostOwnership(self._lost[lease["id"]])
+            return expiry
+
+    def _owned(self, lease, history):
+        # The local deadline must pass before an observation can extend it: a
+        # late response must not resurrect an expired or withdrawn local claim.
+        self.deadline(lease)
+        contenders = live_leases(history, self.clock())
+        if not contenders or contenders[0]["id"] != lease["id"] or not same_run(contenders[0], lease):
+            self._lost[lease["id"]] = "Assignment ownership was lost or expired"
+            raise LostOwnership(self._lost[lease["id"]])
+        current = contenders[0]
+        if seconds(current["expires"]) > seconds(lease["expires"]):
+            lease["expires"] = current["expires"]
+        return current
+
     def assert_owned(self, lease):
+        self.deadline(lease)
         try:
-            contenders = live_leases(self.history(lease["assignment"]), self.clock())
+            history = self.history(lease["assignment"])
         except AgentError as exc:
             raise LostOwnership(f"Cannot establish ownership: {exc}") from exc
-        if not contenders or contenders[0]["id"] != lease["id"] or not same_run(contenders[0], lease):
-            raise LostOwnership("Assignment ownership was lost or expired")
-        return contenders[0]
+        with self._lease_lock:
+            return self._owned(lease, history)
+
+    def renew(self, lease, github):
+        """One best-effort renewal, using reads that never wait for rate limits."""
+        with self._lease_lock:
+            self.deadline(lease)
+            # A PATCH is bounded to 20s. Reserve an extra second for scheduling
+            # and timestamp precision, then check again after the ownership read.
+            if self.clock() + REQUEST_TIMEOUT_SECONDS + 1 >= seconds(lease["expires"]):
+                return False
+            revision = self._lease_revision
+            assignment = lease["assignment"]
+        try:
+            # Pagination/role reads may outlast the lease. Keep deadlines and
+            # local state edits available while those bounded requests finish.
+            trusted = LauncherTrust(github, self.trust.launchers).observation()
+            history = records(github.comments(assignment), trusted=trusted)
+            with self._lease_lock:
+                self.deadline(lease)
+                if revision != self._lease_revision:
+                    return False
+                current = self._owned(lease, history)
+                now = self.clock()
+                if now + REQUEST_TIMEOUT_SECONDS + 1 >= seconds(lease["expires"]):
+                    return False
+                updated = payload(current) | {"expires": iso(max(seconds(current["expires"]), now + LEASE_SECONDS))}
+                result = records([github.update_comment(lease["id"], body(updated))])[0]
+                # Only expiry belongs to renewal. Workspace preparation may have
+                # a branch staged locally while a Git command is in progress.
+                lease["expires"] = result["expires"]
+                return True
+        except LostOwnership:
+            raise
+        except AgentError as exc:
+            self.output(f"Lease renewal failed; retry at the next interval: {exc}")
+            return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
                 max_attempts=None):

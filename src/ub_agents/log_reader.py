@@ -24,6 +24,14 @@ ANCHOR_BYTES = 64
 
 
 @dataclass(frozen=True)
+class EntryRef:
+    start: int
+    end: int
+    serial: int
+    value: Entry
+
+
+@dataclass(frozen=True)
 class Snapshot:
     entries: tuple[Entry, ...]
     unfinished: Entry | None
@@ -37,6 +45,8 @@ class Snapshot:
     shortened_entries: int
     resets: int
     error: str | None
+    refs: tuple[EntryRef, ...] = ()
+    total_entries: int = 0
 
     def notice(self):
         return (f"{len(self.entries)}/{MAX_ENTRIES} entries; shortened {self.shortened_entries}; "
@@ -47,12 +57,15 @@ class Snapshot:
 
 
 class LogReader:
-    def __init__(self, path, runtime, clock=None):
+    def __init__(self, path, runtime, clock=None, *, attach=True):
         self.path = Path(path).absolute()
         self.runtime = runtime
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.formatter = ClaudeFormatter()
         self.entries = deque(maxlen=MAX_ENTRIES)
+        self.refs = deque(maxlen=MAX_ENTRIES)
+        self.total_entries = 0
+        self.record_start = 0
         self.pending = bytearray()
         self.capture = None
         self.raw_kind = None
@@ -63,6 +76,8 @@ class LogReader:
         self.bytes_read = self.processed = 0
         self.error = None
         self._tail_start = False
+        if not attach:
+            return
         try:
             info = self.path.stat()
             self._generation(info, historical=True)
@@ -76,6 +91,7 @@ class LogReader:
         self.size = info.st_size
         self.initial_size = info.st_size if historical else 0
         self.offset = max(0, info.st_size - TAIL_BYTES)
+        self.record_start = self.offset
         self.skipped += self.offset
         self._tail_start = self.offset > 0
         self.pending.clear()
@@ -83,13 +99,16 @@ class LogReader:
         self.anchor = b""
         self.formatter.reset()
 
-    def _append(self, value):
+    def _append(self, value, end=None):
         if len(self.entries) == MAX_ENTRIES:
             self.evicted += 1
         self.entries.append(value)
+        self.total_entries += 1
+        self.refs.append(EntryRef(self.record_start, end if end is not None else self.offset,
+                                  self.total_entries, value))
         self.shortened += value.shortened
 
-    def _emit(self, oversized=False):
+    def _emit(self, oversized=False, end=None):
         raw = bytes(self.pending)
         trailing = b""
         kind = self.raw_kind
@@ -109,7 +128,9 @@ class LogReader:
         value = (raw_entry(raw, self.capture, kind) if kind else
                  self.formatter.decode(raw, self.capture) if self.runtime == "claude" else
                  raw_entry(raw, self.capture))
-        self._append(value)
+        self._append(value, end)
+        if end is not None:
+            self.record_start = end - len(trailing)
         self.pending.clear()
         self.pending.extend(trailing)
         self.processed += 1
@@ -125,11 +146,11 @@ class LogReader:
             self.pending.extend(chunk[index:index + take])
             index += take
             if index < len(chunk) and chunk[index] == 10:
-                self._emit()
+                self._emit(end=self.offset + index + 1)
                 index += 1
                 self.capture = self.raw_kind = None
             elif len(self.pending) == MAX_RECORD and index < len(chunk):
-                self._emit(oversized=True)
+                self._emit(oversized=True, end=self.offset + index)
             else:
                 break
         return index
@@ -146,7 +167,7 @@ class LogReader:
         return Snapshot(tuple(self.entries), preview, self.path, self.bytes_read, self.processed,
                         max(0, self.size - self.offset), len(self.pending), self.skipped,
                         self.evicted, self.shortened + bool(preview and preview.shortened),
-                        self.resets, self.error)
+                        self.resets, self.error, tuple(self.refs), self.total_entries)
 
     def update(self):
         self.bytes_read = self.processed = 0

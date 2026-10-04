@@ -2,8 +2,8 @@
 
 `ub-agents.yaml` sits at the root of the repository the agents work on. Unknown keys are
 errors; `ub-agents check` validates the file. Commands use this file by default;
-`--config PATH` selects another configuration file. `init` writes the selected file
-or `ub-agents.yaml` by default.
+`--config PATH` selects another configuration file before or after the command.
+`init` writes the selected file or `ub-agents.yaml` by default.
 
 ## Top level
 
@@ -31,7 +31,7 @@ Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
 publishes a local JSON snapshot at `.ub-agents/sessions/<session-id>.json` in the
 control checkout. Publication is always on, has no configuration key, and makes
 no additional GitHub requests.
-`status`, `recover` and embedded loops without an observer keep their existing
+`status` and embedded loops without an observer keep their existing
 behavior. Snapshots contain issue titles and descriptions already read by the
 launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
 directories have mode `0700`; snapshot and temporary files have mode `0600`.
@@ -59,7 +59,7 @@ The version 1 envelope contains:
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
 | `assignment` | Current item, kind, agent, run, runtime, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery has no agent log or context. |
 | `latest_pass` | Start time, `partial` or `complete`, and the plans actually reached, including item, kind, title, agent, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
-| `outcomes` | This session's recent reports and recovered outcomes: item, agent, run, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. |
+| `outcomes` | This session's recent reports and recovered outcomes: item, agent, run, runtime, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit runtime. |
 | `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
 
 Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
@@ -198,8 +198,9 @@ discovery waits. `launch --once` and `status` still fail on their first discover
 error.
 
 From claim election through release, including completion recovery, rate-limited
-reads wait and retry under the active lease. If the wait would reach or outlast
-lease expiry, the launcher takes the lost-ownership path and leaves expiry recovery
+reads wait and retry under the active lease, even when the reset is beyond its
+current expiry. Renewal continues during the wait. If the last confirmed expiry
+actually passes, the launcher takes the lost-ownership path and leaves expiry recovery
 to finish durable completion. See
 [Stopping and restarting](../README.md#stopping-and-restarting) for signals during
 owned-run waits. Rate-limited writes retain their existing handling and are not
@@ -257,8 +258,8 @@ log directory and deadline; surviving helpers are terminated and checked using
 the same supervision as agent processes. An already requested launcher stop does
 not skip the cleanup hook.
 
-The lease covers the hook: a claim lasts the agent timeout, the fifteen-minute grace
-and the hook timeout. If the lease nevertheless expires by wall clock during the
+The fixed 30-minute lease renews every 10 minutes throughout the hook; the hook
+timeout does not extend it. If the last confirmed expiry passes by wall clock during the
 hook, the supervised hook is stopped and the worktree preserved for recovery; that is
 not a normal hook failure. Cleanup after ownership has already been lost runs without
 lease writes.
@@ -529,7 +530,7 @@ request may already have written the transition start marker.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Deadline for one run. A claim's lease lasts this long plus fifteen minutes for setup and completion, plus the cleanup hook timeout when one is configured; the launcher never renews it. A crashed launcher's claim normally waits for expiry; `ub-agents recover` can finish a reported outcome early on its host. Projects with long runs may prefer shorter per-agent timeouts. |
+| `agent-timeout-minutes` | 180 | Deadline for agent execution only. Claims last 30 minutes and renew every 10 minutes throughout setup, execution, completion and cleanup, including recovery and rate-limit waits. Lease duration and renewal interval are fixed. Older claims retain their recorded expiry. |
 | `max-attempts` | 5 | Consecutive failures per item and agent before pickup stops. |
 | `retry-backoff-seconds` | 60 | First failure retry delay; doubles with consecutive failures and restarts after success or reset. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
@@ -825,9 +826,9 @@ includes all options and alternatives. `ub-agents help COMMAND` and
 options and examples. All help forms work without project configuration, GitHub
 authentication or network access, and neither execute commands nor create files.
 Square brackets mean optional: `launch [NUMBER]` accepts an optional item number,
-while `retry`, `recover` and `approve` require `--number NUMBER`. Global options
-such as `--config PATH` precede the command. Unknown commands and missing required
-arguments exit nonzero on standard error with a help command to run.
+while `retry NUMBER` and `approve NUMBER` require one. `retry --agent` is optional.
+Unknown commands and missing required arguments exit nonzero on standard error
+with a help command to run.
 
 - `ub-agents help [COMMAND]` shows the overview or detailed help for that command.
 - `ub-agents init [--repository owner/name] [--runtime cli:model:effort]` writes the
@@ -866,7 +867,7 @@ arguments exit nonzero on standard error with a help command to run.
   JSON has `version`, `ok` and `checks`,
   and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
   `remedy`.
-- `ub-agents approve --number N` prints the current issue or PR title, body and
+- `ub-agents approve N` prints the current issue or PR title, body and
   outside comments; for PRs it also prints the head, outside reviews and review
   comments. It posts one [approval record](approvals.md#approving-current-input),
   pinning a PR head and recording the feedback it clears. It requires the
@@ -891,23 +892,14 @@ arguments exit nonzero on standard error with a help command to run.
   signal handling and execution exit codes as `launch --once`.
 - `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
-- `ub-agents recover --number N --agent NAME --reason TEXT` finishes the latest lease's
-  reported outcome on the launcher's host, including before expiry. The lease must
-  come from a trusted account, record this hostname and a process group
-  with no live members, and have an outcome within its validity window that no
-  supervisor verdict superseded. The reason attests that the launcher has stopped
-  and is recorded on the recovery claim with its author. It prints acceptance and
-  label changes or rejection and its reason. Failed eligibility checks refuse without
-  writing, name the check and lease expiry, and exit nonzero. See [Recovery](coordination.md#recovery).
 - `ub-agents status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
   A live lease's summary names its actor, host, claim time, runtime and lease end,
   including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
   the current UTC day. Only leases on this host have their recorded process group
   inspected: live members display `running` and the path to `process.log`; an
   exited group explains launcher completion or recovery after lease expiry. If
-  that owning run reported an outcome, the reason also points to
-  `ub-agents recover --number N --agent NAME --reason TEXT` for recovery now; the
-  command's eligibility checks still apply. Other reasons distinguish a starting
+  that owning run reported an outcome, the reason explains acceptance after expiry.
+  Other reasons distinguish a starting
   run, a claim without a host, another host, outcome recovery and an unknown
   process state with its inspection error. Inspection failures leave `status`
   successful. It makes no additional GitHub requests, recovers or releases nothing,
@@ -924,9 +916,22 @@ arguments exit nonzero on standard error with a help command to run.
 - `ub-agents report --outcome NAME --summary TEXT [--handoff PR]` records a declared
   successful outcome. Use `--status retry|blocked` for failures. It works only inside
   a supervised run.
-- `ub-agents retry --number N --agent NAME --reason TEXT` resets one agent's consecutive failure count on
+- `ub-agents retry N --reason TEXT [--agent NAME]` resets one agent's consecutive failure count on
   an item once you have fixed the cause. It prints the reset record's link and a
-  second line explaining closure, stop labels to remove, trigger labels to add,
+  next-step line explaining closure, stop labels to remove, trigger labels to add,
   or pickup by a running launcher on its next poll. Labels stay unchanged; use
   `ub-agents status` for progress and other pickup gates.
-- `--config PATH` selects a different configuration file.
+  For `retry`, omitting `--agent` selects the first configured agent
+  whose `kind` matches the item or is `either`, and prints its name before acting.
+  Trigger labels and other eligibility gates do not affect this selection. If no
+  agent applies, the command fails without recording anything. Specify `--agent`
+  when resetting a particular agent's attempts.
+- `approve` and `retry` require a positive item number. The deprecated
+  `--number N` alias remains available for one release and is hidden from help;
+  giving the number both ways is a usage error.
+- `--config PATH` selects a different configuration file before or after any
+  project command. `report` and `help` accept it only before the command and read
+  no configuration. Giving it in both positions is a usage error. For example,
+  `ub-agents --config x.yaml launch` and
+  `ub-agents launch --config x.yaml` both write `.ub-agents/launch.log` next to
+  `x.yaml`.
