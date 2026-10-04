@@ -17,17 +17,19 @@ focused pane has an accent border with its title set into the border.
 
 ```text
 ╭─ Work · pass complete ───────────────────────────╮
-│ Running ─────────────────────────────────────  1 │
+│ Running · 1                                     │
 │ ⠹ #163 Compact timestamped Claude log lin… 04:12 │
 │   implementer · this launcher · attempt 1        │
-│ Needs attention ─────────────────────────────  2 │
-│ ! ⌥168 Render Issue descriptions as Markdown 24m │
-│   integrator · blocked · local CI could not run  │
-│ ? ⌥139 Give each run a private scratch dire… 19h │
-│   integrator · needs-human · maintainer merge    │
-│ Eligible ────────────────────────  planned order │
+│ Needs attention · 2                             │
+│ ? #156 Drop old coordination record form… parked│
+│   integrator                                    │
+│ ✗ #126 Codex structured run-log form… failed 3/3│
+│   implementer · 3/3 failures                    │
+│ Eligible · 2                                    │
 │ ● #165 Render issue descriptions as Markdo… next │
-│ ● ⌥170 Compact timestamped Claude log li… review │
+│   implementer                                   │
+│ ● ⌥170 Compact timestamped Claude log li… ready  │
+│   reviewer                                      │
 ├─ Recent activity ─────────────────────── 4 today ┤   (lower half, always shown, dimmed)
 │ ✓ ⌥167 Group the work list into sections  merged │
 │   integrator · 11:52 · squash-merged             │
@@ -42,21 +44,36 @@ focused pane has an accent border with its title set into the border.
 
 ## Work pane
 
-The upper half holds the live sections, in this order, each with a header rule and a
-count. Empty sections are hidden, except Running, which shows `Idle · nothing
-eligible for this launcher`. The upper half scrolls on its own when it overflows.
+The upper half holds Running, Needs attention, Eligible and Waiting, in that
+order, each with its current row count. Empty sections are hidden. It scrolls
+on its own when it overflows; the pane keeps its current width for the row change
+(#160), independently of the roughly 50-column design canvas above.
 
-| Section | Rows | Glyph | Right column |
-| --- | --- | --- | --- |
-| Running | at most one: this launcher's assignment (one run at a time for now) | `⠹` spinner, `■` stopping | elapsed time, `stopping` |
-| Needs attention | items parked with `needs-human` or blocked by an agent; failed outcomes | `?` needs-human, `!` blocked, `✗` failed | how long it has waited: `24m`, `19h`, `3d` |
-| Eligible | ready plans in planned order | `●` | `next`, or priority (`▲ high`) |
+Every live row has two compact lines. Line 1 contains the glyph, item reference,
+title shortened with `…`, and a short right-aligned state:
 
-Dependency and milestone waits are not shown.
+| Row | Glyph | Right column |
+| --- | --- | --- |
+| This launcher's assignment | `⠹` spinner, `■` stopping | Elapsed claim time (`04:12`, `1:04:12`), `claiming` before the claim is known, `stopping` |
+| Running, owned by another launcher | `◌` | `owned` |
+| Needs attention, parked | `?` | `parked` |
+| Needs attention, blocked | `!` | `blocked` |
+| Needs attention, attempt limit reached | `✗` | `failed F/M` |
+| Eligible, in planned order | `●` | `next` on the first row, otherwise `ready` or `recover` |
+| Waiting | `◷` | `backoff`, or `waiting` for runtime, dependency and milestone waits |
 
-A Needs attention row always shows how long it has waited, counted from the
-action-needed comment that parked it. Its second line names the agent, the state
-(`needs-human`, `blocked`, `failed 3/3`) and a short reason.
+Line 2 is indented and contains agent · owner · count, omitting missing parts.
+The owner is `this launcher` for the assignment, or `@actor on host` for a
+foreign claim. The count is `attempt N` for the assignment, or `F/M failures`
+for a plan with at least one failure. Long second lines end in `…`; neither line
+wraps at 110×32. The separate reason leaf is removed, and the full reason stays
+on the Issue tab. Arrow keys move one row at a time; either line selects the same
+row with the mouse. Selection, focus, section counts, order across polls and
+navigation into and out of Recent activity remain as before.
+
+The assignment's elapsed time comes from the item's cached run history and
+updates while the view is open. This adds no GitHub reads or snapshot fields.
+Priority markers are outside this design because the snapshot has no priority.
 
 Numbers say what they are: `#N` is an issue and `⌥N` is a pull request, in rows,
 item headers and dim detail lines alike. `⌥` is in the accent color.
@@ -71,10 +88,9 @@ brightness. It never collapses. Rows that do not fit are cut from the oldest end
 | `✓` | accepted outcome | `merged`, `approved`, `handed off`, `prepared` |
 | `✗` | failed run | `failed` |
 
-Rows are two lines: glyph, `#N` (or `PR #N`), title shortened with `…`, right column;
-then agent · owner or time · attempt or result. Eligible rows may use one line. A
-row keeps its place and selection across polls. An item appears once in the live
-sections.
+Recent activity rows keep their two-line layout: glyph, item reference, shortened
+title and result; then agent · time · summary. A row keeps its place and selection
+across polls. An item appears once in the live sections.
 
 The pane title shows the pass state: `Work · pass complete`, or a dim `pass partial`.
 
