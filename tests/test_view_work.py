@@ -52,9 +52,8 @@ class WorkLineTests(unittest.TestCase):
             (self.row('Eligible', 'recover', failures=1, max_attempts=3),
              '● #160 Compact work rows', 'recover', '  implementer · 1/3 failures'),
             (self.row('Needs attention', 'parked'), '? #160 Compact work rows', 'parked', '  implementer'),
-            (self.row('Waiting', 'backoff'), '◷ #160 Compact work rows', 'backoff', '  implementer'),
-            (self.row('Waiting', 'parked'), '◷ #160 Compact work rows', 'waiting', '  implementer'),
-            (self.row('Waiting', 'waiting'), '◷ #160 Compact work rows', 'waiting', '  implementer'),
+            (self.row('Eligible', 'backoff'), '◷ #160 Compact work rows', 'backoff', '  implementer'),
+            (self.row('Eligible', 'waiting'), '◷ #160 Compact work rows', 'waiting', '  implementer'),
             (self.row('Eligible', 'earlier observation'), '○ #160 Compact work rows',
              'earlier observation', '  implementer'),
         ]
@@ -66,6 +65,9 @@ class WorkLineTests(unittest.TestCase):
                 self.assertEqual(first.cell_len, 50)
                 self.assertEqual(second.plain, detail)
         self.assertTrue(work_lines(cases[3][0], 50, next_row=True)[0].plain.endswith('next'))
+        self.assertTrue(work_lines(cases[4][0], 50, next_row=True)[0].plain.endswith('next'))
+        for state in ('backoff', 'waiting'):
+            self.assertTrue(work_lines(self.row('Eligible', state), 50, next_row=True)[0].plain.endswith(state))
 
     def test_cell_clipping_and_missing_metadata(self):
         row = self.row('Eligible', 'ready', title='Wide 界 titles and long queue descriptions ' * 5,

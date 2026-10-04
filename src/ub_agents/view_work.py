@@ -62,10 +62,10 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
         glyph, state = '○', row.state
     elif own:
         glyph, state = ('■', 'stopping') if stopping else ('⠹', assignment_elapsed(row, now, claimed_at))
+    elif row.state in {'backoff', 'waiting'}:
+        glyph, state = '◷', row.state
     elif row.group == 'Eligible':
         glyph, state = '●', 'next' if next_row else row.state
-    elif row.group == 'Waiting':
-        glyph, state = '◷', 'backoff' if row.state == 'backoff' else 'waiting'
     elif row.state == 'parked':
         glyph, state = '?', 'parked'
     elif row.state == 'blocked' and counted and row.reason.startswith('Attempt limit exhausted'):
@@ -147,7 +147,8 @@ class WorkTree(Tree):
             label_style += self.get_component_rich_style('tree--cursor', partial=False)
         row = self.app.rows.get(node.data)
         if row:
-            eligible = next((value.key for value in self.app.rows.values() if value.group == 'Eligible'), None)
+            eligible = next((value.key for value in self.app.rows.values()
+                             if value.group == 'Eligible' and value.state in {'ready', 'recover'}), None)
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
             value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
                                claimed_at=self.claim_times.get(row.key))[line_no != node._line]

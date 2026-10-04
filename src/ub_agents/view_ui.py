@@ -19,7 +19,7 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
-from .view_data import (WORK_GROUPS, context_header, context_text, item_header, item_history, mapping,
+from .view_data import (WORK_GROUPS, context_header, context_text, item_header, item_history, mapping, plan_group,
                         rows as snapshot_rows, run_status, text)
 from .view_github import DescriptionLoads
 from .view_runs import run_status as history_status, runs_view
@@ -501,13 +501,13 @@ class View(App):
         if self.selected in self.rows and self.selected not in incoming and not follow:
             incoming[self.selected] = self.rows[self.selected]
         # Retain a picked row's right-pane details without presenting an old run
-        # or a newly foreign-owned plan as this launcher's work.
-        foreign = {(plan.get('item'), text(plan.get('agent'))) for plan in
+        # or a newly foreign-owned or dependency-waiting plan as live work.
+        omitted = {(plan.get('item'), text(plan.get('agent'))) for plan in
                    snapshot_rows(mapping(self.session.data.get('latest_pass')).get('rows'), 100)
-                   if plan.get('state') == 'owned'}
+                   if plan.get('state') == 'owned' or plan_group(plan) is None}
         live = {key: row for key, row in incoming.items() if not row.hidden and row.group != 'Recent activity'
                 and (row.group != 'Running' or key == own)
-                and (not key.startswith('plan:') or (row.item, row.agent) not in foreign)}
+                and (not key.startswith('plan:') or (row.item, row.agent) not in omitted)}
         for key in tuple(self.nodes):
             if key not in live:
                 self.nodes.pop(key).remove()

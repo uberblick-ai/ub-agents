@@ -8,6 +8,7 @@ notes are copied from that section.
 
 ### Changed
 
+- The terminal Work pane hides dependency and milestone waits, with retry backoff and paused-runtime plans following ready work in Eligible (#173).
 - Running shows only this launcher's assignment or an idle placeholder; other launchers' claims are omitted from the terminal Work pane (#172).
 - The terminal view uses a consistent theme, rounded pane titles, colored work sections, numbered tabs, a formatted/raw indicator and a repository window title (#164).
 
