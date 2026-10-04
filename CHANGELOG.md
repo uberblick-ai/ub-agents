@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Claude logs use compact local timestamps, tool calls, line counts and distinct errors in the terminal view, with raw records available on demand (#163).
+
 ## 0.1.11 — 2026-10-04
 
 **Upgrading:** stop all of a project's launchers and upgrade them together, since

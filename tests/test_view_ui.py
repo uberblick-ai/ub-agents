@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.test_view_data import event, fixture
+from tests.test_log_reader import FIXTURE, record, tool
 from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response
 
@@ -27,6 +28,85 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             if condition() if condition else app.reading.page is not None:
                 return
         self.fail('View did not become ready')
+
+    async def test_compact_claude_styles_single_line_tools_and_hidden_anchor(self):
+        # Replay recorded messages and synthetic counts, omitting only the huge
+        # successful result so this page fits the bounded initial attachment.
+        recorded = [line for line in FIXTURE.read_bytes().splitlines(keepends=True) if len(line) < 4000]
+        edit = record(content=[{**tool(name='Edit'), 'input': {
+            'file_path': 'long/' * 50, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
+        self.log.write_bytes(b''.join(recorded) + edit + b''.join(event(i, 20) for i in range(30)))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            joined = '\n'.join(line.text for line in output.lines)
+            self.assertIn('· thinking', joined)
+            self.assertIn('✗ Exit code 1', joined)
+            self.assertIn('✓ run finished', joined)
+            self.assertNotIn('producer=', joined)
+            self.assertNotIn('thinking_tokens', joined)
+            call_ref = next(ref for ref in app.reading.page.refs if '▸ Edit' in ref.value.text)
+            self.assertEqual(sum(start == call_ref.start for start, _ in output.positions), 1)
+            self.assertTrue(next(line.text for line, pos in zip(output.lines, output.positions)
+                                 if pos[0] == call_ref.start).endswith('… +2 -1'))
+            # Render a shorter call too, proving Rich styles reach terminal segments.
+            call = record(content=[{**tool(name='Edit'), 'input': {
+                'file_path': 'a.py', 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
+            with self.log.open('ab') as stream:
+                stream.write(call)
+            await self.ready(app, pilot, lambda: app.reading.page.refs[-1].value.text.endswith('+2 -1'))
+            segments = [segment for line in output.lines for segment in line]
+            self.assertTrue(any('+2' in segment.text and segment.style.color.name == 'green' for segment in segments))
+            self.assertTrue(any('-1' in segment.text and segment.style.color.name == 'red' for segment in segments))
+            self.assertTrue(any('✗' in segment.text and segment.style.color.name == 'red' for segment in segments))
+            self.assertTrue(any('· thinking' in segment.text and segment.style.dim for segment in segments))
+            self.assertTrue(any('SPIKE111_MESSAGE_BEGIN' in segment.text and segment.style.italic for segment in segments))
+            # In raw mode Home lands on a hidden system record. Keep its byte
+            # anchor through formatted mode and resize, then recover it with u.
+            await pilot.press('f', 'u', 'home')
+            await pilot.pause()
+            anchor = output.anchor()
+            self.assertEqual(anchor[0], app.reading.page.refs[0].start)
+            self.assertEqual(app.reading.page.refs[0].value.display(), '')
+            await pilot.press('u')
+            self.assertEqual(output.anchor(), anchor)
+            await pilot.resize_terminal(120, 36)
+            await pilot.pause()
+            self.assertEqual(output.anchor(), anchor)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], anchor[0])
+            # Failed result anchors are retained on both projections too.
+            failed = next(ref for ref in app.reading.page.refs if ref.value.kind == 'tool ERROR')
+            app.reading.anchor = (failed.start, 0)
+            output.reflow()
+            await pilot.pause()
+            await pilot.press('u', 'u')
+            self.assertEqual(output.anchor()[0], failed.start)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_page_of_only_hidden_records_retains_raw_anchor(self):
+        self.log.write_bytes(b''.join(line for line in FIXTURE.read_bytes().splitlines(keepends=True)
+                                     if json.loads(line)['type'] in ('system', 'rate_limit_event')))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            self.assertEqual(output.lines, [])
+            self.assertEqual(output.visible_refs, ())
+            await pilot.press('f', 'u', 'home')
+            await pilot.pause()
+            anchor = output.anchor()
+            await pilot.press('u')
+            self.assertEqual(output.lines, [])
+            self.assertEqual(output.anchor(), anchor)
+            await pilot.resize_terminal(120, 36)
+            await pilot.pause()
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], anchor[0])
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_description_requests_local_sources_cache_and_navigation(self):
         transport = RecordingDescriptionTransport()
