@@ -505,13 +505,20 @@ if __name__ == '__main__':
 
 class TerminalRetentionTests(unittest.TestCase):
     def test_compact_claude_replay_hidden_and_failed_result_toggles_in_real_terminal(self):
+        self.compact_runtime_replay('claude')
+
+    def test_compact_codex_replay_hidden_and_failed_result_toggles_in_real_terminal(self):
+        self.compact_runtime_replay('codex')
+
+    def compact_runtime_replay(self, runtime):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            path, log, state = fixture(root)
+            path, log, state = fixture(root, runtime=f'{runtime}:synthetic-model:high')
+            tail_count = 5 if runtime == 'claude' else 40
             state['assignment'].update(kind='issue', attempt=2)
             state['outcomes'].append({'item': 114, 'run': 'earlier-run', 'handoff': 185})
             path.write_text(json.dumps(state))
-            capture = Path(__file__).parent / 'fixtures/runtime_logs/claude.log'
+            capture = Path(__file__).parent / f'fixtures/runtime_logs/{runtime}.log'
             proof = root / 'proof.json'
             script = '''
 import json, pathlib, sys
@@ -579,21 +586,33 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 from tests.test_view_data import event
                 with log.open('ab') as stream:
                     stream.write(capture.read_bytes())
-                    # Keep the first hidden record within the narrower raw render budget.
-                    stream.write(b''.join(event(i, 20) for i in range(5)))
-                formatted = checkpoint(lambda value: value['entries'] == len(capture.read_bytes().splitlines()) + 5)
-                self.assertEqual(formatted['entries'], len(capture.read_bytes().splitlines()) + 5)
+                    if runtime == 'claude':
+                        # Keep the first hidden record within the narrower raw render budget.
+                        stream.write(b''.join(event(i, 20) for i in range(tail_count)))
+                    else:
+                        from tests.test_codex_logs import encoded
+                        stream.write(b''.join(encoded({'type': 'item.completed', 'item': {
+                            'id': f'after_{i}', 'type': 'agent_message', 'text': f'after {i}'}}) for i in range(tail_count)))
+                formatted = checkpoint(lambda value: value['entries'] == len(capture.read_bytes().splitlines()) + tail_count)
+                self.assertEqual(formatted['entries'], len(capture.read_bytes().splitlines()) + tail_count)
                 text = '\n'.join(formatted['lines'])
-                self.assertIn('· thinking', text)
-                self.assertIn('▸ Read <fixture>/fixture_output.py', text)
-                self.assertIn('▸ Bash cat missing-owned.txt', text)
-                self.assertIn('✗ Exit code 1', text)
+                if runtime == 'claude':
+                    self.assertIn('· thinking', text)
+                    self.assertIn('▸ Read <fixture>/fixture_output.py', text)
+                    self.assertIn('▸ Bash cat missing-owned.txt', text)
+                    self.assertIn('✗ Exit code 1', text)
+                else:
+                    self.assertIn('▸ Bash /bin/zsh', text)
+                    self.assertIn('▸ file add <fixture>/greeting.txt', text)
+                    self.assertIn('▸ fixture.echo', text)
+                    self.assertIn('✗ Exit code 7: owned failure', text)
+                    self.assertTrue(any(line.startswith('~') for line in formatted['lines']))
                 self.assertIn('✓ run finished', text)
                 self.assertNotIn('thinking_tokens', text)
                 self.assertNotIn('producer=', text)
                 self.assertEqual(formatted['header'].splitlines()[:2],
                                  ['#114 Cached title',
-                                  'implementer · claude synthetic-model high · attempt 2 · ⌥185'])
+                                  f'implementer · {runtime} synthetic-model high · attempt 2 · ⌥185'])
                 # A runtime's success line does not establish a workflow report.
                 self.assertIn('implementer running · no outcome reported', formatted['run_status'])
                 self.assertTrue(formatted['run_status'].endswith('1 earlier run'))
@@ -614,7 +633,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 hidden = checkpoint()
                 self.assertTrue(hidden['raw'])
                 self.assertEqual(hidden['anchor'][0], 0)
-                self.assertIn('task_started', '\n'.join(hidden['lines']))
+                self.assertIn('task_started' if runtime == 'claude' else 'thread.started', '\n'.join(hidden['lines']))
                 os.write(master, b'u')
                 drain()
                 self.assertEqual(checkpoint()['anchor'], hidden['anchor'])
@@ -634,62 +653,63 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 drain()
                 raw_failed = checkpoint()
                 self.assertEqual(raw_failed['anchor'][0], failed_start)
-                self.assertIn('No such file', '\n'.join(raw_failed['lines']))
+                self.assertIn('No such file' if runtime == 'claude' else 'owned failure', '\n'.join(raw_failed['lines']))
                 os.write(master, b'u')
                 drain()
                 self.assertEqual(checkpoint()['anchor'][0], failed_start)
-                # Synthetic #192 replay: attach mid-init, then stream several
-                # progress records and verify the actual terminal projection.
-                from tests.test_log_reader import record, progress, result, tool
-                init = json.dumps({'type': 'system', 'subtype': 'init',
-                                   'tools': ['private-tool'] * 5000}).encode() + b'\n'
-                call = record(content=[{**tool(name='Edit'), 'input': {
-                    'file_path': 'long/' * 80, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
-                os.write(master, b'f')
-                drain()
-                log.write_bytes(init + record(content=[{'type': 'thinking'}], timestamp='2026-10-03T12:00:00Z') +
-                                record(content=[{'type': 'text', 'text': 'unknown\ncontinuation'}]) + call)
-                skipped = checkpoint(lambda value: any('earlier output skipped' in line for line in value['lines']))
-                self.assertIn('          · earlier output skipped · h older', skipped['lines'])
-                self.assertNotIn('private-tool', '\n'.join(skipped['lines']))
-                thinking = next(line for line in skipped['lines'] if '· thinking' in line)
-                self.assertEqual(thinking[0], ' ')
-                self.assertEqual(thinking[9:], ' · thinking')
-                self.assertIn('          unknown', skipped['lines'])
-                self.assertIn('          continuation', skipped['lines'])
-                with log.open('ab') as stream:
-                    stream.write(progress(45))
-                elapsed = checkpoint(lambda value: any(line.endswith(' · 45s') for line in value['lines']))
-                self.assertTrue(next(line for line in elapsed['lines'] if '▸ Edit' in line).endswith('… +2 -1 · 45s'))
-                self.assertNotIn('tool_progress', '\n'.join(elapsed['lines']))
-                os.write(master, b'f')
-                drain()
-                with log.open('ab') as stream:
-                    stream.write(progress(60) + progress(119) + record('user', [result()]) +
-                                 record(content=[{'type': 'text', 'text': 'captured'}]))
-                self.assertEqual(checkpoint()['lines'], elapsed['lines'])
-                os.write(master, b'u')
-                drain()
-                raw_progress = checkpoint()
-                self.assertIn('tool_progress', '\n'.join(raw_progress['lines']))
-                self.assertIn('private-tool', '\n'.join(raw_progress['lines']))
-                self.assertNotIn('earlier output skipped', '\n'.join(raw_progress['lines']))
-                os.write(master, b'uf')
-                finished = checkpoint(lambda value: any(line.endswith(' · 1m') for line in value['lines']))
-                self.assertTrue(next(line for line in finished['lines'] if '▸ Edit' in line).endswith('… +2 -1 · 1m'))
-                captured = next(line for line in finished['lines'] if 'captured' in line)
-                self.assertEqual(captured[0], '~')
-                self.assertEqual(captured[9:], ' captured')
-                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
-                os.kill(app.pid, signal.SIGWINCH)
-                drain()
-                self.assertTrue(next(line for line in checkpoint()['lines'] if '▸ Edit' in line).endswith('… +2 -1 · 1m'))
-                os.write(master, b'fh')
-                older = checkpoint(lambda value: value['refs'][0][0] < finished['refs'][0][0])
-                self.assertEqual(older['lines'], ['          · earlier output skipped · h older'])
-                os.write(master, b'u')
-                drain()
-                self.assertIn('private-tool', '\n'.join(checkpoint()['lines']))
+                if runtime == 'claude':
+                    # Synthetic #192 replay: attach mid-init, then stream several
+                    # progress records and verify the actual terminal projection.
+                    from tests.test_log_reader import record, progress, result, tool
+                    init = json.dumps({'type': 'system', 'subtype': 'init',
+                                       'tools': ['private-tool'] * 5000}).encode() + b'\n'
+                    call = record(content=[{**tool(name='Edit'), 'input': {
+                        'file_path': 'long/' * 80, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
+                    os.write(master, b'f')
+                    drain()
+                    log.write_bytes(init + record(content=[{'type': 'thinking'}], timestamp='2026-10-03T12:00:00Z') +
+                                    record(content=[{'type': 'text', 'text': 'unknown\ncontinuation'}]) + call)
+                    skipped = checkpoint(lambda value: any('earlier output skipped' in line for line in value['lines']))
+                    self.assertIn('          · earlier output skipped · h older', skipped['lines'])
+                    self.assertNotIn('private-tool', '\n'.join(skipped['lines']))
+                    thinking = next(line for line in skipped['lines'] if '· thinking' in line)
+                    self.assertEqual(thinking[0], ' ')
+                    self.assertEqual(thinking[9:], ' · thinking')
+                    self.assertIn('          unknown', skipped['lines'])
+                    self.assertIn('          continuation', skipped['lines'])
+                    with log.open('ab') as stream:
+                        stream.write(progress(45))
+                    elapsed = checkpoint(lambda value: any(line.endswith(' · 45s') for line in value['lines']))
+                    self.assertTrue(next(line for line in elapsed['lines'] if '▸ Edit' in line).endswith('… +2 -1 · 45s'))
+                    self.assertNotIn('tool_progress', '\n'.join(elapsed['lines']))
+                    os.write(master, b'f')
+                    drain()
+                    with log.open('ab') as stream:
+                        stream.write(progress(60) + progress(119) + record('user', [result()]) +
+                                     record(content=[{'type': 'text', 'text': 'captured'}]))
+                    self.assertEqual(checkpoint()['lines'], elapsed['lines'])
+                    os.write(master, b'u')
+                    drain()
+                    raw_progress = checkpoint()
+                    self.assertIn('tool_progress', '\n'.join(raw_progress['lines']))
+                    self.assertIn('private-tool', '\n'.join(raw_progress['lines']))
+                    self.assertNotIn('earlier output skipped', '\n'.join(raw_progress['lines']))
+                    os.write(master, b'uf')
+                    finished = checkpoint(lambda value: any(line.endswith(' · 1m') for line in value['lines']))
+                    self.assertTrue(next(line for line in finished['lines'] if '▸ Edit' in line).endswith('… +2 -1 · 1m'))
+                    captured = next(line for line in finished['lines'] if 'captured' in line)
+                    self.assertEqual(captured[0], '~')
+                    self.assertEqual(captured[9:], ' captured')
+                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+                    os.kill(app.pid, signal.SIGWINCH)
+                    drain()
+                    self.assertTrue(next(line for line in checkpoint()['lines'] if '▸ Edit' in line).endswith('… +2 -1 · 1m'))
+                    os.write(master, b'fh')
+                    older = checkpoint(lambda value: value['refs'][0][0] < finished['refs'][0][0])
+                    self.assertEqual(older['lines'], ['          · earlier output skipped · h older'])
+                    os.write(master, b'u')
+                    drain()
+                    self.assertIn('private-tool', '\n'.join(checkpoint()['lines']))
                 os.write(master, b'p')
                 details = checkpoint(lambda value: bool(value['modal']))['modal']
                 self.assertIn('bytes ', details)

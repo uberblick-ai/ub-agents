@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import stat
 
-from .log_format import (ClaudeFormatter, Entry, MAX_RECORD, entry, inert, raw_entry,
+from .log_format import (ClaudeFormatter, CodexFormatter, Entry, MAX_RECORD, entry, inert, raw_entry,
                          shorten, skipped_entry, with_elapsed)
 
 MAX_ENTRIES = 200
@@ -62,7 +62,7 @@ class LogReader:
         self.path = Path(path).absolute()
         self.runtime = runtime
         self.clock = clock or (lambda: datetime.now(timezone.utc))
-        self.formatter = ClaudeFormatter()
+        self.formatter = CodexFormatter() if runtime == "codex" else ClaudeFormatter()
         self.entries = deque(maxlen=MAX_ENTRIES)
         self.refs = deque(maxlen=MAX_ENTRIES)
         self.total_entries = 0
@@ -144,7 +144,7 @@ class LogReader:
             "partial raw record (page boundary); full record in raw file")
         value = (skipped_entry(raw, self.capture, kind) if skipped else
                  raw_entry(raw, self.capture, kind) if kind else
-                 self.formatter.decode(raw, self.capture) if self.runtime == "claude" else
+                 self.formatter.decode(raw, self.capture) if self.runtime in ("claude", "codex") else
                  raw_entry(raw, self.capture))
         self._append(value, end)
         if end is not None:

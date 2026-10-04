@@ -219,8 +219,8 @@ keyboard, and nothing is fetched. The item header, source/age and all notices
 remain literal text. Issue does not repeat the item reference or title in its
 content. Shortening notices sit outside the Markdown body, including
 when a description is cut inside a code fence. Runs and the raw log projection
-remain literal text with visibly escaped control characters. Claude's formatted
-Log transcript is described below.
+remain literal text with visibly escaped control characters. The formatted
+Claude and Codex Log transcripts are described below.
 
 | Key | Action |
 | --- | --- |
@@ -315,14 +315,48 @@ result shows `✓ run finished`; a failed result shows a red `✗`, its subtype 
 first error line, without repeating the last assistant message. Runtime errors
 also show a red `✗` line.
 
-At a tail start or an older page's starting byte boundary, a cut-off first
+In Claude's formatted pane, at a tail start or an older page's starting byte boundary, a cut-off first
 record shows one dim `· earlier output skipped · h older` line, with none of
 its bytes in formatted mode. `h` reads toward earlier output. Raw mode retains
 that fragment's bytes and every record, including hidden progress records;
 the `p` raw-access screen is unchanged. Other split, oversized, unfinished and
-non-JSON fragments keep their labelled raw display. Unknown
-runtimes, including Codex, use the labelled plain/raw fallback (#126). Runtime
-output never establishes a workflow outcome.
+non-JSON fragments keep their labelled raw display.
+
+Codex's formatted Log pane uses the same time column, symbols, assistant styling,
+red failures, escaping and projection limits. It is checked against complete,
+owned `codex exec --json` recordings from **codex-cli 0.160.0** (#126):
+
+| Event | Formatted projection |
+| --- | --- |
+| `thread.started`, `turn.started` | Hidden; retained in raw mode |
+| `item.completed` / `agent_message` | Assistant text with aligned line breaks |
+| `item.started`, `item.updated`, `item.completed` / `command_execution` | `▸ Bash` and the command; failed completion adds `✗`, exit code when present and the first output line |
+| Same item events / `mcp_tool_call` | `▸ server.tool`; failed completion adds the first error message or text result line |
+| Same item events / `file_change` | `▸ file add/update/delete` and each path; a failed completion adds `✗ file change failed` |
+| `item.completed` / `error`, `error`, `turn.failed` | Red `✗` and the first message line |
+| `turn.completed` | `✓ run finished`; usage remains in raw mode |
+
+Repeated activity updates and successful results add no line when their start
+is in the bounded item-ID cache. An unpaired completion shows its command, tool
+or file paths, so near-tail attachment and history pages remain readable. A
+delayed failure includes its tool name. The recordings contain starts and
+completions; synthetic tests exercise same-shape `item.updated` records.
+
+This CLI emits no producer timestamps: newly captured bytes show `~HH:MM:SS`,
+and pre-existing bytes leave the time column blank. An explicit timezone-aware top-level
+`timestamp`, if present, uses the same producer-time rules as Claude. No time is
+extracted from IDs, item fields or message text. File records carry operations
+and paths, without diffs or line counts; none are invented. MCP arguments,
+successful command/tool output, token usage and IDs remain available in raw
+mode. Reasoning, plans, web searches and other unvalidated item shapes show a
+dim event/item-type label. Errors whose message is itself JSON stay message
+text; nested payloads are not interpreted. Changed or unfamiliar complete
+records also show a dim type label instead of assuming a newer CLI's semantics.
+
+Raw mode retains every record, including hidden records. Oversized, split,
+unfinished, malformed and non-JSON fragments, including mixed diagnostic text,
+keep their labelled raw display. Unknown runtimes use the labelled plain/raw
+fallback. Runtime output never establishes a workflow outcome.
 
 Log ends with a dashed rule and a one-line status showing the agent and its
 process or plan state, plus `no outcome reported` or the reported result and
@@ -463,6 +497,12 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    record, toggle `u`, resize and toggle back; the same raw record must return.
    Repeat on the failed tool result, and confirm successful results and system
    records are visible only in raw mode.
+   Repeat with `tests/fixtures/runtime_logs/codex.log`, `codex-tools.log` and
+   `codex-error.log`: check assistant text, command/file/MCP activity, red failed
+   results, runtime errors and run completion. Newly appended Codex records use
+   capture times; pre-existing records use `--:--:--`. Toggle raw mode on a hidden
+   `thread.started` and a failed result, and verify the anchor survives. The
+   status line must still say `no outcome reported` when no workflow report exists.
 4. Replace or truncate the replay log. Check generation recovery and refusal of
    older reads from the prior generation.
 5. On Issue, select a row with no local description and press `g`. Confirm loading,

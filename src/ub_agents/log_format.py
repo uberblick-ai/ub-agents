@@ -1,8 +1,9 @@
-"""Internal, display-only Claude projections. No workflow/report authority.
+"""Internal, display-only runtime projections. No workflow/report authority.
 
 Based on the accepted #111 Claude adapter and standard-library pretty-printer.
+Codex shapes are checked against the owned 0.160.0 JSONL recordings.
 Other runtimes and incomplete/non-JSON fragments deliberately remain raw text,
-apart from the compact marker for a cut-off first record.
+apart from Claude's compact marker for a cut-off first record.
 """
 
 from collections import OrderedDict
@@ -218,7 +219,7 @@ def _progress(data):
     return (data["tool_use_id"], elapsed) if len(elapsed) <= 32 else ()
 
 
-class ClaudeFormatter:
+class StructuredFormatter:
     """A bounded tool-id/name cache pairs results even across updates."""
 
     def __init__(self):
@@ -255,7 +256,11 @@ class ClaudeFormatter:
         self.last_call = last_call
         value = _compact_entry(kind, lines, raw.decode("utf-8", errors="replace"), capture,
                                event_time(data.get("timestamp")))
-        return replace(value, progress=_progress(data))
+        return replace(value, progress=self._progress(data))
+
+    @staticmethod
+    def _progress(data):
+        return ()
 
     @staticmethod
     def _label(data):
@@ -265,6 +270,10 @@ class ClaudeFormatter:
         if isinstance(subtype, str):
             label += " · " + _one_line(subtype)
         return Line("· " + label, "dim")
+
+
+class ClaudeFormatter(StructuredFormatter):
+    _progress = staticmethod(_progress)
 
     def _project(self, data):
         kind = data.get("type")
@@ -361,6 +370,109 @@ class ClaudeFormatter:
                 raise ValueError("Unfamiliar runtime error")
             return "runtime ERROR", [Line("✗ " + _one_line(value.split("\n", 1)[0]), "error")], [], None
         return "other", [self._label(data)], [], None
+
+
+class CodexFormatter(StructuredFormatter):
+    """Only recorded exec JSONL shapes; item IDs bound duplicate call display.
+
+    Completion records carry their own command/tool fields, so near-tail and
+    history attachment do not need an earlier start record to explain a result.
+    """
+
+    @staticmethod
+    def _label(data):
+        line = StructuredFormatter._label(data)
+        item = data.get("item")
+        if isinstance(item, dict) and isinstance(item.get("type"), str):
+            return Line(line.text + " · " + _one_line(item["type"]), "dim")
+        return line
+
+    def _project(self, data):
+        kind = data.get("type")
+        if kind in ("thread.started", "turn.started"):
+            if kind == "thread.started" and not _identifier(data.get("thread_id")):
+                raise ValueError("Unfamiliar thread")
+            return kind, [], [], self.last_call
+        if kind == "turn.completed":
+            # Usage is available in raw mode; it carries no workflow authority.
+            if not isinstance(data.get("usage"), dict):
+                raise ValueError("Unfamiliar completion")
+            return "runtime result", [Line("✓ run finished")], [], None
+        if kind in ("error", "turn.failed"):
+            error = data.get("message") if kind == "error" else data.get("error")
+            if isinstance(error, dict):
+                error = error.get("message")
+            if not isinstance(error, str):
+                raise ValueError("Unfamiliar runtime error")
+            return "runtime ERROR", [Line("✗ " + _one_line(error.split("\n", 1)[0]), "red")], [], None
+        if kind not in ("item.started", "item.updated", "item.completed"):
+            return "other", [self._label(data)], [], None
+        item = data.get("item")
+        if not isinstance(item, dict) or not _identifier(item.get("id")):
+            raise ValueError("Unfamiliar item")
+        item_type, item_id = item.get("type"), item["id"]
+        if item_type == "error" and kind == "item.completed":
+            if not isinstance(item.get("message"), str):
+                raise ValueError("Unfamiliar item error")
+            return "runtime ERROR", [Line("✗ " + _one_line(item["message"].split("\n", 1)[0]), "red")], [], None
+        if item_type == "agent_message" and kind == "item.completed":
+            if not isinstance(item.get("text"), str):
+                raise ValueError("Unfamiliar message")
+            lines = [Line(value, "dim italic", continuation=index > 0)
+                     for index, value in enumerate(item["text"].split("\n"))]
+            return "assistant", lines, [], None
+        if item_type not in ("command_execution", "mcp_tool_call", "file_change"):
+            return "other", [self._label(data)], [], None
+        completed = kind == "item.completed"
+        status = item.get("status")
+        if status not in (("completed", "failed") if completed else ("in_progress",)):
+            raise ValueError("Unfamiliar activity status")
+        failed, detail = status == "failed", ""
+        if item_type == "command_execution":
+            command, output, code = item.get("command"), item.get("aggregated_output"), item.get("exit_code")
+            if not isinstance(command, str) or not isinstance(output, str) or (
+                    code is not None and type(code) is not int):
+                raise ValueError("Unfamiliar command")
+            name = "Bash"
+            calls = [Line("▸ Bash " + _one_line(command))]
+            failed = failed or (completed and code is not None and code != 0)
+            detail = f"Exit code {code}" if code is not None else "command failed"
+            if output:
+                detail += ": " + output.split("\n", 1)[0]
+        elif item_type == "mcp_tool_call":
+            server, tool = item.get("server"), item.get("tool")
+            if not _identifier(server) or not _identifier(tool) or not isinstance(item.get("arguments"), dict):
+                raise ValueError("Unfamiliar MCP call")
+            error = item.get("error")
+            if error is not None and (not isinstance(error, dict) or not isinstance(error.get("message"), str)):
+                raise ValueError("Unfamiliar MCP error")
+            name = _one_line(server) + "." + _one_line(tool)
+            calls = [Line("▸ " + name)]
+            failed = failed or error is not None
+            result = item.get("result")
+            if result is not None and not isinstance(result, dict):
+                raise ValueError("Unfamiliar MCP result")
+            detail = error["message"] if error else (
+                _result_text(result.get("content")) if failed and result is not None else "tool failed")
+        else:
+            changes = item.get("changes")
+            if not isinstance(changes, list) or not changes or not all(
+                    isinstance(change, dict) and isinstance(change.get("path"), str) and
+                    change.get("kind") in ("add", "update", "delete") for change in changes):
+                raise ValueError("Unfamiliar file changes")
+            name = "file change"
+            # The record has paths and operations, but no diff or line counts.
+            calls = [Line("▸ file " + change["kind"] + " " + _one_line(change["path"])) for change in changes]
+            detail = "file change failed"
+        seen = self.tools.get(item_id) == name
+        lines = [] if seen else calls
+        last_call = item_id if lines else self.last_call
+        if failed and completed:
+            label = name + ": " if last_call != item_id else ""
+            lines.append(Line("  ✗ " + label + _one_line(detail.split("\n", 1)[0]), "red"))
+            last_call = None
+        label = "tool ERROR" if failed and completed else "tool result" if completed else "tool call"
+        return label, lines, [(item_id, name)], last_call
 
 
 def _invalid_constant(value):
