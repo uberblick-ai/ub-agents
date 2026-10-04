@@ -21,7 +21,7 @@ CI runs on a maintainer's or the integrator's machine, not on GitHub. From a che
 at `origin/main`, for a pushed commit:
 
 ```sh
-mise run ci <sha-or-pr-number>
+mise run ci <sha>
 ```
 
 It checks the commit out into a temporary worktree with a fresh virtualenv, runs
@@ -73,8 +73,8 @@ The integrator squash-merges a PR once every owed review and check applies to it
 current head, with `--match-head-commit` set to the assigned SHA. The check is a green
 `signoff` status at that head from local CI. The integrator runs it: detach its own
 worktree at `origin/main` (`git switch --detach origin/main`) and run
-`mise run ci SHA`. It skips the run only when a maintainer's own account already
-signed off on that head; a `signoff` from an agent account does not count. It leaves the merge
+`mise run ci SHA`, every time: a `signoff` already on the commit only says someone
+posted it, not that the checks ran. It leaves the merge
 to a maintainer, and says why, when the PR:
 
 - changes the `ub-agents` command-line experience without the issue it closes

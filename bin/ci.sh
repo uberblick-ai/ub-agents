@@ -1,7 +1,7 @@
 #!/bin/sh
 # Local CI: verify one pushed commit on this machine and sign off on it.
 #
-#   mise run ci <sha | pull request number>
+#   mise run ci <sha>
 #
 # The commit is checked out into a temporary worktree with a fresh virtualenv,
 # so nothing from this checkout (its .venv, untracked files, local edits) can
@@ -18,7 +18,7 @@ set -eu
 root=$(CDPATH= cd "$(dirname "$0")/.." && pwd -P)
 
 if [ $# -ne 1 ]; then
-	printf 'usage: mise run ci <sha | pull request number>\n' >&2
+	printf 'usage: mise run ci <sha>\n' >&2
 	exit 2
 fi
 
@@ -27,17 +27,14 @@ if ! gh signoff --help >/dev/null 2>&1; then
 	exit 1
 fi
 
-case "$1" in
-	*[!0-9]* | '') target=$1 ;;
-	*) target=$(gh pr view "$1" --json headRefOid --jq .headRefOid) ;;
-esac
 git -C "$root" fetch --quiet origin main
+git -C "$root" cat-file -e "$1^{commit}" 2>/dev/null || git -C "$root" fetch --quiet origin "$1"
 if [ "$(git -C "$root" rev-parse HEAD)" != "$(git -C "$root" rev-parse origin/main)" ] ||
 	! git -C "$root" diff --quiet origin/main -- bin/ci.sh mise.toml; then
 	printf 'ci: refusing; run from a checkout at origin/main with bin/ci.sh and mise.toml unmodified.\n' >&2
 	exit 1
 fi
-sha=$(git -C "$root" rev-parse --verify --end-of-options "$target^{commit}")
+sha=$(git -C "$root" rev-parse --verify --end-of-options "$1^{commit}")
 short=$(printf '%s' "$sha" | cut -c1-12)
 
 worktree=$(mktemp -d "${TMPDIR:-/tmp}/ub-agents-ci.XXXXXX")
@@ -49,11 +46,23 @@ trap 'exit 130' HUP INT TERM
 git -C "$root" worktree add --quiet --detach "$worktree" "$sha"
 cd "$worktree"
 
+# The commit's own code runs without this machine's GitHub and git credentials,
+# so it cannot post a signoff or push in the caller's name.
+mkdir "$worktree.gh"
+trap 'cleanup; rm -rf "$worktree.gh"' EXIT
+isolated() {
+	env GH_CONFIG_DIR="$worktree.gh" GH_TOKEN= GITHUB_TOKEN= GH_ENTERPRISE_TOKEN= \
+		GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+		GIT_AUTHOR_NAME=ci GIT_AUTHOR_EMAIL=ci@example.invalid \
+		GIT_COMMITTER_NAME=ci GIT_COMMITTER_EMAIL=ci@example.invalid \
+		SSH_AUTH_SOCK= "$@"
+}
+
 run() {
 	name=$1
 	shift
 	printf '\n== %s (%s)\n' "$name" "$short"
-	if ! "$@"; then
+	if ! isolated "$@"; then
 		gh signoff fail --commit "$sha" --description "$name failed" >/dev/null
 		printf '\nci: %s failed at %s; posted a failing status.\n' "$name" "$short" >&2
 		exit 1
