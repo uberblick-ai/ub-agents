@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import threading
@@ -11,7 +12,7 @@ from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import DescriptionLoads, Response
 
 from textual.widgets import Static, TabbedContent, Tree
-from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, View
+from ub_agents.view_ui import LogPane, MAX_RENDER_LINES, RECENT_ACTIVITY, View
 from ub_agents.view_worker import LocalWorker
 
 
@@ -180,7 +181,131 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_sections_counts_hidden_empty_sections_and_dim_partial_marker(self):
+        self.state['latest_pass']['rows'].extend([
+            {'item': 20, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
+            {'item': 21, 'agent': 'worker', 'state': 'blocked', 'reason': 'Cleanup unconfirmed'},
+            {'item': 22, 'agent': 'worker', 'state': 'waiting', 'reason': 'Runtime paused'},
+        ])
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one('#work', Tree)
+            self.assertEqual([node.label.plain for node in tree.root.children[:4]],
+                             ['Running · 2', 'Needs attention · 1', 'Eligible · 1', 'Waiting · 1'])
+            self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
+            self.assertIn('partial', tree.root.label.plain)
+            self.assertTrue(any(span.style == 'dim' for span in tree.root.label.spans))
+            self.assertFalse(app.groups['Recent activity'].is_expanded)
+            self.state['latest_pass'] = {'state': 'complete', 'rows': []}
+            self.state['outcomes'] = []
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
+            self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
+            self.assertEqual(tree.root.label.plain, 'Launcher work')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_selected_plan_survives_section_order_change_and_disappearance(self):
+        self.state['latest_pass']['rows'].extend([
+            {'item': 20, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
+            {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
+        ])
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('f', 'home', 'pagedown')
+            output = app.query_one(LogPane)
+            own, page, anchor = app.selected, app.reading.page, output.anchor()
+            key = next(k for k, row in app.rows.items() if row.item == 21)
+            app.select(key)
+            tree = app.query_one('#work', Tree)
+            tree.move_cursor(app.reason_nodes[key])
+            output.focus()
+            self.state['latest_pass']['rows'] = [
+                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'}]
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.nodes[key].parent is app.groups.get('Waiting'))
+            self.assertEqual(app.selected, key)
+            self.assertIs(app.focused, output)
+            self.assertIs(tree.cursor_node, app.reason_nodes[key])
+            self.assertNotIn('Eligible', app.groups)
+            self.assertEqual([node.label.plain for node in tree.root.children[:2]],
+                             ['Running · 1', 'Waiting · 1'])
+            self.state['latest_pass']['rows'] = []
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            self.assertEqual(app.selected, key)
+            self.assertIs(app.focused, output)
+            app.select(own)
+            await pilot.pause(0.3)
+            self.assertEqual(app.reading.page, page)
+            self.assertEqual(output.anchor(), anchor)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_recent_activity_today_count_enter_refresh_and_paused_outcome_log(self):
+        now = datetime.now(timezone.utc)
+        self.state['outcomes'][0]['time'] = now.isoformat()
+        self.state['outcomes'].append(dict(self.state['outcomes'][0], run='older-run',
+                                           time=(now - timedelta(days=2)).isoformat()))
+        self.path.write_text(json.dumps(self.state))
+        previous = self.root / '.ub-agents' / 'runs' / 'previous-run'
+        previous.mkdir()
+        log = previous / 'process.log'
+        log.write_bytes(b''.join(event(i) for i in range(600)))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one('#work', Tree)
+            group = app.groups['Recent activity']
+            self.assertEqual(group.label.plain, 'Recent activity · 1 today')
+            self.assertEqual(len(group.children), 2)
+            self.assertFalse(group.is_expanded)
+            tree.focus()
+            tree.move_cursor(group)
+            await pilot.press('enter')
+            self.assertTrue(group.is_expanded)
+            self.assertEqual(app.selected, RECENT_ACTIVITY)
+            key = 'outcome:previous-run'
+            tree.select_node(app.nodes[key])
+            await self.ready(app, pilot)
+            await pilot.press('f', 'home', 'pagedown')
+            output = app.query_one(LogPane)
+            page, anchor = app.reading.page, output.anchor()
+            with log.open('ab') as stream:
+                stream.write(event(9000))
+            await self.ready(app, pilot, lambda: app.reading.latest != page)
+            self.assertTrue(group.is_expanded)
+            self.assertEqual(app.reading.page, page)
+            self.assertEqual(output.anchor(), anchor)
+            tree.move_cursor(group)
+            await pilot.press('enter')
+            self.assertFalse(group.is_expanded)
+            self.assertEqual(app.selected, RECENT_ACTIVITY)
+            self.assertIs(tree.cursor_node, group)
+            await pilot.pause(0.3)
+            self.assertFalse(group.is_expanded)
+            await pilot.press('enter')
+            tree.select_node(app.nodes[key])
+            await pilot.pause(0.3)
+            self.assertEqual(app.reading.page, page)
+            self.assertEqual(output.anchor(), anchor)
+            # Mouse/arrow collapse also selects the header when an outcome is selected.
+            group.collapse()
+            await pilot.pause()
+            self.assertEqual(app.selected, RECENT_ACTIVITY)
+            self.assertIs(tree.cursor_node, group)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_description_requests_local_sources_cache_and_navigation(self):
+        self.state['latest_pass']['rows'].append({
+            'item': 15, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched',
+            'description': {'available': True, 'text': 'Cached description'}})
+        self.path.write_text(json.dumps(self.state))
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -190,7 +315,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('Source: run context.json', app.last_context)
             self.assertIn('s old', app.last_context)
             own_key = app.selected
-            plan_key = next(k for k, row in app.rows.items() if row.item == 114 and k != own_key)
+            plan_key = next(k for k, row in app.rows.items() if row.item == 15)
             app.select(plan_key)
             await self.ready(app, pilot, lambda: app.local_description is not None)
             await pilot.press('g')
@@ -446,7 +571,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['latest_pass']['state'] = '[/red]'
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: app.session.data.get('latest_pass', {}).get('state') == '[/red]')
-            self.assertIn('[/red]', app.groups['Latest pass'].label.plain)
+            self.assertIn('[/red]', app.query_one('#work', Tree).root.label.plain)
             self.state['assignment'] = None
             self.path.write_text(json.dumps(self.state))
             await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')
