@@ -12,6 +12,7 @@ stop label on items you want to stay held (#132).
 
 ### Changed
 
+- Action-needed comments preserve decision formatting and collapse supporting evidence and resume instructions; shared and starter guidance keeps choices and risks visible (#195).
 - The assignment context includes the run's scratch path as `scratch`, so agents use it without expanding `UB_AGENTS_SCRATCH` in a shell command, which Claude's permission rules can deny (#124).
 - Coordination reads only v3 records; attempt counts and blocked or exhausted state on items reset once on upgrade (#132).
 - Every terminal-view tab shares an item header; Log shows run status and earlier runs, with byte and retention diagnostics under raw access (#162).

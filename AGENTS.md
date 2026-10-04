@@ -125,6 +125,21 @@ eligibility checks (#127)."
   references and all required upgrade information. Then turn `Unreleased` into the
   version's section and copy that concise section into the GitHub release notes.
 
+## Human decisions
+
+When stopping for a person, make the report summary ready to answer. Give each
+independent decision a short heading or numbered item and aim for one or two
+plain-language sentences covering the choice, alternatives, consequences and
+recommendation. Keep material risks and tradeoffs visible, along with who can
+answer and where; never omit or truncate them to shorten the summary.
+
+Collapse supporting technical evidence, commits, CI results and resume mechanics
+in an HTML `<details>` block with a descriptive `<summary>`, or link to their
+existing record. A long explanation can live in a linked decision comment, but
+the report summary still names every independent choice, recommendation and
+material risk. Use the existing report fields and the project's authority and
+resume rules; formatting grants no approval or change to workflow labels.
+
 ## Changes
 
 - Keep `README.md` and the docs under `docs/` accurate for any behavior you change,

@@ -168,6 +168,8 @@ class Notices:
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
-        reason = " ".join(summary.split())
+        reason = summary.strip()
         self.post_once(number,
-            f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n", marker)
+            f"{marker}\n**Action needed**\n\n{reason}\n\n"
+            f"<details>\n<summary>Evidence and resume instructions</summary>\n\n"
+            f"{evidence}\n\n{links}{extra}\n\n{resume}\n\n</details>\n", marker)

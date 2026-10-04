@@ -219,6 +219,14 @@ outcome, and, on a PR, its review decision and the CI rollup for that exact SHA.
 If the PR head has moved, the current head's review decision is not attributed to
 the old candidate. Unavailable evidence is identified in the comment.
 
+The reported summary keeps its complete Markdown structure:
+paragraphs, lists and any author-supplied details are preserved. Agents should
+separate independent decisions and keep choices, consequences, recommendations
+and material risks readable before the supporting evidence. Generated candidate,
+review and CI evidence, claim/outcome links, host/log diagnostics and resume
+instructions are grouped in a collapsed **Evidence and resume instructions**
+section. This presentation does not add report fields or change their validation.
+
 For a stop-label outcome, the comment names the stop label to remove and the
 agent's triggers to apply to resume work. For a blocked release, it gives an
 exact `ub-agents retry N --agent NAME --reason "Human resolved the blocker"`

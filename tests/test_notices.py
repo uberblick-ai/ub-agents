@@ -176,10 +176,17 @@ class NoticeTests(unittest.TestCase):
         notices = self.notices(2)
         self.assertEqual(len(notices), 1)
         comment = notices[0]["body"]
-        for expected in ("**Action needed**", outcome["summary"], "a" * 40, "APPROVED", "SUCCESS",
+        visible, details = comment.split("<details>\n", 1)
+        self.assertIn("**Action needed**", visible)
+        self.assertIn(outcome["summary"], visible)
+        self.assertIn("<summary>Evidence and resume instructions</summary>\n\n", details)
+        self.assertTrue(details.endswith("\n\n</details>\n"))
+        self.assertNotIn("<details open", comment)
+        for expected in ("a" * 40, "APPROVED", "SUCCESS",
                          lease["url"], outcome["url"],
                          'ub-agents retry 2 --agent worker --reason "Human resolved the blocker"'):
-            self.assertIn(expected, comment)
+            self.assertIn(expected, details)
+            self.assertNotIn(expected, visible)
         self.assertEqual(records(notices, "operator"), [])
         self.assertEqual(len(self.co.history(2)), 2)
         self.co.notices.released(lease, outcome, outcome["summary"])
@@ -187,6 +194,28 @@ class NoticeTests(unittest.TestCase):
         self.retry(2)
         self.assertIn(self.notices(2)[0]["id"], self.github.minimized_ids)
         self.assertEqual(self.co.plan(self.github.item(2), self.worker, ()).state, "ready")
+
+    def test_action_notice_preserves_complete_markdown_decisions_and_details(self):
+        summary = (
+            "### 1. Choose storage\n\n"
+            "- Keep the current store: no migration. Recommended.\n"
+            "- Replace it: users must migrate before continuing.\n\n"
+            "### 2. Choose rollout timing\n\n"
+            "Recommend waiting for backups; starting now risks unrecoverable data.  \n"
+            "@maintainer, answer both choices here.\n\n"
+            "<details>\n<summary>Migration evidence</summary>\n\n"
+            "```text\n    preserve indented evidence\n```\n\n"
+            + "Detailed supporting evidence. " * 100 + "\n\n</details>"
+        )
+        lease = self.start(2)
+        outcome = self.co.report(lease, "blocked", summary)
+        self.co.release(lease, "blocked", summary)
+        comment = self.notices(2)[0]["body"]
+        self.assertTrue(comment.startswith(
+            f"{ACTION_MARKER}{lease['run']} -->\n**Action needed**\n\n{summary}\n\n<details>\n"
+            "<summary>Evidence and resume instructions</summary>\n\n"))
+        self.assertEqual(self.co.outcome(lease)["summary"], summary)
+        self.assertIn(outcome["url"], comment)
 
     def parked_loop(self, handoff=None):
         worker = agent(self.root, kind="issue" if handoff else "pr",
