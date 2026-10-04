@@ -18,7 +18,13 @@ leftover `ub-agent/…` branches and the `.ub-agent/` directory (#137).
   with reached plans, process state and session outcomes. Publication adds no
   GitHub reads and cannot hold up execution or shutdown (#113).
 
+### Changed
+
+- Claims now last 30 minutes and renew every 10 minutes while owned, allowing pickup after a launcher dies without changing agent timeouts (#131).
+
 ### Removed
+
+- Remove `ub-agents recover`; short leases allow automatic expiry recovery by launchers on any host, without operator intervention (#131).
 
 - Compatibility with the old `ub-agent` command, configuration, environment,
   coordination markers and artifacts is removed; only `ub-agents` names remain (#137).

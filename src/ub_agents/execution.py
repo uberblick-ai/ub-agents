@@ -227,7 +227,8 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
                 if time.monotonic() >= deadline:
                     raise RetryableExecutionError(f"Execution timed out after {timeout:g} seconds")
                 # The lease expires by wall clock; monotonic time pauses while a machine sleeps.
-                if expires is not None and time.time() >= expires:
+                expiry = expires() if callable(expires) else expires
+                if expiry is not None and time.time() >= expiry:
                     raise LostOwnership("Local lease deadline expired")
                 stop_event.wait(min(0.2, max(0, deadline - time.monotonic())))
             return process.returncode
