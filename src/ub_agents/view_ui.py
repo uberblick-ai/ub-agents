@@ -94,7 +94,8 @@ class LogPane(ScrollView):
                 for index, part in enumerate(body.wrap(self.app.console, width - 10, overflow='fold')):
                     lines.append((column if index == 0 else Text(' ' * 10, style=self.rich_style)) + part)
             else:
-                counts = [span.start for span in line.spans if span.style in ('green', 'red')]
+                counts = [span.start for span in line.spans if span.style in ('green', 'red')
+                          and line.plain[span.start:span.end].lstrip('+-').isdigit()]
                 if counts:
                     start = min(counts) - 1
                     suffix = line[start:]
@@ -184,6 +185,8 @@ class LogPane(ScrollView):
 
     def watch_scroll_y(self, old, value):
         super().watch_scroll_y(old, value)
+        if self.held_anchor is not None and int(value) != self.held_y:
+            self.held_anchor = self.held_y = None
 
     def save_anchor(self):
         if self.reading:

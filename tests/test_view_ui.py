@@ -56,6 +56,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             with self.log.open('ab') as stream:
                 stream.write(call)
             await self.ready(app, pilot, lambda: app.reading.page.refs[-1].value.text.endswith('+2 -1'))
+            with self.log.open('ab') as stream:
+                stream.write(json.dumps({'type': 'error', 'message': 'x' * 300}).encode() + b'\n')
+            await self.ready(app, pilot, lambda: app.reading.page.refs[-1].value.kind == 'runtime ERROR')
+            self.assertTrue(all(line.cell_length <= output.render_width for line in output.lines))
             segments = [segment for line in output.lines for segment in line]
             self.assertTrue(any('+2' in segment.text and segment.style.color.name == 'green' for segment in segments))
             self.assertTrue(any('-1' in segment.text and segment.style.color.name == 'red' for segment in segments))
@@ -105,6 +109,35 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await pilot.press('u')
             self.assertEqual(output.anchor()[0], anchor[0])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_hidden_tail_uses_preceding_entry_and_scrolling_releases_anchor(self):
+        hidden = json.dumps({'type': 'system', 'subtype': 'task_notification',
+                             'fixture_source': 'synthetic', 'payload': 'x' * 1800}).encode() + b'\n'
+        self.log.write_bytes(b''.join(event(i, 20) for i in range(40)) + hidden)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            await pilot.press('f', 'u')
+            tail = app.reading.page.refs[-1].start
+            app.reading.anchor = (tail, 0)
+            output.reflow()
+            await pilot.pause()
+            self.assertEqual(output.anchor()[0], tail)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], tail)
+            self.assertEqual(output.visible_refs[-1].start, app.reading.page.refs[-2].start)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], tail)
+            await pilot.press('u')
+            output.action_scroll_up()
+            await pilot.pause()
+            moved = output.anchor()[0]
+            self.assertNotEqual(moved, tail)
+            await pilot.press('u')
+            self.assertEqual(output.anchor()[0], moved)
             await pilot.press('q')
         app.worker.thread.join(2)
 
