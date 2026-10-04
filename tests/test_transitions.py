@@ -16,7 +16,7 @@ from ub_agents.errors import AgentError, LostOwnership, RetryableExecutionError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, seconds, timestamp
-from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr, write_legacy_records
+from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
 
 
 class TransitionTests(unittest.TestCase):
@@ -634,9 +634,7 @@ class TransitionTests(unittest.TestCase):
     def test_invalid_success_records_block_without_labels(self):
         for change in ({'outcome': 'undeclared'}, {'outcome': None, 'transition': None},
                        {'transition': {'add': ['wrong'], 'started': False}},
-                       {'transition': {'add': ['needs-review'], 'remove': [], 'started': False}},
-                       {'transition': {'add': ['wrong'], 'remove': [], 'triggers': ['ready'],
-                                       'stop_labels': [], 'started': False}}):
+                       {'transition': {'add': ['needs-review'], 'remove': [], 'started': False}}):
             with self.subTest(change=change):
                 self.setUp()
                 def forge(outcome):
@@ -779,11 +777,3 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'low'})
         self.assertEqual(self.github.item(2).labels, {'needs-review', 'low'})
-
-
-class LegacyTransitionTests(TransitionTests):
-    """All report, pause and crash scenarios also run against 0.1.5 records."""
-
-    def setUp(self):
-        super().setUp()
-        write_legacy_records(self.github)

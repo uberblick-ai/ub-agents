@@ -9,9 +9,9 @@ import sys
 import threading
 import uuid
 
-from .records import iso, timestamp
+from .records import iso, seconds, timestamp
 from .github import closing_issues
-from .run_history import merge_record, observed_blockers, sort_runs
+from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from . import __version__
 
 VERSION = 1
@@ -186,6 +186,32 @@ class Observations:
                 for key in shortened:
                     shortened[key] += row.get("shortened", {}).get(key, 0)
         state["shortened"] = shortened
+        for history in state["histories"].values():
+            history["runs"] = [display_run(run) for run in history["runs"]]
+        rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+
+        def size(row):
+            return len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+        def trim_descriptions(excess, limit):
+            # Prefer a short Issue preview to losing the newest run of an item.
+            for row in sorted(rows, key=lambda row: size(row.get("description", {})), reverse=True):
+                if excess <= 0:
+                    break
+                description = row.get("description", {})
+                body = description.get("text", "")
+                removed = len(body) - limit
+                if removed <= 0:
+                    continue
+                before = size(description)
+                description["text"] = body[:limit]
+                if not description["omitted_characters"]:
+                    shortened["fields"] += 1
+                description["omitted_characters"] += removed
+                shortened["characters"] += removed
+                excess -= before - size(description)
+            return excess
+
         while True:
             data = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             if len(data) <= MAX_BYTES:
@@ -194,21 +220,29 @@ class Observations:
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
-            # Keep item headers and the newest runs; account for every older run
-            # removed by either the per-item row limit or the shared byte limit.
-            for history in state["histories"].values():
-                while excess > 0 and history["runs"]:
-                    row = history["runs"].pop(0)
-                    excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
-                    history["omitted_runs"] += 1
-            rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+            excess = trim_descriptions(excess, 256)
+            # Drop the globally oldest runs, reserving each item's newest run.
+            # Insertion order must not penalize the assignment's history.
+            older = [(run, history) for history in state["histories"].values()
+                     for run in history["runs"][:-1]]
+            older.sort(key=lambda pair: (seconds(pair[0]["time"]) if pair[0].get("time") else 0,
+                                         pair[1]["item"]))
+            for row, history in older:
+                if excess <= 0:
+                    break
+                history["runs"].pop(0)
+                excess -= size(row) + 1
+                history["omitted_runs"] += 1
+            excess = trim_descriptions(excess, 0)
+            # If even headers and newest runs do not fit, omit plan/outcome
+            # rows and their unreferenced histories. The assignment stays.
             for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
                 while excess > 0 and group:
                     row = group.pop(index)
-                    excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+                    excess -= size(row) + 1
                     state["omitted"][key] += 1
                     for history in self.prune_histories(state):
-                        excess -= len(json.dumps(history, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+                        excess -= size(history) + 1
             if excess > 0:
                 raise ValueError("Observation envelope exceeds its size limit")
 
@@ -258,12 +292,18 @@ class Observations:
                    "filing": ({"author": source.author, "time": source.created_at}
                               if source and source.author and source.created_at else None),
                    "runs": runs[-MAX_OUTCOMES:], "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
+        cached = self.state["histories"].get(str(plan.item.number))
+        if not plan.history_read and cached:
+            history.update(runs=[dict(run) for run in cached["runs"]], omitted_runs=cached["omitted_runs"],
+                           filing=history["filing"] or cached["filing"])
         observed_blockers(history, plan.item, self.stop_labels)
         return self.bounded(history)
 
     def plan(self, plan, filing=None):
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
+               "runtime": plan.runtime.name if plan.runtime else None,
+               "failures": plan.attempt - 1, "max_attempts": plan.agent.max_attempts,
                "observed_at": iso(self.clock()), "description": (
                    {"available": True, "text": plan.item.body,
                     "omitted_characters": max(0, len(plan.item.body) - MAX_TEXT)}
@@ -294,6 +334,7 @@ class Observations:
         self.state["histories"].setdefault(str(plan.item.number), self.item_history(plan))
         self.state["assignment"] = {
             "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
+            "title": plan.item.title[:MAX_TEXT], "attempt": plan.attempt,
             "run": None, "runtime": None, "lease_state": None, "lease_expires": None,
             "process": "claiming", "process_reason": "No process has been recorded",
             "process_log": None, "context_path": None,
@@ -320,8 +361,11 @@ class Observations:
             self.source_run = record.get("recovered_run")
             assignment.update(run=record["run"], runtime=record["runtime"],
                               lease_state=record["state"], lease_expires=record["expires"])
+            if record.get("attempt") is not None:
+                assignment["attempt"] = record["attempt"]
             if record.get("mode") == "recovery":
                 assignment.update(process="recovery", process_reason="Recovery starts no agent process",
+                                  recovered_run=self.source_run,
                                   paths_reason="This recovery has no process log or context")
             else:
                 if record["state"] == "released" and assignment["process"] in {"starting", "running"}:
@@ -342,6 +386,8 @@ class Observations:
             acceptance = ("rejected" if record.get("rejected") else "finalized" if finalized else
                           "accepted" if record.get("accepted") else "unaccepted")
             row = {"item": record["assignment"], "agent": record["agent"], "run": record["run"],
+                   "kind": assignment["kind"], "title": assignment["title"],
+                   "handoff": record.get("handoff"),
                    "runtime": record.get("runtime") or assignment.get("runtime"),
                    "result": assignment.get("result", record["status"]),
                    "summary": assignment.get("summary", record["summary"]),

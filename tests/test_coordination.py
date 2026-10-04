@@ -498,7 +498,8 @@ class TrustTests(unittest.TestCase):
         source = {"kind": "lease", "run": "deleted", "agent": self.agent.name,
                   "actor": "operator", "runtime": "direct", "assignment": 1,
                   "assignment_sha": None, "created": iso(now - 120),
-                  "state": "running", "expires": iso(now - 60), "attempt": 1, "started": True}
+                  "state": "running", "expires": iso(now - 60), "attempt": 1, "started": True,
+                  "attempt_effect": "pending", "declared_triggers": ["ready"], "stop_labels": []}
         cached = github.create_comment(1, body(source))
         github.store[1].clear()
         loop = self.loop(github)

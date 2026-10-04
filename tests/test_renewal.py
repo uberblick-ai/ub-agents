@@ -217,7 +217,7 @@ class RenewalTests(unittest.TestCase):
             self.assertFalse(self.co.renew(lease, self.github))
             write.assert_not_called()
 
-    def test_recorded_long_legacy_expiry_remains_live(self):
+    def test_recorded_expiry_remains_authoritative(self):
         lease = self.claim()
         self.co.update(lease, expires=iso(1000 + 11700))
         observer = Coordinator(self.github, "operator", clock=lambda: self.now)

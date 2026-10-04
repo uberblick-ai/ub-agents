@@ -8,6 +8,7 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from rich.console import Console
 
@@ -73,6 +74,13 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(relative_time('2026-10-02T21:30:00Z', now), '2 days ago')
         self.assertEqual(relative_time('2026-09-26T23:30:00Z', now), '2026-09-27')
 
+    def test_long_fall_back_day_does_not_show_zero_days_ago(self):
+        zone = ZoneInfo('America/New_York')
+        now = datetime(2026, 11, 1, 23, 30, tzinfo=zone)
+        stamp = datetime(2026, 11, 1, 0, 15, tzinfo=zone)
+        self.assertGreater(now.timestamp() - stamp.timestamp(), 86400)
+        self.assertEqual(relative_time(stamp.isoformat(), now), 'yesterday')
+
     def test_local_date_applies_the_recorded_dates_daylight_saving_offset(self):
         self.addCleanup(time.tzset)
         with patch.dict(os.environ, {'TZ': 'America/New_York'}):
@@ -97,13 +105,12 @@ class RunsTests(unittest.TestCase):
         filed = replace(issue(), author='bk-one', created_at='2026-10-02T10:00:00Z')
         self.plan(filed)
         value, view = self.display()
-        self.assertIn('#1 Requirements', value)
+        self.assertNotIn('#1 Requirements', value)  # The shared header owns the title.
         self.assertIn('filed by bk-one · 0 runs', value)
         self.assertIn('2 days ago', value)
         self.assertIn('GitHub', value)
         self.assertIn('filed', value)
-        self.assertEqual(list(view.renderables)[0].style, 'bold')
-        self.assertEqual(list(view.renderables)[1].style, 'dim')
+        self.assertEqual(list(view.renderables)[0].style, 'dim')
         for item, filing, closing in ((pr(), filed, True), (pr(), None, True),
                                       (pr(body='No closing reference'), filed, False),
                                       (issue(), None, False)):
@@ -133,7 +140,7 @@ class RunsTests(unittest.TestCase):
         other = claim('other', 800, actor='other-launcher', agent='reviewer', host='other-host')
         plan = self.plan(history=(claim('own', 1000), other))
         runs = self.memory.snapshots[-1]['histories']['1']['runs']
-        self.assertEqual([row['run'] for row in runs], ['other', 'own'])
+        self.assertEqual([row['time'] for row in runs], [other['created'], iso(1000)])
         self.assertEqual(runs[0]['time'], other['created'])
         self.observer.assignment(plan)
         self.observer.record(claim('own', 1000, runtime='direct'))
@@ -153,7 +160,7 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(len(history['runs']) + history['omitted_runs'], len(all_runs))
         self.assertGreater(history['omitted_runs'], 7)  # UTF-8 bytes also require trimming.
         self.assertTrue(history['runs'])
-        self.assertEqual(history['runs'][-1]['run'], str(len(all_runs) - 1))
+        self.assertEqual(history['runs'][-1]['time'], iso(1000 + len(all_runs) - 1))
         self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(',', ':')).encode()), MAX_BYTES)
         value, _ = self.display()
         self.assertIn(f'{len(all_runs)} runs', value)
@@ -171,7 +178,7 @@ class RunsTests(unittest.TestCase):
         self.assertIn('BLOCKED:', value)
         self.assertIn('needs-human', value)
         self.assertIn('…', value)
-        table = list(view.renderables)[3]
+        table = list(view.renderables)[1]
         self.assertEqual(table.columns[1]._cells[0].style, 'green')  # Filing.
         self.assertEqual(table.columns[1]._cells[1].style, 'green')
         self.assertEqual(table.columns[1]._cells[2].style, 'red')
@@ -199,6 +206,99 @@ class RunsTests(unittest.TestCase):
         for row in ({'result': 'success', 'rejection': 'Changed candidate'},
                     {'state': 'released'}, {'state': 'withdrawn'}):
             self.assertEqual(run_status(row, self.now)[0], 'failed')
+
+    def test_snapshot_keeps_display_fields_and_late_updates_keep_merge_state(self):
+        plan = self.plan(history=(claim(summary='Claim summary'), outcome(host='outcome-host')))
+        self.observer.assignment(plan)
+        self.observer.record(outcome(host='outcome-host', accepted=False, transition_complete=False))
+        row = self.memory.snapshots[-1]['histories']['1']['runs'][0]
+        self.assertEqual(set(row), {'time', 'agent', 'summary', 'host', 'outcome', 'acceptance',
+                                   'human_blocker', 'result', 'state', 'expires', 'rejection'})
+        self.assertEqual(row['summary'], 'Claim summary')
+        self.assertEqual(row['host'], claim()['host'])
+        self.assertEqual(row['acceptance'], 'unaccepted')
+        self.assertEqual(row['time'], outcome()['created'])
+        self.assertIn('run', self.observer.state['histories']['1']['runs'][0])
+
+    def test_unreadable_records_keep_cached_history_but_readable_empty_history_clears_it(self):
+        plan = self.plan(history=(claim(), outcome()))
+        expected = self.memory.snapshots[-1]['histories']['1']['runs']
+        self.observer.plan(replace(plan, state='blocked', reason='Unreadable record',
+                                   history=(), history_read=False))
+        self.assertEqual(self.memory.snapshots[-1]['histories']['1']['runs'], expected)
+        self.observer.plan(replace(plan, history=()))
+        self.assertEqual(self.memory.snapshots[-1]['histories']['1']['runs'], [])
+
+    def test_byte_pressure_trims_globally_oldest_runs_and_preserves_every_newest_run(self):
+        count, total_runs = 20, 5
+        plans = []
+        all_times = {}
+        for item in range(1, count + 1):
+            records = []
+            all_times[str(item)] = []
+            for index in range(total_runs):
+                stamp = 1000 + index * 100 + item
+                all_times[str(item)].append(iso(stamp + 1))
+                records.extend((claim(str(index), stamp, assignment=item),
+                                outcome(str(index), stamp + 1, assignment=item, summary='s' * 300,
+                                        host='build-host.example', handoff=None)))
+            plans.append(Plan(replace(issue(item), body='b' * 1500),
+                              agent(self.root, name='implementer'), None, 'ready', 'Ready', 1,
+                              history=tuple(records)))
+        self.observer.assignment(plans[0])  # First inserted, but never drained first.
+        for plan in plans:
+            self.observer.plan(plan)
+        state = self.memory.snapshots[-1]
+        kept, removed = [], []
+        self.assertEqual(len(state['latest_pass']['rows']), count)
+        for key, history in state['histories'].items():
+            times = [row['time'] for row in history['runs']]
+            self.assertTrue(times, key)
+            omitted = history['omitted_runs']
+            self.assertEqual(times, all_times[key][omitted:])
+            self.assertEqual(len(times) + omitted, total_runs)
+            self.assertEqual(len(self.observer.state['histories'][key]['runs']), total_runs)
+            kept.extend(times)
+            removed.extend(all_times[key][:omitted])
+        self.assertTrue(removed)
+        self.assertLess(max(removed), min(kept))
+        self.assertEqual(state['histories']['1']['runs'][-1]['time'], all_times['1'][-1])
+        self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(',', ':')).encode()), MAX_BYTES)
+
+    def test_byte_pressure_shortens_descriptions_before_losing_single_runs(self):
+        for item in range(1, 41):
+            plan = Plan(replace(issue(item), body='b' * 1500), agent(self.root, name='implementer'),
+                        None, 'ready', 'Ready', 1,
+                        history=(outcome(assignment=item, summary='s' * 80, handoff=None),))
+            if item == 1:
+                self.observer.assignment(plan)
+            self.observer.plan(plan)
+        state = self.memory.snapshots[-1]
+        self.assertEqual(len(state['latest_pass']['rows']), 40)
+        self.assertTrue(any(row['description']['omitted_characters'] for row in state['latest_pass']['rows']))
+        for row in state['latest_pass']['rows']:
+            body = row['description']
+            self.assertEqual(len(body['text']) + body['omitted_characters'], 1500)
+            history = state['histories'][str(row['item'])]
+            self.assertEqual(len(history['runs']), 1)
+            self.assertEqual(history['omitted_runs'], 0)
+        self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(',', ':')).encode()), MAX_BYTES)
+
+    def test_byte_pressure_omits_plans_before_emptying_their_or_assignment_histories(self):
+        with patch('ub_agents.observations.MAX_BYTES', 6000):
+            for item in range(1, 16):
+                plan = Plan(replace(issue(item), body='b' * 1500), agent(self.root, name='implementer'),
+                            None, 'ready', 'Ready', 1, history=(outcome(assignment=item, handoff=None),))
+                if item == 1:
+                    self.observer.assignment(plan)
+                self.observer.plan(plan)
+        state = self.memory.snapshots[-1]
+        self.assertGreater(state['omitted']['plans'], 0)
+        self.assertEqual(len(state['histories']['1']['runs']), 1)
+        listed = {'1', *(str(row['item']) for row in state['latest_pass']['rows'])}
+        self.assertEqual(set(state['histories']), listed)
+        self.assertTrue(all(len(history['runs']) == 1 for history in state['histories'].values()))
+        self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(',', ':')).encode()), 6000)
 
 
 if __name__ == '__main__':

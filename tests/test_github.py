@@ -603,7 +603,8 @@ agents:
                            "assignment": 42, "assignment_sha": None,
                            "created": iso(now - 86400), "expires": iso(now - 86340),
                            "state": "released", "result": "retry", "summary": "Execution timed out",
-                           "attempt": 1, "started": True}
+                           "attempt": 1, "started": True, "attempt_effect": "failure",
+                           "declared_triggers": ["ready"], "stop_labels": []}
                 comments[100].update(body=body(failure), user={"login": "operator"},
                                      issue_url="https://api.github.com/repos/org/project/issues/42")
                 reads = 0

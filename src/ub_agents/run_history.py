@@ -2,6 +2,14 @@
 
 from .records import seconds
 
+DISPLAY_FIELDS = ("time", "agent", "summary", "host", "outcome", "acceptance",
+                  "human_blocker", "result", "state", "expires", "rejection")
+
+
+def display_run(row):
+    """Keep deduplication and merge bookkeeping out of the shared byte budget."""
+    return {key: row[key] for key in DISPLAY_FIELDS if key in row}
+
 
 def run_key(row):
     return row.get("assignment"), row.get("agent"), row.get("run")

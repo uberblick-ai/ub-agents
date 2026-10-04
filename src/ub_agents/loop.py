@@ -341,7 +341,7 @@ class Loop:
         try:
             history = coordinator.history(item.number)
         except RecordError as exc:
-            yield from (Plan(item, a, None, "blocked", str(exc), 1)
+            yield from (Plan(item, a, None, "blocked", str(exc), 1, history_read=False)
                         for a in matched or agents)
             return
         except AgentError as exc:
@@ -354,7 +354,7 @@ class Loop:
             approval = self.input_check(item, github, matches) if matched else None
             if approval is None or approval.allowed:
                 raise
-            yield from (Plan(item, a, None, "parked", approval.reason, 1) for a in matched)
+            yield from (Plan(item, a, None, "parked", approval.reason, 1, history_read=False) for a in matched)
             return
         latest = latest_leases(history)
         for agent in agents:

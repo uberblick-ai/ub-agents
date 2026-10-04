@@ -5,9 +5,10 @@ import json
 
 from .errors import AgentError, RecordError
 
-MARKER = "<!-- ub-agents:v2 -->"
-LEGACY_MARKER = "<!-- ub-agents:v1 -->"
-RECORD_MARKERS = (MARKER, LEGACY_MARKER)
+MARKER = "<!-- ub-agents:v3 -->"
+# All coordination markers are excluded from assignment and approval input;
+# only MARKER is parsed or used as coordination authority.
+RECORD_MARKERS = (MARKER, "<!-- ub-agents:v1 -->", "<!-- ub-agents:v2 -->")
 LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
 OUTCOMES = {"success", "retry", "blocked"}
 # Fields that tie an outcome, a recovery or a contender to the run that owns it.
@@ -89,19 +90,17 @@ def records(comments, actor=None, *, trusted=None):
             raise AgentError("Unreadable GitHub comment")
         if actor is not None and not own_comment(comment, actor):
             continue
-        if (isinstance(comment.get("body"), str) and comment["body"].startswith(RECORD_MARKERS)
+        if (isinstance(comment.get("body"), str) and comment["body"].startswith(MARKER)
                 and trusted is not None and not trusted(comment.get("user"))):
             continue
         try:
             text = comment["body"] or ""
-            legacy = text.startswith(LEGACY_MARKER)
-            if not text.startswith(MARKER) and not legacy:
+            if not text.startswith(MARKER):
                 continue
-            if not legacy:
-                text = text.removesuffix("\n")
-                if not text.endswith("\n\n</details>") or "<details>\n<summary>Coordination record</summary>\n" not in text:
-                    raise ValueError("missing collapsed record")
-                text = text.removesuffix("\n\n</details>")
+            text = text.removesuffix("\n")
+            if not text.endswith("\n\n</details>") or "<details>\n<summary>Coordination record</summary>\n" not in text:
+                raise ValueError("missing collapsed record")
+            text = text.removesuffix("\n\n</details>")
             payload = text.rsplit("\n```json\n", 1)[1].removesuffix("\n")
             if not payload.endswith("\n```"):
                 raise ValueError("missing JSON fence")
@@ -119,8 +118,6 @@ def records(comments, actor=None, *, trusted=None):
                     raise ValueError("record is posted on the wrong item")
             result.append(record | {"id": comment["id"], "url": comment.get("html_url", "")})
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, AgentError) as exc:
-            if isinstance(comment.get("body"), str) and comment["body"].startswith(LEGACY_MARKER):
-                continue  # Old layouts must never mark an item malformed.
             raise RecordError(f"Malformed ub-agents comment {comment.get('id', '?')}: {exc}") from exc
     return sorted(result, key=lambda record: record["id"])
 
@@ -158,35 +155,31 @@ def validate_labels(labels):
         raise ValueError("invalid transition labels")
 
 
-def validate_transition(transition, started=False, compact=False):
-    required = {"add"} if compact else {"add", "remove", "triggers", "stop_labels"}
+def validate_transition(transition, started=False):
+    required = {"add"}
     if started:
         required.add("started")
-    allowed = required | {"remove"} if compact else required
+    allowed = required | {"remove"}
     if (not isinstance(transition, dict) or not required <= set(transition)
             or not set(transition) <= allowed):
         raise ValueError("invalid transition")
     if started and type(transition["started"]) is not bool:
         raise ValueError("invalid transition start flag")
-    for key in ("add", "remove", "triggers", "stop_labels"):
+    for key in ("add", "remove"):
         if key in transition:
             validate_labels(transition[key])
 
 
 def declared_transition(lease, name):
-    """Resolve either snapshot format without consulting current configuration."""
+    """Resolve a compact declaration without consulting current configuration."""
     declaration = lease["outcomes"][name]
-    if "declared_triggers" not in lease:
-        return declaration
     changes = {"add": declaration} if isinstance(declaration, list) else declaration
     return changes | {"triggers": lease["declared_triggers"], "stop_labels": lease["stop_labels"],
                       "remove": sorted(set(lease["declared_triggers"]).union(changes.get("remove", ())))}
 
 
 def resolve_transition(transition, declaration):
-    """An old transition is self-contained; a compact one inherits lease context."""
-    if "triggers" in transition:
-        return transition
+    """Resolve a compact transition using its original lease context."""
     return transition | {"triggers": declaration["triggers"], "stop_labels": declaration["stop_labels"],
                          "remove": sorted(set(declaration["triggers"]).union(transition.get("remove", ())))}
 
@@ -202,9 +195,12 @@ def validate(record):
         if value is not None and (not isinstance(value, str) or not value):
             raise ValueError(f"invalid {field}")
     seconds(record["created"])
-    if "attempt_effect" in record and record["attempt_effect"] not in {"pending", "failure", "reset", "unchanged"}:
+    if ((record.get("kind") == "lease" or "attempt_effect" in record)
+            and record.get("attempt_effect") not in {"pending", "failure", "reset", "unchanged"}):
         raise ValueError("invalid attempt effect")
     if record.get("kind") == "lease":
+        validate_labels(record.get("declared_triggers"))
+        validate_labels(record.get("stop_labels"))
         if record.get("state") not in LEASE_STATES:
             raise ValueError("invalid lease state")
         if not positive_int(record.get("attempt")):
@@ -230,15 +226,11 @@ def validate(record):
             if (not isinstance(declarations, dict) or not declarations
                     or any(not isinstance(name, str) or not name.strip() for name in declarations)):
                 raise ValueError("invalid outcome declarations")
-            compact = "declared_triggers" in record
-            if compact:
-                validate_labels(record["declared_triggers"])
-                validate_labels(record.get("stop_labels"))
             for transition in declarations.values():
-                if compact and isinstance(transition, list):
+                if isinstance(transition, list):
                     validate_labels(transition)
                 else:
-                    validate_transition(transition, compact=compact)
+                    validate_transition(transition)
         seconds(record.get("expires"))
         if "retry_after" in record:
             seconds(record["retry_after"])
@@ -256,9 +248,7 @@ def validate(record):
         if "rejected" in record and not isinstance(record["rejected"], str):
             raise ValueError("invalid rejected outcome")
         if "transition" in record:
-            transition = record["transition"]
-            compact = isinstance(transition, dict) and not set(transition).intersection({"triggers", "stop_labels"})
-            validate_transition(transition, started=True, compact=compact)
+            validate_transition(record["transition"], started=True)
         if record.get("handoff") is not None and not positive_int(record["handoff"]):
             raise ValueError("invalid handoff")
     elif record.get("kind") == "reset":
@@ -287,7 +277,7 @@ def live_leases(history, now):
 
 
 def attempt_effect(history, lease, now):
-    """Resolve a new run's verdict, including recovery, without rewriting its lease."""
+    """Resolve a run's verdict, including recovery, without rewriting its lease."""
     recoveries = [r for r in history if r["kind"] == "lease"
                   and recovers(r, lease)
                   and (r["state"] == "released" or r.get("cleanup") == "unconfirmed"
@@ -295,7 +285,7 @@ def attempt_effect(history, lease, now):
     verdict = recoveries[-1] if recoveries else lease
     if lease.get("cleanup") == "unconfirmed" or verdict.get("cleanup") == "unconfirmed":
         return "failure"
-    effect = verdict.get("attempt_effect", "pending")
+    effect = verdict["attempt_effect"]
     if effect != "pending":
         return effect
     if lease["state"] == "released":
@@ -319,7 +309,7 @@ def attempt_effect(history, lease, now):
 
 
 def attempts(history, agent, now):
-    """Consecutive failures per assignment/agent; retain old records' start semantics."""
+    """Consecutive failures per assignment/agent."""
     failures = {}
     for record in history:
         if record["agent"] != agent:
@@ -329,11 +319,6 @@ def attempts(history, agent, now):
             current.clear()
         elif (record["kind"] == "lease" and record["state"] != "withdrawn"
               and record.get("mode") != "recovery"):
-            if "attempt_effect" not in record:
-                # Earlier versions charged starts; explicit retry clears those records.
-                if record["started"] or (record["state"] == "claiming" and seconds(record["expires"]) <= now):
-                    current.append(record)
-                continue
             effect = attempt_effect(history, record, now)
             if effect == "reset":
                 current.clear()

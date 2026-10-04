@@ -109,6 +109,11 @@ def load_session(path):
                 for field in ('owner', 'description'):
                     if row.get(field) is not None and not isinstance(row[field], dict):
                         raise ValueError(f'Invalid row {field}')
+                for field in ('attempt', 'failures', 'max_attempts', 'handoff'):
+                    value = row.get(field)
+                    minimum = 0 if field == 'failures' else 1
+                    if value is not None and (type(value) is not int or value < minimum):
+                        raise ValueError(f'Invalid row {field}')
                 blockers = row.get('human_blocker')
                 if blockers is not None and (not isinstance(blockers, list) or not all(isinstance(b, str) for b in blockers)):
                     raise ValueError('Invalid human blockers')
@@ -243,6 +248,7 @@ class Description:
     available: bool = False
     notice: str = ''
     error: str = ''
+    kind: str = ''
 
     def __post_init__(self):
         notices = [self.notice] if self.notice else []
@@ -294,7 +300,7 @@ def local_description(row, session):
         age = session.age()
         stamp = time.time() - age if age is not None else None
         notice = 'Description shortened in snapshot.' if description.get('omitted_characters') else ''
-        return Description(title, description['text'], 'snapshot', stamp, True, notice)
+        return Description(title, description['text'], 'snapshot', stamp, True, notice, kind=source.get('kind', ''))
     context_path = row.context
     if context_path is None:
         # A plan row can refer to the session's current or earlier own run.
@@ -309,16 +315,72 @@ def local_description(row, session):
             context = read_json(context_path, CONTEXT_BYTES)
             if isinstance(context.get('body'), str):
                 return Description(context.get('title') or title, context['body'], 'run context.json',
-                                   context_path.stat().st_mtime, True)
+                                   context_path.stat().st_mtime, True, kind=context.get('kind') or source.get('kind', ''))
         except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
             return Description(title=title, notice='Cached context unavailable: ' + text(str(exc)))
-    return Description(title=title)
+    return Description(title=title, kind=source.get('kind', ''))
+
+
+def item_header(row, description, session):
+    """Shared item identity and optional context for every right-pane tab."""
+    if not row:
+        return 'No item selected.', ''
+    source = next((r for r in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
+                   if r.get('item') == row.item), {}) if session else {}
+    history = ((mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {}) or
+               mapping(row.data.get('history')))
+    kind = (row.data.get('kind') or source.get('kind') or (description.kind if description else '') or
+            history.get('kind'))
+    reference = ('⌥' if kind == 'pr' else '#') + str(row.item)
+    title = text(description.title if description and description.title else
+                 row.data.get('title') or source.get('title') or history.get('title'), '')
+    parts = [text(row.data.get('agent'), ''), text(row.data.get('runtime'), '').replace(':', ' ')]
+    if row.key.startswith('assignment:') and type(row.data.get('attempt')) is int:
+        parts.append(f'attempt {row.data["attempt"]}')
+    elif type(row.data.get('failures')) is int and type(row.data.get('max_attempts')) is int:
+        parts.append(f'{row.data["failures"]}/{row.data["max_attempts"]} failures')
+    outcomes = [row.data, *(rows(session.data.get('outcomes'), 20) if session else [])]
+    for outcome in reversed(outcomes):
+        if outcome.get('item') != row.item:
+            continue
+        handoff = outcome.get('handoff') or outcome.get('target')
+        if type(handoff) is int and handoff > 0 and handoff != row.item:
+            parts.append(f'⌥{handoff}')
+            break
+    return ' '.join(part for part in (reference, title) if part), ' · '.join(part for part in parts if part)
+
+
+def run_status(row, session):
+    """Keep process/plan state separate from explicitly reported outcomes."""
+    if not row:
+        return 'No item selected.', '', False
+    outcomes = [outcome for outcome in rows(session.data.get('outcomes'), 20)
+                if outcome.get('item') == row.item] if session else []
+    run = row.data.get('recovered_run') or row.run
+    outcome = next((outcome for outcome in reversed(outcomes) if run and outcome.get('run') == run), None)
+    if row.group == 'Recent activity':
+        outcome = row.data
+    state = 'exited' if row.group == 'Recent activity' else row.state
+    assignment = mapping(session.data.get('assignment')) if session else {}
+    if run and (row.item, row.data.get('agent'), run) == (
+            assignment.get('item'), assignment.get('agent'), assignment.get('recovered_run') or assignment.get('run')):
+        state = text(assignment.get('process'), state)
+    left = ' '.join(part for part in (text(row.data.get('agent'), ''), state) if part)
+    report = 'no outcome reported'
+    if outcome:
+        result, acceptance = text(outcome.get('result'), ''), text(outcome.get('acceptance'), '')
+        report = 'reported ' + result if result else 'outcome reported'
+        if acceptance:
+            report += ' (' + acceptance + ')'
+    earlier = sum(not run or other.get('run') != run for other in outcomes)
+    right = f'{earlier} earlier run' + ('s' if earlier != 1 else '') if earlier else ''
+    return left + ' · ' + report, right, state == 'running'
 
 
 def context_header(row, description):
     if not row:
         return 'No item selected.'
-    return f'#{row.item} {description.title}\n{row.state}\n{row.reason}'
+    return f'{row.state}\n{row.reason}'
 
 
 def context_text(row, description):
