@@ -13,7 +13,9 @@ from rich.console import Console
 from tests.test_view_data import event, fixture
 from tests.test_log_reader import FIXTURE, record, result, tool
 from tests.test_view_github import reply
-from tests.support import RecordingDescriptionTransport
+from tests.support import MemoryPublisher, RecordingDescriptionTransport, agent, config, issue
+from ub_agents.coordination import Plan
+from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tree
@@ -856,6 +858,78 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_published_passes_keep_selection_details_focus_and_paused_log(self):
+        memory = MemoryPublisher()
+        observer = Observations(config(self.root), 'operator', None, memory)
+        observer.state['assignment'] = self.state['assignment']
+        observer.state['outcomes'] = [row | {'target': row['item']} for row in self.state['outcomes']]
+        plans = [Plan(replace(issue(n), body=f'Cached body {n}'), agent(self.root), None,
+                      state, 'Ready', 1, history=({'kind': 'lease', 'assignment': n,
+                      'agent': 'worker', 'run': f'run-{n}', 'created': '2026-10-03T00:00:00Z',
+                      'expires': '2026-10-03T00:30:00Z', 'state': 'released',
+                      'summary': f'Cached history {n}'},))
+                 for n, state in ((20, 'ready'), (21, 'ready'), (22, 'ready'), (23, 'waiting'))]
+        observer.begin_pass()
+        for plan in plans:
+            observer.plan(plan)
+        observer.complete_pass()
+        self.path.write_text(json.dumps(memory.snapshots[-1]))
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('f', 'home', 'pagedown')
+            output = app.query_one(LogPane)
+            await self.settled(app, output)
+            own, page, anchor = app.selected, app.reading.page, output.anchor()
+            key = 'plan:21:worker'
+            app.select(key)
+            markdown = app.query_one('#issue_body', Markdown)
+            await self.ready(app, pilot, lambda: markdown.source == 'Cached body 21')
+            tree = app.query_one('#work', Tree)
+            app.move_cursor(app.reason_nodes[key])
+            output.focus()
+            async def publish():
+                snapshot = memory.snapshots[-1]
+                self.path.write_text(json.dumps(snapshot))
+                await self.ready(app, pilot, lambda: app.session.data['latest_pass'] == snapshot['latest_pass'])
+                self.assertEqual(app.selected, key)
+                self.assertIs(app.focused, output)
+                self.assertIs(tree.cursor_node, app.reason_nodes[key])
+                self.assertEqual(markdown.source, 'Cached body 21')
+                self.assertEqual(len(app.rows), len(app.nodes))
+                self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
+                self.assertEqual(app.rows[key].data['history']['runs'][0]['summary'], 'Cached history 21')
+                stream = io.StringIO()
+                Console(file=stream, width=110, color_system=None).print(app.query_one('#runs_text', Static).content)
+                self.assertIn('Cached history 21', stream.getvalue())
+            observer.begin_pass()
+            await publish()
+            for plan in (replace(plans[3], state='ready'),
+                         Plan(issue(24), agent(self.root), None, 'ready', 'New', 1), plans[0]):
+                observer.plan(plan)
+                await publish()
+                self.assertTrue(all(f'plan:{n}:worker' in app.rows for n in (20, 21, 22, 23)))
+                self.assertEqual(app.rows[key].state, 'ready')
+                self.assertIn('partial', tree.root.label.plain)
+            self.assertEqual([node.data for node in app.groups['Eligible'].children],
+                             ['plan:20:worker', key, 'plan:22:worker', 'plan:23:worker', 'plan:24:worker'])
+            observer.complete_pass()
+            await publish()
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            self.assertNotIn('plan:22:worker', app.rows)
+            self.assertNotIn('partial', tree.root.label.plain)
+            self.assertEqual([node.data for node in app.groups['Eligible'].children if node.data != key],
+                             ['plan:23:worker', 'plan:24:worker', 'plan:20:worker'])
+            app.select(own)
+            await pilot.pause(0.3)
+            await self.settled(app, output)
+            self.assertEqual(app.reading.page, page)
+            self.assertEqual(output.anchor(), anchor)
+            self.assertEqual(transport.calls, [])
             await pilot.press('q')
         app.worker.thread.join(2)
 

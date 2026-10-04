@@ -7,7 +7,7 @@ from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
-from .view_data import mapping, rows, text
+from .view_data import item_history, mapping, rows, text
 
 SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
@@ -72,7 +72,7 @@ def runs_view(row, session, now=None):
         return Text('Select an item to see its history.')
     relative_now = now
     now = now or datetime.now().astimezone()
-    history = mapping(mapping(session.data.get('histories')).get(str(row.item))) or mapping(row.data.get('history'))
+    history = item_history(row, session)
     runs = rows(history.get('runs'), 20)
     omitted = history.get('omitted_runs', 0)
     omitted = omitted if type(omitted) is int and omitted > 0 else 0
