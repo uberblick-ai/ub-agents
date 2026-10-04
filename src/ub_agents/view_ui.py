@@ -1,4 +1,4 @@
-"""Optional Textual two-pane UI. Imported only by the development view entrypoint."""
+"""Optional Textual two-pane UI. Imported only by the view process."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -181,7 +181,8 @@ class View(App):
     #keys { height: 1; background: $panel; }
     '''
     BINDINGS = [
-        Binding('q,ctrl+c', 'quit', 'Quit', priority=True),
+        Binding('q', 'quit', 'Close view', priority=True),
+        Binding('ctrl+c', 'interrupt', 'Interrupt', priority=True),
         Binding('f', 'follow', 'Follow/pause', priority=True),
         Binding('u', 'raw', 'Raw', priority=True),
         Binding('h', 'history', 'Older page', priority=True),
@@ -196,8 +197,9 @@ class View(App):
         Binding('end', 'end', 'Bottom', priority=True),
     ]
 
-    def __init__(self, root, session_path, worker=None, descriptions=None):
+    def __init__(self, root, session_path, worker=None, descriptions=None, launcher=None):
         super().__init__()
+        self.launcher = launcher
         self.worker = worker or LocalWorker(root, session_path)
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
@@ -230,10 +232,19 @@ class View(App):
         self.worker.start()
         self.set_interval(0.1, self.tick)
         self.tick()
+        if self.launcher is not None:
+            self.launcher.mounted(self)
+
+    def action_interrupt(self):
+        if self.launcher is not None:
+            self.launcher.interrupt()
+        self.exit()
 
     def on_unmount(self):
         self.descriptions.close()
         self.worker.close()
+        if self.launcher is not None:
+            self.launcher.close()
 
     @property
     def reading(self):
