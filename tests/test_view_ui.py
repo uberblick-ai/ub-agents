@@ -48,7 +48,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     {'text': '[bold]inert[/bold]\nnext\x1b[31m'}):
                 self.state['update'] = value
                 self.path.write_text(json.dumps(self.state))
-                await self.ready(app, pilot, lambda: banner.banner == value)
+                await self.ready(app, pilot, lambda: banner.banner == value and banner.size.height == 1
+                                 and app.query_one('#body').region.y == 1)
                 self.assertTrue(banner.display)
                 self.assertEqual(banner.size.height, 1)
                 self.assertEqual(banner.region.y, 0)
@@ -75,7 +76,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.resize_terminal(110, 32)
             self.state['update'] = None
             self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: not banner.display)
+            await self.ready(app, pilot, lambda: not banner.display and app.query_one('#body').region.y == 0)
             self.assertEqual(app.query_one('#body').region.y, 0)
             self.assertEqual(app.selected, selected)
             self.assertIs(app.focused, focus)

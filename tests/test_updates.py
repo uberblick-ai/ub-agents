@@ -101,7 +101,8 @@ class UpdateTests(unittest.TestCase):
     def test_release_is_one_rest_call_at_start_and_daily_failures_retain_result(self):
         now = [0]
         runner = RecordingUpdateRunner(json.dumps(release()), OSError('offline'),
-                                       'bad json', json.dumps(release('0.1.13')))
+                                       'bad json', json.dumps(release('0.1.11', published_at='bad')),
+                                       json.dumps(release('0.1.13')))
         update = self.checker('pip', runner, lambda: now[0])
         self.assertTrue(eventually(lambda: update.banner is not None))
         first = update.banner
@@ -115,7 +116,7 @@ class UpdateTests(unittest.TestCase):
         update.wake.set()
         time.sleep(0.05)
         self.assertEqual(len(runner.calls), 1)
-        for count in (2, 3):
+        for count in (2, 3, 4):
             now[0] += DAY
             update.wake.set()
             self.assertTrue(runner.wait_calls(count))
@@ -123,7 +124,7 @@ class UpdateTests(unittest.TestCase):
         now[0] += DAY
         update.wake.set()
         self.assertTrue(eventually(lambda: update.banner and '0.1.13' in update.banner['text']))
-        self.assertEqual(len(runner.calls), 4)
+        self.assertEqual(len(runner.calls), 5)
 
     def test_unrelated_checkout_never_runs_a_request(self):
         runner = RecordingUpdateRunner()

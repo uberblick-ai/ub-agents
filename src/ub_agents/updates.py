@@ -54,11 +54,11 @@ def release_banner(data, method, running=__version__):
     if not isinstance(data, dict) or data.get('draft') is True or data.get('prerelease') is True:
         raise ValueError('Not a stable release')
     latest = version(data.get('tag_name'))
-    if latest <= version(running):
-        return None
     stamp = datetime.fromisoformat(data['published_at'].replace('Z', '+00:00'))
     if stamp.tzinfo is None:
         raise ValueError('Release timestamp has no timezone')
+    if latest <= version(running):
+        return None
     command = 'brew upgrade ub-agents' if method == 'brew' else 'pip install -U ub-agents'
     return {'text': f'⬆ ub-agents {".".join(map(str, latest))} is available · you run {running} · '
                     f'{command}, then restart the launcher',
