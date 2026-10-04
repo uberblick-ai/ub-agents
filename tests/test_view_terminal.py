@@ -19,22 +19,28 @@ import unittest
 from tests.test_view_data import fixture
 
 class TerminalViewTests(unittest.TestCase):
-    def test_real_terminal_explicit_load_cache_and_quit_during_hung_request(self):
-        for quit_key in (b'q', b'\x03'):
-            with self.subTest(quit_key=quit_key), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                path, log, state = fixture(root, count=100)
-                (log.parent / 'context.json').unlink()
-                calls, release, mode = root / 'calls.jsonl', root / 'release', root / 'mode'
-                mode.write_text('success')
-                shim = root / 'gh'
-                body = ('## Terminal Markdown\n\nTerminal loaded body\nSecond line\n\n'
-                        '- **strong** and *emphasis* with `code`\n'
-                        '- [bold]literal[/bold] \x1b[31m\n\n'
-                        '```text\ncode\tline\n```\n\n'
-                        '[web](https://example.invalid)\n'
-                        '![pic](https://example.invalid/pic) <b>HTML</b>')
-                shim.write_text(f'#!{sys.executable}\nbody = {body!r}\n' + '''
+    # One test per quit key, so a parallel run spreads them over cores.
+    def test_real_terminal_explicit_load_cache_and_q_during_hung_request(self):
+        self.check_load_cache_and_quit_during_hung_request(b'q')
+
+    def test_real_terminal_explicit_load_cache_and_interrupt_during_hung_request(self):
+        self.check_load_cache_and_quit_during_hung_request(b'\x03')
+
+    def check_load_cache_and_quit_during_hung_request(self, quit_key):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root, count=100)
+            (log.parent / 'context.json').unlink()
+            calls, release, mode = root / 'calls.jsonl', root / 'release', root / 'mode'
+            mode.write_text('success')
+            shim = root / 'gh'
+            body = ('## Terminal Markdown\n\nTerminal loaded body\nSecond line\n\n'
+                    '- **strong** and *emphasis* with `code`\n'
+                    '- [bold]literal[/bold] \x1b[31m\n\n'
+                    '```text\ncode\tline\n```\n\n'
+                    '[web](https://example.invalid)\n'
+                    '![pic](https://example.invalid/pic) <b>HTML</b>')
+            shim.write_text(f'#!{sys.executable}\nbody = {body!r}\n' + '''
 import json, os, pathlib, signal, sys, time
 root = pathlib.Path(__file__).parent
 with (root / 'calls.jsonl').open('a') as stream:
@@ -46,121 +52,131 @@ print('HTTP/2.0 200 OK\\nX-Ratelimit-Remaining: 500\\n')
 print(json.dumps({'data': {'repository': {'issueOrPullRequest': {
     'title': 'Terminal loaded title', 'body': body}}}}))
 ''')
-                shim.chmod(0o700)
-                replay = subprocess.Popen([sys.executable, '-c', '''
+            shim.chmod(0o700)
+            replay = subprocess.Popen([sys.executable, '-c', '''
 import pathlib, select, sys
 log = pathlib.Path(sys.argv[1])
 while not select.select([sys.stdin], [], [], 0.01)[0]:
     with log.open('ab') as stream:
         stream.write(b'owned replay output\\n')
 ''', str(log)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                master, slave = pty.openpty()
-                app = None
-                transcript = bytearray()
-                try:
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
-                    initial_modes = termios.tcgetattr(slave)
-                    env = dict(os.environ, TERM='xterm-256color', PATH=str(root) + os.pathsep + os.environ['PATH'])
-                    env.pop('NO_COLOR', None)
-                    app = subprocess.Popen([sys.executable, '-m', 'ub_agents.view', str(root)],
-                                           stdin=slave, stdout=slave, stderr=slave,
-                                           start_new_session=True, env=env)
-                    def drain(seconds=0.3):
-                        deadline = time.monotonic() + seconds
-                        chunk = bytearray()
-                        while time.monotonic() < deadline:
-                            if select.select([master], [], [], min(0.05, max(0, deadline - time.monotonic())))[0]:
-                                data = os.read(master, 65536)
-                                transcript.extend(data)
-                                chunk.extend(data)
-                        return bytes(chunk)
-                    def recorded():
-                        return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
-                    drain(1)
-                    os.write(master, b'2')
-                    self.assertIn(b'Press g on Issue', drain())
-                    self.assertEqual(recorded(), [])
-                    os.write(master, b'g')
-                    self.assertIn(b'Loading title/body', drain())
-                    self.assertEqual(len(recorded()), 1)
-                    os.write(master, b'g3g1g2g')
-                    drain()
-                    self.assertEqual(len(recorded()), 1)
-                    release.touch()
-                    loaded = drain(0.8)
-                    self.assertIn(b'Terminal loaded body', loaded)
-                    self.assertIn(b'Terminal Markdown', loaded)
-                    self.assertIn(b'Second line', loaded)
-                    self.assertIn(b'[bold]literal[/bold]', loaded)
-                    self.assertIn(br'\x1b[31m', loaded)
-                    self.assertNotIn(b'\x1b[31m', loaded)
-                    self.assertNotIn(b'**strong**', loaded)
-                    self.assertNotIn(b'## Terminal Markdown', loaded)
-                    self.assertIn(b'Source: GitHub', loaded)
-                    os.write(master, b'3g1g2g')
-                    drain()
-                    self.assertEqual(len(recorded()), 1)
-                    state['latest_pass']['rows'][0]['description'] = {
-                        'available': True, 'text': '## Snapshot Markdown\n\nSnapshot body\nSecond line\n\n- **strong**'}
-                    path.write_text(json.dumps(state))
-                    snapshot = drain(0.5)
-                    self.assertIn(b'Snapshot Markdown', snapshot)
-                    self.assertIn(b'Source: snapshot', snapshot)
-                    self.assertNotIn(b'## Snapshot Markdown', snapshot)
-                    state['latest_pass']['rows'][0]['description'] = {
-                        'available': True, 'text': '```text\n' + 'x' * 3000,
-                        'omitted_characters': 1000}
-                    path.write_text(json.dumps(state))
-                    shortened = drain(0.5)
-                    self.assertIn(b'Description shortened', shortened)
-                    self.assertEqual(len(recorded()), 1)
-                    # A new selected item has no local or in-memory description.
-                    state['assignment']['item'] = 116
-                    path.write_text(json.dumps(state))
-                    self.assertIn(b'Press g on Issue', drain(0.5))
-                    mode.write_text('hang')
-                    os.write(master, b'g')
-                    self.assertIn(b'Loading title/body', drain())
-                    self.assertEqual(len(recorded()), 2)
-                    owned_pid = recorded()[-1]['pid']
-                    os.kill(owned_pid, 0)
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
-                    os.kill(app.pid, signal.SIGWINCH)
-                    os.write(master, b'g1f2g')
-                    drain()
-                    self.assertEqual(len(recorded()), 2)
-                    before = log.stat().st_size
-                    started = time.monotonic()
-                    os.write(master, quit_key)
-                    while app.poll() is None and time.monotonic() - started < 2:
-                        drain(0.05)
-                    self.assertEqual(app.wait(timeout=0.5), 0, bytes(transcript[-2000:]))
-                    self.assertLess(time.monotonic() - started, 2)
+            master, slave = pty.openpty()
+            app = None
+            transcript = bytearray()
+            try:
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+                initial_modes = termios.tcgetattr(slave)
+                env = dict(os.environ, TERM='xterm-256color', PATH=str(root) + os.pathsep + os.environ['PATH'])
+                env.pop('NO_COLOR', None)
+                app = subprocess.Popen([sys.executable, '-m', 'ub_agents.view', str(root)],
+                                       stdin=slave, stdout=slave, stderr=slave,
+                                       start_new_session=True, env=env)
+                def drain(seconds=0.3):
+                    deadline = time.monotonic() + seconds
+                    chunk = bytearray()
+                    while time.monotonic() < deadline:
+                        if select.select([master], [], [], min(0.05, max(0, deadline - time.monotonic())))[0]:
+                            data = os.read(master, 65536)
+                            transcript.extend(data)
+                            chunk.extend(data)
+                    return bytes(chunk)
+                def until(*expected, timeout=5):
+                    # Read until each expected output appeared (bytes) or check
+                    # holds (callable taking the output), not a fixed delay.
+                    chunk = bytearray()
+                    deadline = time.monotonic() + timeout
+                    def met():
+                        return all(e(bytes(chunk)) if callable(e) else e in chunk for e in expected)
+                    while not met() and time.monotonic() < deadline:
+                        chunk.extend(drain(0.05))
+                    self.assertTrue(met(), bytes(transcript[-2000:]))
+                    return bytes(chunk)
+                def recorded():
+                    return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+                until(b'FORMATTED')
+                os.write(master, b'2')
+                until(b'Press g on Issue')
+                self.assertEqual(recorded(), [])
+                os.write(master, b'g')
+                until(b'Loading title/body', lambda _: len(recorded()) == 1)
+                os.write(master, b'g3g1g2g')
+                drain()
+                self.assertEqual(len(recorded()), 1)
+                release.touch()
+                loaded = until(b'Terminal loaded body', b'Terminal Markdown', b'Second line',
+                               b'[bold]literal[/bold]', br'\x1b[31m', b'Source: GitHub')
+                self.assertNotIn(b'\x1b[31m', loaded)
+                self.assertNotIn(b'**strong**', loaded)
+                self.assertNotIn(b'## Terminal Markdown', loaded)
+                os.write(master, b'3g1g2g')
+                drain()
+                self.assertEqual(len(recorded()), 1)
+                state['latest_pass']['rows'][0]['description'] = {
+                    'available': True, 'text': '## Snapshot Markdown\n\nSnapshot body\nSecond line\n\n- **strong**'}
+                path.write_text(json.dumps(state))
+                snapshot = until(b'Snapshot Markdown', b'Source: snapshot')
+                self.assertNotIn(b'## Snapshot Markdown', snapshot)
+                state['latest_pass']['rows'][0]['description'] = {
+                    'available': True, 'text': '```text\n' + 'x' * 3000,
+                    'omitted_characters': 1000}
+                path.write_text(json.dumps(state))
+                until(b'Description shortened')
+                self.assertEqual(len(recorded()), 1)
+                # A new selected item has no local or in-memory description.
+                state['assignment']['item'] = 116
+                path.write_text(json.dumps(state))
+                until(b'Press g on Issue')
+                mode.write_text('hang')
+                os.write(master, b'g')
+                until(b'Loading title/body', lambda _: len(recorded()) == 2)
+                owned_pid = recorded()[-1]['pid']
+                os.kill(owned_pid, 0)
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                os.write(master, b'g1f2g')
+                drain()
+                self.assertEqual(len(recorded()), 2)
+                before = log.stat().st_size
+                started = time.monotonic()
+                os.write(master, quit_key)
+                while app.poll() is None and time.monotonic() - started < 2:
                     drain(0.05)
-                    with self.assertRaises(ProcessLookupError):
-                        os.kill(owned_pid, 0)
-                    self.assertEqual(termios.tcgetattr(slave), initial_modes)
-                    self.assertIn(b'\x1b[?1049l', transcript)
-                    self.assertIn(b'\x1b[?25h', transcript)
-                    self.assertIsNone(replay.poll())
-                    self.assertGreater(log.stat().st_size, before)
-                finally:
-                    if app and app.poll() is None:
-                        app.terminate()
-                        app.wait(timeout=5)
-                    # Clean only processes recorded by this owned acceptance check,
-                    # even if an assertion exposed a request cleanup regression.
-                    for record in recorded():
-                        try:
-                            os.kill(record['pid'], signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                    os.close(master)
-                    os.close(slave)
-                    replay.communicate(b'stop\n', timeout=5)
-                    self.assertEqual(replay.returncode, 0)
+                self.assertEqual(app.wait(timeout=0.5), 0, bytes(transcript[-2000:]))
+                self.assertLess(time.monotonic() - started, 2)
+                drain(0.05)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(owned_pid, 0)
+                self.assertEqual(termios.tcgetattr(slave), initial_modes)
+                self.assertIn(b'\x1b[?1049l', transcript)
+                self.assertIn(b'\x1b[?25h', transcript)
+                self.assertIsNone(replay.poll())
+                self.assertGreater(log.stat().st_size, before)
+            finally:
+                if app and app.poll() is None:
+                    app.terminate()
+                    app.wait(timeout=5)
+                # Clean only processes recorded by this owned acceptance check,
+                # even if an assertion exposed a request cleanup regression.
+                for record in recorded():
+                    try:
+                        os.kill(record['pid'], signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                os.close(master)
+                os.close(slave)
+                replay.communicate(b'stop\n', timeout=5)
+                self.assertEqual(replay.returncode, 0)
 
-    def test_real_terminal_controls_restoration_and_replay_isolation(self):
+    def test_real_terminal_controls_restoration_and_replay_isolation_on_q(self):
+        self.check_controls_restoration_and_replay_isolation(b'q')
+
+    def test_real_terminal_controls_restoration_and_replay_isolation_on_interrupt(self):
+        self.check_controls_restoration_and_replay_isolation(b'\x03')
+
+    def test_real_terminal_controls_restoration_and_replay_isolation_on_crash(self):
+        self.check_controls_restoration_and_replay_isolation(b'x')
+
+    def check_controls_restoration_and_replay_isolation(self, quit_key):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, log, _ = fixture(root, count=900)
@@ -179,18 +195,17 @@ while not select.select([sys.stdin], [], [], 0.01)[0]:
     index += 1
 ''', str(log)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             try:
-                for quit_key in (b'q', b'\x03', b'x'):
-                    master, slave = pty.openpty()
-                    app = None
-                    transcript = bytearray()
-                    try:
-                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
-                        initial_modes = termios.tcgetattr(slave)
-                        env = dict(os.environ, TERM='xterm-256color')
-                        env.pop('NO_COLOR', None)
-                        command = [sys.executable, '-m', 'ub_agents.view', str(root), '--session', 'launcher']
-                        if quit_key == b'x':
-                            command = [sys.executable, '-c', '''
+                master, slave = pty.openpty()
+                app = None
+                transcript = bytearray()
+                try:
+                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+                    initial_modes = termios.tcgetattr(slave)
+                    env = dict(os.environ, TERM='xterm-256color')
+                    env.pop('NO_COLOR', None)
+                    command = [sys.executable, '-m', 'ub_agents.view', str(root), '--session', 'launcher']
+                    if quit_key == b'x':
+                        command = [sys.executable, '-c', '''
 from pathlib import Path
 import sys
 from textual.binding import Binding
@@ -207,81 +222,81 @@ app = BrokenView(Path(sys.argv[1]), Path(sys.argv[2]))
 app.run()
 sys.exit(app.return_code or 1)
 ''', str(root), str(path)]
-                        app = subprocess.Popen(command,
-                                               stdin=slave, stdout=slave, stderr=slave,
-                                               start_new_session=True, env=env)
-                        def drain(seconds=0.3):
-                            deadline = time.monotonic() + seconds
-                            chunk = bytearray()
-                            while time.monotonic() < deadline:
-                                if select.select([master], [], [], min(0.05, max(0, deadline - time.monotonic())))[0]:
-                                    try:
-                                        data = os.read(master, 65536)
-                                    except OSError:
-                                        break
-                                    transcript.extend(data)
-                                    chunk.extend(data)
-                            return bytes(chunk)
-                        drain(1.2)
-                        self.assertIsNone(app.poll(), bytes(transcript[-1000:]))
-                        self.assertIn(b'FOLLOW', transcript)
-                        self.assertIn(b'FORMATTED', transcript)
-                        self.assertIn(b'Running', transcript)
-                        self.assertIn(b'partial', transcript)
-                        self.assertIn(b'\x1b[?1049h', transcript)
-                        os.write(master, b'f')
-                        paused = drain()
-                        self.assertIn(b'PAUSED', paused)
-                        os.write(master, b'\x1b[5~')  # Page Up
-                        drain()
-                        os.write(master, b'h')
-                        older = drain(0.5)
-                        self.assertTrue(b'Older page' in older or b'Page byte boundary' in older,
-                                        'Older page or split-record boundary not displayed')
-                        os.write(master, b'u')
-                        self.assertIn(b'RAW', drain())
-                        os.write(master, b'2')
-                        cached = drain()
-                        self.assertIn(b'Cached description', cached)
-                        self.assertIn(b'Cached Markdown', cached)
-                        self.assertIn(b'Second line', cached)
-                        self.assertIn(b'Third line', cached)
-                        self.assertNotIn(b'## Cached Markdown', cached)
-                        self.assertNotIn(b'**strong**', cached)
-                        os.write(master, b'3')
-                        runs = drain()
-                        self.assertIn(b'filed by bk-one', runs)
-                        self.assertIn(b'build-01', runs)
-                        self.assertIn(b'needs-human', runs)
-                        os.write(master, b'1p')
-                        self.assertIn(b'process.log', drain())
-                        os.write(master, b'\x1b')
-                        drain()
-                        os.write(master, b'f')
-                        self.assertIn(b'FOLLOW', drain())
-                        before_size = log.stat().st_size
-                        os.write(master, quit_key)
-                        # Keep draining until exit. A rich crash traceback can fill
-                        # a small CI PTY buffer and block if wait() stops reading.
-                        deadline = time.monotonic() + 5
-                        while app.poll() is None and time.monotonic() < deadline:
-                            drain(0.05)
-                        self.assertEqual(app.wait(timeout=1), 1 if quit_key == b'x' else 0, bytes(transcript[-2000:]))
+                    app = subprocess.Popen(command,
+                                           stdin=slave, stdout=slave, stderr=slave,
+                                           start_new_session=True, env=env)
+                    def drain(seconds=0.3):
+                        deadline = time.monotonic() + seconds
+                        chunk = bytearray()
+                        while time.monotonic() < deadline:
+                            if select.select([master], [], [], min(0.05, max(0, deadline - time.monotonic())))[0]:
+                                try:
+                                    data = os.read(master, 65536)
+                                except OSError:
+                                    break
+                                transcript.extend(data)
+                                chunk.extend(data)
+                        return bytes(chunk)
+                    def until(*expected, timeout=5):
+                        # Read until each expected output appeared (bytes) or check
+                        # holds (callable taking the output), not a fixed delay.
+                        chunk = bytearray()
+                        deadline = time.monotonic() + timeout
+                        def met():
+                            return all(e(bytes(chunk)) if callable(e) else e in chunk for e in expected)
+                        while not met() and time.monotonic() < deadline:
+                            chunk.extend(drain(0.05))
+                        self.assertTrue(met(), bytes(transcript[-2000:]))
+                        return bytes(chunk)
+                    # The page is loaded once live replay output is on screen.
+                    until(b'FOLLOW', b'FORMATTED', b'Running', b'partial', b'\x1b[?1049h', b'replay output')
+                    self.assertIsNone(app.poll(), bytes(transcript[-1000:]))
+                    os.write(master, b'f')
+                    until(b'PAUSED')
+                    os.write(master, b'\x1b[5~')  # Page Up
+                    drain()
+                    os.write(master, b'h')
+                    # Older page or split-record boundary.
+                    until(lambda out: b'Older page' in out or b'Page byte boundary' in out)
+                    os.write(master, b'u')
+                    until(b'RAW')
+                    os.write(master, b'2')
+                    cached = until(b'Cached description', b'Cached Markdown', b'Second line', b'Third line')
+                    self.assertNotIn(b'## Cached Markdown', cached)
+                    self.assertNotIn(b'**strong**', cached)
+                    os.write(master, b'3')
+                    until(b'filed by bk-one', b'build-01', b'needs-human')
+                    os.write(master, b'1p')
+                    until(b'process.log')
+                    # A focus report right after Escape ends the escape sequence,
+                    # so a busy machine cannot merge Escape and f into Alt+f.
+                    os.write(master, b'\x1b\x1b[I')
+                    drain()
+                    os.write(master, b'f')
+                    until(b'FOLLOW')
+                    before_size = log.stat().st_size
+                    os.write(master, quit_key)
+                    # Keep draining until exit. A rich crash traceback can fill
+                    # a small CI PTY buffer and block if wait() stops reading.
+                    deadline = time.monotonic() + 5
+                    while app.poll() is None and time.monotonic() < deadline:
                         drain(0.05)
-                        if quit_key == b'x':
-                            self.assertIn(b'Intentional rendering failure', transcript)
-                        self.assertIn(b'\x1b[?1049l', transcript)
-                        self.assertIn(b'\x1b[?25h', transcript)
-                        self.assertEqual(termios.tcgetattr(slave), initial_modes)
-                        self.assertIsNone(replay.poll(), 'View stopped replay process')
-                        drain(0.05)
-                        self.assertGreater(log.stat().st_size, before_size)
-                    finally:
-                        if app and app.poll() is None:
-                            app.terminate()
-                            app.wait(timeout=5)
-                        os.close(master)
-                        os.close(slave)
+                    self.assertEqual(app.wait(timeout=1), 1 if quit_key == b'x' else 0, bytes(transcript[-2000:]))
+                    drain(0.05)
+                    if quit_key == b'x':
+                        self.assertIn(b'Intentional rendering failure', transcript)
+                    self.assertIn(b'\x1b[?1049l', transcript)
+                    self.assertIn(b'\x1b[?25h', transcript)
+                    self.assertEqual(termios.tcgetattr(slave), initial_modes)
+                    self.assertIsNone(replay.poll(), 'View stopped replay process')
+                    drain(0.05)
+                    self.assertGreater(log.stat().st_size, before_size)
+                finally:
+                    if app and app.poll() is None:
+                        app.terminate()
+                        app.wait(timeout=5)
+                    os.close(master)
+                    os.close(slave)
             finally:
                 replay.communicate(b'stop\n', timeout=5)
                 self.assertEqual(replay.returncode, 0)
@@ -492,12 +507,16 @@ class ProofView(View):
                  'run_status': self.query_one('#run_status').render().plain,
                  'raw_details': self.raw_details(),
                  'selected': self.selected, 'group': row.group if row else None,
-                 'state': row.state if row else None, 'cursor': tree.cursor_node.data,
-                 'focus': self.focused.id, 'title': tree.root.label.plain,
+                 'state': row.state if row else None,
+                 'cursor': tree.cursor_node.data if tree.cursor_node else None,
+                 'focus': self.focused.id if self.focused else None, 'title': tree.root.label.plain,
                  'sections': [node.label.plain for node in tree.root.children],
                  'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
-                 'recent_expanded': self.groups['Recent activity'].is_expanded}
-        pathlib.Path(sys.argv[3]).write_text(json.dumps(value))
+                 'recent_expanded': 'Recent activity' in self.groups and self.groups['Recent activity'].is_expanded}
+        # Replace atomically: the test polls for this file.
+        partial = pathlib.Path(sys.argv[3] + '.partial')
+        partial.write_text(json.dumps(value))
+        partial.replace(sys.argv[3])
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
             proof = root / 'proof.json'
@@ -514,18 +533,25 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 while time.monotonic() < deadline:
                     if select.select([master], [], [], 0.02)[0]:
                         transcript.extend(os.read(master, 65536))
-            def checkpoint():
-                proof.unlink(missing_ok=True)
-                os.write(master, b'x')
-                deadline = time.monotonic() + 3
-                while not proof.exists() and time.monotonic() < deadline:
+            def checkpoint(ready=lambda value: True, timeout=5):
+                # Take checkpoints until ready() holds rather than waiting a
+                # fixed time; the assertions after it report a timeout.
+                deadline = time.monotonic() + timeout
+                while True:
+                    proof.unlink(missing_ok=True)
+                    os.write(master, b'x')
+                    written = time.monotonic() + 3
+                    while not proof.exists() and time.monotonic() < written:
+                        drain(0.02)
+                    self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                    value = json.loads(proof.read_text())
+                    if ready(value) or time.monotonic() >= deadline:
+                        return value
                     drain(0.05)
-                self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
-                return json.loads(proof.read_text())
             try:
-                drain(1)
-                self.assertIn(b'FORMATTED', transcript)
-                initial = checkpoint()
+                while b'FORMATTED' not in transcript and app.poll() is None:
+                    drain(0.05)
+                initial = checkpoint(lambda value: len(value['sections']) == 5 and value['anchor'] is not None)
                 self.assertEqual(initial['sections'], ['Running · 2', 'Needs attention · 3',
                                                        'Eligible · 2', 'Waiting · 4',
                                                        'Recent activity · 1 today'])
@@ -542,17 +568,19 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertEqual(checkpoint()['header'], initial['header'])
                 os.write(master, b'f\x1b[5~')
                 drain(0.2)
-                paused = checkpoint()
+                paused = checkpoint(lambda value: not value['follow'])
                 self.assertFalse(paused['follow'])
                 # More than both ingestion retention (200 entries) and renderer
                 # retention (400 wrapped rows) arrive while the page is paused.
                 from tests.test_view_data import event
                 with log.open('ab') as stream:
                     stream.write(b''.join(event(i, size=800) for i in range(1200)))
-                drain(2)
+                checkpoint(lambda value: value['entries'] - paused['entries'] > 200)
                 os.write(master, b'231')
                 drain(0.3)
-                retained = checkpoint()
+                retained = checkpoint(lambda value: value['anchor'] is not None
+                                      and value['anchor'][0] == paused['anchor'][0]
+                                      and abs(value['anchor'][1] - paused['anchor'][1]) <= 0.05)
                 self.assertEqual(retained['starts'], paused['starts'])
                 self.assertEqual(retained['anchor'][0], paused['anchor'][0])
                 # Tab relayout may settle the scrollbar and change wrapping;
@@ -560,32 +588,33 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertAlmostEqual(retained['anchor'][1], paused['anchor'][1], delta=0.05)
                 self.assertGreater(retained['entries'] - paused['entries'], 200)
                 os.write(master, b'r\r')  # Focus Recent activity, then real Enter.
-                drain()
-                self.assertTrue(checkpoint()['recent_expanded'])
+                self.assertTrue(checkpoint(lambda value: value['recent_expanded'])['recent_expanded'])
                 os.write(master, b'\x1b[B\r')  # Down to the latest outcome and Enter.
-                drain()
-                self.assertEqual(checkpoint()['selected'], 'outcome:previous-run')
+                self.assertEqual(checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
+                                            and value['anchor'] is not None)['selected'], 'outcome:previous-run')
                 os.write(master, b'f\x1b[5~')
-                drain()
-                outcome_paused = checkpoint()
+                drain(0.2)
+                outcome_paused = checkpoint(lambda value: not value['follow'] and value['anchor'] is not None)
+                self.assertIsNotNone(outcome_paused['anchor'])
                 with outcome_log.open('ab') as stream:
                     stream.write(b''.join(event(i, size=800) for i in range(600)))
-                drain(1.5)
-                outcome_retained = checkpoint()
+                outcome_retained = checkpoint(lambda value: value['entries'] - outcome_paused['entries'] > 200)
+                self.assertGreater(outcome_retained['entries'] - outcome_paused['entries'], 200)
                 self.assertTrue(outcome_retained['recent_expanded'])
                 self.assertEqual(outcome_retained['starts'], outcome_paused['starts'])
                 self.assertEqual(outcome_retained['anchor'], outcome_paused['anchor'])
                 os.write(master, b'r\r')
-                drain()
-                collapsed = checkpoint()
+                collapsed = checkpoint(lambda value: not value['recent_expanded'])
                 self.assertEqual(collapsed['selected'], 'recent-activity')
                 self.assertEqual(collapsed['cursor'], 'recent-activity')
                 self.assertFalse(collapsed['recent_expanded'])
                 os.write(master, b'\r')
-                drain()
+                checkpoint(lambda value: value['recent_expanded'])
                 os.write(master, b'\x1b[B\r')
-                drain()
-                revisited = checkpoint()
+                revisited = checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
+                                       and value['starts'] == outcome_paused['starts'] and value['anchor'] is not None
+                                       and value['anchor'][0] == outcome_paused['anchor'][0]
+                                       and abs(value['anchor'][1] - outcome_paused['anchor'][1]) <= 0.05)
                 self.assertEqual(revisited['starts'], outcome_paused['starts'])
                 self.assertEqual(revisited['anchor'][0], outcome_paused['anchor'][0])
                 self.assertAlmostEqual(revisited['anchor'][1], outcome_paused['anchor'][1], delta=0.05)
@@ -596,8 +625,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 state['latest_pass']['rows'] = [
                     {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'}]
                 path.write_text(json.dumps(state))
-                drain()
-                moved = checkpoint()
+                moved = checkpoint(lambda value: value['group'] == 'Waiting' and value['cursor'] == plan['cursor'])
                 self.assertEqual(moved['group'], 'Waiting')
                 self.assertEqual(moved['selected'], plan['selected'])
                 self.assertEqual(moved['cursor'], plan['cursor'])
@@ -606,17 +634,17 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn('partial', moved['title'])
                 state['latest_pass']['rows'] = []
                 path.write_text(json.dumps(state))
-                drain()
-                self.assertEqual(checkpoint()['state'], 'earlier observation')
+                self.assertEqual(checkpoint(lambda value: value['state'] == 'earlier observation')['state'],
+                                 'earlier observation')
                 os.write(master, b'a\r')
-                drain()
-                restored = checkpoint()
+                restored = checkpoint(lambda value: value['starts'] == paused['starts'] and value['anchor'] is not None
+                                      and value['anchor'][0] == paused['anchor'][0]
+                                      and abs(value['anchor'][1] - paused['anchor'][1]) <= 0.05)
                 self.assertEqual(restored['starts'], paused['starts'])
                 self.assertEqual(restored['anchor'][0], paused['anchor'][0])
                 self.assertAlmostEqual(restored['anchor'][1], paused['anchor'][1], delta=0.05)
                 os.write(master, b'h')
-                drain(0.2)
-                older = checkpoint()
+                older = checkpoint(lambda value: value['starts'] and value['starts'][0] < paused['starts'][0])
                 self.assertLess(older['starts'][0], paused['starts'][0])
                 os.write(master, b'p')
                 drain()
@@ -631,8 +659,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'\x1b')
                 drain()
                 os.write(master, b'u')
-                drain(0.2)
-                self.assertTrue(checkpoint()['raw'])
+                self.assertTrue(checkpoint(lambda value: value['raw'])['raw'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
                 drain(0.2)
@@ -640,21 +667,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 replacement = log.with_suffix('.next')
                 replacement.write_bytes(capture.read_bytes())
                 replacement.replace(log)
-                drain(0.4)
-                changed = checkpoint()
+                changed = checkpoint(lambda value: 'FILE CHANGED' in value['notice'])
                 self.assertEqual(changed['generation'], older['generation'])
                 self.assertIn('FILE CHANGED', changed['notice'])
                 os.write(master, b'h')
-                drain(0.2)
-                self.assertIn('File changed', checkpoint()['notice'])
+                self.assertIn('File changed', checkpoint(lambda value: 'File changed' in value['notice'])['notice'])
                 os.write(master, b'f')
-                drain(0.3)
-                resumed = checkpoint()
+                resumed = checkpoint(lambda value: value['follow'] and value['generation'] > changed['generation'])
                 self.assertTrue(resumed['follow'])
                 self.assertGreater(resumed['generation'], changed['generation'])
                 log.write_bytes(capture.read_bytes().splitlines(keepends=True)[0])
-                drain(0.3)
-                self.assertGreater(checkpoint()['generation'], resumed['generation'])
+                self.assertGreater(checkpoint(lambda value: value['generation'] > resumed['generation'])['generation'],
+                                   resumed['generation'])
                 os.write(master, b'q')
                 deadline = time.monotonic() + 3
                 while app.poll() is None and time.monotonic() < deadline:
