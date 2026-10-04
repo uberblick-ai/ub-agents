@@ -346,6 +346,7 @@ class EnforcementTests(unittest.TestCase):
         history = self.loop.coordinator.history(1)
         self.assertEqual(len(history), 1)
         self.assertEqual((history[0]['state'], history[0]['started']), ('withdrawn', False))
+        self.assertNotIn(history[0]['id'], self.github.minimized_ids)
         self.assertEqual(attempts(history, self.worker.name, timestamp()), [])
         self.assertEqual(self.loop.plans()[0].state, 'parked')
         self.start(second=20)

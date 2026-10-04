@@ -370,6 +370,7 @@ class Coordinator:
         # read-modify-write race on a shared lease comment is passed off as CAS.
         if not contenders or contenders[0]["id"] != created["id"]:
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
+            self.notices.election_lost(created)
             self.notices.resumed(current.number)
             return None
         if not recovery:
@@ -377,6 +378,7 @@ class Coordinator:
             owner = self.shared_branch_owner(current, plan.agent, self.history(current.number))
             if owner is not None and (owner.get("cleanup") == "unconfirmed" or owner["id"] < created["id"]):
                 self.update(created, state="withdrawn", summary="Lost the shared-branch election.")
+                self.notices.election_lost(created)
                 self.notices.resumed(current.number)
                 return None
         if self.clock() >= seconds(created["expires"]):

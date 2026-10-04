@@ -106,6 +106,11 @@ class CoordinationTests(unittest.TestCase):
             results = list(pool.map(lambda co: co.claim(plan), [self.co, other]))
         self.assertEqual(sum(result is not None for result in results), 1)
         self.assertEqual([r["state"] for r in self.co.history(1)], ["claiming", "withdrawn"])
+        loser = self.co.history(1)[-1]
+        self.assertEqual(self.github.minimized_ids, {loser["id"]})
+        writes = self.github.writes
+        withdrawal = writes.index(("update", loser["id"]))
+        self.assertEqual(writes[withdrawal + 1], ("minimize", loser["id"], "OUTDATED"))
 
     def test_head_or_trigger_change_before_claim_costs_no_attempt(self):
         plan = self.plan(self.github.item(2))
@@ -341,6 +346,12 @@ class CoordinationTests(unittest.TestCase):
             results = list(pool.map(self.co.claim, [issue_plan, pr_plan]))
         self.assertEqual(sum(r is not None for r in results), 1)
         self.co.assert_owned(next(r for r in results if r))
+        loser = next(r for number in (1, 2) for r in self.co.history(number)
+                     if r.get("state") == "withdrawn")
+        self.assertEqual(loser["summary"], "Lost the shared-branch election.")
+        self.assertIn(loser["id"], self.github.minimized_ids)
+        withdrawal = self.github.writes.index(("update", loser["id"]))
+        self.assertEqual(self.github.writes[withdrawal + 1], ("minimize", loser["id"], "OUTDATED"))
 
     def test_pr_branch_owner_is_read_directly_even_when_lease_is_outside_window(self):
         branch = "ub-agents/worker_name-2/1/earlier"

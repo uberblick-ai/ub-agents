@@ -177,8 +177,21 @@ Stop every launcher for a project and upgrade them together before restarting.
 After releasing a run, the launcher minimizes its own lease and outcome comments
 from superseded runs of the same agent on that item (and copied outcomes on a
 handoff PR), using GitHub's `OUTDATED` classifier. The latest lease and latest
-outcome for each agent stay expanded. Minimizing preserves every record and its
-authority; it never deletes history or resets attempts.
+outcome for each agent stay expanded under this rule.
+
+When a released run's accepted outcome hands off a candidate SHA, the launcher also
+minimizes every agent's earlier lease and outcome comments on the handoff item
+whose displayed SHA differs. The displayed SHA is `candidate_sha`, falling back
+to `assignment_sha`. Records for that candidate, records without a SHA, the run
+that handed it off, post-claim approval withdrawals, and records linked by the
+latest Action needed notice are excluded from this candidate-based minimization.
+Comments written after the handoff outcome stay expanded. A lease withdrawn after
+losing either the cooperative claim election or the shared-branch election is
+minimized immediately; a post-claim approval withdrawal stays expanded to explain
+why the item is parked.
+
+Minimizing preserves every record and its authority, feedback and attempt counts;
+it never deletes history or resets attempts. Failures are logged as advisory.
 The launcher reads minimization state through GraphQL in batches before sending
 mutations, so later releases and claims skip comments already minimized. REST
 comment reads still supply the coordination records.

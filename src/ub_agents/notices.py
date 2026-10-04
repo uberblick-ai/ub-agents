@@ -4,7 +4,7 @@ import json
 import socket
 
 from .errors import LostOwnership
-from .records import MARKER, declared_transition, lease_by_id, records, resolve_transition
+from .records import MARKER, declared_transition, lease_by_id, records, resolve_transition, same_handoff
 from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
@@ -104,6 +104,41 @@ class Notices:
             self.minimize([comment for comment in comments if comment["id"] in outdated])
         self.advisory(f"superseded records on #{number}", minimize_records)
 
+    def election_lost(self, lease):
+        self.advisory(f"withdrawn election lease on #{lease['assignment']}", lambda:
+                      self.minimize([c for c in self.comments(lease["assignment"])
+                                     if c["id"] == lease["id"]]))
+
+    def superseded_candidates(self, outcome):
+        number = outcome["handoff"]
+
+        def minimize_records():
+            comments = self.comments(number)
+            history = records(comments)
+            copies = [r for r in history if r["kind"] == "outcome"
+                      and r["lease_id"] == outcome["lease_id"] and same_handoff(r, outcome)
+                      and r.get("candidate_sha") == outcome["candidate_sha"] and r["accepted"]]
+            if not copies:
+                return
+            cutoff = max(r["id"] for r in copies)
+            latest_action = max((c for c in comments if c["body"].startswith(ACTION_MARKER)),
+                                key=lambda c: c["id"], default=None)
+            linked = {r["id"] for r in history if latest_action and r["url"]
+                      and f"]({r['url']})" in latest_action["body"]}
+            outdated = set()
+            for record in history:
+                sha = record.get("candidate_sha") or record.get("assignment_sha")
+                approval_withdrawal = (record["kind"] == "lease" and record["state"] == "withdrawn"
+                                       and record["attempt_effect"] == "unchanged")
+                if (record["kind"] in {"lease", "outcome"} and record["id"] < cutoff
+                        and sha and sha != outcome["candidate_sha"]
+                        and record["run"] != outcome["run"] and not approval_withdrawal
+                        and record["id"] not in linked):
+                    outdated.add(record["id"])
+            self.minimize([comment for comment in comments if comment["id"] in outdated])
+
+        self.advisory(f"superseded candidates on #{number}", minimize_records)
+
     def released(self, lease, outcome, summary, parking_outcome=None, max_attempts=None):
         reported = parking_outcome or outcome
         target = lease["assignment"]
@@ -120,6 +155,9 @@ class Notices:
         self.superseded(lease["assignment"], lease["agent"], lease["run"])
         if reported and reported.get("handoff") and reported["handoff"] != lease["assignment"]:
             self.superseded(reported["handoff"], lease["agent"], reported["run"])
+        if (lease["result"] == "success" and reported and reported.get("accepted")
+                and reported.get("handoff") and reported.get("candidate_sha")):
+            self.superseded_candidates(reported)
         exhausted = (lease["result"] == "retry" and lease.get("unreported")
                      and lease.get("attempt_effect") == "failure" and max_attempts is not None
                      and lease["attempt"] >= max_attempts)

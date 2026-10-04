@@ -13,7 +13,7 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from ub_agents.records import attempts, body, iso, records, seconds
+from ub_agents.records import attempts, body, iso, payload, records, seconds
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
@@ -153,7 +153,102 @@ class NoticeTests(unittest.TestCase):
         comments = self.github.comments(1)
         self.assertEqual([r["state"] for r in self.co.history(1) if r["kind"] == "lease"],
                          ["released", "withdrawn"])
+        loser = next(r for r in self.co.history(1) if r.get("state") == "withdrawn")
+        self.assertEqual(self.github.minimized_ids, {loser["id"]})
+
+    def test_handoff_minimizes_other_agents_old_candidates_but_keeps_current_records(self):
+        older = []
+        for name in ("reviewer", "integrator"):
+            lease = self.start(2, agent(self.root, name=name))
+            outcome = self.co.report(lease, "retry", "Earlier candidate")
+            self.co.release(lease, "retry", outcome["summary"])
+            older.extend((lease["id"], outcome["id"]))
+        # Trusted records from another launcher account are folded too.
+        self.github.store[2][0]["user"]["login"] = "maintainer"
+        self.github.store[2][1]["user"]["login"] = "maintainer"
+        self.github.change(2, head="b" * 40)
+        current = self.start(2, agent(self.root, name="current-reviewer"))
+        source = self.start()
+        outcome = self.co.report(source, "success", "New candidate", handoff=2, outcome="done")
+        self.co.accept(source, outcome)
+        history = self.co.history(2)
+        counts = {name: attempts(history, name, self.now) for name in ("reviewer", "integrator")}
         self.assertFalse(self.github.minimized_ids)
+        self.co.release(source, "success", outcome["summary"])
+        self.assertEqual(self.github.minimized_ids, set(older))
+        self.assertNotIn(current["id"], self.github.minimized_ids)
+        self.assertEqual(self.co.history(2), history)
+        self.assertEqual({name: attempts(self.co.history(2), name, self.now) for name in counts}, counts)
+
+    def test_handoff_preserves_its_run_and_records_written_after_its_outcome(self):
+        first = self.start(2, agent(self.root, name="reviewer"))
+        self.co.report(first, "retry", "Earlier candidate")
+        self.co.release(first, "retry", "Earlier candidate")
+        source = self.start(2)
+        self.github.change(2, head="b" * 40)
+        outcome = self.co.report(source, "success", "New candidate", handoff=2, outcome="done")
+        self.co.accept(source, outcome)
+        late = self.github.create_comment(2, body(payload(first) | {"run": "late-record"}))
+        self.co.release(source, "success", outcome["summary"])
+        self.assertEqual(self.github.minimized_ids, {first["id"], first["id"] + 1})
+        self.assertNotIn(source["id"], self.github.minimized_ids)
+        self.assertNotIn(outcome["id"], self.github.minimized_ids)
+        self.assertNotIn(late["id"], self.github.minimized_ids)
+
+    def test_candidate_cleanup_preserves_parking_evidence_and_ignores_untrusted_comments(self):
+        parked = self.start(2, agent(self.root, name="integrator"))
+        parked_outcome = self.co.report(parked, "blocked", "Human decision needed")
+        self.co.release(parked, "blocked", parked_outcome["summary"])
+        latest_notice = self.notices(2)[-1]
+        no_sha = self.github.create_comment(2, body(payload(parked) | {
+            "run": "no-sha", "agent": "no-sha-agent", "assignment_sha": None}))
+        approval = self.github.create_comment(2, body(payload(parked) | {
+            "run": "approval-withdrawal", "state": "withdrawn", "started": False,
+            "attempt_effect": "unchanged", "summary": "Outside feedback needs approval"}))
+        untrusted = self.github.create_comment(2, body(payload(parked) | {"run": "untrusted"}), login="outsider")
+        current = self.github.create_comment(2, body(payload(parked) | {
+            "run": "displayed-current", "candidate_sha": "b" * 40}))
+        old = self.github.create_comment(2, body(payload(parked) | {"run": "outdated"}))
+        source = self.start()
+        self.github.change(2, head="b" * 40)
+        outcome = self.co.report(source, "success", "New candidate", handoff=2, outcome="done")
+        self.co.accept(source, outcome)
+        self.co.release(source, "success", outcome["summary"])
+        self.assertEqual(self.github.minimized_ids, {old["id"]})
+        for comment_id in (parked["id"], parked_outcome["id"], latest_notice["id"],
+                           no_sha["id"], approval["id"], untrusted["id"], current["id"]):
+            self.assertNotIn(comment_id, self.github.minimized_ids)
+
+    def test_unaccepted_or_unsuccessful_handoff_does_not_supersede_other_agents(self):
+        for accepted, result in ((False, "success"), (True, "blocked")):
+            with self.subTest(accepted=accepted, result=result):
+                self.setUp()
+                first = self.start(2, agent(self.root, name="reviewer"))
+                self.co.report(first, "retry", "Earlier candidate")
+                self.co.release(first, "retry", "Earlier candidate")
+                self.github.change(2, head="b" * 40)
+                source = self.start()
+                outcome = self.co.report(source, "success", "New candidate", handoff=2, outcome="done")
+                if accepted:
+                    self.co.accept(source, outcome)
+                self.co.release(source, result, outcome["summary"])
+                self.assertFalse(self.github.minimized_ids)
+
+    def test_candidate_minimization_failure_is_advisory(self):
+        first = self.start(2, agent(self.root, name="reviewer"))
+        self.co.report(first, "retry", "Earlier candidate")
+        self.co.release(first, "retry", "Earlier candidate")
+        self.github.change(2, head="b" * 40)
+        source = self.start()
+        outcome = self.co.report(source, "success", "New candidate", handoff=2, outcome="done")
+        self.co.accept(source, outcome)
+        history = self.co.history(2)
+        with patch.object(self.github, "minimize_comment", side_effect=GitHubError("POST", "graphql", "Unavailable")):
+            self.co.release(source, "success", outcome["summary"])
+        self.assertEqual(source["result"], "success")
+        self.assertEqual(self.co.history(2), history)
+        self.assertFalse(self.github.minimized_ids)
+        self.assertTrue(any("Advisory minimize comment" in line for line in self.output))
 
     def test_superseded_handoff_copies_are_minimized_but_remain_readable(self):
         for summary in ("First candidate", "Revised candidate"):
