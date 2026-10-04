@@ -1,10 +1,12 @@
 name: Test
-# Linux only: GitHub bills macOS minutes at ten times the Linux rate, so
-# macOS is covered by running the suite on a Mac locally.
+# Local CI (`mise run ci`, AGENTS.md) gates merges. This Linux run follows each
+# merge to main, and can be started from the Actions tab, to catch what only
+# Linux shows. GitHub bills macOS minutes at ten times the Linux rate, so macOS
+# is covered by local CI on a Mac.
 on:
   push:
     branches: [main]
-  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

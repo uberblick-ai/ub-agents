@@ -33,6 +33,7 @@ agents:
       - "Bash(ub-agents *)"
       - "Bash(python3 *)"
       - "Bash(.venv/bin/*)"
+      - "Bash(mise *)"
       # Shell helpers for inspecting issue context (preparer), code/check output (reviewer),
       # and merge evidence (integrator), including plain pipelines such as `… | tail`.
       # Arguments are unrestricted; these permissions do not enforce read-only access.
