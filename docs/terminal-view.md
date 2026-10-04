@@ -360,8 +360,9 @@ limit and hidden-entry boundary, plus eviction, skip and shortening counts.
 Press `h` to recover earlier bytes from disk. A paused page is independent of reader
 and renderer retention. Text is limited by the formatter to 2,048 characters per
 projection, with shortening markers. `u` is also a bounded projection: use `p`
-and an external pager for the full raw file. Oversized or split records remain
-labelled raw fragments; they are never interpreted as complete events.
+and an external pager for the full raw file. Oversized and split records are never
+interpreted as complete events. Except for the skipped-output marker at a page's
+start, their fragments retain the labelled raw display.
 
 Replacement, rotation and truncation reset the reader without mixing generations.
 A paused older generation remains visibly labelled until follow resumes. Older
