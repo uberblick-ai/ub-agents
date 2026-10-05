@@ -262,7 +262,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         self.fail('View did not become ready')
 
     async def test_new_notice_details_start_collapsed_expand_and_reset_for_another_item(self):
-        asks = ['Owner: choose local or cloud storage; recommend local.',
+        asks = ['Owner: approve Q&A rollout -> staged; recommend staged when load < capacity.',
                 'Owner: choose immediate or staged rollout; recommend staged.']
         supporting = '## Reasoning\n\nStorage evidence\n\n```sh\nub-agents retry 178\n```'
         self.state['action_needed']['178']['text'] = action_body(ACTION_MARKER + 'new -->', asks, supporting)
@@ -277,10 +277,20 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(fold.display)
             lead = app.query_one('#unblock_body', Markdown).source
             for ask in asks:
-                self.assertIn(ask, lead)
+                tokens = description_parser().parse(lead)
+                rendered = ''.join(child.content for token in tokens for child in token.children or []
+                                   if child.type == 'text')
+                self.assertIn(ask, rendered)
+            self.assertNotIn('&amp;', lead)
+            self.assertNotIn('&gt;', lead)
+            self.assertNotIn('&lt;', lead)
             self.assertNotIn('Storage evidence', lead)
             self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, supporting)
             await pilot.click('#unblock_details CollapsibleTitle')
+            self.assertFalse(fold.collapsed)
+            await pilot.press('enter')
+            self.assertTrue(fold.collapsed)
+            await pilot.press('enter')
             self.assertFalse(fold.collapsed)
             app.update_unblock()
             self.assertFalse(fold.collapsed)

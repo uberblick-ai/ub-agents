@@ -1,6 +1,5 @@
 """Advisory comment presentation, isolated from coordination authority."""
 
-import html
 import json
 import re
 import socket
@@ -14,7 +13,7 @@ ACTION_MARKER = "<!-- ub-agents:action-needed "
 
 def action_body(marker, actions, details):
     # Asks are plain sentences. Preserve Markdown only in supporting details.
-    asks = [re.sub(r"([\\`*_\[\]])", r"\\\1", html.escape(ask.strip(), quote=False)) for ask in actions]
+    asks = [re.sub(r"([\\`*_\[\]&<>])", r"\\\1", ask.strip()) for ask in actions]
     lead = f"**{asks[0]}**" if len(asks) == 1 else "\n".join(f"- **{ask}**" for ask in asks)
     return (f"{marker}\n**Action needed**\n\n{lead}\n\n"
             "<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n"

@@ -95,7 +95,7 @@ class AttentionTests(unittest.TestCase):
         self.assertEqual(row.data['attention_reason'], action)
 
     def test_multiple_asks_are_shown_without_markdown_or_collapsed_reasoning(self):
-        asks = ['Owner: choose A or B; recommend A.', 'Maintainer: use *staging* & review [the PR].']
+        asks = ['Owner: choose A or B; recommend A.', 'Maintainer: use *staging* & review [the PR] when load < capacity -> staged.']
         notice = self.notice()
         notice['body'] = action_body(ACTION_MARKER + 'r -->', asks, 'Private reasoning\n\nCI evidence')
         row, _ = self.row(comments=[notice], authors={'other': True})
@@ -103,6 +103,14 @@ class AttentionTests(unittest.TestCase):
         self.assertNotIn('reasoning', row.data['attention_reason'])
         row, _ = self.row(replace(self.plan, history=(self.outcome(action=asks[0], actions=asks),)))
         self.assertEqual(row.data['attention_reason'], '; '.join(asks))
+
+    def test_launcher_fallback_notice_shows_the_review_request_without_diagnostics(self):
+        fallback = 'Maintainer: review the blocker details and decide the next step.'
+        notice = self.notice()
+        notice['body'] = action_body(ACTION_MARKER + 'r -->', [fallback], 'Execution exited 1; inspect the run log.')
+        row, _ = self.row(comments=[notice], authors={'other': True})
+        self.assertEqual(row.data['attention_reason'], fallback)
+        self.assertNotIn('Execution exited', row.reason)
 
     def test_blocked_and_exhausted_fall_back_to_latest_finished_run(self):
         history = (self.finished(), self.finished(id=3, run='new', expires=iso(1500), agent='integrator'),

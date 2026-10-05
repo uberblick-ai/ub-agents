@@ -120,10 +120,13 @@ shortened with `…`, and a right column:
 Needs attention's second line is `agent · state · reason`, indented and dim.
 Parked state names the stop label(s), joined by `, `; blocked state is `blocked`,
 and an exhausted attempt limit is `failed F/M`. The reason uses the notice or
-parking outcome's actions when available, without Markdown bold or bullet markers. Otherwise
-it uses the parking run or notice summary, without the `Stop label … is present`
-prefix or retry instructions; it is omitted when neither is known. The full reason
-remains on Issue.
+parking outcome's actions when available, without Markdown bold or bullet markers.
+New notices without a recorded action show the concise request to review the blocker
+and decide the next step; approval notices show the required authorization. Full
+reasoning and technical details stay in Unblock's collapsed section. Without a
+notice or recorded action, the reason falls back to the parking run's summary,
+without the `Stop label … is present` prefix or retry instructions; it is omitted
+when neither is known. Legacy notice summaries remain readable.
 
 The launcher publishes `waiting_since` for each Needs attention row. It uses the
 newest action-needed comment from an already verified trusted launcher account,

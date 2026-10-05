@@ -1144,7 +1144,8 @@ class Loop:
                 result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
                 self.coordinator.assert_owned(recovery)
                 self.coordinator.update(recovery, result=result, summary=summary, attempt_effect=effect)
-        verdict = {"result": result, "attempt_effect": effect, "summary": f"Recovered {outcome['run']}: {summary}"}
+        recovery_summary = f"Recovered {outcome['run']}:\n\n{summary}"
+        verdict = {"result": result, "attempt_effect": effect, "summary": recovery_summary}
         # Count the source using this verdict even when its lease is unexpired.
         # Persist the classification and backoff together before report/release,
         # just as the execution supervisor does, so a crash loses neither.
@@ -1155,8 +1156,8 @@ class Loop:
         self.coordinator.assert_owned(recovery)
         self.coordinator.update(recovery, **verdict,
                                 retry_after=iso(self.coordinator.clock() + delay) if delay else None)
-        self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}", agent_report=False)
-        self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
+        self.coordinator.report(recovery, result, recovery_summary, agent_report=False)
+        self.coordinator.release(recovery, result, recovery_summary, delay,
                                  attempt_effect=effect, parking_outcome=outcome)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True

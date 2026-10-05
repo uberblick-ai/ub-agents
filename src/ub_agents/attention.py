@@ -1,7 +1,6 @@
 """Display-only waiting times and parking summaries; never coordination input."""
 
 from datetime import datetime
-import html
 import re
 import time
 
@@ -45,7 +44,7 @@ def notice_summary(body):
         reason = '; '.join(line[4:-2] for line in asks)
     elif reason.startswith('**') and reason.endswith('**'):
         reason = reason[2:-2]
-    reason = html.unescape(re.sub(r'\\([\\`*_\[\]])', r'\1', reason))
+    reason = re.sub(r'\\([\\`*_\[\]&<>])', r'\1', reason)
     return short_reason(reason)
 
 

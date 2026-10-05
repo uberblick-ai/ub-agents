@@ -461,7 +461,8 @@ class NoticeTests(unittest.TestCase):
         loop.coordinator.clock = lambda: self.now
         plan = loop.plans()[0]
         lease = loop.coordinator.claim(plan, loop.config.stop_labels)
-        loop.coordinator.report(lease, "success", "Human must merge", outcome="human", action="Maintainer: choose A or B; recommend A.")
+        summary = '## Human must merge\n\n- Migration reasoning\n- Review evidence'
+        loop.coordinator.report(lease, "success", summary, outcome="human", action="Maintainer: choose A or B; recommend A.")
         self.now += 61
         changed = agent(self.root, kind="pr", triggers=("different",),
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
@@ -470,6 +471,7 @@ class NoticeTests(unittest.TestCase):
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         notice = self.notices(2)[0]["body"]
+        self.assertIn(f"Recovered {lease['run']}:\n\n{summary}", notice)
         self.assertIn("Human must merge", notice)
         self.assertIn("Remove the stop label(s) `needs-human`", notice)
         self.assertIn("`ready`, `needs-changes`", notice)
@@ -564,6 +566,10 @@ class NoticeTests(unittest.TestCase):
                         self.assertEqual(loop.plans()[0].state, "blocked")
                     self.now = seconds(lease["retry_after"])
                 notice = notices[0]["body"]
+                visible, details = notice.split('<details>', 1)
+                self.assertIn('review the blocker details and decide the next step', visible)
+                self.assertNotIn('Execution exited', visible)
+                self.assertIn('Attempt limit exhausted', details)
                 for expected in (f"Execution exited {code}", "Attempt limit exhausted", "max-attempts: 3",
                                  "launcher-host", str(self.root / ".ub-agents" / "runs" / lease["run"]),
                                  lease["url"], outcome["url"], "ub-agents retry 1 --agent worker"):
