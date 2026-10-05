@@ -153,6 +153,19 @@ eligibility checks (#127)."
   references and all required upgrade information. Then turn `Unreleased` into the
   version's section and copy that concise section into the GitHub release notes.
 
+## Human decisions
+
+Every notice requiring human action shows each independent ask as its own concise,
+plain-language sentence. Report one `--action` per action or decision; include who
+can act, the actual step or choices, a recommendation and any consequence needed
+to understand that ask. Do not compress multiple decisions into one headline.
+Put the full supporting reasoning and technical details in `--summary`, preserving
+Markdown, evidence, review and CI links, and diagnostics. Notices collapse that
+material and resume instructions by default; nothing is omitted to shorten an ask.
+Follow the project's authority and resume rules. If another role must act next,
+use its correction or handoff route instead of retrying the role that stopped.
+Formatting grants no approval or label-changing authority.
+
 ## Changes
 
 - Keep `README.md` and the docs under `docs/` accurate for any behavior you change,

@@ -244,7 +244,8 @@ class LauncherTrustTests(unittest.TestCase):
                 self.github.store.clear()
                 lease = self.start(self.b)
                 outcome = self.b.report(lease, status, "Completed", handoff=2 if status == "success" else None,
-                                        outcome="done" if status == "success" else None)
+                                        outcome="done" if status == "success" else None,
+                                        action="Maintainer: choose A or B; recommend A." if status == "blocked" else None)
                 self.now = seconds(lease["expires"]) + 1
                 loop = self.loop(self.alice)
                 plan = loop.coordinator.plan(self.github.item(1), self.worker, ())
@@ -287,7 +288,7 @@ class LauncherTrustTests(unittest.TestCase):
 
     def test_action_notice_deduplicates_across_accounts_and_uses_other_accounts_reset(self):
         lease = self.start(self.b)
-        outcome = self.b.report(lease, "blocked", "Human decision")
+        outcome = self.b.report(lease, "blocked", "Human decision", action="Maintainer: choose A or B; recommend A.")
         self.b.release(lease, "blocked", outcome["summary"])
         self.a.notices.released(lease, outcome, outcome["summary"])
         self.assertEqual(len([c for c in self.github.comments(1) if c["body"].startswith(ACTION_MARKER)]), 1)

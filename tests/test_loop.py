@@ -91,7 +91,7 @@ class LoopTests(unittest.TestCase):
                         "summary": "Add the missing changelog entry",
                         "candidate_sha": github.item(2).head, "created": outcome["created"]}])
                     lease = next(r for r in reversed(co.history(number)) if r["kind"] == "lease")
-                    co.report(lease, "blocked", "Context verified")
+                    co.report(lease, "blocked", "Context verified", action="Maintainer: choose A or B; recommend A.")
                     return 0
 
                 plan = next(p for p in loop.plans() if p.item.number == number)
@@ -847,7 +847,7 @@ class RecoveryTests(unittest.TestCase):
 
         def execute(*args, **kwargs):
             github.change(1, labels=frozenset({"needs-human"}))
-            loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Need a decision")
+            loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Need a decision", action="Maintainer: choose A or B; recommend A.")
             return 0
 
         with patch("ub_agents.loop.supervise", side_effect=execute):

@@ -53,7 +53,7 @@ class ObservationTests(unittest.TestCase):
         self.observer.plan(plan)
         lease = co.claim(plan, self.cfg.stop_labels)
         co.update(lease, state='running', started=True)
-        outcome = co.report(lease, 'blocked', 'Choose a direction')
+        outcome = co.report(lease, 'blocked', 'Choose a direction', action="Maintainer: choose A or B; recommend A.")
         co.release(lease, 'blocked', outcome['summary'])
         comment = next(c for c in github.comments(1) if c['body'].startswith(ACTION_MARKER))
         cached = self.memory.snapshots[-1]['action_needed']['1']
@@ -230,7 +230,8 @@ class ObservationTests(unittest.TestCase):
         loop = self.loop(github)
         def finish(*args, **kwargs):
             lease = loop.coordinator.history(1)[0]
-            loop.coordinator.report(lease, 'success', 'Human follow-up needed', outcome='done')
+            loop.coordinator.report(lease, 'success', 'Human follow-up needed', outcome='done',
+                                    action='Maintainer: choose A or B; recommend A.')
             return 0
         with patch('ub_agents.loop.supervise', side_effect=finish):
             self.assertTrue(loop.tick())
@@ -587,7 +588,8 @@ class ObservationTests(unittest.TestCase):
             kwargs["process_started"](12345)
             self.assertEqual(self.memory.snapshots[-1]["assignment"]["process"], "running")
             lease = loop.coordinator.history(1)[0]
-            loop.coordinator.report(lease, "success", "Step done", outcome="done")
+            loop.coordinator.report(lease, "success", "Step done", outcome="done",
+                                    action="Maintainer: choose A or B; recommend A.")
             self.assertEqual(self.memory.snapshots[-1]["outcomes"][0]["acceptance"], "unaccepted")
             return 0
         with patch("ub_agents.loop.supervise", side_effect=execute):
@@ -612,7 +614,8 @@ class ObservationTests(unittest.TestCase):
         loop = self.loop(github)
         def execute(*args, **kwargs):
             lease = loop.coordinator.history(1)[0]
-            loop.coordinator.report(lease, "success", "Step done", outcome="done")
+            loop.coordinator.report(lease, "success", "Step done", outcome="done",
+                                    action="Maintainer: choose A or B; recommend A.")
             github.change(1, labels=frozenset({"ready", "needs-human"}))
             return 0
         with patch("ub_agents.loop.supervise", side_effect=execute):
