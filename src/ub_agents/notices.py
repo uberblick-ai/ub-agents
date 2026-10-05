@@ -225,6 +225,6 @@ class Notices:
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
         reason = " ".join(summary.split())
         action = outcome.get("action") if outcome and not outcome.get("rejected") else None
-        lead = f"**{action}**\n\n" if action else ""
+        lead = f"**{action.strip()}**\n\n" if action else ""
         self.post_once(number,
             f"{marker}\n**Action needed**\n\n{lead}{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n", marker)

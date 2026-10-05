@@ -86,6 +86,14 @@ class ActionReportTests(unittest.TestCase):
         self.assertEqual((code, error), (0, ''))
         self.assertNotIn('action', self.co.outcome(lease))
 
+    def test_surrounding_spaces_do_not_break_the_notice_bold_sentence(self):
+        lease = self.claim()
+        outcome = self.co.report(lease, 'blocked', 'Gate details', action=f'  {self.action}  ')
+        self.assertEqual(outcome['action'], f'  {self.action}  ')
+        self.co.release(lease, 'blocked', outcome['summary'])
+        notice = next(c['body'] for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER))
+        self.assertIn(f'**Action needed**\n\n**{self.action}**\n\nGate details\n\nCandidate:', notice)
+
     def test_invalid_action_field_fails_record_parsing(self):
         lease = self.claim()
         outcome = self.co.report(lease, 'blocked', 'Gate details', action=self.action)
