@@ -244,7 +244,8 @@ class LauncherTrustTests(unittest.TestCase):
                 self.github.store.clear()
                 lease = self.start(self.b)
                 outcome = self.b.report(lease, status, "Completed", handoff=2 if status == "success" else None,
-                                        outcome="done" if status == "success" else None)
+                                        outcome="done" if status == "success" else None,
+                                        action="Maintainer: choose A or B; recommend A." if status == "blocked" else None)
                 self.now = seconds(lease["expires"]) + 1
                 loop = self.loop(self.alice)
                 plan = loop.coordinator.plan(self.github.item(1), self.worker, ())

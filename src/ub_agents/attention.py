@@ -70,8 +70,9 @@ def attention_details(plan, stop_labels, notice):
                 and r['kind'] == 'lease' and r.get('state') == 'released']
     if finished:
         run = max(finished, key=lambda r: (stamp(r.get('expires')) or 0, r.get('id', 0)))
+        source_id = run.get('recovered_lease_id') or run.get('id')
         outcome = next((r for r in plan.history if r['kind'] == 'outcome'
-                        and r.get('lease_id') == run['id'] and not r.get('rejected')), {})
+                        and source_id is not None and r.get('lease_id') == source_id and not r.get('rejected')), {})
         details['attention_reason'] = short_reason(outcome.get('action') or lease_summary(plan.history, run))
         details['waiting_since'] = run.get('expires')
     return details

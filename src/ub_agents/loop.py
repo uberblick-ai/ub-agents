@@ -957,7 +957,7 @@ class Loop:
                 f"Report one with {report_command} report --outcome NAME --summary 'what happened' "
                 "[--handoff PR_NUMBER] [--action 'one thing a person must do']. "
                 "Stop reports (--status blocked or outcomes adding a configured stop label) require --action: "
-                "one non-empty line of at most 300 characters. Name the decision, choices, recommendation "
+                "one non-empty line of at most 300 characters. For a decision, name the choices, recommendation "
                 "and who can answer. Do not change workflow labels "
                 f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
                 "Use --status retry|blocked for failures; those change no labels. "

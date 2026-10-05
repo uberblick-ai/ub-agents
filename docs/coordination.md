@@ -228,8 +228,9 @@ trusted set.
 A released `blocked` run, or an accepted outcome whose completed transition adds
 a configured stop label, posts one short **Action needed** comment. For an agent
 stop report, the first paragraph below the heading is its single bold action
-sentence. The release or outcome reason follows, then the recorded candidate SHA, links to the claim and
-outcome, and, on a PR, its review decision and the CI rollup for that exact SHA.
+sentence. The release or outcome reason follows, then the recorded candidate SHA,
+links to the claim and outcome, and, on a PR, its review decision and the CI rollup
+for that exact SHA.
 If the PR head has moved, the current head's review decision is not attributed to
 the old candidate. Unavailable evidence is identified in the comment.
 

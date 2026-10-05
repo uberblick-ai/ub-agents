@@ -90,6 +90,9 @@ class AttentionTests(unittest.TestCase):
         outcome = self.outcome(action=action, accepted=False, status='blocked', transition_complete=False)
         row, _ = self.row(replace(self.plan, state='blocked', history=(self.finished(), outcome)))
         self.assertEqual(row.data['attention_reason'], action)
+        recovered = self.finished(id=10, mode='recovery', recovered_lease_id=1)
+        row, _ = self.row(replace(self.plan, state='blocked', history=(outcome, recovered)))
+        self.assertEqual(row.data['attention_reason'], action)
 
     def test_blocked_and_exhausted_fall_back_to_latest_finished_run(self):
         history = (self.finished(), self.finished(id=3, run='new', expires=iso(1500), agent='integrator'),

@@ -256,7 +256,8 @@ class EnforcementTests(unittest.TestCase):
                     lease = self.loop.coordinator.claim(self.loop.plans()[0])
                     if obstacle in {'backoff', 'blocked'}:
                         result = 'blocked' if obstacle == 'blocked' else 'retry'
-                        self.loop.coordinator.report(lease, result, 'Existing blocker')
+                        self.loop.coordinator.report(lease, result, 'Existing blocker',
+                                                 action='Maintainer: choose A or B; recommend A.' if result == 'blocked' else None)
                         self.loop.coordinator.release(lease, result, 'Existing blocker')
                         if obstacle == 'backoff':
                             self.loop.coordinator.update(lease, retry_after='2099-01-01T00:00:00Z')

@@ -144,7 +144,8 @@ class ReportVersionTests(unittest.TestCase):
             env["UB_AGENTS_REPORT"] = report_command
         with patch.dict(os.environ, env, clear=True), patch("ub_agents.cli.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
-            code = main(["report", "--status", "blocked", "--summary", "Need a decision"])
+            code = main(["report", "--status", "blocked", "--summary", "Need a decision",
+                         "--action", "Maintainer: choose A or B; recommend A."])
         return code, stdout.getvalue(), stderr.getvalue()
 
     def test_newer_supervised_format_fails_clearly_without_parsing_or_writing(self):

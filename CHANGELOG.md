@@ -6,9 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
-**Upgrading:** repositories with their own role files, or command runtimes that file
-stop reports, must add `--action` before upgrading (#181). uberblick-ai/uberblick-2
-tracks its role-file change separately.
+**Upgrading:** stop all project launchers and wait for them to exit. Repositories
+with their own role files, or command runtimes that file stop reports, must add
+`--action` before upgrading; upgrade and restart launchers together (#181).
+uberblick-ai/uberblick-2 tracks its role-file change separately.
 
 ### Added
 
