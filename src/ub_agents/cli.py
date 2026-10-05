@@ -15,6 +15,7 @@ import uuid
 from . import __version__
 from .config import DEFAULT_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
+from .denials import denial_count
 from .errors import AgentError
 from .execution import repository_checks
 from .github import GitHub
@@ -350,6 +351,9 @@ def run(args):
                     reported = row["outcome"]
                     acceptance = " (unaccepted)" if reported["status"] == "success" and not reported["accepted"] else ""
                     outcome = f" · reported: {reported['status']}{acceptance}"
+                    count = denial_count(reported)
+                    if count:
+                        outcome += f" · {count} denied"
                 verdict = f" · last result: {row['result']}" if row["result"] else ""
                 priority = row["priority"] or "none"
                 if row["priority_inherited_from"] is not None:

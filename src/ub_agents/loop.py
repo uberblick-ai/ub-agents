@@ -12,6 +12,7 @@ from .approvals import ApprovalCheck, resolve_policy
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
+from .denials import collect_denials
 from .discovery import Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
@@ -758,6 +759,7 @@ class Loop:
         result, summary = "retry", "Assignment ended without a validated outcome"
         outcome = None
         usage_output = None
+        denials = {}
         try:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
@@ -814,12 +816,15 @@ class Loop:
                 self._poll_updates()
                 if usage_output:
                     usage_output.poll(final=final)
-            code = supervise(command, cwd, env, run_dir,
-                             plan.agent.timeout_seconds, self.interrupt_event,
-                             self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
-                             expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
-                             observe_output=observe_output if usage_output or self.updates else None,
-                             **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
+            try:
+                code = supervise(command, cwd, env, run_dir,
+                                 plan.agent.timeout_seconds, self.interrupt_event,
+                                 self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
+                                 expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
+                                 observe_output=observe_output if usage_output or self.updates else None,
+                                 **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
+            finally:
+                denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
             if usage_output:
                 usage_output.poll(final=True)
             self._observe("process", "exited", "Supervision confirmed execution has ended")
@@ -829,6 +834,8 @@ class Loop:
             completing = True
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
+            if outcome is not None and denials:
+                self.coordinator.update_outcome(lease, outcome, **denials)
             if outcome is None:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
@@ -901,7 +908,9 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         if outcome is None:
             self.coordinator.update(lease, unreported=True)
-            self.coordinator.report(lease, result, summary)
+            outcome = self.coordinator.report(lease, result, summary)
+        if denials and any(outcome.get(key) != value for key, value in denials.items()):
+            self.coordinator.update_outcome(lease, outcome, **denials)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
                                  max_attempts=plan.agent.max_attempts)
         diagnostic("released", result=result, summary=summary)

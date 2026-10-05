@@ -31,6 +31,8 @@ class TerminalViewTests(unittest.TestCase):
             root = Path(directory)
             path, log, state = fixture(root, count=600)
             state['base_version'] = '0.1.11'
+            state['histories']['114']['runs'][0]['denials'] = [
+                {'tool': 'Bash', 'command': 'pytest'}, {'tool': 'Write', 'command': 'report.md'}]
             state['activity'] = {'state': 'waiting', 'until':
                                  (datetime.now(timezone.utc) + timedelta(seconds=90)).isoformat()}
             path.write_text(json.dumps(state))
@@ -140,6 +142,25 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertIn('#114', opened['header'])
                 self.assertIn('no outcome reported', opened['status'])
                 self.assertTrue(opened['footer'].endswith('Esc back 1-3 tabs ? keys q quit'))
+                resize(80, 32)
+                os.write(master, b'3')
+                denied = checkpoint(lambda value: value['tab'] == 'runs'
+                                    and any('2 denied' in line for line in value['visible']))
+                self.assertRegex('\n'.join(denied['visible']), r'Bash:.*\n.*pytest')
+                self.assertRegex('\n'.join(denied['visible']), r'Write:.*\n.*report\.md')
+                for size in ((110, 32), (60, 32)):
+                    value = resize(*size)
+                    if value['narrow'] and not value['item']:
+                        os.write(master, b'\r')
+                    checkpoint(lambda value: value['tab'] == 'runs'
+                               and any('2 denied' in line for line in value['visible']))
+                resize(80, 24)
+                os.write(master, b'1')
+                checkpoint(lambda value: value['tab'] == 'log')
+                escape()
+                checkpoint(lambda value: not value['item'])
+                os.write(master, b'\r')
+                checkpoint(lambda value: value['item'] and value['focus'] == 'output')
                 os.write(master, b'f')
                 checkpoint(lambda value: not value['follow'])
                 os.write(master, b'u')

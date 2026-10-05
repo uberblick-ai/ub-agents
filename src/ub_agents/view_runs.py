@@ -7,6 +7,7 @@ from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
+from .denials import denial_count, denial_fields
 from .view_data import item_history, mapping, rows, text
 from .view_spinner import spinner_frame
 from .view_theme import theme_style
@@ -94,9 +95,9 @@ def runs_view(row, session, now=None, *, app=None):
     table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style=muted)
     table.add_column('when', width=11, no_wrap=True)
     table.add_column('result', width=6, no_wrap=True)
-    table.add_column('agent · summary', ratio=1, min_width=12, no_wrap=True, overflow='ellipsis')
-    table.add_column('where', width=14, no_wrap=True)
-    table.add_column('outcome', min_width=12, max_width=24, overflow='fold')
+    table.add_column('agent · summary', ratio=1, min_width=6, no_wrap=True, overflow='ellipsis')
+    table.add_column('where', min_width=4, max_width=14, overflow='ellipsis')
+    table.add_column('outcome', min_width=9, max_width=24, overflow='fold')
     if filed:
         table.add_row(relative_time(filing['time'], relative_now), Text('✓', style=success),
                       Text('filed by ' + text(filing['author'])), 'GitHub', 'filed')
@@ -113,7 +114,13 @@ def runs_view(row, session, now=None, *, app=None):
         blockers = run.get('human_blocker')
         if isinstance(blockers, list) and blockers:
             outcome += ' · BLOCKED: ' + ', '.join(text(b) for b in blockers[:10])
+        count = denial_count(run)
+        if count:
+            outcome += f'\n{count} denied'
         table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary),
-                      run_host(run.get('host'), muted=muted), Text(outcome))
+                      run_host(run.get('host'), muted=muted), Text(outcome, no_wrap=False, overflow='fold'))
+        for denial in denial_fields(run).get('denials', []):
+            table.add_row('', '', Text(text(denial['tool']) + ': ' + text(denial['command']),
+                                       no_wrap=False, overflow='fold'), '', '')
     tail = [Text(f'{omitted} earlier runs omitted.', style=muted)] if omitted else []
     return Group(subtitle, table, *tail)
