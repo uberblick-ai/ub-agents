@@ -2,7 +2,6 @@
 
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
-import fcntl
 import io
 import json
 import os
@@ -10,13 +9,11 @@ from pathlib import Path
 import pty
 import select
 import signal
-import struct
 import subprocess
 import sys
 import tempfile
 import termios
 import threading
-import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -24,6 +21,7 @@ from ub_agents import __version__
 from ub_agents.launch_log import launch_output
 from ub_agents.launch_ui import ViewProcess, open_view
 from ub_agents.view import attach
+from tests.terminal import Terminal
 from tests.test_view_data import fixture
 
 class Tty(io.StringIO):
@@ -238,40 +236,23 @@ class LaunchTerminalTests(unittest.TestCase):
             shim = root / 'claude'
             shim.write_text('#!/bin/sh\nexit 0\n')
             shim.chmod(0o700)
-            master, slave = pty.openpty()
-            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
-            modes = termios.tcgetattr(slave)
-            env = dict(os.environ, TERM='xterm-256color', XDG_STATE_HOME=str(root / 'state'),
-                       PATH=str(root) + os.pathsep + os.environ['PATH'])
-            env.pop('NO_COLOR', None)
-            process = subprocess.Popen([python, '-P', '-c', HARNESS, str(Path(__file__).resolve().parents[1]),
-                                        str(root), mode, *arguments], stdin=slave, stdout=slave, stderr=slave,
-                                       start_new_session=True, env=env)
-            transcript = bytearray()
-            view_pid = None
-            agent_pid = None
-            def drain(seconds=0.1):
-                deadline = time.monotonic() + seconds
-                while time.monotonic() < deadline:
-                    if select.select([master], [], [], 0.02)[0]:
-                        transcript.extend(os.read(master, 65536))
-            def until(predicate, timeout=8):
-                deadline = time.monotonic() + timeout
-                while not predicate() and time.monotonic() < deadline:
-                    drain()
-                self.assertTrue(predicate(), bytes(transcript[-3000:]))
-            try:
-                until(lambda: b'Logs:' in transcript if mode == 'no-ui' else b'Replay active' in transcript)
+            env = {'XDG_STATE_HOME': str(root / 'state'), 'NO_COLOR': None,
+                   'PATH': str(root) + os.pathsep + os.environ['PATH']}
+            repository = Path(__file__).resolve().parents[1]
+            with Terminal(HARNESS, repository, root, mode, *arguments, python=python, env=env) as terminal:
+                process, transcript = terminal.process, terminal.transcript
+                view_pid = None
+                terminal.wait_for(lambda: b'Logs:' in transcript if mode == 'no-ui' else b'Replay active' in transcript,
+                                  timeout=8)
                 # The launcher passes its own session even when a second fresh
                 # local session exists; another session never appears in its view.
-                until(lambda: bool(list((root / '.ub-agents/sessions').glob('*.json'))))
+                terminal.wait_for(lambda: bool(list((root / '.ub-agents/sessions').glob('*.json'))))
                 paths = list((root / '.ub-agents/sessions').glob('*.json'))
                 self.assertEqual(len(paths), 1)
                 first_session = paths[0].stem
                 foreign = json.loads(paths[0].read_text()) | {'session': 'foreign', 'assignment': None}
                 (paths[0].parent / 'foreign.json').write_text(json.dumps(foreign))
-                pids = list((root / '.ub-agents/runs').glob('*/pid'))
-                until(lambda: bool(pids or list((root / '.ub-agents/runs').glob('*/pid'))))
+                terminal.wait_for(lambda: bool(list((root / '.ub-agents/runs').glob('*/pid'))))
                 agent_pid = int(list((root / '.ub-agents/runs').glob('*/pid'))[0].read_text())
                 if mode != 'no-ui':
                     table = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,command='], text=True)
@@ -281,55 +262,44 @@ class LaunchTerminalTests(unittest.TestCase):
                     self.assertIn(b'--session', table.encode())
                     self.assertIn(first_session, next(line for line in table.splitlines() if line.split()[0] == str(view_pid)))
                 if mode == 'q':
-                    os.write(master, b'f')
-                    until(lambda: b'PAUSED' in transcript)
-                    os.write(master, b'\x1b[5~h')
-                    drain(0.2)
-                    os.write(master, b'u')
-                    until(lambda: b'RAW' in transcript)
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 25, 100, 0, 0))
-                    os.kill(process.pid, signal.SIGWINCH)
-                    until(lambda: '↑↓ select ⏎ open ? keys q quit'.encode() in transcript)
+                    terminal.send(b'f')
+                    terminal.expect(b'PAUSED')
+                    terminal.send(b'\x1b[5~hu')
+                    terminal.expect(b'RAW')
+                    terminal.resize(100, 25)
+                    terminal.expect('↑↓ select ⏎ open ? keys q quit'.encode())
                     self.assertNotIn(b'minimum 110', transcript)
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
-                    os.kill(process.pid, signal.SIGWINCH)
-                    drain(0.15)
-                    os.write(master, b'2')
-                    until(lambda: b'Acceptance criteria' in transcript)
-                    os.write(master, b'3')
-                    drain()
-                    os.write(master, b'1p')
-                    until(lambda: b'process.log' in transcript)
-                    # A focus report right after Escape ends the escape sequence,
-                    # so a busy machine cannot merge Escape and q into Alt+q.
-                    os.write(master, b'\x1b\x1b[I')
-                    drain(0.15)
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 15, 59, 0, 0))
-                    os.kill(process.pid, signal.SIGWINCH)
-                    until(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
-                    os.write(master, b'q')
-                    until(lambda: b'\x1b[?1049l' in transcript)
+                    terminal.resize(110, 32)
+                    terminal.expect(lambda out: b'PgUp/PgDn scroll' in out or b'1-3 tabs' in out)
+                    terminal.send(b'2')
+                    terminal.wait_for(lambda: b'Acceptance criteria' in transcript)
+                    terminal.send(b'31p')
+                    terminal.wait_for(lambda: b'process.log' in transcript)
+                    terminal.send(b'\x1b')
+                    terminal.resize(59, 15)
+                    terminal.wait_for(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
+                    terminal.send(b'q')
+                    terminal.wait_for(lambda: b'\x1b[?1049l' in transcript)
                 elif mode == 'crash':
                     os.kill(view_pid, signal.SIGKILL)
-                    until(lambda: b'Terminal view closed:' in transcript)
+                    terminal.wait_for(lambda: b'Terminal view closed:' in transcript)
                     self.assertIsNone(process.poll())
-                    self.assertEqual(termios.tcgetattr(slave), modes)
+                    terminal.assert_restored()
                     (root / 'finish').touch()
                 elif mode in {'interrupt', 'interrupt-drain'}:
                     if mode == 'interrupt-drain':
                         os.kill(process.pid, signal.SIGTERM)
-                        drain(0.15)
+                        terminal.wait_for(lambda: b'Stopping after this run (SIGTERM)' in transcript)
                         self.assertIsNone(process.poll())
                     else:
-                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 15, 59, 0, 0))
-                        os.kill(process.pid, signal.SIGWINCH)
-                        until(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
-                    os.write(master, b'\x03')
+                        terminal.resize(59, 15)
+                        terminal.wait_for(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
+                    terminal.send(b'\x03')
                 elif mode == 'hup':
                     os.kill(process.pid, signal.SIGHUP)
                 elif mode == 'drain':
                     os.kill(process.pid, signal.SIGTERM)
-                    until(lambda: b'Stopping after this run (SIGTERM)' in transcript)
+                    terminal.wait_for(lambda: b'Stopping after this run (SIGTERM)' in transcript)
                     self.assertIsNone(process.poll())
                     os.kill(agent_pid, 0)
                     snapshot = json.loads(paths[0].read_text())
@@ -338,15 +308,9 @@ class LaunchTerminalTests(unittest.TestCase):
                     (root / 'finish').touch()
                 else:
                     (root / 'finish').touch()
-                until(lambda: process.poll() is not None)
                 expected = 130 if mode in {'q', 'interrupt', 'interrupt-drain', 'hup'} else 1 if mode == 'error' else 0
-                self.assertEqual(process.wait(), expected)
-                drain()
-                self.assertEqual(termios.tcgetattr(slave), modes)
-                if mode != 'no-ui':
-                    self.assertIn(b'\x1b[?1049l', transcript)
-                    self.assertIn(b'\x1b[?25h', transcript)
-                else:
+                terminal.wait_exit(expected, timeout=8, sequences=mode != 'no-ui')
+                if mode == 'no-ui':
                     self.assertNotIn(b'\x1b[?1049h', transcript)
                 message = (b'Intentional launcher error' if mode == 'error' else
                            b'Stopped; supervised execution terminated' if expected else b'Captured replay finished')
@@ -365,26 +329,12 @@ class LaunchTerminalTests(unittest.TestCase):
                         with self.assertRaises(ProcessLookupError):
                             os.kill(pid, 0)
                 self.assertFalse(list((root / '.ub-agents/runs').glob('*/scratch')))
-                if mode == 'once':
-                    # Restart the same control root with two old snapshots;
-                    # the new launcher still attaches to its own new ID.
-                    (root / 'finish').unlink()
-                    process = subprocess.Popen([python, '-P', '-c', HARNESS,
-                                                str(Path(__file__).resolve().parents[1]), str(root), mode, '--once'],
-                                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True, env=env)
-                    transcript.clear()
-                    until(lambda: b'Replay active' in transcript)
+            if mode == 'once':
+                # Restart the same control root with two old snapshots;
+                # the new launcher still attaches to its own new ID.
+                (root / 'finish').unlink()
+                with Terminal(HARNESS, repository, root, mode, '--once', python=python, env=env) as terminal:
+                    terminal.wait_for(lambda: b'Replay active' in terminal.transcript, timeout=8)
                     self.assertEqual(len(list((root / '.ub-agents/sessions').glob('*.json'))), 3)
                     (root / 'finish').touch()
-                    until(lambda: process.poll() is not None)
-                    self.assertEqual(process.wait(), 0)
-                    drain()
-                    self.assertEqual(termios.tcgetattr(slave), modes)
-            finally:
-                if process.poll() is None:
-                    os.kill(process.pid, signal.SIGINT)
-                    (root / 'finish').touch()
-                    until(lambda: process.poll() is not None)
-                    process.wait()
-                os.close(master)
-                os.close(slave)
+                    terminal.wait_exit(timeout=8)

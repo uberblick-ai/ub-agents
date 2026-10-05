@@ -18,7 +18,7 @@ from ub_agents.observations import Observations
 from ub_agents.updates import DAY, Updates, installation, release_age, release_banner
 
 
-def release(tag='v0.1.12', **values):
+def release(tag='v99.0.0', **values):
     return {'tag_name': tag, 'published_at': '2026-10-02T00:00:00Z',
             'draft': False, 'prerelease': False} | values
 
