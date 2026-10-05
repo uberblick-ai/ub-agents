@@ -166,6 +166,8 @@ class WorkTree(Tree):
                              if value.group == 'Eligible' and value.state in {'ready', 'recover'}), None)
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
             value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
+                               now=(datetime.fromtimestamp(self.app.descriptions.clock(), timezone.utc)
+                                    if row.group == 'Needs attention' else None),
                                claimed_at=self.claim_times.get(row.key), app=self.app)[line_no != node._line]
         elif node is self.app.idle_node:
             label_style += theme_style(self.app, 'view-muted', dim=True)

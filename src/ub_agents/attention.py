@@ -45,7 +45,8 @@ def attention_details(plan, stop_labels, notice):
     """Use the notice, a finalized stop outcome, then a finished run, in order."""
     if plan.state not in {'parked', 'blocked', 'failed'}:
         return {}
-    stops = sorted(plan.item.labels.intersection(stop_labels) or (stop_labels if plan.approval_gate else ()))
+    present_stops = plan.item.labels.intersection(stop_labels)
+    stops = sorted(present_stops or (stop_labels if plan.approval_gate else ()))
     details = {'stop_labels': stops, 'waiting_since': None, 'attention_reason': ''}
     if notice:
         details.update(waiting_since=notice.get('created_at'), attention_reason=notice_summary(notice['text']))
@@ -53,19 +54,20 @@ def attention_details(plan, stop_labels, notice):
     outcomes = [r for r in plan.history if r['kind'] == 'outcome'
                 and r.get('accepted') and r.get('transition_complete') and not r.get('rejected')
                 and (r.get('handoff') or r['assignment']) == plan.item.number
-                and set(r.get('transition', {}).get('add', ())).intersection(stops)]
+                and set(r.get('transition', {}).get('add', ())).intersection(present_stops)]
     if outcomes:
         outcome = max(outcomes, key=lambda r: r.get('id', 0))
         details.update(waiting_since=outcome.get('created'), attention_reason=short_reason(outcome.get('summary')))
         return details
-    finished = [r for r in plan.history if r['kind'] == 'lease' and r.get('state') == 'released']
+    if plan.approval_gate:
+        details['attention_reason'] = short_reason(plan.approval_gate.reason)
+        return details
+    finished = [r for r in plan.history if plan.state in {'blocked', 'failed'}
+                and r['kind'] == 'lease' and r.get('state') == 'released']
     if finished:
         run = max(finished, key=lambda r: (stamp(r.get('expires')) or 0, r.get('id', 0)))
         details['attention_reason'] = short_reason(lease_summary(plan.history, run))
-        if plan.state in {'blocked', 'failed'}:
-            details['waiting_since'] = run.get('expires')
-    elif plan.approval_gate:
-        details['attention_reason'] = short_reason(plan.approval_gate.reason)
+        details['waiting_since'] = run.get('expires')
     return details
 
 

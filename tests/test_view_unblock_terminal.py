@@ -31,7 +31,8 @@ class UnblockTerminalTests(unittest.TestCase):
                 state['activity'] = {'state': 'polling'}
                 state['latest_pass'] = {'state': 'complete', 'rows': [
                     {'item': 178, 'agent': 'worker', 'kind': 'pr', 'title': 'Blocked candidate',
-                     'state': 'parked', 'reason': 'Approval needed', 'waiting_since': '2026-10-05T12:12:00Z'},
+                     'state': 'parked', 'reason': 'Approval needed', 'waiting_since': '2026-10-05T12:12:00Z',
+                     'stop_labels': ['needs-human'], 'attention_reason': 'Maintainer merge ' * 8},
                     {'item': 179, 'agent': 'worker', 'state': 'blocked', 'reason': 'Attempt limit exhausted',
                      'failures': 3, 'max_attempts': 3},
                     {'item': 180, 'agent': 'worker', 'state': 'ready', 'reason': 'Ready'}]}
@@ -50,6 +51,7 @@ from tests.test_view_unblock import AUTHORS, comment, comments_reply
 from ub_agents.view_github import DescriptionLoads, parse_response
 from ub_agents.view_ui import ItemTabs, View
 from ub_agents.view_unblock import stamp
+from ub_agents.view_work import WorkTree
 transport = RecordingDescriptionTransport()
 class ProofView(View):
     BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
@@ -65,7 +67,17 @@ class ProofView(View):
         transport.response = parse_response(comments_reply(comment()), b'', 0, self.now, 'unblock', AUTHORS)
     def action_checkpoint(self): self.call_after_refresh(self.checkpoint)
     def checkpoint(self):
+        tree = self.query_one(WorkTree)
+        tree.get_node_at_line(0)
+        node = self.nodes.get('plan:178:worker')
+        first = tree.render_line(node._line - tree.scroll_offset.y) if node else None
+        second = tree.render_line(node._line + 1 - tree.scroll_offset.y) if node and tree.row_height == 2 else None
         value = {'tab': self.query_one(ItemTabs).active, 'attention': self.unblock_visible,
+                 'work': first.text if first else '', 'detail': second.text if second else '',
+                 'red_wait': any(segment.style and segment.style.color and
+                                segment.style.color.get_truecolor().hex == '#ff8b7f' and
+                                ('24m' in segment.text or '25m' in segment.text)
+                                for segment in first) if first else False,
                  'selected': self.selected, 'header': self.query_one('#item_header').render().plain,
                  'note': self.query_one('#unblock_note').render().plain,
                  'body': self.query_one('#unblock_body', Markdown).source,
@@ -117,7 +129,12 @@ pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
                     cached = checkpoint(lambda value: value['tab'] == 'unblock' and 'snapshot' in value['note']
                                         and 'waiting 24m' in value['header'])
                     self.assertIn('⌥178 Blocked candidate', cached['header'])
-                    self.assertIn('worker · parked · waiting 24m · since ', cached['header'])
+                    self.assertIn('worker · needs-human · waiting 24m · since ', cached['header'])
+                    self.assertTrue(cached['work'].startswith('? ⌥178 '), cached['work'])
+                    self.assertTrue(cached['work'].endswith('24m'), cached['work'])
+                    self.assertTrue(cached['red_wait'])
+                    self.assertTrue(cached['detail'].startswith('  worker · needs-human · Maintainer'))
+                    self.assertTrue(cached['detail'].endswith('…'), cached['detail'])
                     self.assertIn('Resolve the blocker', '\n'.join(cached['visible']))
                     self.assertNotIn('**Action needed**', cached['body'])
                     self.assertIn('1-4 tabs g load', cached['footer'])
@@ -126,11 +143,15 @@ pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
                     help_view = checkpoint(lambda value: value['screen'] == 'KeyHelp')
                     self.assertIn('g on Unblock', help_view['modal'])
                     os.write(master, b'?')
-                    checkpoint(lambda value: value['screen'] != 'KeyHelp' and 'waiting 25m' in value['header'])
+                    advanced = checkpoint(lambda value: value['screen'] != 'KeyHelp' and 'waiting 25m' in value['header'])
+                    self.assertTrue(advanced['work'].endswith('25m'), advanced['work'])
                     # Real resize and Enter/Esc navigation at the minimum width.
                     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 16, 60, 0, 0))
                     os.kill(process.pid, signal.SIGWINCH)
-                    checkpoint(lambda value: value['size'] == [60, 16])
+                    narrow_work = checkpoint(lambda value: value['size'] == [60, 16])
+                    self.assertTrue(narrow_work['work'].startswith('? ⌥178 '))
+                    self.assertTrue(narrow_work['work'].endswith('25m'))
+                    self.assertEqual(narrow_work['detail'], '')
                     os.write(master, b'\r')
                     narrow = checkpoint(lambda value: value['item'] and 'g load' in value['footer'])
                     self.assertIn('1-4 tabs', narrow['footer'])

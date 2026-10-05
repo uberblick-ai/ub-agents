@@ -93,9 +93,11 @@ class AttentionTests(unittest.TestCase):
         self.assertEqual(unblock_metadata(row, ActionComment(created_at=iso(1000), available=True), session, 2000),
                          ('worker · needs-human', ''))
         gate = ApprovalCheck(False, 'Approve outside input', gate='start', gate_key='input')
-        row, _ = self.row(replace(self.plan, item=issue(), approval_gate=gate))
+        row, _ = self.row(replace(self.plan, item=issue(), approval_gate=gate,
+                                  history=(self.finished(), self.outcome())))
         self.assertEqual(row.data['stop_labels'], list(self.cfg.stop_labels))
         self.assertEqual(row.data['attention_reason'], 'Approve outside input')
+        self.assertIsNone(row.data['waiting_since'])
 
     def test_resumed_notice_is_ignored_and_new_post_updates_published_row(self):
         row, _ = self.row(replace(self.plan, history=(self.finished(id=5),)),
@@ -145,18 +147,18 @@ class AttentionTests(unittest.TestCase):
 
     def test_launcher_display_adds_no_github_reads(self):
         github = FakeGitHub(issue())
+        github.login = 'other'
+        github.roles['other'] = 'write'
+        foreign = Loop(self.cfg, github, 'other', output=lambda *_: None)
+        lease = foreign.coordinator.claim(foreign.coordinator.plan(issue(), self.cfg.agents[0], self.cfg.stop_labels),
+                                          self.cfg.stop_labels)
+        foreign.coordinator.update(lease, state='running', started=True)
+        foreign.coordinator.report(lease, 'blocked', 'Choose direction')
+        foreign.coordinator.release(lease, 'blocked', 'Choose direction')
+        other = github.create_comment(1, self.notice(author='operator')['body'])
+        github.login = 'operator'
         observer = Observations(self.cfg, 'operator', None, self.publisher)
         loop = Loop(self.cfg, github, 'operator', output=lambda *_: None, observer=observer)
-        lease = loop.coordinator.claim(loop.coordinator.plan(issue(), self.cfg.agents[0], self.cfg.stop_labels),
-                                       self.cfg.stop_labels)
-        loop.coordinator.update(lease, state='running', started=True)
-        loop.coordinator.report(lease, 'blocked', 'Choose direction')
-        loop.coordinator.release(lease, 'blocked', 'Choose direction')
-        other = github.create_comment(1, self.notice(author='operator')['body'])
-        # This account is a coordination author verified by the existing history read.
-        for c in github.store[1]:
-            c['user']['login'] = 'other'
-        github.roles['other'] = 'write'
         reads = []
         with patch.object(github, 'comments', wraps=github.comments) as comments, \
                 patch.object(github, 'role', wraps=github.role) as roles:
