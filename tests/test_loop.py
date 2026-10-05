@@ -42,6 +42,19 @@ class LoopTests(unittest.TestCase):
         self.assertIn("reviews, review comments and feedback", prompt)
         self.assertIn("address it when revising the work", prompt)
 
+    def test_retrospective_prompt_line_only_for_configured_agent(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        context = {"earlier_branches": [], "report_command": "/launcher/python -I /launcher/report_command.py"}
+        plain = self.loop.prompt_for(plan, lease, context, "Project rules")
+        self.assertNotIn("retrospective", plain)
+        configured = replace(plan, agent=replace(plan.agent, retrospectives=203))
+        prompt = self.loop.prompt_for(configured, lease, context, "Project rules")
+        line = (f"Post a retrospective with {context['report_command']} retrospective --body-file PATH "
+                "only when the run lost something and you can name the change that would have prevented it.\n")
+        self.assertIn(line, prompt)
+        self.assertEqual(prompt.replace(line, ""), plain)
+
     def test_revision_context_receives_integrator_feedback_on_pr_and_handoff_issue(self):
         for number in (1, 2):
             with self.subTest(assignment=number):

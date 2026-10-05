@@ -1,10 +1,11 @@
 """Display-only waiting times and parking summaries; never coordination input."""
 
 from datetime import datetime
+import html
 import re
 import time
 
-from .records import lease_summary
+from .records import lease_summary, reported_actions
 
 
 def stamp(value):
@@ -37,10 +38,14 @@ def notice_summary(body):
         lines.pop(0)
     if lines and lines[0] == '**Action needed**':
         lines.pop(0)
-    # New notices lead with the bold action; older notices lead with the reason.
+    # New notices lead with one bold ask per bullet; older notices have a reason.
     reason = '\n'.join(lines).strip().split('\n\n', 1)[0]
-    if reason.startswith('**') and reason.endswith('**'):
+    asks = reason.splitlines()
+    if asks and all(line.startswith('- **') and line.endswith('**') for line in asks):
+        reason = '; '.join(line[4:-2] for line in asks)
+    elif reason.startswith('**') and reason.endswith('**'):
         reason = reason[2:-2]
+    reason = html.unescape(re.sub(r'\\([\\`*_\[\]])', r'\1', reason))
     return short_reason(reason)
 
 
@@ -61,7 +66,7 @@ def attention_details(plan, stop_labels, notice):
     if outcomes:
         outcome = max(outcomes, key=lambda r: r.get('id', 0))
         details.update(waiting_since=outcome.get('created'),
-                       attention_reason=short_reason(outcome.get('action') or outcome.get('summary')))
+                       attention_reason=short_reason('; '.join(reported_actions(outcome)) or outcome.get('summary')))
         return details
     if plan.approval_gate:
         details['attention_reason'] = short_reason(plan.approval_gate.reason)
@@ -73,7 +78,7 @@ def attention_details(plan, stop_labels, notice):
         source_id = run.get('recovered_lease_id') or run.get('id')
         outcome = next((r for r in plan.history if r['kind'] == 'outcome'
                         and source_id is not None and r.get('lease_id') == source_id and not r.get('rejected')), {})
-        details['attention_reason'] = short_reason(outcome.get('action') or lease_summary(plan.history, run))
+        details['attention_reason'] = short_reason('; '.join(reported_actions(outcome)) or lease_summary(plan.history, run))
         details['waiting_since'] = run.get('expires')
     return details
 

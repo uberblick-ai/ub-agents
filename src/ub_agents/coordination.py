@@ -14,7 +14,7 @@ from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
 from .records import (MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       payload, records, recovers, same_handoff, same_run, seconds, stop_report, timestamp,
-                      validate_action)
+                      report_actions)
 from .trust import LauncherTrust
 
 
@@ -508,7 +508,7 @@ class Coordinator:
         elif status == "success" and declarations is not None:
             raise AgentError("Success must name a declared outcome: report --outcome NAME")
         try:
-            validate_action(action, required=agent_report and stop_report(lease, status, outcome))
+            actions = report_actions(action, required=agent_report and stop_report(lease, status, outcome))
         except ValueError as exc:
             raise AgentError(str(exc)) from exc
         self.assert_owned(lease)
@@ -519,8 +519,10 @@ class Coordinator:
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
-        if action is not None:
-            record["action"] = action
+        if actions:
+            record["action"] = actions[0]
+            if len(actions) > 1:
+                record["actions"] = actions
         if lease.get("host"):
             record["host"] = lease["host"]
         if outcome is not None:

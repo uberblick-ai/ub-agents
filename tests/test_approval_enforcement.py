@@ -99,6 +99,11 @@ class EnforcementTests(unittest.TestCase):
                                        label={'name': 'ready'}, created_at=at(5))]
         self.assert_parked('No maintainer', writes=True)
         notice = self.notices()[0]
+        visible, details = notice['body'].split('<details>', 1)
+        self.assertIn('Maintainer: authorize starting this item and clear its human hold.', visible)
+        self.assertNotIn('No maintainer', visible)
+        self.assertIn('No maintainer', details)
+        self.assertNotIn('<details open', notice['body'])
         for text in ('**Action needed**', 'A maintainer', 'remove', '`needs-human`',
                      're-apply a trigger label', '`ready`', '`needs-changes`'):
             self.assertIn(text, notice['body'])
@@ -180,6 +185,10 @@ class EnforcementTests(unittest.TestCase):
         self.start(2, 'needs-changes')
         self.assert_parked('head is not approved', writes=True)
         notice = self.notices(2)[0]
+        visible, details = notice['body'].split('<details>', 1)
+        self.assertIn("Maintainer: approve this PR's current head and clear its human hold.", visible)
+        self.assertNotIn('head is not approved', visible)
+        self.assertIn('head is not approved', details)
         for text in ('ub-agents approve 2', 'approving review of the current head',
                      'then remove', 'Re-applying a trigger label does not approve a head'):
             self.assertIn(text, notice['body'])

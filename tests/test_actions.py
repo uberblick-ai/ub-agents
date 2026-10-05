@@ -63,6 +63,38 @@ class ActionReportTests(unittest.TestCase):
         self.assertEqual((code, error), (0, ''))
         self.assertEqual(self.co.outcome(lease)['action'], self.action)
 
+    def test_repeated_actions_are_stored_and_each_visible_without_reasoning(self):
+        lease = self.claim()
+        second = 'Owner: choose immediate or staged rollout; recommend staged.'
+        code, error = self.cli(lease, ['--status', 'blocked', '--action', self.action, '--action', second])
+        self.assertEqual((code, error), (0, ''))
+        outcome = self.co.outcome(lease)
+        self.assertEqual(outcome['action'], self.action)
+        self.assertEqual(outcome['actions'], [self.action, second])
+        self.co.release(lease, 'blocked', outcome['summary'])
+        notice = next(c['body'] for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER))
+        visible, details = notice.split('<details>', 1)
+        self.assertIn(f'- **{self.action}**\n- **{second}**', visible)
+        self.assertNotIn('Gate details', visible)
+        self.assertIn('Gate details', details)
+
+    def test_invalid_repeated_actions_are_refused_before_any_write(self):
+        lease = self.claim()
+        before = list(self.github.writes)
+        for actions in ([], [self.action, ''], [self.action, None], ['a' * 300] * 27):
+            with self.subTest(actions=actions), self.assertRaisesRegex(AgentError, '--action'):
+                self.co.report(lease, 'blocked', 'Gate details', action=actions)
+            self.assertEqual(self.github.writes, before)
+
+    def test_repeated_action_record_validation_requires_matching_legacy_scalar(self):
+        lease = self.claim()
+        outcome = self.co.report(lease, 'blocked', 'Gate details', action=self.action)
+        for actions in ([], 'wrong type', [self.action, ''], ['Other first ask'], [self.action] * 300):
+            with self.subTest(actions=actions):
+                comment = self.github.comments(1)[-1] | {'body': body(payload(outcome) | {'actions': actions})}
+                with self.assertRaises(RecordError):
+                    records([comment])
+
     def test_action_rejects_empty_multiline_and_overlength_values_without_writes(self):
         lease = self.claim()
         before = list(self.github.writes)
@@ -92,7 +124,10 @@ class ActionReportTests(unittest.TestCase):
         self.assertEqual(outcome['action'], f'  {self.action}  ')
         self.co.release(lease, 'blocked', outcome['summary'])
         notice = next(c['body'] for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER))
-        self.assertIn(f'**Action needed**\n\n**{self.action}**\n\nGate details\n\nCandidate:', notice)
+        visible, details = notice.split('<details>', 1)
+        self.assertIn(f'**Action needed**\n\n**{self.action}**\n\n', visible)
+        self.assertNotIn('Gate details', visible)
+        self.assertIn('Gate details\n\nCandidate:', details)
 
     def test_invalid_action_field_fails_record_parsing(self):
         lease = self.claim()
@@ -147,7 +182,7 @@ class ActionReportTests(unittest.TestCase):
                     self.assertEqual(reported['accepted'], legacy and status == 'success')
                     self.assertEqual('needs-human' in self.github.item(1).labels, legacy and status == 'success')
 
-    def test_launcher_only_blocked_release_keeps_existing_notice_form(self):
+    def test_launcher_only_blocked_release_collapses_full_details(self):
         with patch('ub_agents.loop.supervise', side_effect=RuntimeError('Missing evidence')):
             self.assertTrue(self.loop.tick())
         lease, outcome = self.co.history(1)
@@ -155,4 +190,7 @@ class ActionReportTests(unittest.TestCase):
         self.assertNotIn('action', outcome)
         self.assertNotIn('rejected', outcome)
         notice = next(c['body'] for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER))
-        self.assertIn('**Action needed**\n\nMissing evidence\n\nCandidate:', notice)
+        visible, details = notice.split('<details>', 1)
+        self.assertIn('**Maintainer: review the blocker details and decide the next step.**', visible)
+        self.assertNotIn('Missing evidence', visible)
+        self.assertIn('Missing evidence\n\nCandidate:', details)

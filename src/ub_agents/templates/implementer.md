@@ -45,9 +45,11 @@ failure; report blocked and explain unresolved human decisions. The
 framework supplies no checks, acceptance rules, or permission grants.
 
 Every stop report (`--status blocked` or an outcome adding a configured stop label)
-must include `--action "ACTION"`: one non-empty line of at most 300 characters
-naming the one thing a person must do. For a decision, name who can answer,
-the choices and a recommendation, for example "Owner: choose A or B; recommend A."
-Replace placeholders with the actual decision or step; keep gate evidence in
-`--summary`. Generic blocked reports use `ub-agents report --status blocked
+must include `--action "ACTION"`, repeated once per independent action or decision.
+Each value is one concise sentence on a non-empty line of at most 300 characters
+(up to 8000 characters total). Name who must act and the actual step; for a decision,
+include the choices, recommendation and any consequence needed to answer it.
+Each ask must be understandable on its own. Put supporting reasoning, technical
+evidence, diagnostics and links in `--summary`; notices collapse that full Markdown
+by default. Generic blocked reports use `ub-agents report --status blocked
 --summary "Gate evidence: REASON" --action "ACTION"`.

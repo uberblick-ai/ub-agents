@@ -198,13 +198,44 @@ def validate_action(action, required=False):
         raise ValueError("--action must be one non-empty line of at most 300 characters")
 
 
+def report_actions(action, required=False):
+    """Normalize the report API's scalar or repeated asks before any write."""
+    if action is None:
+        validate_action(None, required=required)
+        return []
+    actions = action if isinstance(action, list) else [action]
+    if not actions:
+        raise ValueError("--action must include at least one action")
+    for ask in actions:
+        validate_action(ask, required=True)
+    if sum(map(len, actions)) > 8000:
+        raise ValueError("--action values must total at most 8000 characters")
+    return actions
+
+
+def reported_actions(outcome):
+    """Read validated repeated asks, retaining historical scalar records."""
+    return outcome.get("actions") or ([outcome["action"]] if outcome.get("action") else [])
+
+
+def validate_outcome_actions(outcome, required=False):
+    validate_action(outcome.get("action"), required=required or "action" in outcome)
+    if "actions" in outcome:
+        actions = outcome["actions"]
+        if not isinstance(actions, list):
+            raise ValueError("--action values must be a non-empty list")
+        report_actions(actions, required=True)
+        if actions[0] != outcome.get("action"):
+            raise ValueError("--action first value must match the scalar action")
+
+
 def validate_report_action(lease, outcome):
     # Old leases predate the requirement. Launcher-only reports and recovery
-    # receipts have no agent ask; their notices retain the existing form.
+    # receipts have no agent ask; notices supply a concise fallback.
     required = (lease.get("action_required", False) and not lease.get("unreported")
                 and lease.get("mode") != "recovery"
                 and stop_report(lease, outcome["status"], outcome.get("outcome")))
-    validate_action(outcome.get("action"), required=required)
+    validate_outcome_actions(outcome, required=required)
 
 
 def resolve_transition(transition, declaration):
@@ -266,8 +297,7 @@ def validate(record):
         if "retry_after" in record:
             seconds(record["retry_after"])
     elif record.get("kind") == "outcome":
-        if "action" in record:
-            validate_action(record["action"], required=True)
+        validate_outcome_actions(record)
         if record.get("status") not in OUTCOMES or not isinstance(record.get("summary"), str):
             raise ValueError("invalid outcome")
         if type(record.get("lease_id")) is not int:

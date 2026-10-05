@@ -6,14 +6,19 @@ notes are copied from that section.
 
 ## Unreleased
 
-**Upgrading:** stop all project launchers and wait for them to exit. Repositories
-with their own role files, or command runtimes that file stop reports, must add
-`--action` before upgrading; upgrade and restart launchers together (#181).
-uberblick-ai/uberblick-2 tracks its role-file change separately.
+**Upgrading:** stop all project launchers and wait for them to exit; upgrade and
+restart them together. Update custom role files and stop-report command runtimes
+to include `--action` before upgrading (#181). Older launchers reject this
+repository's new `retrospectives` configuration key (#207).
+uberblick-ai/uberblick-2 tracks its role-file update separately.
+
+### Added
+
+- Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
 
 ### Changed
 
-- Stop reports require a concise human action, which leads parking notices in bold and appears as the terminal attention reason (#181).
+- Human-action notices show each ask separately in a concise sentence, with full reasoning, evidence and resume instructions collapsed by default (#181, #195).
 
 ## 0.1.12 — 2026-10-05
 

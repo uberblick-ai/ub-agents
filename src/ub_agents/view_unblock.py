@@ -24,6 +24,17 @@ def comment_body(value):
     return '\n'.join(lines).strip()
 
 
+def comment_sections(body):
+    """Fold the generated notice wrapper, leaving nested supporting Markdown intact."""
+    wrapper = '<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n'
+    visible, separator, details = body.partition(wrapper)
+    if not separator:
+        return body, ''
+    if details.endswith('\n\n</details>'):
+        details = details[:-len('\n\n</details>')]
+    return visible.strip(), details.strip()
+
+
 def trust_reason(author, authors):
     if not isinstance(author, str) or not author:
         return 'The comment author is unreadable and cannot be verified.'

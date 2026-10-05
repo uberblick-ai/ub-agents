@@ -12,7 +12,7 @@ from ub_agents.approvals import ApprovalCheck
 from ub_agents.attention import attention_state, waiting_time
 from ub_agents.coordination import Plan
 from ub_agents.loop import Loop
-from ub_agents.notices import ACTION_MARKER
+from ub_agents.notices import ACTION_MARKER, action_body
 from ub_agents.observations import Observations
 from ub_agents.records import iso
 from ub_agents.view_data import Session, work_rows
@@ -93,6 +93,16 @@ class AttentionTests(unittest.TestCase):
         recovered = self.finished(id=10, mode='recovery', recovered_lease_id=1)
         row, _ = self.row(replace(self.plan, state='blocked', history=(outcome, recovered)))
         self.assertEqual(row.data['attention_reason'], action)
+
+    def test_multiple_asks_are_shown_without_markdown_or_collapsed_reasoning(self):
+        asks = ['Owner: choose A or B; recommend A.', 'Maintainer: use *staging* & review [the PR].']
+        notice = self.notice()
+        notice['body'] = action_body(ACTION_MARKER + 'r -->', asks, 'Private reasoning\n\nCI evidence')
+        row, _ = self.row(comments=[notice], authors={'other': True})
+        self.assertEqual(row.data['attention_reason'], '; '.join(asks))
+        self.assertNotIn('reasoning', row.data['attention_reason'])
+        row, _ = self.row(replace(self.plan, history=(self.outcome(action=asks[0], actions=asks),)))
+        self.assertEqual(row.data['attention_reason'], '; '.join(asks))
 
     def test_blocked_and_exhausted_fall_back_to_latest_finished_run(self):
         history = (self.finished(), self.finished(id=3, run='new', expires=iso(1500), agent='integrator'),

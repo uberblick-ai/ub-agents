@@ -120,7 +120,7 @@ shortened with `…`, and a right column:
 Needs attention's second line is `agent · state · reason`, indented and dim.
 Parked state names the stop label(s), joined by `, `; blocked state is `blocked`,
 and an exhausted attempt limit is `failed F/M`. The reason uses the notice or
-parking outcome's action when available, without Markdown bold markers. Otherwise
+parking outcome's actions when available, without Markdown bold or bullet markers. Otherwise
 it uses the parking run or notice summary, without the `Stop label … is present`
 prefix or retry instructions; it is omitted when neither is known. The full reason
 remains on Issue.
@@ -255,7 +255,10 @@ to Log. `4` has no effect for other rows.
 The comment body uses Issue's inert Markdown rules and 2,048-character limit,
 with a visible shortening notice. The action-needed marker, `**Action needed**`
 title and Claim/Outcome links line (including the no-outcome variant) are removed
-first. SHAs and the remaining Markdown stay verbatim. The last dim line names the
+first. New notices show each ask above a collapsed "Reasoning, evidence and resume
+instructions" control; click its title or focus it and press Enter to expand it.
+The bounded supporting Markdown and SHAs stay intact inside. Legacy notices without
+that fold remain readable. The last dim line names the
 action-needed comment, its local creation time, and `snapshot` or
 `GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
 

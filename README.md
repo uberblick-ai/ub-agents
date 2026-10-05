@@ -111,9 +111,10 @@ A trigger selects work. An agent reports a declared outcome with
 `ub-agents report --outcome NAME --summary TEXT [--handoff PR] [--action TEXT]`; the launcher validates
 it and applies the project's transition. `--status retry|blocked` changes no labels.
 Stop reports (`--status blocked` or outcomes adding a configured stop label) require
-`--action`: one non-empty line of at most 300 characters naming the one thing a
-person must do. The **Action needed** notice leads with that action in bold,
-followed by the summary and gate details. Retry and other outcomes do not require it.
+`--action`, repeated for each independent action or decision: one concise sentence
+on a non-empty line of at most 300 characters (8000 total). Each **Action needed**
+notice shows every ask separately in bold; full Markdown reasoning, evidence and
+resume instructions are collapsed by default. Retry and other outcomes do not require it.
 Agents replace `ub-agents` in that command with the literal `report_command` from
 their assignment context, also supplied as `UB_AGENTS_REPORT`, to use the launcher's
 own installation even when a login shell changes PATH.
@@ -150,6 +151,7 @@ or launcher authority.
 | `ub-agents read N` | Read an open or closed issue or PR as filtered JSON without changing it |
 | `ub-agents check` | Validate the configuration files only |
 | `ub-agents report` | Used by agents to record their outcome |
+| `<report_command> retrospective --body-file PATH` | Post to the supervised agent's configured retrospective board and print the comment URL |
 
 `--config PATH` works before or after every configuration command; giving it in
 both positions is a usage error. Without `--agent`, `retry` prints and uses the
@@ -306,6 +308,14 @@ agents:
   four roles above.
 - **`worktree`**: run in a private checkout of the PR's exact commit, or on a fresh
   branch for an issue.
+- **`retrospectives`**: optional positive discussion number in `repository`, such
+  as `retrospectives: 203`. `check` validates it offline; `doctor` verifies the board
+  on GitHub. Inside a run, use the literal launcher `report_command` followed by
+  `retrospective --body-file PATH` to post a top-level comment and print its URL.
+  The target is pinned for the agent, checked against the exact discussion URL,
+  and unaffected by worktree configuration or `--config`. Posting changes no run
+  outcome. The prompt mentions it only for configured agents, when a run lost
+  something and the agent can name the change that would have prevented it.
 
 An agent can also be a plain command instead of an LLM session.
 [docs/configuration.md](docs/configuration.md) lists every option.
