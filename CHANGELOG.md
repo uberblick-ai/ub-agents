@@ -6,36 +6,37 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.12 — 2026-10-05
+
+**Upgrading:** the coordination record format is unchanged, so launchers can be
+upgraded one at a time. Add `trusted-bots` to the configuration, and point role
+instructions at `read N`, only after every launcher runs 0.1.12: older launchers
+reject the key and have no `read` command (#190).
+
 ### Added
 
-- Completed Claude runs record permission denials in their outcomes, with counts in `status` and command details in the Runs tab (#199).
-- Agents can read filtered issues and PRs with `read N` and trust configured bot feedback under the assignment input policy (#190).
+- Agents can read filtered issues and PRs with `read N`, and projects can trust configured bot feedback with `trusted-bots` ([trusted bots](docs/approvals.md#trusted-bots), #190).
 - Needs attention items have an Unblock tab showing trusted action-needed comments from the session snapshot or an explicit GitHub load (#178).
+- Completed Claude runs record permission denials in their outcomes, with counts in `status` and command details in the Runs tab (#199).
 
 ### Changed
 
 - PR pickup after outside title or body edits requires a maintainer start or approval record, including trusted-authored PRs; approving reviews no longer clear edits (#190).
-- Two-line Work pane items have one blank row between them in the combined layout, keeping each item's details separate (#234).
-- Eligible lists each item once with all its eligible agents, counting items and retaining selection when those agents change (#233).
-- The terminal view adds padding inside both panes and a one-column gap between them, keeping content inset in narrow layouts (#231).
-- Needs attention rows show elapsed waiting time and the agent, state and parking reason, using the same start time as Unblock (#180).
-- Below 110×32, the terminal view shows one full-width pane, with Enter/Esc navigation and retained selection and log position across resizes (#177).
-- The terminal view shows a finishing run and held eligible work while the launcher stops gracefully after SIGTERM (#176).
-- `doctor` shows warnings and failures with area summaries by default; `--verbose` retains the full per-check list (#191).
-- The terminal Work pane grows with terminal width at 110×32 and above, making more of each item title and run line visible (#213).
-- Quitting an attached terminal view with `q` interrupts the launcher and cleans up owned runs, matching Ctrl-C (#182).
-- The terminal Work pane hides dependency and milestone waits, with retry backoff and paused-runtime plans following ready work in Eligible (#173).
-- Codex JSON run logs show compact assistant messages, command and tool activity, failures and completion in the terminal view (#126).
-- Running shows only this launcher's assignment or an idle placeholder; other launchers' claims are omitted from the terminal Work pane (#172).
 - The terminal view uses a consistent theme, rounded pane titles, colored work sections, numbered tabs, a formatted/raw indicator and a repository window title (#164).
+- The Work pane grows with terminal width at 110×32 and above, with padding inside and between panes and a blank row between two-line items (#213, #231, #234).
+- Below 110×32, the terminal view shows one full-width pane, with Enter/Esc navigation and retained selection and log position across resizes (#177).
+- Running shows only this launcher's assignment; dependency and milestone waits are hidden, with retry backoff and paused-runtime plans following ready work in Eligible (#172, #173).
+- Eligible lists each item once with all its eligible agents, and Needs attention rows show waiting time, agent, state and parking reason (#180, #233).
+- Quitting an attached terminal view with `q` interrupts the launcher like Ctrl-C, and a graceful stop after SIGTERM shows the finishing run and held work (#176, #182).
+- Codex JSON run logs show compact assistant messages, command and tool activity, failures and completion in the terminal view (#126).
+- `doctor` shows warnings and failures with area summaries by default; `--verbose` retains the full per-check list (#191).
 
 ### Fixed
 
-- Assistant text and closing summaries in Claude and Codex formatted logs use a readable theme color without dimming, while markers stay dim (#232).
+- Formatted Claude logs skip cut-off first records, show tool progress as elapsed time and align timestamps; assistant text in Claude and Codex logs is readable without dimming (#192, #232).
+- Item comments fold every agent's superseded candidate records and withdrawn election losers, while preserving current candidates and parking explanations (#214).
 - Eligible drops stale carried rows during partial passes while preserving open Needs attention rows until replanning or pass completion (#235).
-- The running assignment's Work pane spinner animates at the same rate as the Runs tab and log status line (#217).
-- Item comments fold every agent's superseded candidate records and withdrawn election losers, while preserving current candidate records and parking explanations (#214).
-- Claude's formatted log skips cut-off first records, shows tool progress as elapsed call time, and aligns exact, capture and unknown timestamps (#192).
+- The Work pane spinner animates at the same rate as the Runs tab and log status line (#217).
 - The terminal view distinguishes PRs with accent-colored ⌥ markers, including Recent activity rows and their linked PR handoffs (#174).
 
 ## 0.1.11 — 2026-10-04
