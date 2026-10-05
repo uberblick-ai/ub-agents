@@ -101,7 +101,8 @@ class DenialsLoopTests(unittest.TestCase):
             lease = loop.coordinator.history(1)[0]
             if report:
                 loop.coordinator.report(lease, report, "Agent report", handoff=handoff,
-                                        outcome="done" if report == "success" else None)
+                                        outcome="done" if report == "success" else None,
+                                        action="Maintainer: choose A or B; recommend A." if report == "blocked" else None)
             if failure:
                 raise failure
             return 0
