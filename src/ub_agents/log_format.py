@@ -220,7 +220,7 @@ def _progress(data):
 
 
 class StructuredFormatter:
-    """A bounded tool-id/name cache pairs results even across updates."""
+    """A bounded call cache pairs results even across updates."""
 
     def __init__(self):
         self.tools = OrderedDict()
@@ -464,7 +464,10 @@ class CodexFormatter(StructuredFormatter):
             # The record has paths and operations, but no diff or line counts.
             calls = [Line("▸ file " + change["kind"] + " " + _one_line(change["path"])) for change in changes]
             detail = "file change failed"
-        seen = self.tools.get(item_id) == name
+        # Keep a fixed-size fingerprint rather than retaining command/output
+        # payloads. An update that changes visible activity must still appear.
+        signature = (name, hash(tuple(line.text for line in calls)))
+        seen = self.tools.get(item_id) == signature
         lines = [] if seen else calls
         last_call = item_id if lines else self.last_call
         if failed and completed:
@@ -472,7 +475,7 @@ class CodexFormatter(StructuredFormatter):
             lines.append(Line("  ✗ " + label + _one_line(detail.split("\n", 1)[0]), "red"))
             last_call = None
         label = "tool ERROR" if failed and completed else "tool result" if completed else "tool call"
-        return label, lines, [(item_id, name)], last_call
+        return label, lines, [(item_id, signature)], last_call
 
 
 def _invalid_constant(value):

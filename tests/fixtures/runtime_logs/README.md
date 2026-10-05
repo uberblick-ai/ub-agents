@@ -48,6 +48,20 @@ codex exec --json --ephemeral --ignore-user-config --skip-git-repo-check \
   The prompt requested `fixture` without tools or file reads. The invalid model
   caused a metadata-error item, an `error` record and `turn.failed`. Exit 1.
 
+Exact prompts, in recording order (`codex.log`, `codex-tools.log`, `codex-error.log`):
+
+```text
+This is a bounded synthetic CLI recording, not a repository task. Work only in this empty directory. Do not read any existing files, configurations, credentials, parent directories or repository context. Do not delegate. Briefly say what you will do. Use update_plan for three steps: commands, file, tools. Run exactly these two shell commands separately: printf 'owned success\n'; then sh -c 'printf "owned failure\n" >&2; exit 7'. Do not fix the deliberate failure. Create greeting.txt with just hello and a trailing newline using apply_patch. Call the fixture MCP echo tool once with fail=false and once with fail=true. Do not retry the deliberate error. Finish the plan and reply in two lines: Recording complete. All failures were deliberate.
+```
+
+```text
+This is an owned bounded synthetic recording. Do not read files, run commands, or delegate. Only call the read-only fixture echo tool once with fail=false and once with fail=true. Do not retry any failure. Reply with Recording complete.
+```
+
+```text
+Reply only with fixture. Do not use tools or read any files.
+```
+
 The server used for the tool recordings is [codex_fixture_mcp.py](codex_fixture_mcp.py).
 The first recording used the same server with its `annotations` field omitted.
 Each run prohibited delegation and reads outside the synthetic task. Recording

@@ -95,6 +95,31 @@ class CodexFormattingTests(unittest.TestCase):
         self.decode(recorded_item('agent_message'))
         self.assertIn('✗ Bash: Exit code 7', self.decode(failed).text)
 
+    def test_synthetic_changed_activity_updates_and_failure_fields(self):
+        value = recorded_item('command_execution', stage='item.started')
+        self.decode(value)
+        changed = deepcopy(value)
+        changed['type'] = 'item.updated'
+        changed['item']['command'] = 'changed command'
+        self.assertIn('▸ Bash changed command', self.decode(changed).text)
+        self.assertEqual(self.decode(changed).text, '')
+        for kind in ('file_change', 'command_execution', 'mcp_tool_call'):
+            self.formatter.reset()
+            value = recorded_item(kind)
+            value['item']['status'] = 'failed'
+            if kind == 'command_execution':
+                value['item']['exit_code'] = None
+                value['item']['aggregated_output'] = ''
+            projected = self.decode(value)
+            self.assertEqual(projected.kind, 'tool ERROR')
+            self.assertIn('✗ ', projected.text)
+            self.assertEqual(projected.styles[-1][2], 'red')
+        value = recorded_item('file_change', stage='item.started')
+        self.decode(value)
+        value['type'] = 'item.updated'
+        value['item']['changes'].append({'kind': 'update', 'path': 'changed.txt'})
+        self.assertIn('▸ file update changed.txt', self.decode(value).text)
+
     def test_unknown_complete_records_and_changed_shapes_have_dim_labels(self):
         cases = [({'type': 'future', 'payload': 'private'}, '· future'),
                  ({'type': 'item.completed', 'item': {'id': 'new', 'type': 'reasoning', 'text': 'private'}},
