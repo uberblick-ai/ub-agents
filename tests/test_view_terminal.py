@@ -653,7 +653,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 drain()
                 raw_failed = checkpoint()
                 self.assertEqual(raw_failed['anchor'][0], failed_start)
-                self.assertIn('No such file' if runtime == 'claude' else 'owned failure', '\n'.join(raw_failed['lines']))
+                # Raw JSON wraps at the pane width, including within error text.
+                self.assertIn('No such file' if runtime == 'claude' else 'owned failure',
+                              ' '.join(' '.join(raw_failed['lines']).split()))
                 os.write(master, b'u')
                 drain()
                 self.assertEqual(checkpoint()['anchor'][0], failed_start)

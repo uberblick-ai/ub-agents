@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from ub_agents.log_format import CodexFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
+from ub_agents.log_format import ClaudeFormatter, CodexFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
 from ub_agents.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
 
@@ -65,8 +65,8 @@ class CodexFormattingTests(unittest.TestCase):
         self.assertNotIn('thread.started', output)
         self.assertNotIn('turn.started', output)
         self.assertNotIn('owned tool success', output)  # Successful output remains raw.
-        self.assertTrue(all(value.styles[-1][2] == 'red' for value in entries if value.kind == 'runtime ERROR'))
-        self.assertTrue(all(value.styles[-1][2] == 'red' for value in entries if value.kind == 'tool ERROR'))
+        self.assertTrue(all(value.styles[-1][2] == 'error' for value in entries if value.kind == 'runtime ERROR'))
+        self.assertTrue(all(value.styles[-1][2] == 'error' for value in entries if value.kind == 'tool ERROR'))
         assistant = next(value for value in entries if value.kind == 'assistant')
         self.assertTrue(all(style == 'dim italic' for _, _, style in assistant.styles))
 
@@ -88,7 +88,7 @@ class CodexFormattingTests(unittest.TestCase):
         self.formatter.reset()
         unpaired = self.decode(failed)
         self.assertIn('▸ Bash ', unpaired.text)
-        self.assertIn('\n--:--:--    ✗ Exit code 7', unpaired.text)
+        self.assertIn('\n            ✗ Exit code 7', unpaired.text)
         self.formatter.reset()
         start = {**failed, 'type': 'item.started', 'item': {**failed['item'], 'status': 'in_progress'}}
         self.decode(start)
@@ -113,7 +113,7 @@ class CodexFormattingTests(unittest.TestCase):
             projected = self.decode(value)
             self.assertEqual(projected.kind, 'tool ERROR')
             self.assertIn('✗ ', projected.text)
-            self.assertEqual(projected.styles[-1][2], 'red')
+            self.assertEqual(projected.styles[-1][2], 'error')
         value = recorded_item('file_change', stage='item.started')
         self.decode(value)
         value['type'] = 'item.updated'
@@ -130,7 +130,7 @@ class CodexFormattingTests(unittest.TestCase):
                  ({'type': []}, '· unknown record')]
         for value, label in cases:
             projected = self.decode(value)
-            self.assertEqual(projected.text, '--:--:--  ' + label)
+            self.assertEqual(projected.text, '          ' + label)
             self.assertEqual(projected.styles[-1][2], 'dim')
             self.assertNotIn('private', projected.text)
             self.assertIn('type', projected.display(raw=True))
@@ -161,20 +161,32 @@ class CodexFormattingTests(unittest.TestCase):
         try:
             with patch.dict(os.environ, {'TZ': 'EST5'}):
                 time.tzset()
-                self.assertTrue(self.decode({**value, 'timestamp': '2026-10-04T14:00:00+02:00'}).text.startswith('07:00:00  '))
+                self.assertTrue(self.decode({**value, 'timestamp': '2026-10-04T14:00:00+02:00'}).text.startswith(' 07:00:00 '))
                 for invalid in ('2026-10-04T14:00:00', 'bad', 123, None, 'x' * 100):
                     projected = self.decode({**value, 'timestamp': invalid}, NOW.isoformat())
                     self.assertIsNone(projected.event)
                     self.assertTrue(projected.text.startswith('~07:00:00 '))
                 # No time is extracted from message text or unrelated item fields.
                 value['item']['timestamp'] = '2026-10-04T14:00:00+02:00'
-                self.assertTrue(self.decode(value).text.startswith('--:--:--  '))
+                self.assertTrue(self.decode(value).text.startswith('          '))
         finally:
             if prior is None:
                 os.environ.pop('TZ', None)
             else:
                 os.environ['TZ'] = prior
             time.tzset()
+
+    def test_progress_folding_is_runtime_specific(self):
+        # Synthetic Claude-shaped progress is not validated Codex activity.
+        from tests.test_log_reader import progress
+        raw = progress(45, tool_id='tool-1')
+        projected = self.decode(raw)
+        self.assertEqual(projected.text, '          · tool_progress')
+        self.assertEqual(projected.progress, ())
+        self.assertIn('elapsed_time_seconds', projected.display(raw=True))
+        claude = ClaudeFormatter().decode(raw)
+        self.assertEqual(claude.text, '')
+        self.assertEqual(claude.progress, ('tool-1', '45s'))
 
     def test_controls_length_limits_and_style_ranges_match_claude_projections(self):
         controls = ''.join(chr(n) for n in (*range(32), *range(127, 160)) if n != 10) + '\ud800'

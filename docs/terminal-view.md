@@ -315,10 +315,10 @@ result shows `✓ run finished`; a failed result shows a red `✗`, its subtype 
 first error line, without repeating the last assistant message. Runtime errors
 also show a red `✗` line.
 
-In Claude's formatted pane, at a tail start or an older page's starting byte boundary, a cut-off first
-record shows one dim `· earlier output skipped · h older` line, with none of
-its bytes in formatted mode. `h` reads toward earlier output. Raw mode retains
-that fragment's bytes and every record, including hidden progress records;
+In Claude's formatted pane, a cut-off first record at a tail start or an older
+page's starting byte boundary shows one dim `· earlier output skipped · h older`
+line, with none of its bytes in formatted mode. `h` reads toward earlier output.
+Raw mode retains that fragment's bytes and every record, including hidden progress records;
 the `p` raw-access screen is unchanged. Other split, oversized, unfinished and
 non-JSON fragments keep their labelled raw display.
 
@@ -343,15 +343,17 @@ delayed failure includes its tool name. The recordings contain starts and
 completions; synthetic tests exercise same-shape `item.updated` records.
 
 This CLI emits no producer timestamps: newly captured bytes show `~HH:MM:SS`,
-and pre-existing bytes leave the time column blank. An explicit timezone-aware top-level
-`timestamp`, if present, uses the same producer-time rules as Claude. No time is
-extracted from IDs, item fields or message text. File records carry operations
-and paths, without diffs or line counts; none are invented. MCP arguments,
+and pre-existing bytes leave the time column blank. An explicit timezone-aware
+top-level `timestamp`, if present, uses the same producer-time rules as Claude.
+No time is extracted from IDs, item fields or message text. File records carry
+operations and paths, without diffs or line counts; none are invented. MCP arguments,
 successful command/tool output, token usage and IDs remain available in raw
 mode. Reasoning, plans, web searches and other unvalidated item shapes show a
 dim event/item-type label. Errors whose message is itself JSON stay message
 text; nested payloads are not interpreted. Changed or unfamiliar complete
 records also show a dim type label instead of assuming a newer CLI's semantics.
+Claude-shaped `tool_progress` records are unvalidated for Codex and use that
+dim label; Codex records supply no elapsed call time, so none is invented.
 
 Raw mode retains every record, including hidden records. Oversized, split,
 unfinished, malformed and non-JSON fragments, including mixed diagnostic text,
@@ -500,8 +502,8 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    Repeat with `tests/fixtures/runtime_logs/codex.log`, `codex-tools.log` and
    `codex-error.log`: check assistant text, command/file/MCP activity, red failed
    results, runtime errors and run completion. Newly appended Codex records use
-   capture times; pre-existing records use `--:--:--`. Toggle raw mode on a hidden
-   `thread.started` and a failed result, and verify the anchor survives. The
+   capture times; pre-existing records leave the time column blank. Toggle raw
+   mode on a hidden `thread.started` and a failed result, and verify the anchor survives. The
    status line must still say `no outcome reported` when no workflow report exists.
 4. Replace or truncate the replay log. Check generation recovery and refusal of
    older reads from the prior generation.

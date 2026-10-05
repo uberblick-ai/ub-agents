@@ -404,7 +404,7 @@ class CodexFormatter(StructuredFormatter):
                 error = error.get("message")
             if not isinstance(error, str):
                 raise ValueError("Unfamiliar runtime error")
-            return "runtime ERROR", [Line("✗ " + _one_line(error.split("\n", 1)[0]), "red")], [], None
+            return "runtime ERROR", [Line("✗ " + _one_line(error.split("\n", 1)[0]), "error")], [], None
         if kind not in ("item.started", "item.updated", "item.completed"):
             return "other", [self._label(data)], [], None
         item = data.get("item")
@@ -414,7 +414,7 @@ class CodexFormatter(StructuredFormatter):
         if item_type == "error" and kind == "item.completed":
             if not isinstance(item.get("message"), str):
                 raise ValueError("Unfamiliar item error")
-            return "runtime ERROR", [Line("✗ " + _one_line(item["message"].split("\n", 1)[0]), "red")], [], None
+            return "runtime ERROR", [Line("✗ " + _one_line(item["message"].split("\n", 1)[0]), "error")], [], None
         if item_type == "agent_message" and kind == "item.completed":
             if not isinstance(item.get("text"), str):
                 raise ValueError("Unfamiliar message")
@@ -472,7 +472,7 @@ class CodexFormatter(StructuredFormatter):
         last_call = item_id if lines else self.last_call
         if failed and completed:
             label = name + ": " if last_call != item_id else ""
-            lines.append(Line("  ✗ " + label + _one_line(detail.split("\n", 1)[0]), "red"))
+            lines.append(Line("  ✗ " + label + _one_line(detail.split("\n", 1)[0]), "error"))
             last_call = None
         label = "tool ERROR" if failed and completed else "tool result" if completed else "tool call"
         return label, lines, [(item_id, signature)], last_call
