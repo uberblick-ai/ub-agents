@@ -570,11 +570,21 @@ class Loop:
         self.github.claimed(lease)
         if self._renewal is not None:
             self._renewal.claimed(lease)
-        if self._continuous and self._run_planning is None:
+        if self._continuous and self.observer is not None and self._run_planning is None:
             self._planning_workers = [worker for worker in self._planning_workers if worker.thread.is_alive()]
-            self._run_planning = RunPlanning(self, self._pass_started, clock=monotonic)
-            self._planning_workers.append(self._run_planning)
-            self._run_planning.start()
+            worker = None
+            try:
+                worker = RunPlanning(self, self._pass_started, clock=monotonic)
+                worker.start()
+            except Exception as exc:
+                if worker is not None:
+                    worker.cancel()
+                    if worker.thread.is_alive():
+                        self._planning_workers.append(worker)
+                self.output(f"Cannot start queue observations: {exc}")
+            else:
+                self._run_planning = worker
+                self._planning_workers.append(worker)
 
     def _stop_planning(self):
         if self._run_planning is not None:

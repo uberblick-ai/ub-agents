@@ -11,7 +11,7 @@ from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.records import records
-from ub_agents.run_planning import ObservationReads, RunPlanning
+from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning
 from tests.support import MemoryPublisher, PollGitHub, config, issue, stub_refresh
 
 
@@ -224,6 +224,42 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual(outcomes[0]['acceptance'], 'finalized')
         self.assertEqual(outcomes[0]['result'], 'success')
         self.assertEqual(self.loop._planning_workers, [])
+
+    def test_worker_start_failure_does_not_change_run_outcome(self):
+        def finish(*args, **kwargs):
+            self.loop.coordinator.report(self.loop.github.lease, 'success', 'Finished', outcome='done')
+            self.loop.stop_event.set()
+            return 0
+
+        with patch.object(RunPlanning, 'start', side_effect=RuntimeError('No worker available')), \
+                patch('ub_agents.loop.supervise', side_effect=finish):
+            self.loop.launch()
+        self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
+        self.assertEqual(self.loop._planning_workers, [])
+        self.assertTrue(any('Cannot start queue observations' in line for line in self.lines))
+
+    def test_completed_pass_cannot_overwrite_newer_own_outcome_or_notice(self):
+        role = replace(self.cfg.agents[0], outcomes={'done': {'add': ('needs-human',), 'remove': ('ready',)}})
+        self.loop.config = replace(self.cfg, agents=(role,))
+        self.observer.begin_pass()
+        plan = self.loop.plans()[0]
+        self.observer.assignment(plan)
+        lease = self.loop.coordinator.claim(plan, self.cfg.stop_labels)
+        self.loop.coordinator.update(lease, state='running', started=True)
+        worker = RunPlanning(self.loop, self.now)
+        events = PassEvents()
+        worker.planner.observer = events
+        list(worker.planner.iter_plans())
+        # The pass read the old labels before the run finalized a parking outcome.
+        outcome = self.loop.coordinator.report(lease, 'success', 'Maintainer needed', outcome='done')
+        self.loop.finalize(lease, plan, outcome, 'test completion')
+        self.loop.coordinator.release(lease, 'success', 'Maintainer needed')
+        previous = deepcopy(self.memory.snapshots[-1])
+        self.observer.observation_pass(self.now, events.events)
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(snapshot['outcomes'], previous['outcomes'])
+        self.assertEqual(snapshot['action_needed'].get('1'), previous['action_needed']['1'])
+        self.assertEqual(snapshot['histories']['1'], previous['histories']['1'])
 
     def test_after_run_wait_uses_latest_observation_start_and_only_poll_seconds(self):
         waits = []

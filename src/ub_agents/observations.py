@@ -340,6 +340,9 @@ class Observations:
         assignment = self.state["assignment"]
         key = str(assignment["item"]) if assignment else None
         history = self.state["histories"].get(key)
+        notice = self.state["action_needed"].get(key)
+        run = self.source_run or (assignment or {}).get("run")
+        outcomes = {row["run"]: dict(row) for row in self.state["outcomes"] if row["run"] == run}
         self._batching = True
         try:
             self.begin_pass(started)
@@ -348,6 +351,11 @@ class Observations:
             self.complete_pass()
             if history is not None:
                 self.state["histories"][key] = history
+            # Reads may predate a report or its completed label transition. The
+            # current run's records and notices remain authoritative for it.
+            if notice is not None:
+                self.state["action_needed"][key] = notice
+            self.state["outcomes"] = [outcomes.get(row["run"], row) for row in self.state["outcomes"]]
         finally:
             self.state["activity"] = activity
             self._batching = False

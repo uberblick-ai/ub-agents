@@ -50,12 +50,14 @@ class RunPlanning:
         github = loop.github.github
         self.stop = threading.Event()
         if isinstance(github, GitHub):
+            quotas = {resource: dict(headers) for resource, headers in github.resource_quotas.items()}
             runner = github.runner or subprocess.run
             def request(*args, **kwargs):
                 if self.stop.is_set():
                     raise _Cancelled
                 return runner(*args, **kwargs)
             github = GitHub(github.repository, request)
+            github.resource_quotas = quotas
         self.lock = threading.Lock()
         self.started = started
         from .loop import Loop

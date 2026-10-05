@@ -1394,7 +1394,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
                 path.write_text(json.dumps(state))
-                overflow = checkpoint(lambda value: value['sections'] == ['Running · 0', 'Eligible · 49'])
+                overflow = checkpoint(lambda value: value['sections'] == ['Running · 0', 'Eligible · 49 · showing 10'])
+                self.assertEqual(len(overflow['eligible']), 10)
                 self.assertEqual(overflow['recent_bounds'], empty['recent_bounds'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)

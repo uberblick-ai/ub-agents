@@ -45,8 +45,9 @@ for signal handling, including during a GitHub request.
 
 Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
 publishes a local JSON snapshot at `.ub-agents/sessions/<session-id>.json` in the
-control checkout. Publication is always on, has no configuration key, and makes
-no additional GitHub requests.
+control checkout. Publication is always on and has no configuration key.
+Writing the snapshot makes no GitHub requests; continuous launch also runs
+read-only observation passes during assignments to refresh the planned queue.
 `status` and embedded loops without an observer keep their existing
 behavior. Snapshots contain issue titles and descriptions already read by the
 launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
@@ -73,7 +74,7 @@ The version 1 envelope contains:
 |---|---|
 | `session`, `pid`, `host`, `actor`, `repository`, `config_path` | Launcher identity and configuration; `started_at` and `published_at` use UTC ISO 8601 times. |
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
-| `assignment` | Current item, kind, title, agent, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
+| `assignment` | Current item, kind, title, agent, effective priority word, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
 | `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
 | `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff when reported, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit optional header context. |
 | `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
