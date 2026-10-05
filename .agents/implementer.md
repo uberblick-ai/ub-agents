@@ -41,7 +41,12 @@ as its shared guidance describes.
 
 Then run `ub-agents report --outcome handed-off --summary "Checks passed; candidate
 ready for review" --handoff PR_NUMBER`. Report retry for an identified transient
-failure; report blocked and explain unresolved human decisions. The
+failure; report blocked and explain unresolved human decisions.
+
+Fix a failing check in code or tests. A check that passes only after changing the
+environment it runs in (setting or unsetting variables, skipping or deselecting tests,
+extra flags) has not passed. If the repository cannot fix the failure, report blocked
+with the evidence. The
 framework supplies no checks, acceptance rules, or permission grants.
 
 Every stop report (`--status blocked` or an outcome adding a configured stop label)
