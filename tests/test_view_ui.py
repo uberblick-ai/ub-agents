@@ -1471,6 +1471,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 2')
             self.assertEqual(app.query_one(TabbedContent).active, 'runs')
             self.assertEqual(markdown.source, description['text'])
+            tree.get_node_at_line(0)  # Resolve the reordered rows before reading node._line.
             self.assertEqual(tree.render_line(node._line + 1 - int(tree.scroll_y)).text.rstrip(), '  integrator')
             self.state['latest_pass']['rows'][1]['state'] = 'ready'
             self.path.write_text(json.dumps(self.state))
