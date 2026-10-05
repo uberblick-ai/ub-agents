@@ -15,11 +15,16 @@ uberblick-ai/uberblick-2 tracks its role-file update separately.
 ### Added
 
 - Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
+- Clicking the selected item's header reference opens its GitHub issue or PR in the default browser on every terminal-view tab (#260).
 
 ### Changed
 
 - Stop reports require `--action` for each independent ask; human-action notices collapse full reasoning, evidence and resume instructions in GitHub and terminal views (#181, #195).
 - Continuous launch keeps planning during assignments; Eligible shows the next ten items in claim order with counts and colored priority words (#248).
+
+### Fixed
+
+- The Work pane leaves one blank row before displayed Needs attention and Eligible headings in both wide and narrow layouts (#258).
 
 ## 0.1.12 — 2026-10-05
 

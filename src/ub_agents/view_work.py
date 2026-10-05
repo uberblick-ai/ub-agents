@@ -150,8 +150,9 @@ class WorkTree(Tree):
         lines = []
         previous = None
         for line in self._tree_lines_cached:
-            if (self.row_height == 2 and previous is not None
-                    and previous.node.data is not None and line.node.data is not None
+            if previous is not None and (
+                    line.node in (self.app.groups.get('Needs attention'), self.app.groups.get('Eligible'))
+                    or self.row_height == 2 and previous.node.data is not None and line.node.data is not None
                     and previous.node.parent is line.node.parent):
                 # Keep Textual's line cache intact, but make this copy inert.
                 self._spacer_lines.add(len(lines))

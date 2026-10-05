@@ -91,7 +91,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertTrue(value['work'])
                     self.assertFalse(value['panes'])
                     self.assertEqual(value['work_width'], size[0])
-                    self.assertEqual(value['rows'], 4)
+                    self.assertEqual(value['rows'], 5)
                     self.assertEqual(value['upper_bottom'], value['recent_y'])
                     self.assertEqual(len(value['recent'].splitlines()), 2)
                     self.assertRegex(value['footer'], r'^v0\.1\.11 · poll \d+s')
@@ -180,6 +180,98 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.send(quit_key)
                 terminal.wait_exit()
                 self.assertTrue(log.exists())
+
+    def test_work_heading_separators_in_real_terminal_across_resize_refresh_and_scroll(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root, count=1)
+            attention = {'item': 20, 'agent': 'worker', 'state': 'blocked', 'title': 'Attention work'}
+            eligible = {'item': 22, 'agent': 'worker', 'state': 'ready', 'title': 'Eligible work'}
+            state['latest_pass'] = {'state': 'complete', 'rows': [attention, eligible]}
+            path.write_text(json.dumps(state))
+            proof = root / 'proof.json'
+            script = '''
+import pathlib, sys
+from textual.binding import Binding
+from textual.widgets import Tree
+from ub_agents.view_ui import RecentActivity, View
+class ProofView(checkpoint_view(View, sys.argv[3])):
+    BINDINGS = [Binding('s', 'scroll_work', priority=True)]
+    def action_scroll_work(self):
+        self.query_one(Tree).scroll_end(animate=False, immediate=True)
+    def proof_values(self):
+        tree, recent = self.query_one(Tree), self.query_one(RecentActivity)
+        tree.get_node_at_line(0)
+        strips = self.screen._compositor.render_strips()
+        return {'narrow': self.narrow, 'selected': self.selected,
+                'cursor': tree.cursor_node.data if tree.cursor_node else None,
+                'focus': self.focused.id if self.focused else None,
+                'groups': {name: node._line for name, node in self.groups.items()},
+                'rows': tree.virtual_size.height, 'spacers': sorted(tree._spacer_lines),
+                'scroll': tree.scroll_offset.y, 'upper_bottom': tree.region.bottom,
+                'recent_y': recent.region.y, 'recent_scroll': recent.scroll_y,
+                'live': [strip.crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
+                         for strip in strips[tree.region.y:tree.region.bottom]]}
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
+'''
+            with Terminal(script, root, path, proof, proof=proof, size=(140, 44)) as terminal:
+                for size in ((140, 44), (80, 32), (140, 44)):
+                    terminal.resize(*size)
+                    current = terminal.checkpoint(lambda value: value['narrow'] == (size[0] < 110)
+                                     and len(value['groups']) == 3 and value['cursor'] == 'assignment:owned-run')
+                    self.assertEqual(current['selected'], 'assignment:owned-run')
+                    self.assertEqual(current['rows'], 8 if current['narrow'] else 11)
+                    self.assertEqual(current['groups']['Running'], 0)
+                    self.assertEqual(current['spacers'], sorted(current['groups'][name] - 1
+                                                for name in ('Needs attention', 'Eligible')))
+                    self.assertEqual(current['upper_bottom'], current['recent_y'])
+                    for name in ('Needs attention', 'Eligible'):
+                        line = current['groups'][name] - current['scroll']
+                        self.assertEqual(current['live'][line - 1].strip(), '')
+                        self.assertTrue(current['live'][line - 2].strip())
+                        self.assertTrue(current['live'][line].startswith(name + ' · 1'))
+                        self.assertTrue(current['live'][line + 1].strip())
+                    # Arrow input crosses each blank row and returns without selecting a heading.
+                    terminal.send(b'\x1b[B' * 4)
+                    terminal.checkpoint(lambda value: value['cursor'] == 'plan:22')
+                    terminal.send(b'\x1b[B')
+                    terminal.checkpoint(lambda value: value['focus'] == 'recent')
+                    terminal.send(b'\x1b[A' * 5)
+                    terminal.checkpoint(lambda value: value['focus'] == 'work'
+                                       and value['cursor'] == 'assignment:owned-run')
+                boundary = current['recent_y']
+                state['latest_pass']['rows'] = [eligible]
+                path.write_text(json.dumps(state))
+                hidden = terminal.checkpoint(lambda value: 'Needs attention' not in value['groups'])
+                self.assertEqual(hidden['rows'], 7)
+                self.assertEqual(hidden['spacers'], [3])
+                self.assertEqual(hidden['recent_y'], boundary)
+                self.assertEqual(hidden['selected'], 'assignment:owned-run')
+                terminal.send(b'\x1b[B' * 2 + b'\r')
+                terminal.checkpoint(lambda value: value['selected'] == 'plan:22')
+                state['assignment'] = None
+                path.write_text(json.dumps(state))
+                idle = terminal.checkpoint(lambda value: value['rows'] == 6)
+                self.assertEqual(idle['spacers'], [2])
+                self.assertEqual(idle['groups']['Eligible'], 3)
+                self.assertIn('Idle', idle['live'][1])
+                self.assertEqual(idle['live'][2].strip(), '')
+                self.assertEqual(idle['selected'], 'plan:22')
+                state['latest_pass']['rows'] = [attention, eligible] + [
+                    {'item': item, 'agent': 'worker', 'state': 'ready'} for item in range(30, 60)]
+                path.write_text(json.dumps(state))
+                # Eligible shows ten of its 31 items, still enough to scroll the upper half.
+                capped = terminal.checkpoint(lambda value: value['rows'] == 37)
+                self.assertTrue(capped['live'][capped['groups']['Eligible'] - capped['scroll']]
+                                .startswith('Eligible · 31 · showing 10'))
+                terminal.send(b's')
+                scrolled = terminal.checkpoint(lambda value: value['scroll'] > 0)
+                self.assertEqual(scrolled['recent_y'], boundary)
+                self.assertEqual(scrolled['upper_bottom'], boundary)
+                self.assertEqual(scrolled['recent_scroll'], 0)
+                self.assertEqual(scrolled['selected'], 'plan:22')
+                terminal.send(b'q')
+                terminal.wait_exit()
 
     def test_update_banners_in_real_terminal_with_live_replay_and_resize(self):
         with tempfile.TemporaryDirectory() as directory:
