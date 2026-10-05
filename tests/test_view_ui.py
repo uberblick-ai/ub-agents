@@ -1183,7 +1183,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             def normal_work():
                 self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 5')
                 self.assertIn(line(own)[0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
-                self.assertEqual(line(own, True), '  implementer · this launcher · attempt…')
+                self.assertEqual(line(own, True), pane_line('  implementer · this launcher · attempt 3',
+                                                          tree.scrollable_content_region.width).plain)
                 for item, state in ((20, 'next'), (21, 'ready'), (22, 'recover'),
                                     (23, 'backoff'), (24, 'waiting')):
                     self.assertTrue(line(f'plan:{item}').endswith(state))
@@ -1203,7 +1204,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.groups['Eligible'].label.plain, label)
             tree.get_node_at_line(0)
             heading = tree.render_line(app.groups['Eligible']._line - tree.scroll_offset.y).text
-            self.assertEqual(heading, 'Eligible · 5 · not claimed while stoppi…')
+            self.assertEqual(heading, pane_line(label, tree.scrollable_content_region.width).plain)
             for item in (20, 21, 22):
                 self.assertTrue(line(f'plan:{item}').endswith('held'))
             for item, state in ((23, 'backoff'), (24, 'waiting')):
@@ -1932,8 +1933,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 lines = rendered.plain.splitlines()
                 self.assertTrue(lines[1].startswith('✓ ⌥12 Foreign candidate'))
                 self.assertEqual(lines[2], f'  integrator · {when} · squash-merged')
-                self.assertTrue(lines[3].startswith('✓ #10 Issue ⌥88'))
-                self.assertEqual(lines[4], f'  implementer · {when} · opened ⌥167 · Summary ⌥99 #98')
+                self.assertEqual(lines[3], '')
+                self.assertTrue(lines[4].startswith('✓ #10 Issue ⌥88'))
+                self.assertEqual(lines[5], f'  implementer · {when} · opened ⌥167 · Summary ⌥99 #98')
                 accent = theme_style(app, 'view-accent').color
                 for reference in ('⌥12', '⌥167'):
                     offset = rendered.plain.index(reference)
@@ -1973,11 +1975,54 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             lines = recent.render().plain.splitlines()
             self.assertTrue(lines[1].startswith('✓ #12 Snapshot issue'))
             self.assertEqual(lines[2], f'  integrator · {when}')
-            self.assertEqual(lines[4], f'  implementer · {when} · opened ⌥167')
+            self.assertEqual(lines[5], f'  implementer · {when} · opened ⌥167')
             self.assertEqual(transport.calls, [])
             await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_recent_blank_rows_are_inert_and_only_whole_items_fit(self):
+        self.state['outcomes'] = [dict(self.state['outcomes'][0], run=f'past-{n}') for n in range(8)]
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(140, 44)) as pilot:
+            recent = app.query_one(RecentActivity)
+            await self.ready(app, pilot, lambda: len(recent.rows) == 8)
+            for height, count in ((1, 0), (2, 0), (3, 1), (5, 1), (6, 2), (8, 2), (9, 3)):
+                recent.styles.height = height
+                await pilot.pause()
+                self.assertEqual(len(recent.visible_rows), count)
+                lines = recent.render().plain.splitlines()
+                self.assertEqual(len(lines), max(1, 3 * count))
+                self.assertLessEqual(len(lines), height)
+                self.assertEqual([row.key for row in recent.visible_rows],
+                                 [f'outcome:past-{n}' for n in range(7, 7 - count, -1)])
+            recent.focus()
+            recent.cursor = recent.visible_rows[0].key
+            await pilot.press('enter', 'down', 'enter')
+            self.assertEqual(app.selected, recent.visible_rows[1].key)
+            await pilot.press('up', 'enter')
+            self.assertEqual(app.selected, recent.visible_rows[0].key)
+            for y in (4, 5):
+                await pilot.click('#recent', offset=(2, y))
+                self.assertEqual(app.selected, recent.visible_rows[1].key)
+                self.assertEqual(recent.cursor, app.selected)
+            rendered = recent.render()
+            blank = rendered.plain.index('\n\n') + 1
+            self.assertIsNone(rendered.get_style_at_offset(app.console, blank).bgcolor)
+            self.assertIsNotNone(rendered.get_style_at_offset(app.console, blank + 1).bgcolor)
+            await pilot.click('#recent', offset=(2, 3))
+            self.assertEqual(app.selected, recent.visible_rows[1].key)
+            self.assertEqual(recent.cursor, app.selected)
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            self.assertEqual(len(recent.visible_rows), 8)
+            self.assertEqual(len(recent.render().plain.splitlines()), 9)
+            for y in (1, 2):
+                await pilot.click('#recent', offset=(2, y))
+                self.assertEqual(app.selected, recent.visible_rows[y - 1].key)
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_recent_whole_rows_dim_selection_and_clipped_selected_outcome(self):
         self.state['assignment'] = None
@@ -1997,7 +2042,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                              [f'outcome:past-{n}' for n in range(19, 19 - len(visible), -1)])
             rendered = recent.render()
             lines = rendered.plain.splitlines()
-            self.assertEqual(len(lines), 1 + 2 * len(visible))
+            self.assertEqual(len(lines), 3 * len(visible))
             self.assertLessEqual(len(lines), recent.size.height)
             self.assertTrue(lines[0].startswith('Recent activity · 0 today'))
             selected_offset = rendered.plain.index('Outcome 19')
@@ -2049,6 +2094,74 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_combined_work_blank_rows_preserve_headings_selection_and_narrow_rows(self):
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': 20, 'agent': 'worker', 'state': 'blocked'},
+            {'item': 21, 'agent': 'worker', 'state': 'blocked'},
+            {'item': 12, 'agent': 'reviewer', 'state': 'ready'},
+            {'item': 22, 'agent': 'worker', 'state': 'ready'},
+        ]}
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(140, 44)) as pilot:
+            await self.ready(app, pilot)
+            tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
+            tree.get_node_at_line(0)
+            self.assertEqual(tree.virtual_size.height, 15)
+            groups = list(app.groups.values())
+            for index, group in enumerate(groups):
+                self.assertEqual(group.children[0]._line, group._line + 1)
+                if index + 1 < len(groups):
+                    self.assertEqual(groups[index + 1]._line, group.children[-1]._line + 2)
+            tree.focus()
+            for name in ('Needs attention', 'Eligible'):
+                first, second = app.groups[name].children
+                self.assertEqual(second._line, first._line + 3)
+                gap = first._line + 2
+                self.assertIsNone(tree.get_node_at_line(gap))
+                self.assertIsNone(tree._get_label_region(gap))
+                tree.move_cursor(first)
+                await pilot.pause()
+                for line in (first._line, first._line + 1):
+                    self.assertIs(tree.get_node_at_line(line), first)
+                    self.assertEqual(tree._get_label_region(line).height, 2)
+                    strip = tree.render_line(line - tree.scroll_offset.y)
+                    self.assertTrue(all(segment.style.meta.get('node') == first.id for segment in strip))
+                blank = tree.render_line(gap - tree.scroll_offset.y)
+                self.assertEqual(blank.text.strip(), '')
+                selection = tree.get_component_rich_style('tree--cursor', partial=False).bgcolor
+                self.assertTrue(all(not segment.style.meta and segment.style.bgcolor != selection
+                                    for segment in blank))
+                await pilot.press('down', 'enter')
+                self.assertIs(tree.cursor_node, second)
+                self.assertEqual(app.selected, second.data)
+                await pilot.press('up', 'enter')
+                self.assertIs(tree.cursor_node, first)
+                self.assertEqual(app.selected, first.data)
+                for offset in (0, 1):
+                    await pilot.click('#work', offset=(2, second._line + offset - tree.scroll_offset.y))
+                    self.assertIs(tree.cursor_node, second)
+                    self.assertEqual(app.selected, second.data)
+                await pilot.click('#work', offset=(2, gap - tree.scroll_offset.y))
+                self.assertIs(tree.cursor_node, second)
+                self.assertEqual(app.selected, second.data)
+            await pilot.press('down', 'enter')
+            self.assertIs(app.focused, recent)
+            self.assertEqual(app.selected, recent.visible_rows[0].key)
+            await pilot.press('up', 'enter')
+            self.assertIs(app.focused, tree)
+            self.assertEqual(app.selected, groups[-1].children[-1].data)
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            tree.get_node_at_line(0)
+            self.assertEqual(tree.virtual_size.height, 8)  # Three headings, five single-line items.
+            self.assertTrue(all(tree.get_node_at_line(line) is not None for line in range(8)))
+            first, second = app.groups['Eligible'].children
+            self.assertEqual(second._line, first._line + 1)
+            self.assertEqual(tree._get_label_region(first._line).height, 1)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_live_rows_are_two_clipped_lines_at_110_by_32_and_mouse_selects_either(self):
         self.state['assignment'].update(kind='issue', title='A long assignment title ' * 5, attempt=1)
         self.state['latest_pass']['rows'][1].update(kind='pr', title='Foreign work')
@@ -2067,7 +2180,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             tree = app.query_one('#work', Tree)
             tree.get_node_at_line(0)
-            self.assertEqual(tree.virtual_size.height, 3 + 2 * 5)
+            self.assertEqual(tree.virtual_size.height, 15)  # Three headings, five items, two gaps.
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
@@ -2088,7 +2201,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(first.text[1:].startswith(prefix), first.text)
                     self.assertRegex(first.text, r'\d\d:\d\d$')
                     self.assertIn('…', first.text)
-                    self.assertEqual(second.text.rstrip(), '  implementer · this launcher · attempt…')
+                    self.assertEqual(second.text.rstrip(),
+                                     pane_line('  implementer · this launcher · attempt 1', width).plain)
                 else:
                     self.assertTrue(first.text.startswith(prefix), first.text)
                     self.assertTrue(first.text.endswith(status), first.text)
@@ -2152,7 +2266,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             nodes = tuple(app.nodes.items())
             lines = tree._tree_lines_cached
             position = (app.selected, tree.cursor_node, tree.scroll_offset, app.focused, tree.virtual_size)
-            self.assertEqual(tree.virtual_size.height, len(app.groups) + 2 * len(nodes))
+            self.assertEqual(tree.virtual_size.height, 66)  # Two headings, 22 items, 20 gaps.
             def displayed(key=own, detail=False):
                 line = app.nodes[key]._line + int(detail) - tree.scroll_offset.y
                 strips = app.screen._compositor.render_strips()

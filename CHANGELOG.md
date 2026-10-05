@@ -12,6 +12,7 @@ notes are copied from that section.
 
 ### Changed
 
+- Two-line Work pane items have one blank row between them in the combined layout, keeping each item's details separate (#234).
 - Eligible lists each item once with all its eligible agents, counting items and retaining selection when those agents change (#233).
 - The terminal view adds padding inside both panes and a one-column gap between them, keeping content inset in narrow layouts (#231).
 - Needs attention rows show elapsed waiting time and the agent, state and parking reason, using the same start time as Unblock (#180).

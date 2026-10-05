@@ -124,6 +124,7 @@ class WorkTree(Tree):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.claim_times = {}
+        self._spacer_lines = set()
 
     def on_mount(self):
         self.set_interval(1 / SPINNER_FPS, self.refresh)
@@ -137,17 +138,33 @@ class WorkTree(Tree):
                     self.claim_times[row.key] = stamp
 
     def _build(self):
+        self._spacer_lines = set()
         super()._build()
         lines = []
+        previous = None
         for line in self._tree_lines_cached:
+            if (self.row_height == 2 and previous is not None
+                    and previous.node.data is not None and line.node.data is not None
+                    and previous.node.parent is line.node.parent):
+                # Keep Textual's line cache intact, but make this copy inert.
+                self._spacer_lines.add(len(lines))
+                lines.append(previous)
             line.node._line = len(lines)
             lines.append(line)
             if line.node.data is not None and self.row_height == 2:
                 lines.append(line)
+            previous = line
         self._tree_lines_cached = lines
         self.virtual_size = Size(self.scrollable_content_region.width, len(lines))
         if self.cursor_node is not None:
             self.cursor_line = self.cursor_node._line
+
+    def get_node_at_line(self, line_no):
+        node = super().get_node_at_line(line_no)
+        return None if line_no in self._spacer_lines else node
+
+    def _get_node(self, line):
+        return None if line == -1 else self.get_node_at_line(line)
 
     def _get_label_region(self, line):
         node = self.get_node_at_line(line)
@@ -202,6 +219,8 @@ class WorkTree(Tree):
         self.get_node_at_line(0)
         node = self.cursor_node
         line = node._line - 1 if node else self.last_line
+        while line > 0 and self.get_node_at_line(line) is None:
+            line -= 1
         self.move_cursor(self.get_node_at_line(max(0, line)))
 
     def action_cursor_down(self):
@@ -209,6 +228,8 @@ class WorkTree(Tree):
         recent = self.app.query_one(RecentActivity)
         node = self.cursor_node
         line = node._line + (self.row_height if node.data is not None else 1) if node else 0
+        while line <= self.last_line and self.get_node_at_line(line) is None:
+            line += 1
         if line > self.last_line and recent.visible_rows:
             recent.cursor = recent.visible_rows[0].key
             self.screen.set_focus(recent, scroll_visible=False)
@@ -230,11 +251,20 @@ class RecentActivity(Static, can_focus=True):
 
     @property
     def visible_rows(self):
-        return self.rows[:max(0, (self.content_size.height - 1) // self.row_height)]
+        available = max(0, self.content_size.height - 1)
+        return self.rows[:(available + self.row_spacing) // self.row_stride]
 
     @property
     def row_height(self):
         return 1 if self.app.narrow else 2
+
+    @property
+    def row_spacing(self):
+        return 0 if self.app.narrow else 1
+
+    @property
+    def row_stride(self):
+        return self.row_height + self.row_spacing
 
     def populate(self, rows, session):
         self.rows = [row for row in rows if row.group == 'Recent activity'
@@ -248,7 +278,7 @@ class RecentActivity(Static, can_focus=True):
         width = self.content_size.width
         header = section_rule(f'Recent activity · {self.today} today', width,
                               theme_style(self.app, 'view-muted'))
-        for row in self.visible_rows:
+        for index, row in enumerate(self.visible_rows):
             style = theme_style(self.app, 'foreground' if row.key == self.app.selected else 'view-muted',
                                 dim=row.key != self.app.selected)
             if self.has_focus and row.key == self.cursor:
@@ -282,6 +312,8 @@ class RecentActivity(Static, can_focus=True):
             if summary:
                 detail.append(' · ' + summary)
             detail.truncate(width, overflow='ellipsis')
+            if index and self.row_spacing:
+                header.append('\n')
             header.append('\n')
             first.stylize_before(style)
             header.append_text(first)
@@ -316,8 +348,8 @@ class RecentActivity(Static, can_focus=True):
             self.app.select(self.cursor)
 
     def on_click(self, event):
-        index = (event.y - 1) // self.row_height
-        if 0 <= index < len(self.visible_rows):
+        index, offset = divmod(event.y - 1, self.row_stride)
+        if 0 <= index < len(self.visible_rows) and offset < self.row_height:
             self.cursor = self.visible_rows[index].key
             self.action_select()
 
