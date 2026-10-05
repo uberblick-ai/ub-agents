@@ -15,6 +15,7 @@ uberblick-ai/uberblick-2 tracks its role-file update separately.
 ### Added
 
 - Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
+- Clicking the selected item's header reference opens its GitHub issue or PR in the default browser on every terminal-view tab (#260).
 
 ### Changed
 
@@ -22,6 +23,7 @@ uberblick-ai/uberblick-2 tracks its role-file update separately.
 
 ### Fixed
 
+- The Work pane leaves one blank row before displayed Needs attention and Eligible headings in both wide and narrow layouts (#258).
 - Completed issues and PRs leave Needs attention after released retry or blocked runs, including selected rows, while unresolved obligations remain visible (#227).
 
 ## 0.1.12 — 2026-10-05
