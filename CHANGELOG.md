@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** stop all of a project's launchers and wait until every one has exited,
+then upgrade and restart them together. Older launchers reject the new
+`retrospectives` agent key now used in this repository's configuration (#207).
+
+### Added
+
+- Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
+
 ## 0.1.12 — 2026-10-05
 
 **Upgrading:** the coordination record format is unchanged, so launchers can be

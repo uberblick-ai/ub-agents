@@ -137,6 +137,7 @@ class Agent:
     backoff_seconds: float
     max_backoff_seconds: float
     outcomes: dict
+    retrospectives: int | None = None
 
 
 @dataclass(frozen=True)
@@ -272,7 +273,10 @@ def load_config(path):
             raise AgentError("Agent names must be lowercase slugs")
         item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
             "command", "runtime-args", "different-runtime-from", "kind",
-            "worktree", "outcomes"}, f"agent {name}")
+            "worktree", "outcomes", "retrospectives"}, f"agent {name}")
+        retrospectives = item.get("retrospectives")
+        if "retrospectives" in item and (type(retrospectives) is not int or retrospectives <= 0):
+            raise AgentError(f"{name} retrospectives must be a positive integer discussion number")
         if ("runtime" in item) == ("command" in item):
             raise AgentError(f"{name}: specify exactly one of runtime or command")
         command = argv(item["command"], f"{name} command") if "command" in item else ()
@@ -350,7 +354,7 @@ def load_config(path):
             tuple(runtimes), command, runtime_args, different, kind, worktree,
             LEASE_SECONDS,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
-            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes))
+            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives))
     for agent in agents:
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
