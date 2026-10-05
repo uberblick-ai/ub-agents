@@ -1981,6 +1981,139 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
 
+    async def test_recent_outcome_cues_preserve_all_row_states_and_follow_the_theme(self):
+        cases = [('success', True, '✓', 'view-success'),
+                 ('prepared', True, '✓', 'view-success'),
+                 ('handed-off', True, '✓', 'view-success'),
+                 ('merged', True, '✓', 'view-success'),
+                 ('retry', False, '✗', 'view-error'),
+                 ('blocked', True, '✗', 'view-error'),
+                 ('failed', False, '✗', 'view-error'),
+                 ('abandoned', False, '✗', 'view-error'),
+                 ('interrupted', False, '○', None)]
+        self.state['outcomes'] = [
+            {'item': 30 + index, 'kind': 'pr', 'run': result, 'title': 'Title',
+             'agent': 'worker', 'time': self.state['published_at'],
+             'result': result, 'completed': completed, 'summary': 'Detail'}
+            for index, (result, completed, _, _) in enumerate(cases)]
+        self.path.write_text(json.dumps(self.state))
+        with patch.dict(os.environ):
+            os.environ.pop('NO_COLOR', None)
+            app = View(self.root, self.path)
+        async with app.run_test(size=(160, 80)) as pilot:
+            recent = app.query_one(RecentActivity)
+            await self.ready(app, pilot, lambda: len(recent.visible_rows) == len(cases))
+            expected = {result: (glyph, variable) for result, _, glyph, variable in cases}
+            for theme in ('ub-agents', 'textual-light'):
+                app.theme = theme
+                await pilot.pause()
+                for focused in (False, True):
+                    (recent if focused else app.query_one(Tree)).focus()
+                    await pilot.pause()
+                    self.assertEqual(recent.has_focus, focused)
+                    for selected in (False, True):
+                        for cursor in (False, True):
+                            for index, row in enumerate(recent.visible_rows):
+                                with self.subTest(theme=theme, result=row.data['result'],
+                                                  focused=focused, selected=selected, cursor=cursor):
+                                    app.selected = row.key if selected else 'assignment:owned-run'
+                                    recent.cursor = row.key if cursor else 'another-row'
+                                    first, detail = recent.render().split('\n')[
+                                        1 + index * recent.row_stride:3 + index * recent.row_stride]
+                                    glyph, variable = expected[row.data['result']]
+                                    row_style = theme_style(app, 'foreground' if selected else 'view-muted',
+                                                            dim=not selected)
+                                    if focused and cursor:
+                                        row_style += theme_style(app, 'view-accent',
+                                                                 bgcolor=app.theme_variables['view-selection'])
+                                    cue_color = theme_style(app, variable).color if variable else row_style.color
+                                    self.assertTrue(first.plain.startswith(f'{glyph} ⌥{row.item} Title'))
+                                    self.assertTrue(first.plain.endswith(row.data['result']))
+                                    offsets = [0, *range(len(first) - len(row.data['result']), len(first))]
+                                    for offset in offsets:
+                                        cue = first.get_style_at_offset(app.console, offset)
+                                        self.assertEqual(cue.color, cue_color)
+                                        self.assertEqual(cue.dim, row_style.dim)
+                                        self.assertEqual(cue.bgcolor, row_style.bgcolor)
+                                    for offset in (1, 3, first.plain.index('Title')):
+                                        self.assertEqual(first.get_style_at_offset(app.console, offset), row_style)
+                                    marker = first.get_style_at_offset(app.console, 2)
+                                    self.assertEqual(marker.color, theme_style(app, 'view-accent').color)
+                                    self.assertEqual(marker.dim, row_style.dim)
+                                    self.assertEqual(marker.bgcolor, row_style.bgcolor)
+                                    self.assertEqual(detail.get_style_at_offset(app.console, 2), row_style)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_recent_clipped_outcome_labels_keep_color_and_alignment_in_both_layouts(self):
+        self.state['outcomes'] = [
+            {'item': 30 + index, 'run': str(index), 'title': '界' * 80, 'agent': 'worker',
+             'time': self.state['published_at'], 'result': result, 'completed': completed}
+            for index, (result, completed) in enumerate(
+                [('completed-' * 10, True), ('abandoned', False), ('interrupted-' * 10, False)])]
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            recent = app.query_one(RecentActivity)
+            await self.ready(app, pilot, lambda: len(recent.visible_rows) == 3)
+            for size in ((110, 32), (60, 16)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause()
+                self.assertEqual(app.narrow, size[0] < 110)
+                for width in ('100%', 9):
+                    recent.styles.width = width
+                    await pilot.pause()
+                    rendered = recent.render()
+                    lines = rendered.split('\n')
+                    self.assertTrue(rendered.no_wrap)
+                    self.assertEqual(len(lines), 3 * len(recent.visible_rows) if not app.narrow else 4)
+                    for index, row in enumerate(recent.visible_rows):
+                        with self.subTest(size=size, width=width, result=row.data['result']):
+                            line = lines[1 + index * recent.row_stride]
+                            self.assertEqual(line.cell_len, recent.content_size.width)
+                            # The title is clipped independently of the right-aligned status.
+                            self.assertIn('…', line.plain[:-1])
+                            label = line.plain.rsplit(' ', 1)[-1]
+                            if width == 9 or row.data['result'] != 'abandoned':
+                                self.assertTrue(label.endswith('…'))
+                            else:
+                                self.assertEqual(label, 'abandoned')
+                            variable = ('view-success' if row.data['completed'] else
+                                        'view-error' if row.data['result'] == 'abandoned' else 'view-muted')
+                            color = theme_style(app, variable).color
+                            for offset in [0, *range(len(line) - len(label), len(line))]:
+                                self.assertEqual(line.get_style_at_offset(app.console, offset).color, color)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_recent_outcome_cues_are_monochrome_with_no_color(self):
+        self.state['outcomes'] = [
+            {'item': 30 + index, 'run': str(index), 'title': 'Synthetic outcome',
+             'time': self.state['published_at'], 'result': result, 'completed': completed}
+            for index, (result, completed) in enumerate(
+                [('prepared', True), ('failed', False), ('interrupted', False)])]
+        self.path.write_text(json.dumps(self.state))
+        with patch.dict(os.environ, {'NO_COLOR': '1'}):
+            app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            recent = app.query_one(RecentActivity)
+            await self.ready(app, pilot, lambda: len(recent.visible_rows) == 3)
+            strips = app.screen._compositor.render_strips()[recent.region.y:recent.region.bottom]
+            visible = '\n'.join(strip.text for strip in strips)
+            for cue in ('✓', '✗', '○', 'prepared', 'failed', 'interrupted'):
+                self.assertIn(cue, visible)
+            for strip in strips:
+                for segment in strip:
+                    if segment.style and segment.style.color:
+                        color = segment.style.color.get_truecolor()
+                        self.assertEqual(color.red, color.green)
+                        self.assertEqual(color.green, color.blue)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
     async def test_recent_blank_rows_are_inert_and_only_whole_items_fit(self):
         self.state['outcomes'] = [dict(self.state['outcomes'][0], run=f'past-{n}') for n in range(8)]
         self.path.write_text(json.dumps(self.state))
