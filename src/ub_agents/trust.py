@@ -2,6 +2,7 @@
 
 from urllib.parse import quote
 
+from .bots import listed_bot
 from .errors import AgentError, GitHubError
 
 WRITERS = {"write", "maintain", "admin"}
@@ -40,8 +41,7 @@ class LauncherTrust:
 
     def __call__(self, author):
         login = author.get("login") if isinstance(author, dict) else None
-        if (isinstance(login, str) and login.casefold() in self.trusted_bots and
-                (author.get("type") == "Bot" or author.get("__typename") == "Bot")):
+        if listed_bot(author, self.trusted_bots):
             self.observed(login, f"Listed bot @{login} supplies feedback, not launcher records")
             return False
         return self.reason(login) is None

@@ -13,6 +13,7 @@ notes are copied from that section.
 
 ### Changed
 
+- PR pickup after outside title or body edits requires a maintainer start or approval record, including trusted-authored PRs; approving reviews no longer clear edits (#190).
 - Two-line Work pane items have one blank row between them in the combined layout, keeping each item's details separate (#234).
 - Eligible lists each item once with all its eligible agents, counting items and retaining selection when those agents change (#233).
 - The terminal view adds padding inside both panes and a one-column gap between them, keeping content inset in narrow layouts (#231).

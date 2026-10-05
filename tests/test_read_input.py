@@ -87,7 +87,7 @@ class ReadInputTests(unittest.TestCase):
 
     def test_all_feedback_clearance_matches_assignment_context(self):
         self.config = replace(self.config, trusted_bots=("COPILOT",))
-        self.github.roles.update(member="triage", reader="read")
+        self.github.roles.update(member="triage", reader="read", **{"other-bot": None})
         for number in (1, 2):
             groups = {"comments": self.github.store}
             if number == 2:
@@ -119,6 +119,101 @@ class ReadInputTests(unittest.TestCase):
                     self.assertEqual(read["withheld_counts"][name], 6 if edit else 5)
                 self.assertEqual(read["withheld_counts"], assignment["withheld_counts"])
         self.assertEqual(self.github.writes, [])
+
+    def test_unlisted_bots_with_unreadable_permission_roles_are_withheld_and_counted(self):
+        self.github.roles.update({"dependabot[bot]": None, "dependabot": None, "copilot": None})
+        for policy in ("on", "off"):
+            self.config = replace(self.config, approvals=policy)
+            for number in (1, 2):
+                with self.subTest(policy=policy, number=number):
+                    groups = {"comments": self.github.store}
+                    if number == 2:
+                        groups |= {"reviews": self.github.review_store,
+                                   "review_comments": self.github.review_comment_store}
+                    for name, store in groups.items():
+                        login = "dependabot" if name == "reviews" else "dependabot[bot]"
+                        identity = {"__typename": "Bot"} if name == "reviews" else {"type": "Bot"}
+                        store[number] = [feedback(1, login, **identity),
+                                         feedback(2, "Copilot", type="Bot"), feedback(3, "operator")]
+                        self.assertIsNone(self.github.role(login))
+                    result = self.read(number)
+                    loop = Loop(self.config, self.github, "operator")
+                    loop.approvals = policy
+                    assignment = loop.input_check(self.github.items[number]).snapshot
+                    for name in groups:
+                        self.assertEqual([row["id"] for row in result[name]], [3])
+                        self.assertEqual(result["withheld_counts"][name], 2)
+                        self.assertEqual(result[name], assignment[name])
+                    self.assertEqual(self.cli(str(number))[0], 0)
+        self.assertEqual(self.github.writes, [])
+
+    def test_bot_authors_starts_and_edits_need_no_permission_lookup(self):
+        self.github.content_histories[1]["author"] = {"login": "dependabot", "__typename": "Bot"}
+        original = self.github.pr_content
+        with patch.object(self.github, "pr_content", side_effect=lambda n: original(n) | {
+                "author": {"login": "dependabot", "__typename": "Bot"}}):
+            for number in (1, 2):
+                self.start(number, actor={"login": "dependabot[bot]", "type": "Bot"})
+                self.github.timelines[number].append({"event": "renamed", "created_at": at(10),
+                    "actor": {"login": "Copilot", "type": "Bot"},
+                    "rename": {"from": "Old title", "to": self.github.items[number].title}})
+                history = self.github.content_histories.setdefault(number, {})
+                history |= {
+                    "lastEditedAt": at(10), "edits": [{"editedAt": at(10),
+                    "editor": {"login": "dependabot", "__typename": "Bot"},
+                    "diff": self.github.items[number].body, "deletedAt": None}]}
+                with patch.object(self.github, "role", side_effect=AssertionError("Bot permission lookup")):
+                    result = self.read(number)
+                self.assertTrue(result["title"]["withheld"])
+                self.assertTrue(result["body"]["withheld"])
+
+    def test_trusted_bots_match_rest_and_graphql_logins_in_every_feedback_group(self):
+        for configured in ("COPILOT-PULL-REQUEST-REVIEWER", "copilot-pull-request-reviewer[bot]"):
+            for policy in ("on", "off"):
+                with self.subTest(configured=configured, policy=policy):
+                    self.config = replace(self.config, approvals=policy,
+                                          trusted_bots=(configured, "github-actions[bot]", "Copilot"))
+                    self.github.store[2] = [feedback(1, "copilot-pull-request-reviewer[bot]", type="Bot"),
+                                           feedback(2, "github-actions[bot]", type="Bot"),
+                                           feedback(3, "copilot-pull-request-reviewer", type="User"),
+                                           feedback(4, "dependabot[bot]", type="Bot")]
+                    self.github.review_store[2] = [feedback(1, "copilot-pull-request-reviewer", __typename="Bot"),
+                                                  feedback(2, "github-actions", __typename="Bot"),
+                                                  feedback(3, "copilot-pull-request-reviewer", __typename="User"),
+                                                  feedback(4, "dependabot", __typename="Bot")]
+                    self.github.review_comment_store[2] = [feedback(1, "Copilot", type="Bot"),
+                                                          feedback(2, "github-actions[bot]", type="Bot"),
+                                                          feedback(3, "Copilot", type="User"),
+                                                          feedback(4, "dependabot[bot]", type="Bot")]
+                    result = self.read(2)
+                    loop = Loop(self.config, self.github, "operator")
+                    loop.approvals = policy
+                    assignment = loop.input_check(self.github.items[2]).snapshot
+                    for name in ("comments", "reviews", "review_comments"):
+                        self.assertEqual([row["id"] for row in result[name]], [1, 2])
+                        self.assertEqual(result["withheld_counts"][name], 2)
+                        self.assertEqual(result[name], assignment[name])
+
+    def test_copilot_inline_login_requires_its_own_trusted_entry(self):
+        self.config = replace(self.config, trusted_bots=("copilot-pull-request-reviewer",))
+        self.github.review_comment_store[2] = [feedback(1, "Copilot", type="Bot")]
+        result = self.read(2)
+        self.assertEqual(result["review_comments"], [])
+        self.assertEqual(result["withheld_counts"]["review_comments"], 1)
+
+    def test_suffix_alias_never_grants_bot_authority(self):
+        self.config = replace(self.config, trusted_bots=("review-app",))
+        self.github.roles.update({"review-app[bot]": "admin", "review-app": "admin"})
+        bot = {"login": "review-app[bot]", "type": "Bot"}
+        self.github.content_histories[1]["author"] = bot
+        self.start(actor=bot)
+        self.approve()["user"] = bot
+        self.assertTrue(self.read()["body"]["withheld"])
+        self.assertFalse(Loop(self.config, self.github, "operator").input_check(self.github.items[1]).allowed)
+        trust = Coordinator(self.github, "operator", trusted_bots=self.config.trusted_bots).trust
+        self.assertFalse(trust(bot))
+        self.assertFalse(trust.observation()({"login": "review-app", "__typename": "Bot"}))
+        self.assertTrue(trust({"login": "review-app", "type": "User"}))
 
     def test_start_clears_feedback_and_later_edit_removes_clearance_in_every_group(self):
         for number in (1, 2):

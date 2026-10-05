@@ -18,7 +18,7 @@ The launcher pins its repository and input configuration; worktree edits and
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
 | `launchers` | Optional nonempty list of GitHub logins that narrows coordination trust; every account still needs `write` or higher. |
 | `approvals` | `on` or `off` (quoted or unquoted); defaults from GitHub visibility each pass: `on` for public, `off` for private and internal repositories. See [approvals](approvals.md). |
-| `trusted-bots` | Optional list of GitHub bot account logins, default `[]`; case-insensitive, bots only, trusted for feedback in assignment context and `read`, with no maintainer or launcher authority. See [trusted bots](approvals.md#trusted-bots). |
+| `trusted-bots` | Optional list of GitHub bot account logins, default `[]`; case-insensitive, ignores `[bot]` suffixes, bots only, trusted for feedback in assignment context and `read`, with no maintainer or launcher authority. See [trusted bots](approvals.md#trusted-bots). |
 | `agents` | The agents, by name. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |

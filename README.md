@@ -128,8 +128,10 @@ Read related issues and PRs with `ub-agents read N`. It prints JSON filtered by
 the [assignment input rules](docs/approvals.md#reading-other-issues-and-prs), including
 withheld counts. Inside a run, use the launcher's literal `report_command` followed
 by `read N`; it uses the launcher's repository and configuration. The top-level
-`trusted-bots: [copilot-pull-request-reviewer]` list trusts feedback only when GitHub
-identifies that login as a bot. Listed bots gain no maintainer or launcher authority.
+`trusted-bots: [copilot-pull-request-reviewer, Copilot]` list trusts feedback only when
+GitHub identifies that login as a bot, including Copilot's separate inline-comment
+login. Matching ignores the optional `[bot]` suffix. Listed bots gain no maintainer
+or launcher authority.
 
 | Command | What it does |
 |---|---|

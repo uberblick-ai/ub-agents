@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 
+from .bots import is_bot, listed_bot
 from .errors import AgentError, GitHubError, LostOwnership
 from .notices import ACTION_MARKER
 from .records import (lease_by_id,
@@ -83,9 +84,7 @@ class Roles:
         self.strict = strict
 
     def listed_bot(self, actor):
-        return (isinstance(actor, dict) and
-                isinstance(actor.get("login"), str) and actor["login"].casefold() in self.bots and
-                (actor.get("type") == "Bot" or actor.get("__typename") == "Bot"))
+        return listed_bot(actor, self.bots)
 
     def feedback(self, actor):
         return self.listed_bot(actor) or self(actor) in TRUSTED
@@ -94,8 +93,9 @@ class Roles:
         login = (actor or {}).get("login")
         if not isinstance(login, str) or not login:
             return None
-        # Feedback trust never gives a listed bot start/approval/edit authority.
-        if self.listed_bot(actor):
+        # GitHub bot identities have no input authority beyond listed feedback.
+        # Their empty-role or "not a user" permission answers are not read failures.
+        if is_bot(actor):
             return "none"
         key = login.casefold()
         if key not in self.cache:

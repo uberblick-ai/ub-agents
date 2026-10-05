@@ -301,6 +301,8 @@ class GitHub:
                 raise
             return None
         role = raw.get("role_name") if isinstance(raw, dict) else None
+        if role == "":
+            return "none"
         return role if isinstance(role, str) and role in {"admin", "maintain", "write", "triage", "read", "none"} else None
 
     def visibility(self):

@@ -135,7 +135,7 @@ outside text is not information either.
 ## Trusted bots
 
 ```yaml
-trusted-bots: [copilot-pull-request-reviewer, "github-actions[bot]"]
+trusted-bots: [copilot-pull-request-reviewer, Copilot, "github-actions[bot]"]
 ```
 
 This optional top-level list defaults to empty. Entries are GitHub account logins,
@@ -143,6 +143,14 @@ matched case-insensitively, with no `@` prefix or surrounding whitespace; quote
 logins containing brackets in YAML flow lists. `ub-agents check` rejects malformed
 entries and case-insensitive duplicates. A listed login is trusted only when
 GitHub reports its account type as `Bot`; listing a human adds no trust.
+
+The optional `[bot]` suffix is ignored when matching REST and GraphQL logins.
+Copilot also uses the distinct `Copilot` bot login for inline review comments;
+list both `copilot-pull-request-reviewer` and `Copilot` to trust its reviews and
+inline feedback. Unlisted bots are outside feedback, withheld and counted unless
+cleared under the approvals policy. GitHub's bot account type proves they have no
+start, approval or edit authority, so reads need no collaborator permission lookup
+for them. A readable empty repository role likewise means `none`, not a read failure.
 
 Listed bots' comments, reviews and review comments are trusted like write+ feedback
 in both assignment context and `read`, with approvals on or off. This trust does
