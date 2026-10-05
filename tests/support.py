@@ -52,7 +52,7 @@ class RecordingUpdateRunner:
 
 
 def isolate_runtime_state(test):
-    """Keep launcher lock and health files out of the developer's state directory."""
+    """Keep launcher locks, health files and scratch out of the developer's state directory."""
     from unittest.mock import patch
     isolate_observations(test)
     state = tempfile.TemporaryDirectory()

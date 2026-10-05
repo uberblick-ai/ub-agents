@@ -231,12 +231,12 @@ class LaunchTerminalTests(unittest.TestCase):
     def check_launch_form(self, mode, *arguments):
         # The clean-wheel interpreter is also used for the recorded acceptance run.
         python = os.environ.get('UB_UI_TEST_PYTHON', sys.executable)
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as state:
             root = Path(directory)
             shim = root / 'claude'
             shim.write_text('#!/bin/sh\nexit 0\n')
             shim.chmod(0o700)
-            env = {'XDG_STATE_HOME': str(root / 'state'), 'NO_COLOR': None,
+            env = {'XDG_STATE_HOME': state, 'NO_COLOR': None,
                    'PATH': str(root) + os.pathsep + os.environ['PATH']}
             repository = Path(__file__).resolve().parents[1]
             with Terminal(HARNESS, repository, root, mode, *arguments, python=python, env=env) as terminal:
@@ -328,7 +328,7 @@ class LaunchTerminalTests(unittest.TestCase):
                     if pid is not None:
                         with self.assertRaises(ProcessLookupError):
                             os.kill(pid, 0)
-                self.assertFalse(list((root / '.ub-agents/runs').glob('*/scratch')))
+                self.assertFalse(list((Path(state) / 'ub-agents/org/project/runs').glob('*')))
             if mode == 'once':
                 # Restart the same control root with two old snapshots;
                 # the new launcher still attaches to its own new ID.

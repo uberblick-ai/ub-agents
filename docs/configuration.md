@@ -862,8 +862,8 @@ with mode `0700`; creation failure ends the run as a visible setup failure witho
 starting the agent. Once the run's processes are confirmed stopped, scratch and
 its contents and the state directory's per-run directory are removed after success,
 failure, timeout or interruption. Run logs and other artifacts remain.
-Unconfirmed process termination preserves scratch,
-and a launcher killed before cleanup leaves it behind. If scratch removal fails
+Unconfirmed process termination preserves scratch, and a launcher killed before
+cleanup leaves it behind. If scratch removal fails
 after confirmed termination, the launcher leaves any remaining files, prints the
 error and records a `scratch-removal-failed` event in `events.jsonl`. The run still
 completes and releases its lease; this does not mark process cleanup unconfirmed.

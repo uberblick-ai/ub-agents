@@ -407,8 +407,9 @@ Each run also gets a private scratch directory at
 back to `~/.local/state`. Scratch must be outside the target checkout and its
 private worktrees; a path inside the checkout fails setup before the agent starts.
 Use it for temporary files; the launcher removes it and its per-run directory after
-confirmed process termination while retaining run logs. Removal failures leave a diagnostic and any
-remaining scratch files without blocking run completion. See [runtime permissions](docs/configuration.md#runtime-permissions)
+confirmed process termination while retaining run logs. Removal failures leave a
+diagnostic and any remaining scratch files without blocking run completion. See
+[runtime permissions](docs/configuration.md#runtime-permissions)
 for runtimes that need access outside their worktree.
 
 ## Development
