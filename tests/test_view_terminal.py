@@ -1,4 +1,4 @@
-"""Actual owned 110x32 PTY acceptance, separate from Textual headless pilots."""
+"""Actual owned PTY acceptance, separate from Textual headless pilots."""
 
 import fcntl
 from datetime import datetime, timedelta, timezone
@@ -20,6 +20,197 @@ import unittest
 from tests.test_view_data import fixture
 
 class TerminalViewTests(unittest.TestCase):
+    def test_single_pane_resize_navigation_floor_and_q_in_real_terminal(self):
+        self.check_single_pane_terminal(b'q')
+
+    def test_single_pane_resize_navigation_floor_and_interrupt_in_real_terminal(self):
+        self.check_single_pane_terminal(b'\x03')
+
+    def check_single_pane_terminal(self, quit_key):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root, count=600)
+            state['base_version'] = '0.1.11'
+            state['activity'] = {'state': 'waiting', 'until':
+                                 (datetime.now(timezone.utc) + timedelta(seconds=90)).isoformat()}
+            path.write_text(json.dumps(state))
+            proof = root / 'proof.json'
+            script = '''
+import json, pathlib, sys
+from textual.binding import Binding
+from textual.widgets import TabbedContent, Tree
+from ub_agents.view_ui import LogPane, RecentActivity, View
+class ProofView(View):
+    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True)]
+    def action_checkpoint(self):
+        self.call_after_refresh(lambda: self.query_one(LogPane).call_after_refresh(self.checkpoint))
+    def checkpoint(self):
+        output, tree, recent = self.query_one(LogPane), self.query_one(Tree), self.query_one(RecentActivity)
+        tree.get_node_at_line(0)
+        value = {'size': list(self.size), 'narrow': self.narrow, 'floor': self.too_small,
+                 'item': self.item_view, 'work': self.query_one('#work_pane').display,
+                 'panes': self.query_one('#panes').display,
+                 'work_width': self.query_one('#work_pane').region.width,
+                 'item_width': self.query_one('#panes').region.width,
+                 'selected': self.selected, 'cursor': tree.cursor_node.data if tree.cursor_node else None,
+                 'focus': self.focused.id if self.focused else None,
+                 'tab': self.query_one(TabbedContent).active, 'follow': self.reading.follow,
+                 'raw': self.reading.raw, 'anchor': output.anchor(),
+                 'saved_anchor': self.reading.anchor,
+                 'first_anchor': output.positions[0] if output.positions else None,
+                 'render_width': output.render_width,
+                 'output_width': output.scrollable_content_region.width,
+                 'starts': [r.start for r in self.reading.page.refs] if self.reading.page else [],
+                 'header': self.query_one('#item_header').render().plain,
+                 'status': self.query_one('#run_status').render().plain,
+                 'footer': self.query_one('#status').render().plain,
+                 'screen': type(self.screen).__name__,
+                 'modal': self.screen.query_one('#raw_details').render().plain
+                          if self.screen.query('#raw_details') else '',
+                 'visible': [strip.text.strip() for strip in self.screen._compositor.render_strips()
+                             if strip.text.strip()],
+                 'rows': tree.virtual_size.height,
+                 'recent': recent.render().plain,
+                 'upper_bottom': tree.region.bottom, 'recent_y': recent.region.y}
+        staging = pathlib.Path(sys.argv[3] + '.new')
+        staging.write_text(json.dumps(value))
+        staging.replace(sys.argv[3])
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
+'''
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
+            modes = termios.tcgetattr(slave)
+            app = subprocess.Popen([sys.executable, '-P', '-c', script, str(root), str(path), str(proof)],
+                                   stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
+                                   env=dict(os.environ, TERM='xterm-256color'))
+            transcript = bytearray()
+            def drain(seconds=0.05):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.02)[0]:
+                        transcript.extend(os.read(master, 65536))
+            def checkpoint(condition=lambda _: True):
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    proof.unlink(missing_ok=True)
+                    os.write(master, b'x')
+                    while not proof.exists() and time.monotonic() < deadline:
+                        drain()
+                    self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
+                    value = json.loads(proof.read_text())
+                    if condition(value):
+                        return value
+                    drain()
+                self.fail((value, bytes(transcript[-1000:])))
+            def resize(width, height):
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', height, width, 0, 0))
+                os.kill(app.pid, signal.SIGWINCH)
+                return checkpoint(lambda value: value['size'] == [width, height]
+                                  and value['narrow'] == (width < 110 or height < 32)
+                                  and value['floor'] == (width < 60 or height < 16)
+                                  and (value['floor'] and len(value['visible']) == 1
+                                       or not value['floor'] and
+                                       (not value['narrow'] or
+                                        value['item_width' if value['item'] else 'work_width'] == width)))
+            def escape():
+                os.write(master, b'\x1b')
+                # Let the terminal parser distinguish Escape from Alt-x.
+                drain(0.3)
+            try:
+                initial = checkpoint(lambda value: value['starts'] and value['cursor'] == value['selected'])
+                self.assertEqual(initial['work_width'], 46)
+                self.assertTrue(initial['work'] and initial['panes'])
+                for size in ((109, 32), (110, 31), (60, 16), (80, 24)):
+                    value = resize(*size)
+                    self.assertTrue(value['narrow'])
+                    self.assertFalse(value['floor'])
+                    self.assertTrue(value['work'])
+                    self.assertFalse(value['panes'])
+                    self.assertEqual(value['work_width'], size[0])
+                    self.assertEqual(value['rows'], 4)
+                    self.assertEqual(value['upper_bottom'], value['recent_y'])
+                    self.assertEqual(len(value['recent'].splitlines()), 2)
+                    self.assertRegex(value['footer'], r'^v0\.1\.11 · poll \d+s')
+                    self.assertTrue(value['footer'].endswith('↑↓ select ⏎ open ? keys q quit'))
+                os.write(master, b'\r')
+                opened = checkpoint(lambda value: value['item'] and value['focus'] == 'output'
+                                    and 'no outcome reported' in value['status'])
+                self.assertEqual(opened['item_width'], 80)
+                self.assertFalse(opened['work'])
+                self.assertIn('#114', opened['header'])
+                self.assertIn('no outcome reported', opened['status'])
+                self.assertTrue(opened['footer'].endswith('Esc back 1-3 tabs ? keys q quit'))
+                os.write(master, b'f')
+                checkpoint(lambda value: not value['follow'])
+                os.write(master, b'u')
+                checkpoint(lambda value: value['raw'] and value['anchor'][0] == value['saved_anchor'][0])
+                os.write(master, b'\x1b[H')
+                top = checkpoint(lambda value: value['anchor'] == value['first_anchor'] == value['saved_anchor'])
+                os.write(master, b'\x1b[6~')
+                paused = checkpoint(lambda value: value['anchor'] == value['saved_anchor']
+                                    and value['anchor'] != top['anchor'])
+                for size in ((110, 32), (109, 32), (60, 16), (59, 16), (60, 15), (80, 24)):
+                    value = resize(*size)
+                    if not value['floor']:
+                        value = checkpoint(lambda value: value['render_width'] == value['output_width']
+                                           and value['anchor'][0] == paused['anchor'][0])
+                    self.assertEqual(value['selected'], paused['selected'])
+                    self.assertEqual(value['starts'], paused['starts'])
+                    self.assertFalse(value['follow'])
+                    self.assertTrue(value['raw'])
+                    self.assertEqual(value['anchor'][0], paused['anchor'][0])
+                    if value['floor']:
+                        self.assertEqual(value['visible'], ['Please enlarge the terminal to at least 60×16.'])
+                    else:
+                        self.assertEqual(value['focus'], 'output')
+                        self.assertTrue(value['panes'])
+                        self.assertEqual(value['work'], not value['narrow'])
+                os.write(master, b'2?')
+                help_view = checkpoint(lambda value: value['screen'] == 'KeyHelp')
+                self.assertIn('Enter below 110×32', help_view['modal'])
+                self.assertIn('Esc below 110×32', help_view['modal'])
+                self.assertEqual(resize(59, 16)['visible'], ['Please enlarge the terminal to at least 60×16.'])
+                self.assertEqual(resize(80, 24)['screen'], 'KeyHelp')
+                escape()
+                checkpoint(lambda value: value['screen'] != 'KeyHelp' and value['item'])
+                escape()
+                checkpoint(lambda value: not value['item'] and value['focus'] == 'work')
+                widened = resize(110, 32)
+                self.assertEqual(widened['focus'], 'work')
+                self.assertEqual(widened['tab'], 'issue')
+                self.assertFalse(resize(80, 24)['item'])
+                os.write(master, b'\r')
+                checkpoint(lambda value: value['item'] and value['tab'] == 'issue')
+                escape()
+                checkpoint(lambda value: not value['item'] and value['focus'] == 'work')
+                os.write(master, b'\x1b[B')
+                checkpoint(lambda value: value['cursor'] is None and value['focus'] == 'work')
+                os.write(master, b'\x1b[B')
+                checkpoint(lambda value: value['cursor'] == 'plan:12:reviewer')
+                os.write(master, b'\x1b[B')
+                checkpoint(lambda value: value['focus'] == 'recent')
+                os.write(master, b'\r')
+                checkpoint(lambda value: value['selected'] == 'outcome:previous-run' and value['item'])
+                escape()
+                checkpoint(lambda value: not value['item'] and value['focus'] == 'recent')
+                resize(59, 16)
+                os.write(master, quit_key)
+                deadline = time.monotonic() + 5
+                while app.poll() is None and time.monotonic() < deadline:
+                    drain()
+                self.assertEqual(app.wait(timeout=1), 0, bytes(transcript[-1000:]))
+                drain()
+                self.assertEqual(termios.tcgetattr(slave), modes)
+                self.assertIn(b'\x1b[?1049l', transcript)
+                self.assertIn(b'\x1b[?25h', transcript)
+                self.assertTrue(log.exists())
+            finally:
+                if app.poll() is None:
+                    app.terminate()
+                app.wait(timeout=3)
+                os.close(master)
+                os.close(slave)
+
     def test_update_banners_in_real_terminal_with_live_replay_and_resize(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -37,7 +228,10 @@ from textual.binding import Binding
 from textual.widgets import TabbedContent
 from ub_agents.view_ui import LogPane, UpdateBanner, View
 class ProofView(View):
-    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True)]
+    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
+                Binding('i', 'item_focus', priority=True)]
+    def action_item_focus(self):
+        self.query_one(LogPane).focus()
     def action_checkpoint(self):
         self.call_after_refresh(lambda: self.query_one(LogPane).call_after_refresh(self.checkpoint))
     def checkpoint(self):
@@ -109,8 +303,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertFalse(initial['display'])
                 os.write(master, b'f')
                 until(lambda value: not value['follow'])
-                os.write(master, b'\x1b[H')
+                os.write(master, b'\x1b[Hi')
                 paused = until(lambda value: not value['follow'] and value['anchor'] is not None
+                               and value['focus'] == 'output'
                                and value['anchor'] == value['first_anchor'] == value['saved_anchor'])
                 self.assertFalse(paused['follow'])
                 from tests.test_updates import release
@@ -126,7 +321,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, width, 0, 0))
                         os.kill(app.pid, signal.SIGWINCH)
                         keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit'
-                                if width >= 110 else '? keys q quit')
+                                if width >= 110 else 'f follow h older u raw PgUp/Dn ? keys q quit')
                         current = until(lambda value: value['text'] == banner['text']
                                         and value['display'] and value['height'] == 1
                                         and value['terminal_width'] == width
@@ -137,7 +332,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         self.assertEqual(current['height'], 1)
                         self.assertEqual(current['banner_y'], 0)
                         self.assertEqual(current['body_y'], 1)
-                        self.assertEqual(current['work_y'], 1)
+                        if width >= 110:
+                            self.assertEqual(current['work_y'], 1)
                         self.assertGreater(current['header_y'], current['banner_y'])
                         self.assertEqual(current['header_height'], 3)
                         self.assertLessEqual(current['header_y'] + current['header_height'], current['output_y'])
@@ -989,8 +1185,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
                 smaller = checkpoint(lambda value: value['terminal_size'] == [80, 24]
-                                     and 'minimum 110×32' in value['footer'])
-                self.assertIn('minimum 110×32', smaller['footer'])
+                                     and value['footer'].endswith('↑↓ select ⏎ open ? keys q quit'))
+                self.assertNotIn('minimum', smaller['footer'])
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
                 os.kill(app.pid, signal.SIGWINCH)
                 state['ended'] = False

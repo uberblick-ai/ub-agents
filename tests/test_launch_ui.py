@@ -289,7 +289,8 @@ class LaunchTerminalTests(unittest.TestCase):
                     until(lambda: b'RAW' in transcript)
                     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 25, 100, 0, 0))
                     os.kill(process.pid, signal.SIGWINCH)
-                    until(lambda: b'minimum 110' in transcript)
+                    until(lambda: '↑↓ select ⏎ open ? keys q quit'.encode() in transcript)
+                    self.assertNotIn(b'minimum 110', transcript)
                     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
                     os.kill(process.pid, signal.SIGWINCH)
                     drain(0.15)
@@ -303,6 +304,9 @@ class LaunchTerminalTests(unittest.TestCase):
                     # so a busy machine cannot merge Escape and q into Alt+q.
                     os.write(master, b'\x1b\x1b[I')
                     drain(0.15)
+                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 15, 59, 0, 0))
+                    os.kill(process.pid, signal.SIGWINCH)
+                    until(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
                     os.write(master, b'q')
                     until(lambda: b'\x1b[?1049l' in transcript)
                 elif mode == 'crash':
@@ -316,6 +320,10 @@ class LaunchTerminalTests(unittest.TestCase):
                         os.kill(process.pid, signal.SIGTERM)
                         drain(0.15)
                         self.assertIsNone(process.poll())
+                    else:
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 15, 59, 0, 0))
+                        os.kill(process.pid, signal.SIGWINCH)
+                        until(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
                     os.write(master, b'\x03')
                 elif mode == 'hup':
                     os.kill(process.pid, signal.SIGHUP)
