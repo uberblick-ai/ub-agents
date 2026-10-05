@@ -612,7 +612,13 @@ its configured changes outcome after a refresh, sending the new head to the
 implementer to validate and re-handoff before independent review. An agent with
 `different-runtime-from` cannot do this: success validation rejects an assigned
 head that moved. Never merge a rewritten head as the old assignment or reuse
-old-head evidence. No runtime change or periodic branch-maintenance scan is implied.
+old-head evidence. Adoption summaries identify the integrator-produced refresh;
+they record validation provenance without erasing original authorship. Project
+instructions can recognize that current-head adoption in `feedback` to avoid
+repeated publish/review cycles as the base advances. A head moving between report
+and success validation still rejects the outcome under the existing contract;
+this instruction change adds no atomic reporting API, runtime change or periodic
+branch-maintenance scan.
 
 ## Execution boundaries
 

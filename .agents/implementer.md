@@ -23,15 +23,20 @@ starting with `Closes #N`. Push meaningful checkpoints to that same PR. Checkpoi
 not complete the assignment: keep the PR draft and do not report success until
 implementation and all project checks finish.
 
-For a clean-base-refresh handoff from the integrator, continue the new remote
-head it records. Verify the old head, base and new head, adopt that candidate,
-and rerun all relevant checks even when no further commit is needed. Hand it off
-through the normal `handed-off` outcome so runtime provenance and every owed
-review apply to the updated SHA; old-head approvals are insufficient.
+For feedback beginning `base-refresh old=OLD_SHA base=BASE_SHA new=NEW_SHA`,
+continue the recorded new remote head. Independently repeat the integrator's
+merge-base/range-diff/count preservation check, then rerun all relevant checks,
+even when no further commit is needed. A mismatch goes back for repair, never
+certifies a rewrite. Hand off through the normal `handed-off` outcome and include
+`base-refresh-adopted old=OLD_SHA base=BASE_SHA new=NEW_SHA` in its summary only
+when the pushed head still equals NEW_SHA. State that this is adoption/validation
+of an integrator-produced refresh, not a claim to have authored the rewrite;
+original authorship and independent review requirements remain. If repair adds a
+commit, record that new candidate instead. Old-head approvals are insufficient.
 
 After merging the base branch into the PR branch, rerun the checks that cover what
 the PR adds or changes, not only the files that conflicted. The same full coverage
-is required after a rebase refresh.
+is required after adopting an integrator refresh.
 
 Before each push and before marking the PR ready, read PR comments, reviews, and
 inline feedback. Incorporate it or explain why you cannot.

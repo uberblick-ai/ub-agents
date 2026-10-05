@@ -17,8 +17,8 @@ that number, SHA with that full SHA and PATH with the literal body-file path bef
 running the command. Check the head with
 `gh pr view N --json headRefOid` as a separate command before
 merging or publishing a handoff; compare its output with `candidate_sha` and
-report blocked if they differ, except that a clean refresh below ends with
-the specified `changes-requested` handoff. Write any GitHub comment with the file-writing tool
+use the refresh section's explicit success/race handoff when applicable; otherwise
+report retry for a changed head and never merge it under this assignment. Write any GitHub comment with the file-writing tool
 to a file in your worktree and publish it with
 `gh pr comment N --body-file PATH` as a separate command.
 Run `ub-agents report` as its own final command, never chained to the head check,
@@ -28,58 +28,71 @@ of ending without a report.
 
 ## Refresh the candidate before final gates
 
-On every integration pickup, freshly fetch the PR's base and head, confirm the
-remote head equals the assigned `candidate_sha`, and check whether the current
-base is already an ancestor of that head. If so, continue with the normal gates.
-If not, proactively try a clean rebase; routine branch maintenance needs no new
-human decision. A fetch or a prospective merge test alone is not a PR update.
+On every integration pickup, fetch the PR's base and head. The remote head must
+match the assigned `candidate_sha`; a mismatch ends with `--status retry` with the race evidence, not a merge
+or a rewrite under the old assignment. If the base is already an ancestor, run
+the normal gates. Otherwise proactively attempt a clean rebase when eligible;
+routine maintenance needs no new human decision.
 
-Push a refresh only when shared project policy permits this narrow operation,
-the PR is in the base repository, and your assignment owns that PR branch.
-Immediately before pushing, reread the live coordination leases: your run must
-still be the unexpired winning owner, with no other live or cleanup-unconfirmed
-issue/PR lease on the branch. Do not touch another run's worktree or the operator
-checkout. If ownership or write authority cannot be established, do not push.
-An integrator configured with `different-runtime-from` must not change its assigned
-head: hand refresh to the implementer instead, because the launcher rejects a
-changed-head result from that independent assignment.
+A refresh is eligible only with explicit shared project permission, for a
+same-repository PR whose remote branch matches the assignment's `branch`, and
+without `different-runtime-from` on the integrator. The launcher elected this
+run and excludes overlapping issue/PR branch owners. Before a push, read only
+its own coordination comment. Resolve the supplied lease id with
+`python3 -c 'import os; print(os.environ["UB_AGENTS_LEASE_ID"])'`, then use that
+numeric literal in `gh api repos/OWNER/REPO/issues/comments/LEASE_ID --jq .body`, with literal values.
+Its v3 lease must match the assignment's run, repository item and branch, still
+be `running` and expire in the future. This is a cooperative ownership check,
+not write fencing or a substitute for the push lease. If the read cannot be
+completed or permission/topology disallows rebasing, skip the refresh and run
+normal gates; do not manufacture implementer work or a human hold. A known lost
+or expired lease stops all writes under the existing coordination rules.
 
-Use a private checkout at the assigned head. Rebase only a linear PR-only commit
-sequence onto the fetched base, with autosquash, rerere and other-ref updates
-disabled, cherry-picks reapplied and empty results stopped (for example
-`git -c rerere.enabled=false rebase --no-autosquash --no-update-refs
---reapply-cherry-picks --empty=stop BASE_SHA`). Inspect the old/new commit ranges
-with `git range-diff` and the resulting diff against the base. Never silently
-resolve a conflict, drop a commit, edit implementation or flatten merge commits.
-Abort on conflicts, empty/dropped commits or substantive differences, and send
-those back to the implementer. Unsupported topology also goes to the implementer.
+Use only your private assigned worktree or a private scratch clone at the
+assigned head. Leave operator checkouts and other runs' worktrees alone.
+Compute `MB` with `git merge-base OLD_SHA BASE_SHA`. Require
+`git rev-list --merges MB..OLD_SHA` to be empty before rebasing; never flatten
+merge commits. Then use `git -c rerere.enabled=false rebase --no-autosquash
+--no-update-refs --reapply-cherry-picks --empty=stop BASE_SHA`, substituting literal
+SHAs. Abort on conflicts, empty commits, rejected flags or signing failures;
+never resolve conflicts, drop commits or edit implementation in integration.
+A failed or unsupported rebase leaves the original PR intact and proceeds to
+normal gates. Actual base merge conflicts or other failed gates go back to the
+implementer with `changes-requested`, naming the repair.
 
-Immediately recheck the remote head and ownership, then push only the PR branch
-with an explicit expected-old-head lease:
+Compare `git range-diff MB..OLD_SHA BASE_SHA..NEW_SHA` and require equal counts
+from `git rev-list --count` for those two ranges. Every old commit must map to
+one new commit in the same order, with the same message and patch; only changed
+parent/SHA and patch context/line offsets are allowed. Any changed added/removed
+code, unmatched commit or ambiguous correspondence aborts the refresh. The
+implementer independently repeats this preservation check before adoption.
+
+Do not publish another refresh solely because main advanced while this same
+candidate was adopted and reviewed. The current-head feedback marker
+`base-refresh-adopted old=OLD_SHA base=BASE_SHA new=NEW_SHA` identifies that cycle
+only when NEW_SHA equals the assigned head. Still try the clean rebase locally
+when eligible, then discard it and run normal base-freshness gates on the assigned
+head. A new substantive implementer commit starts a new cycle. This prevents
+endless successful refresh/review handoffs on a busy base without skipping gates.
+
+For the first clean refresh in the cycle, reread the own lease and remote head,
+then push only the assigned PR branch using
 `git push --force-with-lease=refs/heads/BRANCH:OLD_SHA origin
-HEAD:refs/heads/BRANCH`. Use literal full SHAs and the observed branch name.
-A rejected lease is a concurrent update: never retry with a newer expectation
-or a blind force push in this run. End with `--status retry` and the race
-evidence so the next assignment observes the new head; do not overwrite it.
+HEAD:refs/heads/BRANCH`. A rejected lease or a head moving again after the push
+ends with `--status retry` and the race evidence; never change the expected SHA
+or use a blind force push.
+Verify the remote head equals the new local SHA, then end this run with `changes-requested`
+and the exact summary prefix
+`base-refresh old=OLD_SHA base=BASE_SHA new=NEW_SHA; adopt, verify preservation
+and validate, then hand off for fresh review`.
 
-After a successful push, verify the remote head equals the new local SHA; if
-it moved again, report retry rather than a successful refresh. Otherwise record
-old head, fetched base and new head, and end this run with
-`ub-agents report --outcome changes-requested --summary "Clean base refresh
-OLD_SHA -> NEW_SHA onto BASE_SHA; adopt and validate NEW_SHA, then hand off for
-fresh review"`. This is an automatic implementer handoff, not a failed rebase
-or a request for a person. The launcher records the current remote head as the
-outcome's `candidate_sha`; never substitute the new SHA into the old assignment
-or merge it in this run. All old-head review and check evidence is stale. The
-implementer adopts and validates the pushed head and re-hands it off, restoring
-current-head runtime provenance before every owed independent review and final
-gate runs again on that exact head. A refresh grants no merge permission.
-
-If project policy disallows the push or a safe refresh cannot be completed,
-use `changes-requested` to hand the concrete maintenance task to the implementer;
-report blocked only for an unresolved authority/ownership gate. Never reset a
-human hold. This rule operates when integration is assigned; it adds no periodic
-scanner and does not wake stopped items.
+The launcher records the new remote `candidate_sha` while preserving the original
+`assignment_sha`. Never replace the old assignment with the new SHA or merge in
+this refresh run. All old-head review and check evidence is stale. The implementer
+adopts and validates the updated head, explicitly records integrator-produced
+refresh provenance, and re-hands it off before fresh independent review and every
+owed final gate. A refresh grants no merge authority. Human holds stay intact;
+this runs on integration assignments, with no periodic scanner or hold reset.
 
 If the project's merge policy authorizes this merge and its gates pass, merge exactly
 the assigned SHA with the project's merge method (for example `gh pr merge N
