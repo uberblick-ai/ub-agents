@@ -185,6 +185,28 @@ def declared_transition(lease, name):
                       "remove": sorted(set(lease["declared_triggers"]).union(changes.get("remove", ())))}
 
 
+def stop_report(lease, status, outcome=None):
+    return (status == "blocked" or outcome is not None
+            and bool(set(declared_transition(lease, outcome)["add"]).intersection(lease["stop_labels"])))
+
+
+def validate_action(action, required=False):
+    if action is None and not required:
+        return
+    if (not isinstance(action, str) or not action.strip() or len(action) > 300
+            or action.splitlines() != [action] or "\x00" in action):
+        raise ValueError("--action must be one non-empty line of at most 300 characters")
+
+
+def validate_report_action(lease, outcome):
+    # Old leases predate the requirement. Launcher-only reports and recovery
+    # receipts have no agent ask; their notices retain the existing form.
+    required = (lease.get("action_required", False) and not lease.get("unreported")
+                and lease.get("mode") != "recovery"
+                and stop_report(lease, outcome["status"], outcome.get("outcome")))
+    validate_action(outcome.get("action"), required=required)
+
+
 def resolve_transition(transition, declaration):
     """Resolve a compact transition using its original lease context."""
     return transition | {"triggers": declaration["triggers"], "stop_labels": declaration["stop_labels"],
@@ -206,6 +228,8 @@ def validate(record):
             and record.get("attempt_effect") not in {"pending", "failure", "reset", "unchanged"}):
         raise ValueError("invalid attempt effect")
     if record.get("kind") == "lease":
+        if "action_required" in record and type(record["action_required"]) is not bool:
+            raise ValueError("invalid action requirement")
         validate_labels(record.get("declared_triggers"))
         validate_labels(record.get("stop_labels"))
         if record.get("state") not in LEASE_STATES:
@@ -242,6 +266,8 @@ def validate(record):
         if "retry_after" in record:
             seconds(record["retry_after"])
     elif record.get("kind") == "outcome":
+        if "action" in record:
+            validate_action(record["action"], required=True)
         if record.get("status") not in OUTCOMES or not isinstance(record.get("summary"), str):
             raise ValueError("invalid outcome")
         if type(record.get("lease_id")) is not int:

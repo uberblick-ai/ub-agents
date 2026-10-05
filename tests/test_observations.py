@@ -53,7 +53,7 @@ class ObservationTests(unittest.TestCase):
         self.observer.plan(plan)
         lease = co.claim(plan, self.cfg.stop_labels)
         co.update(lease, state='running', started=True)
-        outcome = co.report(lease, 'blocked', 'Choose a direction')
+        outcome = co.report(lease, 'blocked', 'Choose a direction', action="Maintainer: choose A or B; recommend A.")
         co.release(lease, 'blocked', outcome['summary'])
         comment = next(c for c in github.comments(1) if c['body'].startswith(ACTION_MARKER))
         cached = self.memory.snapshots[-1]['action_needed']['1']

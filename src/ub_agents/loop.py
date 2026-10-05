@@ -22,7 +22,7 @@ from .rate_limits import RateLimitReads
 from .polling import idle_interval
 from .hooks import run_hook
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
-                      lease_summary, resolve_transition, seconds, timestamp)
+                      lease_summary, resolve_transition, seconds, timestamp, validate_report_action)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
@@ -831,6 +831,7 @@ class Loop:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             elif outcome["status"] != "success":
+                self.validate_failure_report(lease, outcome, lease)
                 result, summary = outcome["status"], outcome["summary"]
                 effect = "unchanged" if result == "blocked" else "failure"
             else:
@@ -899,7 +900,7 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         if outcome is None:
             self.coordinator.update(lease, unreported=True)
-            self.coordinator.report(lease, result, summary)
+            self.coordinator.report(lease, result, summary, agent_report=False)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
                                  max_attempts=plan.agent.max_attempts)
         diagnostic("released", result=result, summary=summary)
@@ -954,7 +955,10 @@ class Loop:
                 "Apply only project-authorized handoffs and permissions. "
                 f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
                 f"Report one with {report_command} report --outcome NAME --summary 'what happened' "
-                "[--handoff PR_NUMBER]. Do not change workflow labels "
+                "[--handoff PR_NUMBER] [--action 'one thing a person must do']. "
+                "Stop reports (--status blocked or outcomes adding a configured stop label) require --action: "
+                "one non-empty line of at most 300 characters. Name the decision, choices, recommendation "
+                "and who can answer. Do not change workflow labels "
                 f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
                 "Use --status retry|blocked for failures; those change no labels. "
                 f"{continuation}"
@@ -1022,7 +1026,20 @@ class Loop:
         transition = resolve_transition(transition, declaration)
         if {k: v for k, v in transition.items() if k != "started"} != declaration:
             raise ValidationError("Reported transition does not match the running agent's declaration")
+        try:
+            validate_report_action(source, outcome)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         return transition
+
+    def validate_failure_report(self, lease, outcome, source):
+        try:
+            if outcome.get("rejected"):
+                raise ValueError(outcome["rejected"])
+            validate_report_action(source, outcome)
+        except ValueError as exc:
+            self.coordinator.update_outcome(lease, outcome, rejected=str(exc), attempt_effect="failure")
+            raise ValidationError(str(exc)) from exc
 
     def apply_transition(self, lease, outcome):
         transition = self.validate_report(outcome)
@@ -1082,6 +1099,11 @@ class Loop:
             raise LostOwnership("Recovered outcome disappeared after claiming")
         result, summary = outcome["status"], outcome["summary"]
         effect = "unchanged" if result == "blocked" else "failure"
+        if result != "success":
+            try:
+                self.validate_failure_report(recovery, outcome, source)
+            except ValidationError as exc:
+                result, summary, effect = "blocked", f"Recorded outcome cannot be recovered: {exc}", "failure"
         if result == "success":
             # Validate against the originally assigned candidate, not today's head.
             original = replace(plan, item=replace(plan.item, head=outcome["assignment_sha"]))
@@ -1109,7 +1131,7 @@ class Loop:
         self.coordinator.assert_owned(recovery)
         self.coordinator.update(recovery, **verdict,
                                 retry_after=iso(self.coordinator.clock() + delay) if delay else None)
-        self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
+        self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}", agent_report=False)
         self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
                                  attempt_effect=effect, parking_outcome=outcome)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")

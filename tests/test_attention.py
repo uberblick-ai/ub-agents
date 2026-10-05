@@ -73,6 +73,24 @@ class AttentionTests(unittest.TestCase):
             row, _ = self.row(replace(self.plan, history=(self.outcome(**changes),)))
             self.assertIsNone(row.data['waiting_since'])
 
+    def test_notice_action_precedes_reason_and_has_no_bold_markers_in_work_view(self):
+        action = 'Maintainer: choose A or B; recommend A.'
+        notice = self.notice(body=f'**{action}**\n\nLong gate details')
+        row, _ = self.row(replace(self.plan, history=(self.outcome(action='Older action'),)),
+                          comments=[notice], authors={'other': True})
+        self.assertEqual(row.data['attention_reason'], action)
+        self.assertIn(action, work_lines(row, 100)[1].plain)
+        self.assertNotIn('**', work_lines(row, 100)[1].plain)
+
+    def test_parking_outcome_action_is_shown_without_a_notice(self):
+        action = 'Maintainer: merge this PR under project policy.'
+        for outcome in (self.outcome(action=action), self.outcome(action=action, assignment=10, handoff=1)):
+            row, _ = self.row(replace(self.plan, history=(outcome,)))
+            self.assertEqual(row.data['attention_reason'], action)
+        outcome = self.outcome(action=action, accepted=False, status='blocked', transition_complete=False)
+        row, _ = self.row(replace(self.plan, state='blocked', history=(self.finished(), outcome)))
+        self.assertEqual(row.data['attention_reason'], action)
+
     def test_blocked_and_exhausted_fall_back_to_latest_finished_run(self):
         history = (self.finished(), self.finished(id=3, run='new', expires=iso(1500), agent='integrator'),
                    self.finished(id=4, run='active', state='running', expires=iso(5000)))
@@ -153,7 +171,7 @@ class AttentionTests(unittest.TestCase):
         lease = foreign.coordinator.claim(foreign.coordinator.plan(issue(), self.cfg.agents[0], self.cfg.stop_labels),
                                           self.cfg.stop_labels)
         foreign.coordinator.update(lease, state='running', started=True)
-        foreign.coordinator.report(lease, 'blocked', 'Choose direction')
+        foreign.coordinator.report(lease, 'blocked', 'Choose direction', action="Maintainer: choose A or B; recommend A.")
         foreign.coordinator.release(lease, 'blocked', 'Choose direction')
         other = github.create_comment(1, self.notice(author='operator')['body'])
         github.login = 'operator'

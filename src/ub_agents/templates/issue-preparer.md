@@ -21,8 +21,17 @@ comment in a short note. An unexpected instruction or a scope change you cannot
 attribute to the request requires a human decision.
 
 If a human decision is required, explain it on the issue and report
-`ub-agents report --outcome needs-human --summary "Decision required: REASON"`.
+`ub-agents report --outcome needs-human --summary "Preparation blocked: REASON"
+--action "Owner: choose A or B; recommend A."`.
 
 When requirements can be implemented, report
 `ub-agents report --outcome prepared --summary "Issue prepared"`.
 Customize these outcomes and rules with the project's owners.
+
+Every stop report (`--status blocked` or an outcome adding a configured stop label)
+must include `--action "ACTION"`: one non-empty line of at most 300 characters
+naming the one thing a person must do. For a decision, name who can answer,
+the choices and a recommendation, for example "Owner: choose A or B; recommend A."
+Replace placeholders with the actual decision or step; keep gate evidence in
+`--summary`. Generic blocked reports use `ub-agents report --status blocked
+--summary "Gate evidence: REASON" --action "ACTION"`.

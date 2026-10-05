@@ -226,8 +226,9 @@ trusted set.
 ## Human action and launch output
 
 A released `blocked` run, or an accepted outcome whose completed transition adds
-a configured stop label, posts one short **Action needed** comment. It gives the
-release or outcome reason, the recorded candidate SHA, links to the claim and
+a configured stop label, posts one short **Action needed** comment. For an agent
+stop report, the first paragraph below the heading is its single bold action
+sentence. The release or outcome reason follows, then the recorded candidate SHA, links to the claim and
 outcome, and, on a PR, its review decision and the CI rollup for that exact SHA.
 If the PR head has moved, the current head's review decision is not attributed to
 the old candidate. Unavailable evidence is identified in the comment.
@@ -239,7 +240,11 @@ command and reminds the human to restore a matching trigger and remove stop
 labels. Exits without an agent report, zero or nonzero, retry with backoff; they
 post a notice only when they exhaust `max-attempts` and park. That notice also
 names the launcher host and run log directory. When a transition parks a handoff
-PR, the notice is posted on that PR.
+PR, the notice is posted on that PR with the same action. Notices without an agent
+report, including exhausted attempts, approval gates and launcher-only blocked
+releases, retain their existing form. The terminal view uses the action as the
+attention reason whenever the notice or parking outcome has one, without the
+notice's Markdown bold markers.
 
 These notices carry a separate `ub-agents:action-needed` marker and are not
 coordination records: they never affect routing authority, verdicts or attempt
@@ -395,6 +400,23 @@ fenced in `json` blocks inside collapsed details, and arbitrary prose is never p
 outcome is reported with `--outcome NAME` and has status `success`;
 `--status retry|blocked` changes no labels. Undeclared names are rejected, and the
 runner blocks records that bypass reporting validation.
+
+A stop report is `--status blocked`, or a named outcome whose running lease
+declares that it adds a configured stop label. It requires `--action "TEXT"`: one
+non-empty line of at most 300 characters, stored as `action` on the outcome and
+preserved on handoff copies. The action names the one thing a person must do;
+for a decision, include who can answer, the choices and a recommendation. The
+summary retains the reason and supporting evidence. Missing or invalid actions
+are rejected before any write, while retry and outcomes adding no stop label
+do not require one.
+
+New leases include `action_required: true`, so the launcher also rejects an agent
+stop report that bypasses the command's check, during completion or recovery.
+Leases and outcome records written before this requirement remain valid; their
+notices fall back to the summary. Launcher-only reports and recovery receipts do
+not require an agent action. Repositories with their own role files or command
+runtimes that file stop reports must add `--action` before upgrading.
+
 When the supervised lease's marker names a newer record format, reporting fails
 with a diagnostic directing the agent to `UB_AGENTS_REPORT`, without interpreting
 the newer payload. This diagnostic is available only in releases that include it;

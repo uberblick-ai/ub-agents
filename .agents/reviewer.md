@@ -41,3 +41,11 @@ ending without a report.
 
 Do not merge. Native GitHub approvals require an eligible reviewer account and remain
 subject to branch protection. Explicit outcomes do not bypass those rules.
+
+Every stop report (`--status blocked` or an outcome adding a configured stop label)
+must include `--action "ACTION"`: one non-empty line of at most 300 characters
+naming the one thing a person must do. For a decision, name who can answer,
+the choices and a recommendation, for example "Owner: choose A or B; recommend A."
+Replace placeholders with the actual decision or step; keep gate evidence in
+`--summary`. Generic blocked reports use `ub-agents report --status blocked
+--summary "Gate evidence: REASON" --action "ACTION"`.

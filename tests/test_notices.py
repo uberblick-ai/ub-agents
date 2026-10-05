@@ -49,7 +49,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_all_record_kinds_have_one_human_line_and_collapsed_json(self):
         lease = self.start(2)
-        outcome = self.co.report(lease, "blocked", "Please decide\nbetween options")
+        outcome = self.co.report(lease, "blocked", "Please decide\nbetween options", action="Maintainer: choose A or B; recommend A.")
         self.co.release(lease, "blocked", outcome["summary"])
         self.retry(2)
         for record in self.co.history(2):
@@ -117,7 +117,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_retries_and_later_claims_minimize_a_notice_only_once(self):
         lease = self.start()
-        self.co.report(lease, "blocked", "Decision needed")
+        self.co.report(lease, "blocked", "Decision needed", action="Maintainer: choose A or B; recommend A.")
         self.co.release(lease, "blocked", "Decision needed")
         notice = self.notices()[0]
         self.retry()
@@ -133,7 +133,7 @@ class NoticeTests(unittest.TestCase):
         self.github.create_comment(1, "Unrelated comment")
         self.github.store[1][0]["body"] = None
         lease = self.start()
-        self.co.report(lease, "blocked", "Decision needed")
+        self.co.report(lease, "blocked", "Decision needed", action="Maintainer: choose A or B; recommend A.")
         self.co.release(lease, "blocked", "Decision needed")
         notice = self.github.comments(1)[-1]
         self.retry()
@@ -201,7 +201,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_candidate_cleanup_preserves_parking_evidence_and_ignores_untrusted_comments(self):
         parked = self.start(2, agent(self.root, name="integrator"))
-        parked_outcome = self.co.report(parked, "blocked", "Human decision needed")
+        parked_outcome = self.co.report(parked, "blocked", "Human decision needed", action="Maintainer: choose A or B; recommend A.")
         self.co.release(parked, "blocked", parked_outcome["summary"])
         latest_notice = self.notices(2)[-1]
         no_sha = self.github.create_comment(2, body(payload(parked) | {
@@ -256,12 +256,12 @@ class NoticeTests(unittest.TestCase):
 
     def test_parking_handoff_preserves_new_notice_links_and_folds_previous_notice_evidence(self):
         old = self.start(2, agent(self.root, name="integrator"))
-        old_outcome = self.co.report(old, "blocked", "Previous decision")
+        old_outcome = self.co.report(old, "blocked", "Previous decision", action="Maintainer: choose A or B; recommend A.")
         self.co.release(old, "blocked", old_outcome["summary"])
         worker = agent(self.root, outcomes={"human": {"add": ("needs-human",), "remove": ()}})
         source = self.start(worker=worker)
         self.github.change(2, head="b" * 40)
-        outcome = self.co.report(source, "success", "Human must merge", handoff=2, outcome="human")
+        outcome = self.co.report(source, "success", "Human must merge", handoff=2, outcome="human", action="Maintainer: choose A or B; recommend A.")
         self.co.update_outcome(source, outcome, transition_complete=True)
         self.co.accept(source, outcome)
         self.co.release(source, "success", outcome["summary"])
@@ -320,13 +320,14 @@ class NoticeTests(unittest.TestCase):
 
     def test_blocked_notice_has_reason_evidence_links_and_exact_retry(self):
         lease = self.start(2)
-        outcome = self.co.report(lease, "blocked", "Choose a migration strategy")
+        outcome = self.co.report(lease, "blocked", "Choose a migration strategy", action="Maintainer: choose A or B; recommend A.")
         with patch.object(self.github, "candidate_evidence", wraps=self.github.candidate_evidence) as read:
             self.co.release(lease, "blocked", outcome["summary"])
         read.assert_called_once_with(2, "a" * 40)
         notices = self.notices(2)
         self.assertEqual(len(notices), 1)
         comment = notices[0]["body"]
+        self.assertIn(f'**Action needed**\n\n**{outcome["action"]}**\n\n{outcome["summary"]}\n\nCandidate:', comment)
         for expected in ("**Action needed**", outcome["summary"], "a" * 40, "APPROVED", "SUCCESS",
                          lease["url"], outcome["url"],
                          'ub-agents retry 2 --agent worker --reason "Human resolved the blocker"'):
@@ -348,7 +349,7 @@ class NoticeTests(unittest.TestCase):
         def run(*args, **kwargs):
             number = 1 if handoff else 2
             loop.coordinator.report(loop.coordinator.history(number)[0], "success",
-                                    "Maintainer must merge because docs changed", handoff=handoff, outcome="human")
+                                    "Maintainer must merge because docs changed", handoff=handoff, outcome="human", action="Maintainer: choose A or B; recommend A.")
             return 0
         with patch("ub_agents.loop.supervise", side_effect=run):
             self.assertTrue(loop.tick())
@@ -357,6 +358,8 @@ class NoticeTests(unittest.TestCase):
     def test_stop_outcome_notice_and_later_claim_resume(self):
         loop, github = self.parked_loop()
         notice = next(c for c in github.comments(2) if c["body"].startswith(ACTION_MARKER))
+        self.assertIn('**Action needed**\n\n**Maintainer: choose A or B; recommend A.**\n\n'
+                      'Maintainer must merge because docs changed\n\nCandidate:', notice['body'])
         for expected in ("**Action needed**", "Maintainer must merge", "a" * 40, "APPROVED", "SUCCESS",
                          "Remove the stop label(s) `needs-human`", "`ready`", "`needs-changes`"):
             self.assertIn(expected, notice["body"])
@@ -380,6 +383,10 @@ class NoticeTests(unittest.TestCase):
         self.assertFalse(any(c["body"].startswith(ACTION_MARKER) for c in github.comments(1)))
         notices = [c for c in github.comments(2) if c["body"].startswith(ACTION_MARKER)]
         self.assertEqual(len(notices), 1)
+        outcome = next(r for r in loop.coordinator.history(1) if r['kind'] == 'outcome')
+        self.assertIn(f'**Action needed**\n\n**{outcome["action"]}**\n\n', notices[0]['body'])
+        copied = next(r for r in loop.coordinator.history(2) if r['kind'] == 'outcome')
+        self.assertEqual(copied['action'], outcome['action'])
         self.assertEqual([(p.item.number, p.state) for p in loop.plans()], [(2, "parked")])
         source = loop.coordinator.history(1)
         for record in source:
@@ -404,7 +411,7 @@ class NoticeTests(unittest.TestCase):
         loop.coordinator.clock = lambda: self.now
         plan = loop.plans()[0]
         lease = loop.coordinator.claim(plan, loop.config.stop_labels)
-        loop.coordinator.report(lease, "success", "Human must merge", outcome="human")
+        loop.coordinator.report(lease, "success", "Human must merge", outcome="human", action="Maintainer: choose A or B; recommend A.")
         self.now += 61
         changed = agent(self.root, kind="pr", triggers=("different",),
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
@@ -426,7 +433,7 @@ class NoticeTests(unittest.TestCase):
         loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
         loop.coordinator.clock = lambda: self.now
         lease = loop.coordinator.claim(loop.plans()[0], loop.config.stop_labels)
-        loop.coordinator.report(lease, "success", "Human must merge", handoff=2, outcome="human")
+        loop.coordinator.report(lease, "success", "Human must merge", handoff=2, outcome="human", action="Maintainer: choose A or B; recommend A.")
         self.now += 61
         changed = agent(self.root, kind="issue", triggers=("different",),
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
@@ -455,7 +462,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_resume_minimize_failure_cannot_change_a_claim_or_retry_reset(self):
         lease = self.start()
-        self.co.report(lease, "blocked", "Decision needed")
+        self.co.report(lease, "blocked", "Decision needed", action="Maintainer: choose A or B; recommend A.")
         self.co.release(lease, "blocked", "Decision needed")
         error = GitHubError("POST", "graphql", "No minimization permission")
         with patch.object(self.github, "minimize_comment", side_effect=error):
@@ -470,7 +477,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_delayed_notice_does_not_park_an_item_again_after_a_reset(self):
         lease = self.start()
-        outcome = self.co.report(lease, "blocked", "Decision needed")
+        outcome = self.co.report(lease, "blocked", "Decision needed", action="Maintainer: choose A or B; recommend A.")
         with patch.object(self.github, "create_comment", side_effect=GitHubError("POST", "comments", "Notice failed")):
             self.co.release(lease, "blocked", "Decision needed")
         self.assertEqual(self.notices(), [])
@@ -548,7 +555,7 @@ class NoticeTests(unittest.TestCase):
                 self.co.report(first, "retry", "Transient failure")
                 self.co.release(first, "retry", "Transient failure")
                 lease = self.start(2)
-                outcome = self.co.report(lease, "blocked", "Need a decision")
+                outcome = self.co.report(lease, "blocked", "Need a decision", action="Maintainer: choose A or B; recommend A.")
                 before_labels = self.github.item(2).labels
                 before_outcome = deepcopy(outcome)
                 error = GitHubError("POST", "graphql", "Synthetic advisory failure")
@@ -573,7 +580,7 @@ class NoticeTests(unittest.TestCase):
             return original(number, text)
 
         def run(*args, **kwargs):
-            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Human merge", outcome="human")
+            loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Human merge", outcome="human", action="Maintainer: choose A or B; recommend A.")
             return 0
 
         with patch.object(self.github, "create_comment", side_effect=create), \
@@ -587,7 +594,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_unchanged_blocked_poll_is_quiet_but_reason_and_state_changes_print(self):
         lease = self.start()
-        self.co.report(lease, "blocked", "Need a decision")
+        self.co.report(lease, "blocked", "Need a decision", action="Maintainer: choose A or B; recommend A.")
         self.co.release(lease, "blocked", "Need a decision")
         loop = Loop(config(self.root, agent(self.root, kind="issue")), self.github, "operator", output=self.output.append)
         for _ in range(3):

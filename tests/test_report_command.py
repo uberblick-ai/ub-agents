@@ -108,7 +108,7 @@ def main():
                         self.assertNotIn("$UB_AGENTS_REPORT", prompt)
                     else:
                         self.assertIsNone(args[3])
-                    loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Verified")
+                    loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Verified", action="Maintainer: choose A or B; recommend A.")
                     return 0
 
                 with patch("ub_agents.coordination.shutil.which", return_value="installed"), \

@@ -6,12 +6,17 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** repositories with their own role files, or command runtimes that file
+stop reports, must add `--action` before upgrading (#181). uberblick-ai/uberblick-2
+tracks its role-file change separately.
+
 ### Added
 
 - Needs attention items have an Unblock tab showing trusted action-needed comments from the session snapshot or an explicit GitHub load (#178).
 
 ### Changed
 
+- Stop reports require a concise human action, which leads parking notices in bold and appears as the terminal attention reason (#181).
 - Two-line Work pane items have one blank row between them in the combined layout, keeping each item's details separate (#234).
 - Eligible lists each item once with all its eligible agents, counting items and retaining selection when those agents change (#233).
 - The terminal view adds padding inside both panes and a one-column gap between them, keeping content inset in narrow layouts (#231).

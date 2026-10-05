@@ -37,8 +37,11 @@ def notice_summary(body):
         lines.pop(0)
     if lines and lines[0] == '**Action needed**':
         lines.pop(0)
-    # Notices put the parking summary first, followed by evidence and retry steps.
-    return short_reason('\n'.join(lines).strip().split('\n\n', 1)[0])
+    # New notices lead with the bold action; older notices lead with the reason.
+    reason = '\n'.join(lines).strip().split('\n\n', 1)[0]
+    if reason.startswith('**') and reason.endswith('**'):
+        reason = reason[2:-2]
+    return short_reason(reason)
 
 
 def attention_details(plan, stop_labels, notice):
@@ -57,7 +60,8 @@ def attention_details(plan, stop_labels, notice):
                 and set(r.get('transition', {}).get('add', ())).intersection(present_stops)]
     if outcomes:
         outcome = max(outcomes, key=lambda r: r.get('id', 0))
-        details.update(waiting_since=outcome.get('created'), attention_reason=short_reason(outcome.get('summary')))
+        details.update(waiting_since=outcome.get('created'),
+                       attention_reason=short_reason(outcome.get('action') or outcome.get('summary')))
         return details
     if plan.approval_gate:
         details['attention_reason'] = short_reason(plan.approval_gate.reason)
@@ -66,7 +70,9 @@ def attention_details(plan, stop_labels, notice):
                 and r['kind'] == 'lease' and r.get('state') == 'released']
     if finished:
         run = max(finished, key=lambda r: (stamp(r.get('expires')) or 0, r.get('id', 0)))
-        details['attention_reason'] = short_reason(lease_summary(plan.history, run))
+        outcome = next((r for r in plan.history if r['kind'] == 'outcome'
+                        and r.get('lease_id') == run['id'] and not r.get('rejected')), {})
+        details['attention_reason'] = short_reason(outcome.get('action') or lease_summary(plan.history, run))
         details['waiting_since'] = run.get('expires')
     return details
 

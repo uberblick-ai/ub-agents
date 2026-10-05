@@ -24,6 +24,10 @@ Run the checks relevant to the assigned change and record the results.
   copy or rely on PATH to find the launcher. Use a declared
   `--outcome NAME` for success, or `--status retry|blocked` when work cannot finish.
   Include a concise summary and `--handoff PR_NUMBER` for an issue-to-PR handoff.
+  Stop reports (`--status blocked` or outcomes adding a configured stop label)
+  require `--action "ACTION"`: one non-empty line of at most 300 characters naming
+  the one thing a person must do. For decisions, name who can answer, the choices
+  and a recommendation; keep supporting evidence in the summary.
 - Start implementation PR bodies with `Closes #N`, replacing N with the assigned
   issue number.
 - Never approve your own PR or enable auto-merge. Follow the project's review and

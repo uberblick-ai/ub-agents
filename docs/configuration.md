@@ -507,7 +507,7 @@ allowed). Omitted lists are empty. `check` rejects unknown keys, non-string labe
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
 
-An agent reports `ub-agents report --outcome NAME --summary TEXT [--handoff PR]`.
+An agent reports `ub-agents report --outcome NAME --summary TEXT [--handoff PR] [--action TEXT]`.
 Here and in project instructions, replace `ub-agents` with the launcher's literal
 `report_command` from the assignment context (also supplied as `UB_AGENTS_REPORT`).
 It runs the launcher's own installation regardless of PATH, the working directory
@@ -518,6 +518,23 @@ This reports success; an unknown name is rejected. The prompt lists the declarat
 and directs the agent to leave workflow labels alone. Direct commands follow the same
 contract. The running lease snapshots the declarations; candidate configuration edits
 do not change the current run.
+
+Stop reports are `--status blocked` and named outcomes whose lease declaration adds
+a configured stop label. They require `--action "TEXT"`: one non-empty line of at
+most 300 characters, stored as `action` on the outcome. Name the one thing a person
+must do; for a decision, include who can answer, the choices and a recommendation.
+Keep the evidence and gate details in `--summary`. For example:
+
+```sh
+ub-agents report --outcome needs-human --summary "Preparation blocked by storage policy" --action "Owner: choose local or cloud storage; recommend local."
+```
+
+Missing or invalid actions are refused before any write. The launcher also rejects
+reports that bypass this validation for new leases; historical outcome records
+remain readable. `--status retry` and outcomes adding no stop label need no action.
+Repositories with their own role files or command runtimes that file stop reports
+must add `--action` before upgrading. The action leads the parking notice in bold
+and supplies the terminal view's attention reason.
 
 After ownership, candidate SHA and issue-link validation, the runner removes all
 of this agent's trigger labels and any `remove` labels from the assignment. It adds
