@@ -76,7 +76,10 @@ class ItemTabs(TabbedContent):
             if isinstance(widget, Tabs):
                 yield Static('', id='log_mode', markup=False)
                 yield Static('', id='tab_rule', markup=False)
-                yield Static('', id='item_header', markup=False)
+                header = Static('', id='item_header', markup=False)
+                # Keep the header's original colors and style while click actions remain active.
+                header.auto_links = False
+                yield header
 
 
 def description_parser():

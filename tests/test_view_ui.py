@@ -1132,7 +1132,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         for size in ((130, 36), (60, 16)):
             with self.subTest(size=size):
                 transport = RecordingDescriptionTransport()
-                app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                with patch.dict(os.environ):
+                    os.environ.pop('NO_COLOR', None)
+                    app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
                 with patch.object(app, 'open_url') as opened:
                     async with app.run_test(size=size) as pilot:
                         await self.ready(app, pilot, lambda: app.local_description is not None)
@@ -1154,12 +1156,30 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                     self.assertTrue(title.endswith('…'))
                                     self.assertEqual(rule, '┄' * header.content_region.width)
                                     self.assertEqual(header.size.height, 3)
-                                    self.assertTrue(value.get_style_at_offset(0).bold)
                                     self.assertTrue(value.get_style_at_offset(len(title) + 1).dim)
-                                    if marker == '⌥':
-                                        self.assertEqual(value.get_style_at_offset(0).foreground.hex.lower(),
-                                                         app.theme_variables['view-accent'].lower())
+                                    # Textual applies link and hover styles after render().
+                                    # Inspect the final strips, with the pointer off the reference.
+                                    self.assertTrue(await pilot.hover(header, offset=(0, 2)))
+                                    await pilot.pause()
+                                    lines = header.render_lines(header.size.region)
+                                    styles = [next(iter(lines[0].crop(x, x + 1))).style
+                                              for x in range(len(reference))]
+                                    title_style = next(iter(lines[0].crop(
+                                        len(reference) + 1, len(reference) + 2))).style
+                                    self.assertTrue(title_style.bold)
+                                    for x, style in enumerate(styles):
+                                        self.assertTrue(style.bold)
+                                        self.assertFalse(style.underline)
+                                        self.assertEqual(style.bgcolor, title_style.bgcolor)
+                                        color = (app.theme_variables['view-accent'].lower()
+                                                 if marker == '⌥' and x == 0 else title_style.color.name)
+                                        self.assertEqual(style.color.name, color)
                                     for x in range(len(reference)):
+                                        self.assertTrue(await pilot.hover(header, offset=(x, 0)))
+                                        await pilot.pause()
+                                        hovered = header.render_lines(header.size.region)[0]
+                                        self.assertEqual([next(iter(hovered.crop(i, i + 1))).style
+                                                          for i in range(len(reference))], styles)
                                         opened.reset_mock()
                                         self.assertTrue(await pilot.click(header, offset=(x, 0)))
                                         opened.assert_called_once_with(
