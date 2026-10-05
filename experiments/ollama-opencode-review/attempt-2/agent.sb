@@ -1,0 +1,12 @@
+(version 1)
+(allow default)
+(deny file-read-data (require-not (require-any (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/Library/Developer/CommandLineTools") (subpath "/Library/Apple") (subpath "/Applications/Xcode.app/Contents") (subpath "/opt/homebrew/Cellar") (subpath "/opt/homebrew/opt") (subpath "/private/var/db/timezone") (subpath "<opencode-install>") (subpath "<private-path>")
+    (literal "/")
+    (subpath "<attempt>/runtime")
+    (literal "/dev/null") (literal "/dev/tty")
+    (literal "/dev/urandom") (literal "/dev/random"))))
+(deny file-write* (require-not (require-any
+    (subpath "<attempt>/runtime")
+    (literal "/dev/null") (literal "/dev/tty"))))
+(deny network-outbound (require-not (remote ip "localhost:11435")))
+(deny network-inbound)

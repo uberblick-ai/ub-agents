@@ -1,0 +1,47 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ollama/qwen3.8:27b-mlx",
+  "small_model": "ollama/qwen3.8:27b-mlx",
+  "enabled_providers": [
+    "ollama"
+  ],
+  "share": "disabled",
+  "autoupdate": false,
+  "snapshot": false,
+  "lsp": false,
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama",
+      "options": {
+        "baseURL": "http://127.0.0.1:11435/v1",
+        "timeout": 1800000
+      },
+      "models": {
+        "qwen3.8:27b-mlx": {
+          "name": "qwen3.8:27b-mlx",
+          "tool_call": true,
+          "reasoning": true,
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          }
+        }
+      }
+    }
+  },
+  "permission": {
+    "*": "deny",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "bash": "allow"
+  },
+  "agent": {
+    "reviewer": {
+      "description": "Unattended evidence-based review",
+      "mode": "primary",
+      "prompt": "You are a code reviewer. Read source and run focused checks before writing your final review."
+    }
+  }
+}

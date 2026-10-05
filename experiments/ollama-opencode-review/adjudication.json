@@ -1,0 +1,21 @@
+{
+  "head": "5db1bc3f2a155d11d513bc342a14594e24e27de0",
+  "size": [
+    110,
+    32
+  ],
+  "work_width": 46,
+  "item_width": 63,
+  "gap_columns": 1,
+  "tab_row": "\u2502  1 Log  2 Issue  3 Runs  \u2502 Formatted  Raw                   \u2502",
+  "active_tab_block": "1 Log  ",
+  "active_tab_padding_left_right": [
+    0,
+    2
+  ],
+  "active_tab_backgrounds": [
+    "#d9d9d9",
+    "#d9d9d9"
+  ],
+  "conclusion": "Reference review's asymmetric inverted tab is reproduced; whether it blocks acceptance is a design judgment."
+}

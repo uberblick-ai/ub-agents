@@ -1,0 +1,14 @@
+{
+  "repository": "uberblick-ai/ub-agents",
+  "pr": 237,
+  "issue": 231,
+  "head": "5db1bc3f2a155d11d513bc342a14594e24e27de0",
+  "base": "11e9d08b84507df64552d7d5b4b3d87a4697d7d3",
+  "review_id": 5412022281,
+  "review_submitted_at": "2026-10-05T08:44:53Z",
+  "issue_last_edited_at": "2026-10-05T08:22:37Z",
+  "model": "qwen3.8:27b-mlx",
+  "digest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+  "context": 65536,
+  "opencode_version": "1.18.34"
+}

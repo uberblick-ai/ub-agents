@@ -1,0 +1,13 @@
+{
+  "stop_reason": "resource guard: swap growth or low free memory",
+  "tool_calls": 8,
+  "tool_counts": {
+    "bash": 5,
+    "read": 3
+  },
+  "final_review_present": false,
+  "tool_statuses": {
+    "completed": 7,
+    "error": 1
+  }
+}

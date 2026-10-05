@@ -1,0 +1,172 @@
+{
+  "target": {
+    "repository": "uberblick-ai/ub-agents",
+    "pr": 237,
+    "issue": 231,
+    "head": "5db1bc3f2a155d11d513bc342a14594e24e27de0",
+    "base": "11e9d08b84507df64552d7d5b4b3d87a4697d7d3",
+    "review_id": 5412022281,
+    "review_submitted_at": "2026-10-05T08:44:53Z",
+    "issue_last_edited_at": "2026-10-05T08:22:37Z",
+    "model": "qwen3.8:27b-mlx",
+    "digest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+    "context": 65536,
+    "opencode_version": "1.18.34"
+  },
+  "wall_limit_seconds": 1800,
+  "guards": {
+    "swap_growth_mib": 2048,
+    "minimum_memory_free_percent": 5
+  },
+  "started_at": "2026-10-05T12:44:49.930774+00:00",
+  "stage": "opencode-review",
+  "stop_reason": "resource guard: swap growth or low free memory",
+  "opencode_version": "1.18.34",
+  "ollama_version": "ollama version is 0.35.1",
+  "hardware": {
+    "model": "Mac16,8",
+    "cpu": "Apple M4 Pro",
+    "memory_bytes": 51539607552,
+    "os": "27.0.1"
+  },
+  "isolation_preflight": "checkout/git/python allowed; source/credentials/external network denied",
+  "resolved_config": {
+    "$schema": "https://opencode.ai/config.json",
+    "model": "ollama/qwen3.8:27b-mlx",
+    "small_model": "ollama/qwen3.8:27b-mlx",
+    "enabled_providers": [
+      "ollama"
+    ],
+    "share": "disabled",
+    "autoupdate": false,
+    "snapshot": false,
+    "lsp": false,
+    "provider": {
+      "ollama": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "Ollama",
+        "options": {
+          "baseURL": "http://127.0.0.1:11435/v1",
+          "timeout": 1800000
+        },
+        "models": {
+          "qwen3.8:27b-mlx": {
+            "name": "qwen3.8:27b-mlx",
+            "tool_call": true,
+            "reasoning": true,
+            "limit": {
+              "context": 65536,
+              "output": 8192
+            }
+          }
+        }
+      }
+    },
+    "permission": {
+      "*": "deny",
+      "read": "allow",
+      "glob": "allow",
+      "grep": "allow",
+      "bash": "allow"
+    },
+    "agent": {
+      "reviewer": {
+        "description": "Unattended evidence-based review",
+        "mode": "primary",
+        "prompt": "You are a code reviewer. Read source and run focused checks before writing your final review.",
+        "options": {},
+        "permission": {}
+      }
+    },
+    "mode": {},
+    "plugin": [],
+    "command": {},
+    "username": "unknown"
+  },
+  "server_version": {
+    "version": "0.35.1"
+  },
+  "installed_model": {
+    "name": "qwen3.8:27b-mlx",
+    "model": "qwen3.8:27b-mlx",
+    "modified_at": "2026-10-01T19:39:27.862438031+02:00",
+    "size": 18174721847,
+    "digest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+    "details": {
+      "parent_model": "",
+      "format": "safetensors",
+      "family": "",
+      "families": null,
+      "parameter_size": "",
+      "quantization_level": "nvfp4"
+    },
+    "capabilities": [
+      "completion",
+      "vision",
+      "tools",
+      "thinking"
+    ]
+  },
+  "model_metadata": {
+    "thinking": {
+      "values": [
+        false,
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "default": "medium"
+    },
+    "parameters": "repeat_penalty                 1\ntemperature                    1\ntop_k                          20\ntop_p                          0.95\nmin_p                          0\npresence_penalty               0",
+    "details": {
+      "parent_model": "",
+      "format": "safetensors",
+      "family": "qwen3_5",
+      "families": null,
+      "parameter_size": "27.8B",
+      "quantization_level": "nvfp4"
+    },
+    "model_info": {
+      "general.architecture": "qwen3_5",
+      "general.parameter_count": 27781081984,
+      "qwen3_5.block_count": 64,
+      "qwen3_5.context_length": 262144,
+      "qwen3_5.embedding_length": 5120
+    },
+    "capabilities": [
+      "completion",
+      "vision",
+      "tools",
+      "thinking"
+    ]
+  },
+  "baseline": {
+    "swap_used_mib": 0.0,
+    "memory_free_percent": 86,
+    "leader_rss_kib": {
+      "ollama": 31024
+    },
+    "models": []
+  },
+  "invocation": [
+    "/usr/bin/sandbox-exec",
+    "-f",
+    "<attempt>/runtime/agent.sb",
+    "<opencode-install>/bin/opencode",
+    "--pure",
+    "run",
+    "--format",
+    "json",
+    "--thinking",
+    "--agent",
+    "reviewer",
+    "--title",
+    "Blind PR review",
+    "Review the change between 11e9d08b84507df64552d7d5b4b3d87a4697d7d3 and 5db1bc3f2a155d11d513bc342a14594e24e27de0 in this isolated checkout.\n\nThis is a single unattended PR review. Read AGENTS.md and requirements.md first.\nThe requirements are the closing issue's requirements at the reviewed revision.\nYou have repository read, search and bash tools. Use them in multiple turns:\ninspect the diff, read surrounding source, follow relevant callers, and run focused\nchecks with the already installed .venv/bin/python. Do not install dependencies.\nSpend your time on concrete correctness failures and unmet requirements. Do not\nedit the implementation. Do not access the internet, GitHub or external files.\nThere are no review comments or later revisions available. Do not delegate.\n\nFinish with a Markdown review beginning with `## Final review`. For each finding,\ngive severity, a concrete triggering scenario, the observed incorrect behavior,\nand repository file/line evidence. Explain the evidence from code or checks.\nIf you find nothing, say so explicitly. In either case, list the source and callers\nexamined, checks actually run and their results, and coverage limitations. Separate\nconfirmed findings from unverified suspicions. Do not claim a check you did not run.\nReturn the review in your final response; do not publish or report it elsewhere.\n"
+  ],
+  "effective_context": 65536,
+  "context_verified_while_loaded": true,
+  "elapsed_seconds": 260.261,
+  "opencode_exit_code": -15,
+  "ollama_exit_code": 0
+}
