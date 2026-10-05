@@ -798,6 +798,10 @@ class Loop:
             from .read_input import read_policy
             read_config_path = run_dir / "read-config.json"
             read_config_path.write_text(json.dumps(read_policy(self.config)))
+            from .retrospective import retrospective_policy
+            retrospective_config_path = run_dir / "retrospective-config.json"
+            retrospective_config_path.write_text(json.dumps(
+                retrospective_policy(self.config, plan.agent, lease["run"])))
             env = {key: value for key, value in os.environ.items()
                    if not key.startswith("UB_AGENTS_")}
             env.update({"UB_AGENTS_REPOSITORY": self.config.repository,
@@ -805,6 +809,7 @@ class Loop:
                         "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
                         "UB_AGENTS_CONTEXT": str(context_path),
                         "UB_AGENTS_READ_CONFIG": str(read_config_path),
+                        "UB_AGENTS_RETROSPECTIVE_CONFIG": str(retrospective_config_path),
                         "UB_AGENTS_REPORT": report_command,
                         "UB_AGENTS_SCRATCH": str(scratch.path), "TMPDIR": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
@@ -935,6 +940,9 @@ class Loop:
     def prompt_for(self, plan, lease, context, instructions):
         earlier = context["earlier_branches"]
         report_command = context["report_command"]
+        retrospective = (f"Post a retrospective with {report_command} retrospective --body-file PATH "
+                         "only when the run lost something and you can name the change that would have prevented it.\n"
+                         if plan.agent.retrospectives is not None else "")
         continuation = (f"Earlier runs of this issue recorded branches {json.dumps(earlier)}; check each with "
                         "gh pr list --state open --head BRANCH and continue an open draft PR there instead "
                         "of opening another. " if earlier else "")
@@ -954,6 +962,7 @@ class Loop:
                 f"Use {report_command} report wherever project instructions say `ub-agents report`. "
                 "This command runs the launcher's own installation; write it literally in shell commands.\n"
                 f"Read other issues and PRs with {report_command} read N, using the launcher's input policy.\n"
+                f"{retrospective}"
                 "Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, "
                 "not directly under /tmp. TMPDIR points to the same directory. Its absolute "
                 "path is the context's scratch value; use that path directly rather than "

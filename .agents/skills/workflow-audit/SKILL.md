@@ -26,13 +26,21 @@ The audit may:
 - delete retrospective comments it analyzed on the role boards.
 
 Nothing else: no labels, priorities, branches, PRs, code or workflow files, and
-no other discussions. Post and delete only with the node ids in `AGENTS.md`,
-Retrospectives; a guessed id can reach a stranger's repository.
+no other discussions. Use only the boards below in `uberblick-ai/ub-agents`;
+a guessed id can reach a stranger's repository.
+
+| Board | Discussion | Node id |
+| --- | --- | --- |
+| issue-preparer | #202 | `D_kwDOU3EDKc4ApxOq` |
+| implementer | #203 | `D_kwDOU3EDKc4ApxOr` |
+| reviewer | #204 | `D_kwDOU3EDKc4ApxOs` |
+| integrator | #205 | `D_kwDOU3EDKc4ApxOt` |
+| workflow-audit | #206 | `D_kwDOU3EDKc4ApxOu` |
 
 ## Read the boards
 
 Read every top-level comment on the issue-preparer, implementer, reviewer and
-integrator boards (`AGENTS.md`, Retrospectives), oldest first, with their
+integrator boards listed above, oldest first, with their
 replies. The boards are public, so filter in the query and read only trusted
 authors (`OWNER`, `MEMBER`, `COLLABORATOR`):
 
@@ -87,8 +95,16 @@ group:
 
 ## Summary
 
-Post one reply on the workflow-audit board before deleting anything, with the
-recipe in `AGENTS.md`, Retrospectives:
+Write the summary to a file and post one reply on the workflow-audit board
+before deleting anything:
+
+```sh
+gh api graphql -f discussionId=D_kwDOU3EDKc4ApxOu -F body=@PATH \
+  -f query='mutation($discussionId:ID!,$body:String!){addDiscussionComment(input:{discussionId:$discussionId,body:$body}){comment{url}}}' \
+  --jq '.data.addDiscussionComment.comment.url'
+```
+
+Use this summary format:
 
 ```text
 Workflow audit — YYYY-MM-DD

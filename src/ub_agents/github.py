@@ -615,6 +615,38 @@ class GitHub:
             raise GitHubError("POST", "graphql", f"Unreadable GraphQL response: {result.get('errors')}")
         return result["data"]
 
+    def discussion(self, number):
+        owner, name = self.repository.split("/")
+        data = self.graphql(
+            "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){"
+            "discussion(number:$number){id url}}}",
+            {"owner": owner, "name": name, "number": number})
+        expected = f"https://github.com/{self.repository}/discussions/{number}"
+        try:
+            discussion = data["repository"]["discussion"]
+            if not isinstance(discussion["id"], str) or not discussion["id"].strip():
+                raise ValueError("missing discussion ID")
+            url = discussion["url"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AgentError(f"Discussion #{number} in {self.repository} is missing or unreadable") from exc
+        if url != expected:
+            raise AgentError(f"Discussion #{number} URL mismatch; expected {expected}; refusing to post")
+        return discussion
+
+    def create_discussion_comment(self, number, body):
+        discussion = self.discussion(number)
+        data = self.graphql(
+            "mutation($discussionId:ID!,$body:String!){addDiscussionComment("
+            "input:{discussionId:$discussionId,body:$body}){comment{url}}}",
+            {"discussionId": discussion["id"], "body": body})
+        try:
+            url = data["addDiscussionComment"]["comment"]["url"]
+            if not isinstance(url, str) or not url.strip():
+                raise ValueError("missing comment URL")
+            return url
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GitHubError("POST", "graphql", "Unreadable discussion comment response") from exc
+
     def unminimized_comments(self, comments):
         """REST comments omit minimization state; read it in bounded GraphQL batches."""
         pending = []
