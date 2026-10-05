@@ -15,6 +15,7 @@ uberblick-ai/uberblick-2 tracks its role-file update separately.
 ### Added
 
 - Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
+- Clicking the selected item's header reference opens its GitHub issue or PR in the default browser on every terminal-view tab (#260).
 
 ### Changed
 

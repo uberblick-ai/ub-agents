@@ -1120,6 +1120,125 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_header_reference_clicks_follow_selection_on_every_tab_and_layout(self):
+        self.state['repository'] = 'synthetic-owner/consumer-project'
+        self.state['assignment'] = None
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': number, 'kind': kind, 'agent': 'worker', 'state': 'blocked',
+             'reason': 'Needs a decision', 'title': 'Long title ' + '界' * 200}
+            for number, kind in ((114, 'issue'), (12, 'pr'))]}
+        self.state['outcomes'].append({'item': 114, 'run': 'handoff', 'handoff': 1235})
+        self.path.write_text(json.dumps(self.state))
+        for size in ((130, 36), (60, 16)):
+            with self.subTest(size=size):
+                transport = RecordingDescriptionTransport()
+                with patch.dict(os.environ):
+                    os.environ.pop('NO_COLOR', None)
+                    app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                with patch.object(app, 'open_url') as opened:
+                    async with app.run_test(size=size) as pilot:
+                        await self.ready(app, pilot, lambda: app.local_description is not None)
+                        if app.narrow:
+                            await pilot.press('enter')
+                            self.assertTrue(app.item_view)
+                        header = app.query_one('#item_header', Static)
+                        for number, marker, path in ((114, '#', 'issues'), (12, '⌥', 'pull')):
+                            app.select(f'plan:{number}:worker')
+                            await self.ready(app, pilot, lambda: app.local_description is not None)
+                            for tab in ('log', 'issue', 'runs', 'unblock'):
+                                with self.subTest(number=number, tab=tab):
+                                    app.query_one(ItemTabs).active = tab
+                                    await pilot.pause()
+                                    value = header.render()
+                                    title, metadata, rule = value.plain.split('\n')
+                                    reference = f'{marker}{number}'
+                                    self.assertTrue(title.startswith(reference + ' '))
+                                    self.assertTrue(title.endswith('…'))
+                                    self.assertEqual(rule, '┄' * header.content_region.width)
+                                    self.assertEqual(header.size.height, 3)
+                                    self.assertTrue(value.get_style_at_offset(len(title) + 1).dim)
+                                    # Textual applies link and hover styles after render().
+                                    # Inspect the final strips, with the pointer off the reference.
+                                    self.assertTrue(await pilot.hover(header, offset=(0, 2)))
+                                    await pilot.pause()
+                                    lines = header.render_lines(header.size.region)
+                                    styles = [next(iter(lines[0].crop(x, x + 1))).style
+                                              for x in range(len(reference))]
+                                    title_style = next(iter(lines[0].crop(
+                                        len(reference) + 1, len(reference) + 2))).style
+                                    self.assertTrue(title_style.bold)
+                                    for x, style in enumerate(styles):
+                                        self.assertTrue(style.bold)
+                                        self.assertFalse(style.underline)
+                                        self.assertEqual(style.bgcolor, title_style.bgcolor)
+                                        color = (app.theme_variables['view-accent'].lower()
+                                                 if marker == '⌥' and x == 0 else title_style.color.name)
+                                        self.assertEqual(style.color.name, color)
+                                    for x in range(len(reference)):
+                                        self.assertTrue(await pilot.hover(header, offset=(x, 0)))
+                                        await pilot.pause()
+                                        hovered = header.render_lines(header.size.region)[0]
+                                        self.assertEqual([next(iter(hovered.crop(i, i + 1))).style
+                                                          for i in range(len(reference))], styles)
+                                        opened.reset_mock()
+                                        self.assertTrue(await pilot.click(header, offset=(x, 0)))
+                                        opened.assert_called_once_with(
+                                            f'https://github.com/synthetic-owner/consumer-project/{path}/{number}')
+                                    opened.reset_mock()
+                                    for offset in ((len(reference), 0), (len(reference) + 1, 0),
+                                                   (header.size.width - 1, 0), (0, 1),
+                                                   (max(0, len(metadata) - 1), 1),
+                                                   (header.size.width - 1, 1), (0, 2)):
+                                        self.assertTrue(await pilot.click(header, offset=offset))
+                                    opened.assert_not_called()
+                        self.assertEqual(transport.calls, [])
+                        await pilot.press('q')
+                app.worker.thread.join(2)
+                self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_header_reference_is_inert_without_valid_session_identity(self):
+        app = View(self.root, self.path)
+        with patch.object(app, 'open_url') as opened:
+            async with app.run_test(size=(130, 36)) as pilot:
+                await self.ready(app, pilot)
+                header = app.query_one('#item_header', Static)
+                row = app.rows[app.selected]
+                repository = app.session.data['repository']
+                # Mutate the already-loaded snapshot to exercise partial identities
+                # without a disk refresh replacing them during the clicks.
+                app.worker.close()
+                app.worker.thread.join(2)
+                app.busy = True
+                while not app.worker.results.empty():
+                    app.worker.results.get_nowait()
+                for invalid in (None, '', 42, 'owner', 'owner/repo/extra', 'owner/..',
+                                'owner/repo?query', 'owner/repo\x1b'):
+                    with self.subTest(repository=invalid):
+                        app.session.data['repository'] = invalid
+                        app.update_status()
+                        self.assertNotIn('@click', header.render().get_style_at_offset(0).meta)
+                        await pilot.click(header, offset=(0, 0))
+                        opened.assert_not_called()
+                app.session.data['repository'] = repository
+                for invalid in (None, '?', '114', 0, -1, True, 1.5):
+                    with self.subTest(number=invalid):
+                        app.rows[app.selected] = replace(row, item=invalid)
+                        app.update_status()
+                        self.assertNotIn('@click', header.render().get_style_at_offset(0).meta)
+                        await pilot.click(header, offset=(0, 0))
+                        opened.assert_not_called()
+                app.rows[app.selected] = row
+                app.select(None)
+                self.assertEqual(header.render().plain.split('\n')[0], 'No item selected.')
+                await pilot.click(header, offset=(0, 0))
+                opened.assert_not_called()
+                app.session = None
+                app.action_open_reference()
+                opened.assert_not_called()
+                await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
     async def test_log_status_follows_process_and_report_with_right_aligned_history(self):
         self.state['outcomes'].extend([
             {'item': 114, 'run': 'before', 'agent': 'preparer'},
