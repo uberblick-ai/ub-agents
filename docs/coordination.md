@@ -382,6 +382,25 @@ copies preserve this launcher host, so the terminal Runs tab can show where a
 run happened even without its claim on the PR. The optional field is display
 metadata; older launchers ignore it, and older outcomes without it remain valid.
 
+After a Claude process exits, the launcher reads `permission_denials` from its
+final stream-json `result` event and adds optional display fields to the outcome:
+
+- `denials`: up to 10 `{tool, command}` entries in run order. `command` is the
+  Bash input's `command`, otherwise the input's `file_path`, otherwise compact
+  JSON of the input, truncated to 200 characters.
+- `denials_omitted`: the number beyond those 10 entries, present only when positive.
+
+The launcher updates an agent's report before acceptance, or adds these fields to
+its own outcome for an unreported run. Handoff copies preserve them. A result
+event without denials records `denials: []`; without a result event, including
+killed, timed-out or interrupted runs, no field is recorded. Codex runs record
+neither field. Denials never affect results, failure counts, acceptance or labels.
+Missing or malformed denial fields are ignored by display readers and never
+invalidate an outcome. Older launchers ignore the fields; this addition needs
+no coordinated restart. `ub-agents status` appends `· N denied` to the latest
+run's line when the listed and omitted count is positive, and `status --json`
+includes the fields in the outcome record.
+
 Agents invoke `report` through the launcher's absolute `report_command` in the
 assignment context, also supplied as `UB_AGENTS_REPORT`. It pins the launcher's
 Python interpreter and package, including for `python -m ub_agents` launchers;

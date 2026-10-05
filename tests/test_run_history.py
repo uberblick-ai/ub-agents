@@ -11,6 +11,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from rich.console import Console
+from rich.text import Text
 
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.observations import MAX_BYTES, MAX_OUTCOMES, MAX_TEXT, Observations
@@ -148,6 +149,37 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(len(runs), 2)
         self.assertEqual(runs[-1]['result'], 'blocked')
         self.assertEqual(runs[-1]['acceptance'], 'unaccepted')
+
+    def test_denials_survive_snapshot_and_display_under_their_run(self):
+        entries = [{'tool': 'Bash', 'command': 'python -m tests'},
+                   {'tool': 'Write', 'command': '/scratch/report.md'}]
+        for count, omitted in ((2, 0), (10, 2)):
+            with self.subTest(count=count):
+                denials = entries + [{'tool': 'Read', 'command': 'x' * 200}] * (count - 2)
+                fields = {'denials': denials} | ({'denials_omitted': omitted} if omitted else {})
+                self.plan(history=(claim(), outcome(**fields), claim('next', 1200)))
+                published = self.memory.snapshots[-1]['histories']['1']['runs']
+                self.assertEqual(published[0]['denials'], denials)
+                self.assertNotIn('denials', published[1])
+                for width in (60, 110):
+                    value, view = self.display(width=width)
+                    table = list(view.renderables)[1]
+                    self.assertEqual(len(table.rows), count + 2)
+                    self.assertIn(f'{count + omitted} denied', value)
+                    commands = '\n'.join(cell.plain for cell in table.columns[2].cells
+                                         if isinstance(cell, Text))
+                    self.assertIn('Bash: python -m tests', commands)
+                    self.assertIn('Write: /scratch/report.md', commands)
+                    self.assertNotIn('…', commands)
+
+    def test_empty_missing_and_malformed_denials_are_ignored_by_runs(self):
+        for fields in ({}, {'denials': []}, {'denials': 'bad'}, {'denials': [None]},
+                       {'denials': [{}], 'denials_omitted': 2}):
+            with self.subTest(fields=fields):
+                self.plan(history=(outcome(**fields),))
+                value, view = self.display()
+                self.assertNotIn('denied', value)
+                self.assertEqual(len(list(view.renderables)[1].rows), 1)
 
     def test_omitted_count_under_run_and_shared_byte_limits(self):
         all_runs = [outcome(str(n), 1000 + n, summary='😀' * (MAX_TEXT + 20))
@@ -298,7 +330,7 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(table.columns[1]._cells[2].style.color.name, '#ff8b7f')
         self.assertEqual(table.columns[1]._cells[3].style.color.name, '#ff8b7f')
         self.assertIn(table.columns[1]._cells[4].plain, '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
-        self.assertEqual(table.columns[3].width, 14)
+        self.assertEqual(table.columns[3].max_width, 14)
 
     def test_report_and_handoff_copy_keep_the_source_launcher_host(self):
         github = FakeGitHub(issue(), pr())

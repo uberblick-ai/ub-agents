@@ -136,7 +136,7 @@ or launcher authority.
 | Command | What it does |
 |---|---|
 | `ub-agents help [COMMAND]` | Show the overview, or detailed command help with examples |
-| `ub-agents status` | Show matching work, lease details, whether local agents are running, and what they reported |
+| `ub-agents status` | Show matching work, lease details, whether local agents are running, what they reported, and recorded permission denial counts |
 | `ub-agents launch [--no-ui]` | Watch the queue; open the installed view on a TTY or keep plain output with `--no-ui` |
 | `ub-agents launch --once [--no-ui]` | Run at most one assignment, then exit |
 | `ub-agents launch N [--agent NAME] [--no-ui]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
