@@ -13,36 +13,51 @@ Ctrl-C (#182).
 
 Two panes at 110×32 and above: **Work** on the left and the selected item on the
 right, with tabs. Work's outer width, including its border, is one third of the
-terminal width, rounded down and clamped to 46–64 columns; the tab panes take
-the rest. The width follows terminal resizes: 110 columns gives Work 46 columns,
-150 gives 50, and 200 gives 64. A one-line footer sits below both. The focused
+terminal width, rounded down and clamped to 46–64 columns. A one-column gap
+separates the borders, and the item pane takes the remaining width. The width
+follows terminal resizes: 110 columns gives Work 46 columns, 150 gives 50, and
+200 gives 64. A one-line footer sits below both. The focused
 pane has an accent border with its title set into the border.
 
+Both panes have two columns of padding inside each side border and one blank row
+under the top border. Work section rules and Recent activity share this inset.
+The item pane applies it to the tab bar, Formatted/Raw indicator, tab rule, shared
+header, every tab's content and log status lines; the indicator follows the labels
+on the same row. Right-aligned columns and `…` truncation stay inside the padding.
+Below 110×32 the single full-width pane keeps the same padding, with no gap.
+
 ```text
-╭─ Work · pass complete ───────────────────────────╮
-│ Running · 1                                     │
-│ ⠹ #163 Compact timestamped Claude log lin… 04:12 │
-│   implementer · this launcher · attempt 1        │
-│ Needs attention · 2                             │
-│ ? #156 Drop old coordination record form…   19h │
-│   integrator · needs-human · maintainer merge   │
-│ ✗ #126 Codex structured run-log format      24m │
-│   implementer · failed 3/3 · runtime exited      │
-│ Eligible · 2                                    │
-│ ● #165 Render issue descriptions as Markdo… next │
-│   implementer                                   │
-│ ● ⌥170 Compact timestamped Claude log li… ready  │
-│   reviewer                                      │
-├─ Recent activity ─────────────────────── 4 today ┤   (lower half, always shown, dimmed)
-│ ✓ ⌥167 Group the work list into sections  merged │
-│   integrator · 11:52 · squash-merged             │
-│ ✓ ⌥167 Group the work list into sectio… approved │
-│   reviewer · 11:38                               │
-│ ✓ #159 Group the work list into sect… handed off │
-│   implementer · 11:20 · opened ⌥167              │
-│ ✗ #126 Codex structured run-log formatti… failed │
-│   implementer · 10:02 · timed out after 180m     │
-╰──────────────────────────────────────────────────╯
+╭─ Work · pass complete ─────────────────────╮ ╭─ Log ───────────────────────────────────────────────────────╮
+│                                            │ │                                                             │
+│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Log  2 Issue  3 Runs │ Formatted  Raw                   │
+│  ⠹ #163 Compact timestamped Claude… 04:12  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    implementer · this launcher · attempt…  │ │  #163 Show Claude log entries as compact timestamped lines  │
+│  Needs attention · 2 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │  implementer · codex · attempt 1                            │
+│  ? #156 Drop old coordination record… 19h  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    integrator · needs-human · maintainer…  │ │  11:41:02 launcher claimed #163 · lease 30m                 │
+│  ✗ #126 Codex structured run-log for… 24m  │ │  11:41:03 launcher worktree ready · start codex             │
+│    implementer · failed 3/3 · runtime ex…  │ │                                                             │
+│  Eligible · 2 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │  11:41:18 ▸ Read src/ub_agents/log_format.py                │
+│  ● #165 Render issue descriptions a… next  │ │  11:41:40 Thinking blocks are rejected as unfamiliar; I’l…  │
+│    implementer                             │ │  11:41:41 · thinking                                        │
+│  ● ⌥170 Compact timestamped Claude… ready  │ │  11:42:11 ▸ Edit src/ub_agents/log_format.py +48 -12        │
+│    reviewer                                │ │  11:42:30 ▸ Bash unit suite ✓ 41 passed                     │
+│                                            │ │                                                             │
+│  Recent activity · 4 today ┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │                                                             │
+│  ✓ ⌥167 Group the work list into … merged  │ │                                                             │
+│    integrator · 11:52 · squash-merged      │ │                                                             │
+│  ✓ ⌥167 Group the work list int… approved  │ │                                                             │
+│    reviewer · 11:38                        │ │                                                             │
+│  ✓ #159 Group the work list i… handed off  │ │                                                             │
+│    implementer · 11:20 · opened ⌥167       │ │                                                             │
+│  ✗ #126 Codex structured run-log … failed  │ │                                                             │
+│    implementer · 10:02 · timed out after…  │ │                                                             │
+│                                            │ │                                                             │
+│                                            │ │                                                             │
+│                                            │ │                                                             │
+│                                            │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│                                            │ │  ⠹ implementer running · no outcome reported 1 earlier run  │
+╰────────────────────────────────────────────╯ ╰─────────────────────────────────────────────────────────────╯
 ```
 
 ## Work pane
@@ -130,8 +145,10 @@ color; the other border and title are dim.
 
 The current tabs read `1 Log  2 Issue  3 Runs │ Formatted  Raw`. Formatted/Raw is
 an inert indicator of the selected log's `u` mode, visible on every tab. The active
-tab is inverted, the others are dim, and a thin dashed rule replaces Textual's
-underline. The pane's rounded border is titled `Log`, `Issue` or `Runs`.
+tab is inverted with one space on either side of its label, the others are dim,
+and a thin dashed rule replaces Textual's underline. The tab bar starts at the
+pane's two-column inset; labels sit one column right of the shared header.
+The pane's rounded border is titled `Log`, `Issue` or `Runs`.
 Unblock appears only for Needs attention rows. Each tab
 starts with the same item header: `#N title` (issue) or `⌥N title` (PR) in bold,
 then agent · runtime · attempt · PR in dim text and a dashed rule. Missing values
@@ -141,22 +158,26 @@ are omitted. The running assignment shows `attempt N`; planned work shows
 ### Log
 
 ```text
- 1 Log   2 Issue   3 Runs  │  Formatted  Raw u
- #163 Show Claude log entries as compact timestamped lines
- implementer · codex gpt-6.1-sol xhigh · attempt 1
- ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- 11:41:02 launcher claimed #163 · lease 30m
- 11:41:03 launcher worktree .ub-agents/worktrees/78849e0b · start codex
-
- 11:41:18 ▸ Read src/ub_agents/log_format.py
- 11:41:40 Thinking blocks are rejected as unfamiliar; I'll project them…   (italic)
- 11:41:41 · thinking                                                       (dim)
- 11:42:11 ▸ Edit src/ub_agents/log_format.py +48 -12                       (+ green, - red)
- 11:42:30 ▸ Bash .venv/bin/python -m unittest tests.test_log_format ✓ 41 passed
- 11:44:02 ▸ Bash .venv/bin/python -m unittest discover
-          ✗ exit 1 · FAIL test_thinking_marker (tests.test_log_format)     (red, under its call)
- ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- ⠹ implementer running · no outcome reported                  1 earlier run
+╭─ Log ────────────────────────────────────────────────────────────────────────────╮
+│                                                                                  │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                        │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  #163 Show Claude log entries as compact timestamped lines                       │
+│  implementer · codex gpt-6.1-sol xhigh · attempt 1                               │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  11:41:02 launcher claimed #163 · lease 30m                                      │
+│  11:41:03 launcher worktree .ub-agents/worktrees/78849e0b · start codex          │
+│                                                                                  │
+│  11:41:18 ▸ Read src/ub_agents/log_format.py                                     │
+│  11:41:40 Thinking blocks are rejected as unfamiliar; I'll project them…         │
+│  11:41:41 · thinking                                                             │
+│  11:42:11 ▸ Edit src/ub_agents/log_format.py +48 -12                             │
+│  11:42:30 ▸ Bash .venv/bin/python -m unittest tests.test_log_format ✓ 41 passed  │
+│  11:44:02 ▸ Bash .venv/bin/python -m unittest discover                           │
+│           ✗ exit 1 · FAIL test_thinking_marker (tests.test_log_format)           │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  ⠹ implementer running · no outcome reported                      1 earlier run  │
+╰──────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 - One line per entry: local `HH:MM:SS`, then the content. Launcher lines say
@@ -180,22 +201,26 @@ are omitted. The running assignment shows `attempt N`; planned work shows
 ### Issue
 
 ```text
- 1 Log   2 Issue   3 Runs
- #156 Drop old coordination record formats                       (bold)
- issue · ready · prepared by issue-preparer                       (dim)
-
- Outcome                                                         (heading, accent color)
- Launchers read only the current record format. Older markers and branch
- names are ignored, as no backward compatibility is kept.        ("no backward compatibility" bold)
-
- Acceptance
- • Remove the readers for `ub-agent/…` markers and branches.     (inline code in yellow)
- • The changelog's Upgrading note says to stop all launchers first.
- ┌──────────────────────────────────────────────┐
- │ <!-- ub-agent:record v1 -->  ignored         │                (code block on a darker panel)
- └──────────────────────────────────────────────┘
- ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- Source: snapshot · 15s old · press g to load from GitHub        (dim)
+╭─ Issue ─────────────────────────────────────────────────────────────────────────╮
+│                                                                                 │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                       │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  #156 Drop old coordination record formats                                      │
+│  issue · ready · prepared by issue-preparer                                     │
+│                                                                                 │
+│  Outcome                                                                        │
+│  Launchers read only the current record format. Older markers and branch        │
+│  names are ignored, as no backward compatibility is kept.                       │
+│                                                                                 │
+│  Acceptance                                                                     │
+│  • Remove the readers for `ub-agent/…` markers and branches.                    │
+│  • The changelog's Upgrading note says to stop all launchers first.             │
+│  ┌──────────────────────────────────────────────┐                               │
+│  │ <!-- ub-agent:record v1 -->  ignored         │                               │
+│  └──────────────────────────────────────────────┘                               │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  Source: snapshot · 15s old · press g to load from GitHub                       │
+╰─────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 The body renders as Markdown. Links and HTML show as text and are never opened.
@@ -208,28 +233,32 @@ the item, so a team member sees at once what has to happen. Acting on it from th
 view comes later; for now the tab is read-only.
 
 ```text
- 1 Log   2 Issue   3 Runs   4 Unblock
- ⌥168 Render Issue descriptions as Markdown                      (bold)
- integrator · blocked · waiting 24m · since 12:12                (dim, "waiting 24m" red)
- ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- Local CI not run for ea4068a, so no signoff gate. `mise run ci ea4068a…`
- failed: mise reports this worktree's mise.toml is not trusted. Running
- `sh bin/ci.sh SHA` was denied by the session permission policy. Other gates
- pass: PR head matches the candidate, it is mergeable on top of main, the
- reviewer approved this SHA, and the changelog entry is accurate.
-
- Needs: trust mise.toml for integrator worktrees, or allow bin/ci.sh, then
- re-run integration.                                             (bold)
-
- Candidate ea4068a · review: no decision · CI: no checks or statuses   (dim)
-
- After resolving the blocker                                     (heading, accent color)
- ┌────────────────────────────────────────────────────────────────────────────┐
- │ ub-agents retry --number 168 --agent integrator --reason "Human resolved…" │
- └────────────────────────────────────────────────────────────────────────────┘
- Restore a matching trigger if absent: `ready-to-merge`; remove any stop label.
- ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- Source: action-needed comment · 12:12 · snapshot                (dim)
+╭─ Unblock ────────────────────────────────────────────────────────────────────────╮
+│                                                                                  │
+│   1 Log  2 Issue  3 Runs  4 Unblock │ Formatted  Raw                             │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  ⌥168 Render Issue descriptions as Markdown                                      │
+│  integrator · blocked · waiting 24m · since 12:12                                │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  Local CI not run for ea4068a, so no signoff gate. `mise run ci ea4068a…`        │
+│  failed: mise reports this worktree's mise.toml is not trusted. Running          │
+│  `sh bin/ci.sh SHA` was denied by the session permission policy. Other gates     │
+│  pass: PR head matches the candidate, it is mergeable on top of main, the        │
+│  reviewer approved this SHA, and the changelog entry is accurate.                │
+│                                                                                  │
+│  Needs: trust mise.toml for integrator worktrees, or allow bin/ci.sh, then       │
+│  re-run integration.                                                             │
+│                                                                                  │
+│  Candidate ea4068a · review: no decision · CI: no checks or statuses             │
+│                                                                                  │
+│  After resolving the blocker                                                     │
+│  ┌────────────────────────────────────────────────────────────────────────────┐  │
+│  │ ub-agents retry --number 168 --agent integrator --reason "Human resolved…" │  │
+│  └────────────────────────────────────────────────────────────────────────────┘  │
+│  Restore a matching trigger if absent: `ready-to-merge`; remove any stop label.  │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  Source: action-needed comment · 12:12 · snapshot                                │
+╰──────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 The body is the latest `<!-- ub-agents:action-needed RUN -->` comment on the item,
@@ -247,15 +276,19 @@ launcher with when, result, agent and summary, where it ran, and the outcome. Fo
 PR the first row is the issue it closes.
 
 ```text
- 1 Log   2 Issue   3 Runs
- ⌥167 Group the terminal view's work list into sections          (bold)
- closes #159 · filed by bk-one · 3 runs                          (dim)
- ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- when        result  agent · summary                         where         outcome
- 2 days ago  ✓       filed by bk-one                         GitHub        filed
- 52 min ago  ✓       implementer · sections from snapshot …  bens-macbook… handed-off
- 34 min ago  ✓       reviewer · changelog entry tightened    uberblick     approved
- 20 min ago  ✓       integrator · squash-merged at d41f0a2   this machine  merged
+╭─ Runs ─────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                        │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                              │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  ⌥167 Group the terminal view's work list into sections                                │
+│  closes #159 · filed by bk-one · 3 runs                                                │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  when        result  agent · summary                         where         outcome     │
+│  2 days ago  ✓       filed by bk-one                         GitHub        filed       │
+│  52 min ago  ✓       implementer · sections from snapshot …  bens-macbook… handed-off  │
+│  34 min ago  ✓       reviewer · changelog entry tightened    uberblick     approved    │
+│  20 min ago  ✓       integrator · squash-merged at d41f0a2   this machine  merged      │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 - `when` is relative (`just now`, `20 min ago`, `3 h ago`, `yesterday`, then a date).

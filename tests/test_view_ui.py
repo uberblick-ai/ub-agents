@@ -56,7 +56,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['histories']['114']['runs'].append(
             {'agent': 'worker', 'result': 'blocked', 'time': self.state['published_at']})
         self.path.write_text(json.dumps(self.state))
-        self.log.write_bytes(record(content=[{**tool(name='Edit'), 'input': {
+        self.log.write_bytes(record(timestamp='2026-10-03T12:00:00Z', content=[{**tool(name='Edit'), 'input': {
             'file_path': 'a.py', 'new_string': 'one\ntwo\n', 'old_string': 'old'}}]))
 
     def screenshot_text(self, svg):
@@ -76,8 +76,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.resize_terminal(*size)
                     await self.ready(app, pilot, lambda: work.region.width == width)
                     self.assertEqual(work.region.width, width)
-                    self.assertEqual(panes.region.width, size[0] - width)
                     self.assertEqual(panes.display, not app.narrow)
+                    if not app.narrow:
+                        self.assertEqual(panes.region.width, size[0] - width - 1)
+                        self.assertEqual(panes.region.x, work.region.right + 1)
             await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
@@ -113,6 +115,28 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             strips = app.screen._compositor.render_strips()
             border = strips[work.region.y].crop(work.region.x, work.region.x + 1)
             self.assertEqual(next(iter(border)).style.color.name, '#b79cff')
+            self.assertEqual((work.region.width, panes.region.width), (46, 63))
+            self.assertEqual(panes.region.x, work.region.right + 1)
+            for strip in strips[work.region.y:work.region.bottom]:
+                self.assertEqual(strip.crop(work.region.right, panes.region.x).text, ' ')
+            for pane in (work, panes):
+                self.assertEqual(strips[pane.region.y + 1].crop(
+                    pane.region.x + 1, pane.region.right - 1).text.strip(), '')
+                for strip in strips[pane.region.y + 1:pane.region.bottom - 1]:
+                    self.assertEqual(strip.crop(pane.region.x + 1, pane.region.x + 3).text, '  ')
+                    self.assertEqual(strip.crop(pane.region.right - 3, pane.region.right - 1).text, '  ')
+            work_row = strips[tree.region.y + app.nodes[app.selected]._line - int(tree.scroll_y)]
+            self.assertEqual(work_row.crop(work.region.x, work.region.x + 3).text, '│  ')
+            self.assertIn(work_row.crop(work.region.x + 3, work.region.x + 4).text,
+                          '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
+            output = app.query_one(LogPane)
+            log_row = strips[output.region.y]
+            self.assertEqual(log_row.crop(panes.region.x, panes.region.x + 3).text, '│  ')
+            self.assertEqual(output.region.x, panes.region.x + 3)
+            self.assertEqual(log_row.crop(output.region.x, output.region.x + 10).text,
+                             output.lines[0].text[:10])
+            self.assertRegex(output.lines[0].text[1:9], r'^\d\d:\d\d:\d\d$')
+            self.assertEqual(len(output.lines), 1)
             for heading, color in (('Running', '#6cb6ff'), ('Needs attention', '#ff8b7f'),
                                    ('Eligible', '#7ee2a0')):
                 line = tree.render_line(app.groups[heading]._line - int(tree.scroll_y))
@@ -120,6 +144,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                     for segment in line))
                 self.assertIn(color, svg)
             indicator = app.query_one('#log_mode', Static)
+            tabs = app.query_one('#panes Tabs', Tabs)
+            self.assertEqual(tabs.region.x, panes.region.x + 3)
+            self.assertEqual(tabs.region.y, panes.region.y + 2)
+            self.assertEqual(indicator.region.y, tabs.region.y)
+            last_tab = [tab for tab in app.query('#panes Tab') if tab.display][-1]
+            self.assertEqual(indicator.region.x, last_tab.region.right)
+            self.assertEqual(strips[tabs.region.y].crop(last_tab.region.right - 1, indicator.region.x + 1).text,
+                             ' │')
+            self.assertEqual(strips[tabs.region.y].crop(tabs.region.x, tabs.region.x + 7).text, ' 1 Log ')
             self.assertFalse(indicator.can_focus)
             self.assertEqual(len([tab for tab in app.query('#panes Tab') if tab.display]), 3)
             self.assertTrue(all(not widget.display for widget in app.query('#panes Underline')))
@@ -128,6 +161,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             active = app.query_one('#panes Tab.-active', Tab)
             self.assertEqual(active.styles.color, app.screen.styles.background)
             self.assertEqual(active.styles.background.hex.lower(), '#d4d9e1')
+            active_strip = strips[tabs.region.y].crop(active.region.x, active.region.right)
+            self.assertEqual(active_strip.text, ' 1 Log ')
+            self.assertTrue(all(segment.style.bgcolor.name == '#d4d9e1' for segment in active_strip))
             selected = app.selected
             await pilot.click('#log_mode')
             self.assertEqual(app.query_one(TabbedContent).active, 'log')
@@ -157,6 +193,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
             tree.get_node_at_line(0)
             self.assertEqual(app.query_one('#work_pane').region.width, 80)
+            self.assertEqual(tree.region.x, 3)
+            self.assertEqual(tree.region.y, 2)
+            self.assertEqual(tree.region.width, 74)
             self.assertFalse(app.query_one(ItemTabs).display)
             self.assertEqual(tree._get_label_region(app.nodes[app.selected]._line).height, 1)
             self.assertEqual(tree.virtual_size.height, 4)  # two headings, two rows
@@ -174,6 +213,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.item_view)
             self.assertFalse(app.query_one('#work_pane').display)
             self.assertEqual(app.query_one(ItemTabs).region.width, 80)
+            self.assertEqual(app.query_one(ItemTabs).region.x, 0)
+            for selector in ('#panes Tabs', '#tab_rule', '#item_header', '#output', '#run_status'):
+                self.assertEqual(app.query_one(selector).region.x, 3)
+                self.assertEqual(app.query_one(selector).region.width, 74)
+            self.assertEqual(app.query_one('#panes Tabs').region.y, 2)
             for value in ('1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported'):
                 self.assertIn(value, self.screenshot_text(app.export_screenshot()))
             await pilot.press('2', 'escape')
@@ -473,7 +517,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         edit = record(content=[{**tool(name='Edit'), 'input': {
             'file_path': 'long/' * 50, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
         # Keep the first hidden record inside the raw render budget at 110×32.
-        self.log.write_bytes(b''.join(recorded) + edit + b''.join(event(i, 20) for i in range(10)))
+        self.log.write_bytes(b''.join(recorded) + edit + b''.join(event(i, 20) for i in range(5)))
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -990,7 +1034,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(note.render().plain, 'command: plain/raw fallback')
             self.log.write_bytes(b'unfinished record')
             await self.ready(app, pilot, lambda: 'Unfinished:' in note.render().plain)
-            self.assertIn('plain/raw fallback', note.render().plain)
+            self.assertTrue(note.render().plain.endswith('command: plain/raw fallb…'))
             with self.log.open('ab') as stream:
                 stream.write(b'\n')
             await self.ready(app, pilot, lambda: 'Unfinished:' not in note.render().plain)
@@ -1055,7 +1099,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             lines = status.render().plain.split('\n')
             self.assertEqual(len(lines), 2)
             self.assertEqual(lines[0], '┄' * status.size.width)
-            self.assertIn('implementer running · no outcome reported', lines[1])
+            self.assertIn('implementer running · no outcome report…', lines[1])
             self.assertIn(lines[1][0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
             self.assertTrue(lines[1].endswith('2 earlier runs'))
             self.assertEqual(pane_line(lines[1], 1000).cell_len, status.size.width)
@@ -1106,7 +1150,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             def normal_work():
                 self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 5')
                 self.assertIn(line(own)[0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
-                self.assertEqual(line(own, True), '  implementer · this launcher · attempt 3')
+                self.assertEqual(line(own, True), '  implementer · this launcher · attempt…')
                 for item, state in ((20, 'next'), (21, 'ready'), (22, 'recover'),
                                     (23, 'backoff'), (24, 'waiting')):
                     self.assertTrue(line(f'plan:{item}:worker').endswith(state))
@@ -1126,7 +1170,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.groups['Eligible'].label.plain, label)
             tree.get_node_at_line(0)
             heading = tree.render_line(app.groups['Eligible']._line - tree.scroll_offset.y).text
-            self.assertTrue(heading.startswith(label))
+            self.assertEqual(heading, 'Eligible · 5 · not claimed while stoppi…')
             for item in (20, 21, 22):
                 self.assertTrue(line(f'plan:{item}:worker').endswith('held'))
             for item, state in ((23, 'backoff'), (24, 'waiting')):
@@ -1177,7 +1221,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             note = app.query_one('#log_note', Static)
             self.assertEqual(note.size.height, 1)
             self.assertIn('Unfinished:', note.render().plain)
-            self.assertIn('plain/raw fallback', note.render().plain)
+            self.assertTrue(note.render().plain.endswith('command: plain/raw fallb…'))
             self.assertTrue(any(span.style.bold and span.style.foreground.hex.lower() == app.theme_variables['view-warning']
                                 for span in note.render().spans))
             self.assertNotIn('bytes ', note.render().plain)
@@ -1940,7 +1984,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(first.text[1:].startswith(prefix), first.text)
                     self.assertRegex(first.text, r'\d\d:\d\d$')
                     self.assertIn('…', first.text)
-                    self.assertEqual(second.text.rstrip(), '  implementer · this launcher · attempt 1')
+                    self.assertEqual(second.text.rstrip(), '  implementer · this launcher · attempt…')
                 else:
                     self.assertTrue(first.text.startswith(prefix), first.text)
                     self.assertTrue(first.text.endswith(status), first.text)
@@ -2423,7 +2467,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.rows[app.selected].state, 'earlier observation')
             self.assertIn('malformed', str(app.query_one('#status').render()))
             self.assertGreater(app.query_one('#output').size.height, 15)
-            self.assertGreaterEqual(app.query_one('#output').size.width, 60)
+            self.assertEqual(app.query_one('#output').size.width, 57)
             await pilot.press('ctrl+c')
         app.worker.thread.join(2)
 
