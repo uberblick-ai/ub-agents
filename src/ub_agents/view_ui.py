@@ -1,4 +1,4 @@
-"""Optional Textual two-pane UI. Imported only by the view process."""
+"""Optional responsive Textual UI. Imported only by the view process."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +30,7 @@ from .view_theme import VIEW_THEME, log_style, theme_style, variable_defaults
 from .updates import release_age
 
 MAX_RENDER_LINES = 400
+SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
 
 
 class UpdateBanner(Static):
@@ -40,7 +41,8 @@ class UpdateBanner(Static):
 
     def set_banner(self, banner):
         banner = mapping(banner)
-        self.display = bool(banner.get('text')) and isinstance(banner.get('text'), str)
+        self.display = (not self.app.too_small and bool(banner.get('text'))
+                        and isinstance(banner.get('text'), str))
         if self.banner != banner:
             self.banner = banner
             self.refresh()
@@ -94,7 +96,13 @@ def description_parser():
 
 class RawAccess(ModalScreen):
     BINDINGS = [Binding('escape', 'dismiss', 'Close', priority=True)]
-    DEFAULT_CSS = 'RawAccess { padding: 2 4; } RawAccess VerticalScroll { background: $panel; padding: 1 2; } #raw_status { height: 1; background: $panel; }'
+    DEFAULT_CSS = '''
+    RawAccess { padding: 2 4; }
+    RawAccess VerticalScroll { background: $panel; padding: 1 2; }
+    #raw_status { height: 1; background: $panel; }
+    #raw_size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
+    RawAccess.floor { padding: 0; }
+    '''
     footer_keys = 'Esc close ? keys q quit'
 
     def __init__(self, message=None):
@@ -104,10 +112,20 @@ class RawAccess(ModalScreen):
     def compose(self):
         # Read the view's state now: updates that land between the push and
         # this compose find no widgets to update.
-        with VerticalScroll():
+        yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='raw_size_warning')
+        with VerticalScroll(id='raw_content'):
             yield Static(Text(self.message if self.message is not None else self.app.raw_details()), id='raw_details')
         yield Static(self.app.footer(self.app.size.width - self.styles.padding.width, self.footer_keys),
                      id='raw_status', markup=False)
+
+    def set_floor(self, too_small):
+        self.set_class(too_small, 'floor')
+        self.query_one('#raw_size_warning').display = too_small
+        self.query_one('#raw_content').display = not too_small
+        self.query_one('#raw_status').display = not too_small
+
+    def on_mount(self):
+        self.set_floor(self.app.too_small)
 
     def action_dismiss(self):
         self.dismiss()
@@ -121,6 +139,8 @@ class KeyHelp(RawAccess, inherit_bindings=False):
         super().__init__(
             'Keys\n\n'
             'Tab / arrows / Enter   Focus a pane and select a work row\n'
+            'Enter below 110×32   Open the selected item at full width\n'
+            'Esc below 110×32   Return to Work; close an overlay first\n'
             '1 / 2 / 3   Log / Issue / Runs\n'
             'g on Issue   Load a missing description or retry a failed read\n'
             'f   Toggle follow/pause; resuming loads the latest generation\n'
@@ -332,6 +352,7 @@ class View(App):
     Screen { background: $background; color: $foreground; }
     #update { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
     #body { height: 1fr; }
+    #size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
     #work_pane { width: 36; }
     #work_pane, #panes {
         border: round $view-border; border-title-color: $view-border;
@@ -372,6 +393,8 @@ class View(App):
     BINDINGS = [
         Binding('q', 'quit', 'Quit', priority=True),
         Binding('ctrl+c', 'quit', 'Quit', priority=True),
+        Binding('enter', 'open_item', 'Open item', priority=True),
+        Binding('escape', 'back', 'Back', priority=True),
         Binding('f', 'follow', 'Follow/pause', priority=True),
         Binding('u', 'raw', 'Raw', priority=True),
         Binding('h', 'history', 'Older page', priority=True),
@@ -406,8 +429,13 @@ class View(App):
         self.pending_history = None
         self.last_context = self.last_runs = None
         self._window_title = None
+        self.narrow = False
+        self.too_small = False
+        self.item_view = False
+        self.layout_focus = None
 
     def compose(self) -> ComposeResult:
+        yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='size_warning')
         yield UpdateBanner()
         with Horizontal(id='body'):
             with Vertical(id='work_pane'):
@@ -430,7 +458,7 @@ class View(App):
         yield Static('', id='status', markup=False)
 
     def on_mount(self):
-        self.update_work_pane_width(self.size)
+        self.update_layout(self.size)
         self.query_one('#work_pane').border_title = 'Work'
         self.query_one(ItemTabs).border_title = 'Log'
         self.query_one(WorkTree).show_root = False
@@ -442,13 +470,89 @@ class View(App):
             self.launcher.mounted(self)
 
     def on_resize(self, event):
-        self.update_work_pane_width(event.size)
+        self.update_layout(event.size)
 
-    def update_work_pane_width(self, size):
+    def update_layout(self, size):
         pane = self.query_one_optional('#work_pane')
-        if pane is not None:
-            pane.styles.width = (min(64, max(46, size.width // 3))
-                                 if size.width >= 110 and size.height >= 32 else 36)
+        if pane is None:
+            return
+        narrow = size.width < 110 or size.height < 32
+        too_small = size.width < 60 or size.height < 16
+        output = self.query_one(LogPane)
+        if narrow != self.narrow or too_small != self.too_small:
+            if (not self.too_small and self.query_one(ItemTabs).display
+                    and self.query_one(ItemTabs).active == 'log'):
+                output.save_anchor()
+        if narrow and not self.narrow:
+            self.item_view = self.query_one(ItemTabs).has_focus_within
+        if too_small and not self.too_small:
+            self.layout_focus = self.focused
+        restore_focus = self.too_small and not too_small
+        changed = narrow != self.narrow
+        self.narrow, self.too_small = narrow, too_small
+        pane.styles.width = '1fr' if narrow else min(64, max(46, size.width // 3))
+        pane.display = not narrow or not self.item_view
+        self.query_one(ItemTabs).display = not narrow or self.item_view
+        self.query_one('#body').display = not too_small
+        self.query_one('#status').display = not too_small
+        self.query_one('#size_warning').display = too_small
+        banner = self.query_one(UpdateBanner)
+        banner.display = not too_small and bool(text(banner.banner.get('text'), ''))
+        if changed:
+            tree = self.query_one(WorkTree)
+            tree._invalidate()
+            self.query_one(RecentActivity).refresh()
+        for screen in self.screen_stack:
+            if isinstance(screen, RawAccess) and screen.is_mounted:
+                screen.set_floor(too_small)
+        if restore_focus and self.layout_focus is not None:
+            self.layout_focus.focus(scroll_visible=False)
+        self.update_status()
+
+    def check_action(self, action, parameters):
+        item_actions = {'follow', 'raw', 'history', 'path', 'load_description',
+                        'tab', 'page_up', 'page_down', 'home', 'end'}
+        if self.too_small and action in item_actions | {'help', 'open_item', 'back', 'focus_next', 'focus_previous'}:
+            return False
+        if self.narrow and not self.item_view and action in item_actions:
+            return False
+        # Leave wide Enter handling and modal Escape handling to their widgets.
+        if action == 'open_item':
+            return self.narrow and not self.item_view and not isinstance(self.screen, RawAccess)
+        if action == 'back':
+            return self.narrow and self.item_view and not isinstance(self.screen, RawAccess)
+        return True
+
+    def action_open_item(self):
+        recent = self.query_one(RecentActivity)
+        node = self.query_one(WorkTree).cursor_node
+        key = recent.cursor if recent.has_focus else node.data if node else None
+        if key not in self.rows:
+            return
+        self.select(key)
+        self.item_view = True
+        self.update_layout(self.size)
+        tab = self.query_one(ItemTabs).active
+        target = self.query_one(LogPane) if tab == 'log' else self.query_one('#' + tab + ' VerticalScroll')
+        target.focus(scroll_visible=False)
+        if tab == 'log':
+            output = self.query_one(LogPane)
+            self.call_after_refresh(output.reflow)
+
+    def action_back(self):
+        if self.query_one(ItemTabs).active == 'log':
+            self.query_one(LogPane).save_anchor()
+        self.item_view = False
+        self.update_layout(self.size)
+        tree, recent = self.query_one(WorkTree), self.query_one(RecentActivity)
+        if self.selected in self.nodes:
+            tree.move_cursor(self.nodes[self.selected])
+            tree.focus(scroll_visible=False)
+        elif self.selected in {row.key for row in recent.rows}:
+            recent.cursor = self.selected
+            recent.focus(scroll_visible=False)
+        else:
+            tree.focus(scroll_visible=False)
 
     def action_quit(self):
         if self.launcher is not None:
@@ -720,13 +824,11 @@ class View(App):
         return unread, lag
 
     def footer(self, width, keys):
-        parts = ['ub-agents']
+        parts = ['' if self.narrow else 'ub-agents']
         if self.session:
             version = text(self.session.data.get('base_version'), '')
             if version:
-                parts[0] += f' v{version}'
-        if self.size.width < 110 or self.size.height < 32:
-            parts.append('minimum 110×32')
+                parts[0] += ('' if self.narrow else ' ') + f'v{version}'
         if self.session:
             state = self.session.state()
             if state == 'malformed':
@@ -739,17 +841,22 @@ class View(App):
                 try:
                     until = datetime.fromisoformat(activity['until'].replace('Z', '+00:00'))
                     if until.tzinfo is not None:
-                        value = f'next poll {max(0, ceil((until - datetime.now(timezone.utc)).total_seconds()))}s'
+                        prefix = 'poll' if self.narrow else 'next poll'
+                        value = f'{prefix} {max(0, ceil((until - datetime.now(timezone.utc)).total_seconds()))}s'
                 except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
                     pass
             if value:
                 parts.append(value)
         else:
             parts.append('reading session')
-        # Keep the main keys intact at the supported minimum width. Below that,
-        # reserve space for the minimum-size hint and session diagnostics.
-        right = Text(keys if width >= 110 else '? keys q quit')
-        left = Text(' · '.join(parts), no_wrap=True, overflow='ellipsis')
+        left = Text(' · '.join(part for part in parts if part), no_wrap=True, overflow='ellipsis')
+        # Shorten paused keys only when they crowd out the version/activity.
+        if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('f follow'):
+            keys = 'f follow h older u raw PgUp/Dn ? keys q quit'
+            if len(keys) + left.cell_len + 1 > width:
+                keys = 'f follow h older u raw ? keys q quit'
+        right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
+        right.truncate(max(0, width - 1), overflow='ellipsis')
         left.truncate(max(0, width - right.cell_len - 1), overflow='ellipsis')
         left.append(' ' * max(1, width - left.cell_len - right.cell_len))
         left.append_text(right)
@@ -774,6 +881,11 @@ class View(App):
         unread, lag = self.log_lag()
         keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit' if not reading.follow else
                 '↑↓ select ⏎ open 1-3 tabs ? keys q quit')
+        if self.narrow:
+            if not self.item_view:
+                keys = '↑↓ select ⏎ open ? keys q quit'
+            elif reading.follow:
+                keys = 'Esc back 1-3 tabs ? keys q quit'
         status = self.footer(self.size.width, keys)
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):

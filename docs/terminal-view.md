@@ -64,11 +64,20 @@ result without delaying work. The result is included in the session snapshot;
 the view makes no GitHub reads for updates. Plain launch output prints each new
 banner text once. Restart with the current code to clear the notice.
 
-At least **110 columns × 32 rows** are needed for the combined view. At that size
+At **110 columns × 32 rows** and above, the combined view shows both panes. At that size
 and above, the Work pane's outer width, including its border, is one third of the
 terminal width, rounded down and clamped to 46–64 columns; the tab panes take the
-rest. This follows terminal resizes. Below either minimum dimension, Work keeps
-its previous 36-column width and the two-pane layout remains in place.
+rest. Below either dimension, one pane fills the terminal width: Work, or the
+selected item's tabs. `Enter` on a live or Recent activity row opens its tabs on
+the last active tab; `Esc` returns to Work with the same row selected. Help and
+raw-access overlays close first on `Esc`. The item view keeps the shared header,
+tab bar, formatted/raw indicator and Log status line.
+
+Narrowing shows the item view when the item pane had focus, otherwise Work.
+Widening restores both panes with focus on the pane that was showing. Selection,
+active tab, follow/pause, raw mode and log position survive these changes.
+Below **60 columns × 16 rows**, only a centered request for a larger terminal
+appears. `q` and Ctrl-C still work; growing the terminal restores the prior view.
 
 The left pane groups work from the session snapshot into sections and shows each
 section's row count. Running always appears first; other empty sections are hidden:
@@ -86,7 +95,7 @@ When no row is selected, the Log status line reads
 `○ Idle · waiting for the next poll`. Plans claimed by other launchers do not
 appear in the Work pane; their runs remain in an item's Runs tab.
 
-Each live work row occupies two compact lines. The first shows a status glyph,
+In the combined layout, each live work row occupies two compact lines. The first shows a status glyph,
 `#N` for an issue or `⌥N` for a pull request from the snapshot's kind, the title
 shortened with `…`, and a short state aligned to the right:
 
@@ -106,6 +115,10 @@ at least one failure. Missing parts are omitted. Both lines fit
 the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
 Arrow keys move by row, and either line can be clicked to select its item.
+In the narrow Work list, live and Recent activity rows use only their first line:
+glyph, item reference, title shortened with `…`, and right-aligned state. Detail
+information remains on the item's tabs. Sections, counts, the idle line, stopping
+state and the fixed upper/lower split behave the same in both layouts.
 The assignment spinner advances through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` one frame every
 0.1 seconds, like Runs and the log status line. Stopping and other row glyphs
 remain static. Elapsed time stays in whole seconds, uses the item's cached run
@@ -138,7 +151,7 @@ Eligible subgroup. A selected removed row remains as an earlier observation.
 **Recent activity · N today** always fills the lower half of the Work pane,
 including `0 today` when there are no outcomes. N counts cached session outcomes
 dated today in the viewer's local timezone. Up to 20 cached outcomes appear
-newest first, including older outcomes, as dim two-line rows; the selected row
+newest first, including older outcomes, as dim two-line rows in the combined layout; the selected row
 shows at full brightness. Whole rows that do not fit are cut from the oldest end.
 The lower half does not scroll or collapse, and its header cannot be selected.
 The live sections fill the upper half and scroll independently. Arrow keys move
@@ -232,6 +245,8 @@ Claude and Codex Log transcripts are described below.
 | Key | Action |
 | --- | --- |
 | `Tab`, arrows, `Enter` | Focus a pane and select a work row |
+| `Enter` in the narrow Work list | Open the selected live or Recent activity item's tabs at full width |
+| `Esc` in the narrow item view | Return to Work; close help or raw access first |
 | `1`, `2`, `3` | Log, Issue, Runs |
 | `g` on Issue | Load the selected item's missing title/body, or retry a failed description read |
 | `f` | Toggle follow/pause; resuming loads the latest generation |
@@ -247,9 +262,12 @@ The one-line footer shows the snapshot's launcher version and activity on the
 left: waiting counts down as `next poll Ns`; other activities say `polling`,
 `running assignment` or `stopping`. Stale, ended and malformed snapshots are
 labelled there, including the malformed error, without a snapshot-age counter.
-Below 110×32, it also shows the minimum-size hint. Main keys appear on the right;
-they switch to log keys while the selected log is paused, including on Issue and
-Runs. `?` lists all keys in a help overlay.
+In the narrow layout, the prefix is omitted and `next poll Ns` becomes `poll Ns`,
+for example `v0.1.11 · poll 26s`. Other activity and diagnostic labels keep their
+text. The list's right side reads `↑↓ select ⏎ open ? keys q quit`; the item view
+reads `Esc back 1-3 tabs ? keys q quit`. A paused item uses the existing log keys,
+including on Issue and Runs, shortened only when they do not fit. The wide footer
+is unchanged. `?` lists all keys, including narrow `Enter` and `Esc`, in a help overlay.
 
 A pill at the bottom right of the log output, above the run status, appears only
 when paused or behind. It shows PAUSED or BEHIND, nonzero unread entries and byte
@@ -476,7 +494,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    Check the single footer line shows the snapshot's version and activity, including
    the waiting countdown and stopping state, with readable main keys at 110 columns.
    Check stale, ended and malformed snapshots are labelled, with the malformed error,
-   and that a smaller terminal shows `minimum 110×32`. There is no snapshot age or
+   without a minimum-size hint. There is no snapshot age or
    Local files/GitHub diagnostic line. Open `?`, check every key, and close it with
    both `?` and `Escape` without losing selection or the reading position.
    Show and hide a notice while paused; the reading position must not move.
@@ -556,6 +574,22 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    positions must survive. Clear the result and confirm the row disappears.
    Confirm plain output prints each new text once across repeated polls, and
    a pending or failed check leaves the previous successful notice in place.
+
+9. Resize to 109×32 and 110×31, then 80×24 and 60×16. Work must fill the full width
+   with single-line live and Recent activity rows, shortened titles and aligned
+   states; sections, counts, idle/stopping states and the upper/lower split stay
+   intact. Move across the split with arrows. Open live and recent rows with
+   `Enter`, switch tabs, and return with `Esc`; reopening must keep the last tab
+   and selection. Check the full-width item header, tab bar and Log status line,
+   all log/Issue keys, and narrow list, item and paused footer keys.
+   Pause and scroll a log, toggle raw mode, and resize across 110×32 in both
+   directions with focus first on Work, then on the item pane. Selection, tab,
+   follow/pause and log position must survive; widening keeps focus on the pane
+   that was showing. Open help/raw access and confirm `Esc` closes it before
+   returning to Work. At 59×16 and 60×15, check only one centered enlargement
+   request appears, including with an overlay open. Grow back and check the
+   previous state returns. Quit below the floor with `q`; repeat with Ctrl-C,
+   checking terminal restoration and attached-launcher interruption as above.
 
 Record the terminal type, dimensions, replay or live source, exercised controls,
 restoration and launcher-isolation result in the implementation PR. Owned real

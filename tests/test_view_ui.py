@@ -21,7 +21,7 @@ from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
 from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
-from ub_agents.view_ui import (KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
+from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_theme import theme_style
@@ -69,13 +69,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             work, panes = app.query_one('#work_pane'), app.query_one('#panes')
             self.assertEqual(work.region.width, 46)
             for size, width in (((150, 32), 50), ((152, 32), 50), ((189, 32), 63),
-                                ((200, 32), 64), ((109, 32), 36), ((200, 31), 36),
+                                ((200, 32), 64), ((109, 32), 109), ((200, 31), 200),
+                                ((60, 16), 60),
                                 ((110, 32), 46)):
                 with self.subTest(size=size):
                     await pilot.resize_terminal(*size)
                     await self.ready(app, pilot, lambda: work.region.width == width)
                     self.assertEqual(work.region.width, width)
                     self.assertEqual(panes.region.width, size[0] - width)
+                    self.assertEqual(panes.display, not app.narrow)
             await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
@@ -145,6 +147,203 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_narrow_rows_split_navigation_and_last_active_tab(self):
+        self.state['histories']['114']['title'] = 'Long title ' * 20
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.ready(app, pilot)
+            tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
+            tree.get_node_at_line(0)
+            self.assertEqual(app.query_one('#work_pane').region.width, 80)
+            self.assertFalse(app.query_one(ItemTabs).display)
+            self.assertEqual(tree._get_label_region(app.nodes[app.selected]._line).height, 1)
+            self.assertEqual(tree.virtual_size.height, 4)  # two headings, two rows
+            line = tree.render_line(app.nodes[app.selected]._line - tree.scroll_offset.y).text
+            self.assertIn('#114', line)
+            self.assertIn('…', line)
+            self.assertRegex(line, r'\d\d:\d\d$')
+            self.assertNotIn('this launcher', line)
+            self.assertEqual(len(recent.render().plain.splitlines()), 1 + len(recent.visible_rows))
+            self.assertEqual(tree.region.bottom, recent.region.y)
+            self.assertLessEqual(abs(tree.size.height - recent.size.height), 1)
+            tree.focus()
+            tree.move_cursor(app.nodes[app.selected])
+            await pilot.press('enter')
+            self.assertTrue(app.item_view)
+            self.assertFalse(app.query_one('#work_pane').display)
+            self.assertEqual(app.query_one(ItemTabs).region.width, 80)
+            for value in ('1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported'):
+                self.assertIn(value, self.screenshot_text(app.export_screenshot()))
+            await pilot.press('2', 'escape')
+            self.assertFalse(app.item_view)
+            self.assertEqual(tree.cursor_node.data, app.selected)
+            await pilot.press('enter')
+            self.assertEqual(app.query_one(TabbedContent).active, 'issue')
+            await pilot.press('?', 'escape')
+            self.assertTrue(app.item_view)  # Escape closes help before returning
+            await pilot.press('escape')
+            tree.move_cursor(app.nodes['plan:12:reviewer'])
+            await pilot.press('down')
+            self.assertIs(app.focused, recent)
+            await pilot.press('enter')
+            self.assertEqual(app.selected, 'outcome:previous-run')
+            self.assertTrue(app.item_view)
+            await pilot.press('escape')
+            self.assertIs(app.focused, recent)
+            self.assertEqual(recent.cursor, app.selected)
+            await pilot.press('up')
+            self.assertIs(app.focused, tree)
+            self.assertEqual(tree.cursor_node.data, 'plan:12:reviewer')
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_resizes_preserve_item_focus_tab_and_paused_raw_log_position(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            output.focus()
+            await pilot.press('f', 'u', 'home', 'pagedown')
+            await self.settled(app, output)
+            selected, page, anchor = app.selected, app.reading.page, output.anchor()
+            for size in ((109, 32), (110, 31), (60, 16), (59, 16), (60, 15), (110, 32)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause()
+                await self.settled(app, output)
+                self.assertEqual(app.selected, selected)
+                self.assertIs(app.reading.page, page)
+                self.assertFalse(app.reading.follow)
+                self.assertTrue(app.reading.raw)
+                self.assertEqual(output.anchor()[0], anchor[0])
+                if not app.too_small:
+                    self.assertIs(app.focused, output)
+                    self.assertTrue(app.query_one(ItemTabs).display)
+                    self.assertEqual(app.query_one('#work_pane').display, not app.narrow)
+            await pilot.press('2')
+            app.query_one('#issue VerticalScroll').focus()
+            await pilot.resize_terminal(80, 24)
+            self.assertTrue(app.item_view)
+            self.assertEqual(app.query_one(TabbedContent).active, 'issue')
+            await pilot.press('escape')
+            await pilot.resize_terminal(110, 32)
+            self.assertIs(app.focused, app.query_one(Tree))
+            self.assertEqual(app.query_one(TabbedContent).active, 'issue')
+            await pilot.resize_terminal(80, 24)
+            self.assertFalse(app.item_view)
+            await pilot.press('enter')
+            self.assertEqual(app.query_one(TabbedContent).active, 'issue')
+            await pilot.press('1', 'p', 'escape')
+            self.assertTrue(app.item_view)
+            await pilot.press('escape', 'q')
+        app.worker.thread.join(2)
+
+    async def test_floor_is_one_centered_line_and_restores_list_and_overlays(self):
+        self.state['update'] = {'text': 'New version available'}
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(60, 16)) as pilot:
+            await self.ready(app, pilot)
+            selected = app.selected
+            for size in ((59, 16), (60, 15), (30, 10)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause()
+                self.assertTrue(app.too_small)
+                for selector in ('#body', '#status', '#update'):
+                    self.assertFalse(app.query_one(selector).display)
+                visible = [strip.text.strip() for strip in app.screen._compositor.render_strips()
+                           if strip.text.strip()]
+                self.assertEqual(len(visible), 1, visible)
+                self.assertTrue(visible[0].startswith('Please enlarge'))
+                rows = app.screen._compositor.render_strips()
+                self.assertLessEqual(abs(next(i for i, strip in enumerate(rows) if strip.text.strip())
+                                         - size[1] // 2), 1)
+                await pilot.press('enter', '2', 'f', '?')
+                self.assertFalse(app.item_view)
+                self.assertEqual(app.query_one(TabbedContent).active, 'log')
+                self.assertTrue(app.reading.follow)
+            await pilot.resize_terminal(60, 16)
+            await pilot.pause()
+            self.assertFalse(app.too_small)
+            self.assertFalse(app.item_view)
+            self.assertEqual(app.selected, selected)
+            self.assertTrue(app.query_one(UpdateBanner).display)
+            await pilot.press('?', 'escape', 'enter', '?')
+            self.assertIsInstance(app.screen, KeyHelp)
+            await pilot.resize_terminal(59, 16)
+            await pilot.pause()
+            visible = [strip.text.strip() for strip in app.screen._compositor.render_strips()
+                       if strip.text.strip()]
+            self.assertEqual(visible, ['Please enlarge the terminal to at least 60×16.'])
+            await pilot.resize_terminal(60, 16)
+            await pilot.pause()
+            self.assertIsInstance(app.screen, KeyHelp)
+            await pilot.press('escape')
+            self.assertTrue(app.item_view)
+            await pilot.resize_terminal(59, 16)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_narrow_footer_activity_item_keys_and_paused_key_shortening(self):
+        now = datetime.now(timezone.utc)
+        self.state['base_version'] = '9.8.7'
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=26)).isoformat()}
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            async with app.run_test(size=(80, 24)) as pilot:
+                await self.ready(app, pilot)
+                footer = app.query_one('#status', Static)
+                self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
+                self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open ? keys q quit'))
+                await pilot.press('enter')
+                self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs ? keys q quit'))
+                await pilot.press('f')
+                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
+                await pilot.resize_terminal(60, 16)
+                await pilot.pause()
+                self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
+                self.assertTrue(footer.render().plain.endswith('f follow h older u raw ? keys q quit'))
+                self.assertEqual(footer.render().cell_length, 60)
+                await pilot.press('escape')
+                for state in ('stopping', 'polling'):
+                    self.state['activity'] = {'state': state}
+                    self.path.write_text(json.dumps(self.state))
+                    await self.ready(app, pilot, lambda: f'· {state}' in footer.render().plain)
+                    if state == 'stopping':
+                        tree = app.query_one(Tree)
+                        tree.get_node_at_line(0)
+                        line = tree.render_line(app.nodes[app.selected]._line - tree.scroll_offset.y).text
+                        self.assertTrue(line.startswith('■ #114'))
+                        self.assertTrue(line.endswith('stopping'))
+                        node = app.nodes['plan:12:reviewer']
+                        self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('held'))
+                self.state.update(assignment=None, outcomes=[], latest_pass={'state': 'complete', 'rows': []})
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: app.idle_node is not None and not app.nodes)
+                tree = app.query_one(Tree)
+                tree.move_cursor(app.idle_node)
+                self.assertEqual(tree.virtual_size.height, 2)
+                self.assertIn('Idle · nothing eligible', tree.render_line(app.idle_node._line).text)
+                await pilot.press('enter')
+                self.assertFalse(app.item_view)
+                await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_view_started_below_floor_restores_keyboard_focus_when_grown(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(59, 16)) as pilot:
+            await self.ready(app, pilot)
+            self.assertTrue(app.too_small)
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            self.assertIs(app.focused, app.query_one(Tree))
+            await pilot.press('enter')
+            self.assertTrue(app.item_view)
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_light_theme_recolors_cached_log_runs_and_all_pane_styles(self):
         self.themed_fixture()
@@ -553,7 +752,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(app.session.error[:20], footer.render().plain)
                 await pilot.resize_terminal(80, 24)
                 app.update_status()
-                self.assertIn('minimum 110×32', footer.render().plain)
+                self.assertNotIn('minimum', footer.render().plain)
+                self.assertTrue(footer.render().plain.startswith('malformed:'))
+                self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open ? keys q quit'))
                 await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -874,6 +1075,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('implementer exited · reported success (finalized)', status.render().plain)
             self.assertTrue(status.render().plain.endswith('2 earlier runs'))
             await pilot.resize_terminal(65, 25)
+            await pilot.press('enter')
             await pilot.pause()
             for widget in (status, app.query_one('#item_header', Static)):
                 self.assertTrue(all(pane_line(line, 1000).cell_len <= widget.content_region.width
@@ -943,7 +1145,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             tree.get_node_at_line(0)
             heading = tree.render_line(app.groups['Eligible']._line - tree.scroll_offset.y).text
-            self.assertTrue(heading.endswith('…'))
+            self.assertTrue(heading.startswith(label))
             self.assertEqual(pane_line(heading, 1000).cell_len, tree.scrollable_content_region.width)
             await pilot.resize_terminal(110, 32)
             for state in ('polling', 'waiting', 'running assignment', 'ended', 'stale'):

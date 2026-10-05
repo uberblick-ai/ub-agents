@@ -281,7 +281,11 @@ Slow or failed checks retain the last successful result without delaying work.
 - Stopping (SIGTERM): the running row shows `■ stopping`, Eligible reads `not claimed
   while stopping`, and the footer reads `stopping`.
 - Below 110×32: the Work pane only, at full width. ⏎ opens the selected item's tabs
-  full width and Esc returns. The footer shortens to `v0.1.11 · poll 26s`.
+  full width on the last active tab and Esc returns; overlays close first. Work
+  rows use one line. Resizing keeps selection, tab, follow/pause and log position,
+  showing the previously focused pane when narrowing. The footer shortens to
+  `v0.1.11 · poll 26s`. Below 60×16, only a centered enlargement request appears;
+  q/Ctrl-C still work and growing restores the prior state.
 - `?` lists every key. The footer shows only the main ones.
 
 ## Colors

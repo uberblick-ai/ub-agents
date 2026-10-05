@@ -101,7 +101,11 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
 
 
 class WorkTree(Tree):
-    """One Tree node per row, two display lines, using pinned Textual 8.2.8."""
+    """One Tree node per row, one or two lines, using pinned Textual 8.2.8."""
+
+    @property
+    def row_height(self):
+        return 1 if self.app.narrow else 2
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -124,7 +128,7 @@ class WorkTree(Tree):
         for line in self._tree_lines_cached:
             line.node._line = len(lines)
             lines.append(line)
-            if line.node.data is not None:
+            if line.node.data is not None and self.row_height == 2:
                 lines.append(line)
         self._tree_lines_cached = lines
         self.virtual_size = Size(self.scrollable_content_region.width, len(lines))
@@ -136,7 +140,7 @@ class WorkTree(Tree):
         if node is None:
             return None
         return Region(0, node._line, self.scrollable_content_region.width,
-                      2 if node.data is not None else 1)
+                      self.row_height if node.data is not None else 1)
 
     def render_line(self, y):
         line_no = y + self.scroll_offset.y
@@ -188,7 +192,7 @@ class WorkTree(Tree):
         self.get_node_at_line(0)
         recent = self.app.query_one(RecentActivity)
         node = self.cursor_node
-        line = node._line + (2 if node.data is not None else 1) if node else 0
+        line = node._line + (self.row_height if node.data is not None else 1) if node else 0
         if line > self.last_line and recent.visible_rows:
             recent.cursor = recent.visible_rows[0].key
             self.screen.set_focus(recent, scroll_visible=False)
@@ -210,7 +214,11 @@ class RecentActivity(Static, can_focus=True):
 
     @property
     def visible_rows(self):
-        return self.rows[:max(0, (self.content_size.height - 1) // 2)]
+        return self.rows[:max(0, (self.content_size.height - 1) // self.row_height)]
+
+    @property
+    def row_height(self):
+        return 1 if self.app.narrow else 2
 
     def populate(self, rows, session):
         self.rows = [row for row in rows if row.group == 'Recent activity'
@@ -261,9 +269,10 @@ class RecentActivity(Static, can_focus=True):
             header.append('\n')
             first.stylize_before(style)
             header.append_text(first)
-            header.append('\n')
-            detail.stylize_before(style)
-            header.append_text(detail)
+            if self.row_height == 2:
+                header.append('\n')
+                detail.stylize_before(style)
+                header.append_text(detail)
         return header
 
     def action_previous(self):
@@ -291,7 +300,7 @@ class RecentActivity(Static, can_focus=True):
             self.app.select(self.cursor)
 
     def on_click(self, event):
-        index = (event.y - 1) // 2
+        index = (event.y - 1) // self.row_height
         if 0 <= index < len(self.visible_rows):
             self.cursor = self.visible_rows[index].key
             self.action_select()
