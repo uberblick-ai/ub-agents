@@ -47,7 +47,9 @@ class FailureCountTests(unittest.TestCase):
                 raise error
             lease = next(r for r in reversed(self.loop.coordinator.history(number)) if r['kind'] == 'lease')
             if result is not None:
-                self.loop.coordinator.report(lease, result, 'Run result', outcome='done' if result == 'success' else None)
+                self.loop.coordinator.report(lease, result, 'Run result', outcome='done' if result == 'success' else None,
+                                             action=('Maintainer: choose A or B; recommend A.'
+                                                     if result == 'blocked' else None))
             if change:
                 change()
             return exit_code
@@ -217,7 +219,9 @@ class FailureCountTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.setUp()
                 source = self.start()
-                self.loop.coordinator.report(source, status, 'Reported before crash')
+                self.loop.coordinator.report(source, status, 'Reported before crash',
+                                             action=('Maintainer: choose A or B; recommend A.'
+                                                     if status == 'blocked' else None))
                 self.now += 61
                 recovery = self.loop.coordinator.claim(self.plan(), recovery=True)
                 self.assertEqual(self.count(), count)
@@ -354,7 +358,9 @@ class FailureCountTests(unittest.TestCase):
                         lease = self.loop.coordinator.history(1)[0]
                         if reported:
                             self.loop.coordinator.report(lease, reported, 'Early report',
-                                                         outcome='done' if reported == 'success' else None)
+                                                         outcome='done' if reported == 'success' else None,
+                                                         action=('Maintainer: choose A or B; recommend A.'
+                                                                 if reported == 'blocked' else None))
                         if ending == 'interrupt':
                             raise KeyboardInterrupt
                         if ending == 'timeout':

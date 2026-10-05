@@ -24,6 +24,17 @@ def comment_body(value):
     return '\n'.join(lines).strip()
 
 
+def comment_sections(body):
+    """Fold the generated notice wrapper, leaving nested supporting Markdown intact."""
+    wrapper = '<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n'
+    visible, separator, details = body.partition(wrapper)
+    if not separator:
+        return body, ''
+    if details.endswith('\n\n</details>'):
+        details = details[:-len('\n\n</details>')]
+    return visible.strip(), details.strip()
+
+
 def trust_reason(author, authors):
     if not isinstance(author, str) or not author:
         return 'The comment author is unreadable and cannot be verified.'
@@ -37,6 +48,7 @@ def trust_reason(author, authors):
 class ActionComment(Description):
     created_at: str = ''
     author: str = ''
+    comment_id: str = ''
 
     def details(self, now=None):
         now = time.time() if now is None else now
@@ -72,7 +84,8 @@ def local_action(row, session):
         return ActionComment(error=reason)
     return ActionComment(body=comment_body(notice['text']), source='snapshot', available=True,
                          notice='Comment shortened in snapshot.' if notice.get('omitted_characters') else '',
-                         created_at=notice.get('created_at'), author=notice['author'])
+                         created_at=notice.get('created_at'), author=notice['author'],
+                         comment_id=str(notice.get('id') or ''))
 
 
 def unblock_metadata(row, comment, session, now=None):

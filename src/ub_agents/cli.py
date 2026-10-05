@@ -73,13 +73,16 @@ def parser():
     cleanup.add_argument("--apply", action="store_true", help="Remove eligible artifacts after rechecking")
     report = commands.add_parser("report", help="Record a supervised run result",
                                  description="Record a supervised run's explicit result on GitHub. "
-                                 "Use inside the launcher-provided assignment environment; choose --status or --outcome (required).",
+                                 "Use inside the launcher-provided assignment environment; choose --status or --outcome (required). "
+                                 "Stop reports (--status blocked or an outcome adding a configured stop label) require --action.",
                                  examples=('ub-agents report --outcome handed-off --summary "Ready for review" --handoff 150',
-                                           'ub-agents report --status blocked --summary "Human decision required"'))
+                                           'ub-agents report --status blocked --summary "Decision pending" '
+                                           '--action "Maintainer: choose A or B; recommend A."'))
     verdict = report.add_mutually_exclusive_group(required=True)
     verdict.add_argument("--outcome", help="Declared project outcome; reports success")
     verdict.add_argument("--status", choices=["retry", "blocked"], help="Failure verdict; changes no labels")
     report.add_argument("--summary", required=True, help="Explain the result in 1–8000 characters")
+    report.add_argument("--action", action="append", help="One concise ask, at most 300 characters; repeat for each decision; required for stop reports")
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
     retrospective = commands.add_parser("retrospective", help="Post to the agent's retrospective board",
                                         description="Post a body file as a top-level comment on the agent's configured "
@@ -209,7 +212,7 @@ def report_run(args):
     if lease is None or lease["actor"].casefold() != coordinator.actor.casefold():
         raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")
     record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
-                                outcome=args.outcome)
+                                outcome=args.outcome, action=args.action)
     print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
 
 

@@ -108,8 +108,13 @@ Customize these parts:
   match your merge policy.
 
 A trigger selects work. An agent reports a declared outcome with
-`ub-agents report --outcome NAME --summary TEXT [--handoff PR]`; the launcher validates
+`ub-agents report --outcome NAME --summary TEXT [--handoff PR] [--action TEXT]`; the launcher validates
 it and applies the project's transition. `--status retry|blocked` changes no labels.
+Stop reports (`--status blocked` or outcomes adding a configured stop label) require
+`--action`, repeated for each independent action or decision: one concise sentence
+on a non-empty line of at most 300 characters (8000 total). Each **Action needed**
+notice shows every ask separately in bold; full Markdown reasoning, evidence and
+resume instructions are collapsed by default. Retry and other outcomes do not require it.
 Agents replace `ub-agents` in that command with the literal `report_command` from
 their assignment context, also supplied as `UB_AGENTS_REPORT`, to use the launcher's
 own installation even when a login shell changes PATH.
