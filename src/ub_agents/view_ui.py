@@ -361,6 +361,7 @@ class View(App):
     #work_pane, #panes {
         border: round $view-border; border-title-color: $view-border;
         border-title-align: left; border-title-style: none;
+        padding: 1 2 0 2;
     }
     #work_pane:focus-within, #panes:focus-within {
         border: round $view-accent; border-title-color: $view-accent;
@@ -375,15 +376,15 @@ class View(App):
     #panes { width: 1fr; }
     #panes Tabs { height: 1; }
     #panes Underline { display: none; }
-    #panes Tab { color: $view-muted; text-style: none; }
+    #panes Tab { padding: 0 2 0 0; color: $view-muted; text-style: none; }
     #panes Tab.-active, #panes Tabs:focus Tab.-active {
         color: $background; background: $foreground; text-style: none;
     }
     #log_mode { overlay: screen; position: absolute; offset: 24 0; width: 21; height: 1; }
     #tab_rule { height: 1; color: $view-muted; }
     #panes > ContentSwitcher { height: 1fr; }
-    TabPane { height: 1fr; padding: 0 1; }
-    #item_header { height: 3; padding: 0 1; overflow: hidden; }
+    TabPane { height: 1fr; padding: 0; }
+    #item_header { height: 3; padding: 0; overflow: hidden; }
     #log_note { height: 1; overflow: hidden; }
     #output { height: 1fr; scrollbar-gutter: stable; overflow-x: hidden; }
     #run_status { height: 2; overflow: hidden; }
@@ -503,6 +504,7 @@ class View(App):
         changed = narrow != self.narrow
         self.narrow, self.too_small = narrow, too_small
         pane.styles.width = '1fr' if narrow else min(64, max(46, size.width // 3))
+        pane.styles.margin = (0, 0 if narrow else 1, 0, 0)
         pane.display = not narrow or not self.item_view
         self.query_one(ItemTabs).display = not narrow or self.item_view
         self.query_one('#body').display = not too_small

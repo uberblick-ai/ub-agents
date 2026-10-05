@@ -36,6 +36,12 @@ omitted-plan count. The focused pane's border and title use the accent color;
 the other pane's border is dim. Dashed rules separate the Work sections, Recent
 activity, and the tab bar from the shared item header.
 
+Both panes leave two columns inside each side border and one blank row under the
+top border. Work rows, section rules and Recent activity share this padding. The
+item pane uses it for the tab bar and its Formatted/Raw indicator, the tab rule,
+shared header, every tab's content and log status lines. Right-aligned columns
+and text shortened with `…` end inside the right padding.
+
 The default `ub-agents` Textual theme has a dark background, purple focus and
 selection accents, blue Running headings and glyphs, red Needs attention, and
 green Eligible. Selection uses a shaded row. All colors follow the current
@@ -66,8 +72,9 @@ banner text once. Restart with the current code to clear the notice.
 
 At **110 columns × 32 rows** and above, the combined view shows both panes. At that size
 and above, the Work pane's outer width, including its border, is one third of the
-terminal width, rounded down and clamped to 46–64 columns; the tab panes take the
-rest. Below either dimension, one pane fills the terminal width: Work, or the
+terminal width, rounded down and clamped to 46–64 columns. A one-column gap
+separates the panes; the item pane takes the remaining width. Below either
+dimension, one pane fills the terminal width with the same padding: Work, or the
 selected item's tabs. `Enter` on a live or Recent activity row opens its tabs on
 the last active tab; `Esc` returns to Work with the same row selected. Help and
 raw-access overlays close first on `Esc`. The item view keeps the shared header,

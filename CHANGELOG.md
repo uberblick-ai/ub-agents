@@ -12,6 +12,7 @@ notes are copied from that section.
 
 ### Changed
 
+- The terminal view adds padding inside both panes and a one-column gap between them, keeping content inset in narrow layouts (#231).
 - Needs attention rows show elapsed waiting time and the agent, state and parking reason, using the same start time as Unblock (#180).
 - Below 110×32, the terminal view shows one full-width pane, with Enter/Esc navigation and retained selection and log position across resizes (#177).
 - The terminal view shows a finishing run and held eligible work while the launcher stops gracefully after SIGTERM (#176).

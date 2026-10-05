@@ -710,7 +710,7 @@ class TerminalRetentionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, log, state = fixture(root, runtime=f'{runtime}:synthetic-model:high')
-            tail_count = 5 if runtime == 'claude' else 40
+            tail_count = 4 if runtime == 'claude' else 40
             state['assignment'].update(kind='issue', attempt=2)
             state['outcomes'].append({'item': 114, 'run': 'earlier-run', 'handoff': 185})
             path.write_text(json.dumps(state))
@@ -808,7 +808,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn('producer=', text)
                 self.assertEqual(formatted['header'].splitlines()[:2],
                                  ['#114 Cached title',
-                                  f'implementer · {runtime} synthetic-model high · attempt 2 · ⌥185'])
+                                  ('implementer · claude synthetic-model high · attempt 2 · …'
+                                   if runtime == 'claude' else
+                                   'implementer · codex synthetic-model high · attempt 2 · ⌥…')])
                 # A runtime's success line does not establish a workflow report.
                 self.assertIn('implementer running · no outcome reported', formatted['run_status'])
                 self.assertTrue(formatted['run_status'].endswith('1 earlier run'))
