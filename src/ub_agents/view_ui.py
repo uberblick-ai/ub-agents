@@ -9,6 +9,7 @@ import time
 from markdown_it import MarkdownIt
 from rich.control import Control
 from rich.segment import Segment
+from rich.style import Style
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -775,6 +776,21 @@ class View(App):
         row = self.rows.get(self.selected)
         return self.descriptions.key(self.session.data.get('repository'), row.item) if self.session and row else None
 
+    def item_url(self):
+        key = self.description_key()
+        if key is None:
+            return None
+        repository, number = key
+        title, _ = item_header(self.rows.get(self.selected), self.current_description(), self.session)
+        path = 'pull' if title.startswith('⌥') else 'issues'
+        return f'https://github.com/{repository}/{path}/{number}'
+
+    def action_open_reference(self):
+        # Resolve at click time so a refreshed selection cannot open a stale URL.
+        url = self.item_url()
+        if url is not None:
+            self.open_url(url)
+
     def update_issue(self):
         if self.local_description is None:
             return
@@ -994,6 +1010,8 @@ class View(App):
         if self.query_one(ItemTabs).active == 'unblock':
             metadata, waiting = unblock_metadata(row, self.current_action(), self.session, self.descriptions.clock())
         title_text, metadata_text = Text(title), Text(metadata)
+        if self.item_url() is not None:
+            title_text.stylize(Style(meta={'@click': 'app.open_reference'}), 0, len(str(row.item)) + 1)
         accent = theme_style(self, 'view-accent')
         if title.startswith('⌥'):
             title_text.stylize(accent, 0, 1)

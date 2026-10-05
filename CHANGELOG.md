@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- Clicking the selected item's header reference opens its GitHub issue or PR in the default browser on every terminal-view tab (#260).
+
 ## 0.1.12 — 2026-10-05
 
 **Upgrading:** the coordination record format is unchanged, so launchers can be
