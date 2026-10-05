@@ -6,8 +6,13 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** stop all of a project's launchers and wait until every one has exited,
+then upgrade and restart them together. Older launchers reject the new
+`retrospectives` agent key now used in this repository's configuration (#207).
+
 ### Added
 
+- Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
 - Completed Claude runs record permission denials in their outcomes, with counts in `status` and command details in the Runs tab (#199).
 - Agents can read filtered issues and PRs with `read N` and trust configured bot feedback under the assignment input policy (#190).
 - Needs attention items have an Unblock tab showing trusted action-needed comments from the session snapshot or an explicit GitHub load (#178).

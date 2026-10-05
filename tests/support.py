@@ -446,6 +446,38 @@ class RecordingRunner:
         return subprocess.CompletedProcess(command, 0, response, "ghp-private-stderr")
 
 
+class RecordingDiscussionRunner:
+    """Record the real GraphQL transport; only successful mutations count as writes."""
+    def __init__(self):
+        self.calls = []
+        self.writes = []
+        self.discussion = {"id": "configured-board", "url": "https://github.com/org/project/discussions/203"}
+        self.lookup_error = None
+        self.post_error = None
+        self.comment_url = "https://github.com/org/project/discussions/203#discussioncomment-1"
+
+    def __call__(self, command, **kwargs):
+        import subprocess
+        self.calls.append((tuple(command), kwargs))
+        assert command[command.index("--include") + 1] == "graphql", command
+        assert command[command.index("--method") + 1] == "POST", command
+        data = json.loads(kwargs["input"])
+        if data["query"].startswith("query"):
+            error = self.lookup_error
+            response = {"data": {"repository": {"discussion": self.discussion}}}
+        else:
+            assert "addDiscussionComment" in data["query"], data
+            error = self.post_error
+            response = {"data": {"addDiscussionComment": {"comment": {"url": self.comment_url}}}}
+            if not error:
+                self.writes.append(data)
+        if isinstance(error, Exception):
+            raise error
+        if isinstance(error, subprocess.CompletedProcess):
+            return error
+        return subprocess.CompletedProcess(command, 0, json.dumps({"errors": [error]} if error else response), "")
+
+
 class DiscoveryCostRunner:
     """45-item request audit: 30 triggered issues, 15 idle, three shared accounts.
 
