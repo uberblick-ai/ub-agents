@@ -13,6 +13,7 @@ from unittest.mock import patch
 from ub_agents.log_format import ClaudeFormatter, CodexFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
 from ub_agents.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
+from ub_agents.view_theme import log_style
 
 FIXTURES = Path(__file__).parent / 'fixtures/runtime_logs'
 CODEX = FIXTURES / 'codex.log'
@@ -67,8 +68,14 @@ class CodexFormattingTests(unittest.TestCase):
         self.assertNotIn('owned tool success', output)  # Successful output remains raw.
         self.assertTrue(all(value.styles[-1][2] == 'error' for value in entries if value.kind == 'runtime ERROR'))
         self.assertTrue(all(value.styles[-1][2] == 'error' for value in entries if value.kind == 'tool ERROR'))
-        assistant = next(value for value in entries if value.kind == 'assistant')
-        self.assertTrue(all(style == 'dim italic' for _, _, style in assistant.styles))
+        for assistant in (value for value in entries if value.kind == 'assistant'):
+            self.assertTrue(assistant.styles)
+            for _, _, token in assistant.styles:
+                self.assertEqual(token, 'assistant')
+                style = log_style(None, token)
+                self.assertTrue(style.italic)
+                self.assertFalse(style.dim)
+                self.assertEqual(style.color.name, '#c8cdd6')
 
     def test_call_result_pairing_updates_and_unpaired_completions(self):
         for kind, path in (('command_execution', CODEX), ('mcp_tool_call', TOOLS), ('file_change', CODEX)):

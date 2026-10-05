@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from tests.test_log_reader import FIXTURE, progress, record, result, tool
 from ub_agents.log_format import ClaudeFormatter, MAX_TEXT, SHORTENED, with_elapsed
+from ub_agents.view_theme import log_style
 
 
 class CompactClaudeTests(unittest.TestCase):
@@ -40,6 +41,13 @@ class CompactClaudeTests(unittest.TestCase):
         self.assertEqual(error.styles[-1][2], 'error')
         self.assertNotIn('cat:', error.text)
         self.assertEqual(entries[-1].text, '          ✓ run finished')
+        summary = next(value for value in reversed(entries) if value.kind == 'assistant')
+        self.assertTrue(summary.styles)
+        for _, _, token in summary.styles:
+            style = log_style(None, token)
+            self.assertTrue(style.italic)
+            self.assertFalse(style.dim)
+            self.assertEqual(style.color.name, '#c8cdd6')
         self.assertNotIn('assistant:', output)
         self.assertNotIn('id=<', output)
         self.assertNotIn('producer=', output)
@@ -155,6 +163,14 @@ class CompactClaudeTests(unittest.TestCase):
         self.assertFalse(any(ord(char) < 32 and char != '\n' or 127 <= ord(char) <= 159 for char in entry.text))
         self.assertIn(r'\x1b', entry.text)
         self.assertIn(r'\x9b', entry.text)
+        for start, end, token in entry.styles:
+            style = log_style(None, token)
+            marker = entry.text[start:end].startswith('· ')
+            self.assertEqual(bool(style.dim), marker)
+            self.assertEqual(bool(style.italic), not marker)
+        prompt = self.decode(record('user'))
+        self.assertEqual(prompt.styles, ((10, len(prompt.text), 'italic'),))
+        self.assertIsNone(log_style(None, prompt.styles[0][2]).color)
 
     def test_synthetic_failed_results_name_tool_only_when_needed(self):
         self.decode(record(content=[tool()]))
