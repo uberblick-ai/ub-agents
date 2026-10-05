@@ -20,6 +20,10 @@ uberblick-ai/uberblick-2 tracks its role-file update separately.
 
 - Stop reports require `--action` for each independent ask; human-action notices collapse full reasoning, evidence and resume instructions in GitHub and terminal views (#181, #195).
 
+### Fixed
+
+- The Work pane leaves one blank row before displayed Needs attention and Eligible headings in both wide and narrow layouts (#258).
+
 ## 0.1.12 — 2026-10-05
 
 **Upgrading:** the coordination record format is unchanged, so launchers can be
