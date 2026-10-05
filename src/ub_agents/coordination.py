@@ -13,7 +13,8 @@ from .errors import AgentError, GitHubError, LostOwnership, RecordError, Runtime
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
 from .records import (MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
-                      payload, records, recovers, same_handoff, same_run, seconds, timestamp)
+                      payload, records, recovers, same_handoff, same_run, seconds, stop_report, timestamp,
+                      report_actions)
 from .trust import LauncherTrust
 
 
@@ -351,7 +352,7 @@ class Coordinator:
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False,
                   "attempt_effect": "pending", "declared_triggers": list(plan.agent.triggers),
-                  "stop_labels": list(stop_labels)}
+                  "stop_labels": list(stop_labels), "action_required": True}
         if not recovery:
             record["outcomes"] = {
                 name: ({"add": list(changes["add"]), "remove": list(changes["remove"])}
@@ -499,13 +500,17 @@ class Coordinator:
             self.observed(matches[0])
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None, outcome=None):
+    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, agent_report=True):
         declarations = lease.get("outcomes")
         if outcome is not None:
             if declarations is None or outcome not in declarations or status != "success":
                 raise AgentError("Outcome is not declared by the running agent")
         elif status == "success" and declarations is not None:
             raise AgentError("Success must name a declared outcome: report --outcome NAME")
+        try:
+            actions = report_actions(action, required=agent_report and stop_report(lease, status, outcome))
+        except ValueError as exc:
+            raise AgentError(str(exc)) from exc
         self.assert_owned(lease)
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")
@@ -514,6 +519,10 @@ class Coordinator:
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
+        if actions:
+            record["action"] = actions[0]
+            if len(actions) > 1:
+                record["actions"] = actions
         if lease.get("host"):
             record["host"] = lease["host"]
         if outcome is not None:
