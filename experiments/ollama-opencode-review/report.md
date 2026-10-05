@@ -41,6 +41,18 @@ the dedicated loopback port applies a 65,536-token context without changing the
 operator daemon or persistent configuration. The model was not pulled or replaced.
 [The runbook](runbook.md) records reproducible commands and primary documentation.
 
+The exact launcher used for the recorded attempt is at checkpoint
+`9a7ab4b253a1f203a0ef50a33a8cc740d43d9473`.
+The replay script subsequently gained a signal deadline covering preparation,
+a 15-second cleanup reserve within the same 30-minute bound, explicit startup
+prune prevention, process-group cleanup for preparation commands, and separate
+numeric reasons for the two resource guards.
+The recorded daemon log reports zero unused blobs removed. These replay changes
+were validated without starting another model review after unblinding.
+The replay isolation preflight passed in 4.475 s, the deadline interrupted a
+simulated slow preparation step after 2.009 s, and a no-model daemon preflight
+confirmed startup with pruning disabled and exited cleanly.
+
 | Attempt | Elapsed | Completion / stop |
 | --- | ---: | --- |
 | 1 | 4.418 s | Setup failure: Ollama exited because the clean daemon environment omitted its required existing home location; no model request. |

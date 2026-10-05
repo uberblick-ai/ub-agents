@@ -20,12 +20,21 @@ import urllib.request
 HERE = Path(__file__).resolve().parent
 TARGET = json.loads((HERE / "target.json").read_text())
 LIMIT = 30 * 60
+CLEANUP_RESERVE = 15
 SWAP_GROWTH_MIB = 2048
 MIN_FREE_PERCENT = 5
 
 
 def command(args, **kwargs):
-    return subprocess.check_output(args, text=True, timeout=120, **kwargs).strip()
+    process = subprocess.Popen(args, text=True, stdout=subprocess.PIPE,
+                               start_new_session=True, **kwargs)
+    try:
+        output, _ = process.communicate(timeout=120)
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, args, output=output)
+        return output.strip()
+    finally:
+        stop(process)
 
 
 def api(port, path, body=None, timeout=5):
@@ -121,6 +130,8 @@ def main():
     state = runtime / "state"
     state.mkdir()
     result = {"target": TARGET, "wall_limit_seconds": LIMIT,
+              "active_wall_limit_seconds": LIMIT - CLEANUP_RESERVE,
+              "cleanup_reserve_seconds": CLEANUP_RESERVE,
               "guards": {"swap_growth_mib": SWAP_GROWTH_MIB,
                          "minimum_memory_free_percent": MIN_FREE_PERCENT},
               "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -129,6 +140,12 @@ def main():
     started = time.monotonic()
     selector = selectors.DefaultSelector()
     logs = []
+
+    def deadline(_signal, _frame):
+        raise TimeoutError(f"wall-clock limit: {LIMIT - CLEANUP_RESERVE}s active budget; {CLEANUP_RESERVE}s reserved for cleanup")
+
+    previous_alarm = signal.signal(signal.SIGALRM, deadline)
+    signal.setitimer(signal.ITIMER_REAL, LIMIT - CLEANUP_RESERVE)
     try:
         clean = {"PATH": "/Applications/Xcode.app/Contents/Developer/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8",
                  "TMPDIR": str(runtime), "GIT_CONFIG_NOSYSTEM": "1",
@@ -230,6 +247,7 @@ print("checkout/git/python allowed; source/credentials/external network denied")
                       "OLLAMA_TMPDIR": str(runtime),
                       "OLLAMA_CONTEXT_LENGTH": str(TARGET["context"]),
                       "OLLAMA_KEEP_ALIVE": "30m", "OLLAMA_NUM_PARALLEL": "1",
+                      "OLLAMA_NOPRUNE": "1",
                       "OLLAMA_NO_CLOUD": "1"}
         daemon = subprocess.Popen(["/usr/local/bin/ollama", "serve"], env=daemon_env,
                                   stdout=daemon_log, stderr=daemon_log, start_new_session=True)
@@ -279,8 +297,12 @@ print("checkout/git/python allowed; source/credentials/external network denied")
                     observations.write(json.dumps(sample) + "\n")
                     observations.flush()
                     next_sample = elapsed + 5
-                    if sample["swap_used_mib"] - baseline["swap_used_mib"] >= SWAP_GROWTH_MIB or sample["memory_free_percent"] <= MIN_FREE_PERCENT:
-                        result["stop_reason"] = "resource guard: swap growth or low free memory"
+                    growth = sample["swap_used_mib"] - baseline["swap_used_mib"]
+                    if growth >= SWAP_GROWTH_MIB:
+                        result["stop_reason"] = f"resource guard: swap growth {growth:.2f} MiB >= {SWAP_GROWTH_MIB} MiB"
+                        break
+                    if sample["memory_free_percent"] <= MIN_FREE_PERCENT:
+                        result["stop_reason"] = f"resource guard: memory-free percentage {sample['memory_free_percent']} <= {MIN_FREE_PERCENT}"
                         break
                     for loaded in sample["models"]:
                         if loaded["name"] == TARGET["model"]:
@@ -307,6 +329,8 @@ print("checkout/git/python allowed; source/credentials/external network denied")
     except Exception as error:
         result["stop_reason"] = f"{type(error).__name__}: {error}"
     finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_alarm)
         stop(agent)
         stop(daemon)
         selector.close()

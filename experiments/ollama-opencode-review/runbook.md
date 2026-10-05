@@ -54,6 +54,8 @@ seconds and stops if the loaded context differs from 65536. Configuring an
 OpenCode model's context limit alone does not set Ollama's context.
 
 Each attempt has a 1,800-second wall budget, including preparation and loading.
+A signal deadline bounds setup as well as the review, reserving the final 15
+seconds for cleanup. Startup blob pruning is explicitly disabled.
 The resource guard stops at 2,048 MiB of swap growth relative to the pre-model
 baseline or system memory-free percentage at or below 5%. These are conservative
 experiment limits, not judgments of model quality. Every stop retains partial
@@ -85,7 +87,14 @@ result against events and code; sanitization is not an automatic publishing step
 For the reference's tab-padding claim, run `adjudicate.py` with the checkout's
 `.venv/bin/python` and the pinned checkout as working directory, after the blind
 attempt. It asserts the head, renders the fixture, and checks the inverted block.
-The evaluator also ran the screenshot and resize tests named in the report.
+The evaluator ran these commands from the pinned checkout:
+
+```sh
+.venv/bin/python <source>/experiments/ollama-opencode-review/adjudicate.py
+.venv/bin/python -m unittest \
+  tests.test_view_ui.ViewUITests.test_theme_screenshot_at_110_by_32_and_numbered_inert_mode_indicator \
+  tests.test_view_ui.ViewUITests.test_work_pane_width_follows_terminal_resizes
+```
 
 After the run ends, retrieve only review 5412022281 and its inline comments, then
 adjudicate its claims against this head. A later review is a different candidate.
