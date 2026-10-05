@@ -68,8 +68,11 @@ launcher's assignment and a count of 0 or 1. With no assignment it shows a dim
 `Idle · nothing eligible for this launcher` placeholder, which has no item content.
 Other launchers' claims are omitted; their runs remain in an item's Runs tab.
 Parked dependency and milestone waits are omitted from rows and section counts.
-Eligible lists ready/recovery plans in planned order, then retry backoff and
-paused-runtime plans in planned order.
+Eligible merges plans for each item after ordering ready/recovery plans first,
+then retry backoff and paused-runtime plans, preserving planned order within
+each subgroup. Each item keeps its first plan's position, glyph and right column;
+the count counts items. Selection stays on the item while it remains eligible,
+including when its agents change. Running and Needs attention stay per agent.
 Other empty sections are hidden. It scrolls
 on its own when it overflows; row changes do not alter the pane width (#160).
 The canvas above is illustrative; the Work pane's outer width follows the Layout
@@ -104,6 +107,11 @@ blank. Waiting updates while the view is open, rounding down: `0m`–`59m`, then
 `1h`–`47h`, then days starting at `2d`. The launcher uses comments and author
 roles already read in the pass; the launcher and view add no GitHub reads.
 Narrow one-line Work rows keep the glyph, reference, title and waiting time.
+
+Merged Eligible rows' line 2 lists agents comma-separated in that order, with each
+failure count after its agent: `reviewer 1/3 failures, integrator`. A single-agent
+row keeps `agent · F/M failures`. Issue and Runs remain per item, and running
+agents drop out of Eligible as before.
 
 Other live rows' line 2 is indented and contains the agent, `this launcher` for the assignment,
 and count, joined with ` · ` and omitting missing parts.

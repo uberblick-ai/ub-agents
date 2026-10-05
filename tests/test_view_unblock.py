@@ -291,7 +291,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             app.select('plan:179:worker')
             await pilot.press('4')
             self.assertIn('failed 3/3', app.query_one('#item_header', Static).render().plain)
-            app.select('plan:12:reviewer')
+            app.select('plan:12')
             self.assertEqual(app.query_one(ItemTabs).active, 'log')
             self.assertFalse(app.unblock_visible)
             await pilot.press('?')

@@ -12,6 +12,7 @@ notes are copied from that section.
 
 ### Changed
 
+- Eligible lists each item once with all its eligible agents, counting items and retaining selection when those agents change (#233).
 - The terminal view adds padding inside both panes and a one-column gap between them, keeping content inset in narrow layouts (#231).
 - Needs attention rows show elapsed waiting time and the agent, state and parking reason, using the same start time as Unblock (#180).
 - Below 110×32, the terminal view shows one full-width pane, with Enter/Esc navigation and retained selection and log position across resizes (#177).

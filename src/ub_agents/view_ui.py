@@ -20,7 +20,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
 from .view_data import (WORK_GROUPS, context_header, context_text, item_handoff, item_header, item_history, mapping, plan_group,
-                        rows as snapshot_rows, run_status, text)
+                        related_plan, rows as snapshot_rows, run_status, text)
 from .view_github import DescriptionLoads
 from .view_unblock import ActionComment, local_action, needs_attention, trust_reason, unblock_metadata
 from .view_runs import run_status as history_status, runs_view
@@ -626,6 +626,13 @@ class View(App):
         assignment = mapping(self.session.data.get('assignment'))
         own = 'assignment:' + text(assignment.get('run'), 'claiming') if assignment else None
         follow = own is not None and not self.chosen and own != self.selected
+        previous_selection = self.selected
+        if self.selected not in incoming and not follow:
+            replacement = related_plan(incoming.values(), self.rows.get(self.selected))
+            if replacement is not None:
+                if self.selected in self.readings:
+                    self.readings[replacement.key] = self.readings.pop(self.selected)
+                self.selected = replacement.key
         # A worker may still return the previous selection while the view follows
         # a new assignment. Only the current picked observation needs retaining.
         incoming = {key: row for key, row in incoming.items() if row.state != 'earlier observation'
@@ -700,7 +707,8 @@ class View(App):
                 recent.cursor = self.selected
                 recent.focus()
         elif cursor:
-            target = self.groups.get(cursor_group) if cursor_group else self.nodes.get(cursor.data)
+            cursor_key = self.selected if cursor.data == previous_selection else cursor.data
+            target = self.groups.get(cursor_group) if cursor_group else self.nodes.get(cursor_key)
             if target is not None and target is not cursor:
                 tree.move_cursor(target)
 

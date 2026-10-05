@@ -189,6 +189,32 @@ class ViewDataTests(unittest.TestCase):
         self.assertEqual([row.item for row in reordered if row.group == 'Eligible'], [30, 29, 22, 20, 12, 28, 27])
         self.assertEqual({row.item: row.key for row in reordered}, keys)
 
+    def test_eligible_merges_after_ordering_and_keeps_other_sections_per_agent(self):
+        self.state['latest_pass']['rows'] = [
+            {'item': 20, 'agent': 'reviewer', 'state': 'backoff'},
+            {'item': 12, 'agent': 'reviewer', 'state': 'recover'},
+            {'item': 114, 'agent': 'implementer', 'state': 'ready'},
+            {'item': 20, 'agent': 'integrator', 'state': 'ready'},
+            {'item': 12, 'agent': 'integrator', 'state': 'waiting'},
+            {'item': 12, 'agent': 'worker', 'state': 'owned'},
+            {'item': 114, 'agent': 'preparer', 'state': 'ready'},
+            {'item': 30, 'agent': 'reviewer', 'state': 'blocked'},
+            {'item': 30, 'agent': 'integrator', 'state': 'parked'},
+            {'item': 40, 'agent': 'reviewer', 'state': 'waiting'},
+            {'item': 40, 'agent': 'integrator', 'state': 'backoff'},
+        ]
+        work = work_rows(Session(self.path, self.state), self.root)
+        eligible = [row for row in work if row.group == 'Eligible']
+        self.assertEqual([(row.key, row.agent, row.state) for row in eligible],
+                         [('plan:12', 'reviewer', 'recover'), ('plan:20', 'integrator', 'ready'),
+                          ('plan:114', 'preparer', 'ready'), ('plan:40', 'reviewer', 'waiting')])
+        self.assertEqual([[plan['agent'] for plan in row.eligible_plans] for row in eligible],
+                         [['reviewer', 'integrator'], ['integrator', 'reviewer'],
+                          ['preparer'], ['reviewer', 'integrator']])
+        self.assertEqual([row.agent for row in work if row.group == 'Running'], ['implementer'])
+        self.assertEqual([row.key for row in work if row.group == 'Needs attention'],
+                         ['plan:30:reviewer', 'plan:30:integrator'])
+
     def test_eligibility_dependency_and_milestone_waits_are_omitted(self):
         worker = agent(self.root)
         item = issue(milestone=20)

@@ -6,7 +6,7 @@ from pathlib import Path
 from queue import Empty, Full, Queue
 import threading
 
-from .view_data import context_text, local_description, load_session, mapping, plan_group, rows, work_rows
+from .view_data import context_text, local_description, load_session, mapping, plan_group, related_plan, rows, work_rows
 from .view_logs import ViewReader
 
 
@@ -62,6 +62,8 @@ class LocalWorker:
         selected = next((r for r in work if r.key == request.key), None)
         if not request.key and work:
             selected = work[0]
+        if selected is None and self.selected_row and self.selected_row.key == request.key:
+            selected = related_plan(work, self.selected_row)
         if selected is None and self.selected_row and self.selected_row.key == request.key:
             selected = self.selected_row
             omitted = any((row.get('state') == 'owned' or plan_group(row) is None) and
