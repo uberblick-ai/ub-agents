@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Run scratch and `TMPDIR` now live at `$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`, defaulting to `~/.local/state`, outside the target checkout (#255).
+
 ## 0.1.12 — 2026-10-05
 
 **Upgrading:** the coordination record format is unchanged, so launchers can be

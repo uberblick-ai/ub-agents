@@ -675,7 +675,7 @@ class Loop:
             self.output(f"#{plan.item.number} {plan.agent.name}: parked — {approval.reason}")
             return True
         run_dir = self.config.root.resolve() / ".ub-agents" / "runs" / lease["run"]
-        scratch = ScratchDirectory(run_dir)
+        scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])
         preserve_scratch = False
         workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github)
         self.output(f"#{plan.item.number} {plan.agent.name}: claimed {lease['run']} ({lease['runtime']})")

@@ -14,6 +14,7 @@ import time
 
 from .execution import stop_group
 from .runtime_installations import claude_updates_disabled, installation, updater
+from .state import user_state_directory
 
 COOLDOWN_SECONDS = 24 * 60 * 60
 
@@ -35,9 +36,7 @@ class Reservation:
 
 
 def state_directory():
-    configured = os.environ.get("XDG_STATE_HOME", "")
-    base = Path(configured) if configured and Path(configured).is_absolute() else Path.home() / ".local/state"
-    return base / "ub-agents/runtime-updates"
+    return user_state_directory() / "runtime-updates"
 
 
 @contextmanager
