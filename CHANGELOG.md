@@ -26,6 +26,7 @@ notes are copied from that section.
 
 ### Fixed
 
+- Assistant text and closing summaries in Claude and Codex formatted logs use a readable theme color without dimming, while markers stay dim (#232).
 - Eligible drops stale carried rows during partial passes while preserving open Needs attention rows until replanning or pass completion (#235).
 - The running assignment's Work pane spinner animates at the same rate as the Runs tab and log status line (#217).
 - Item comments fold every agent's superseded candidate records and withdrawn election losers, while preserving current candidate records and parking explanations (#214).

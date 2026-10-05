@@ -298,7 +298,7 @@ class ClaudeFormatter(StructuredFormatter):
                 block_type = block.get("type")
                 if block_type == "text" and isinstance(block.get("text"), str):
                     kinds.append(kind)
-                    parts.extend(Line(value, "dim italic" if kind == "assistant" else "italic",
+                    parts.extend(Line(value, "assistant" if kind == "assistant" else "italic",
                                       continuation=index > 0)
                                  for index, value in enumerate(block['text'].split("\n")))
                     last_call = None
@@ -418,7 +418,7 @@ class CodexFormatter(StructuredFormatter):
         if item_type == "agent_message" and kind == "item.completed":
             if not isinstance(item.get("text"), str):
                 raise ValueError("Unfamiliar message")
-            lines = [Line(value, "dim italic", continuation=index > 0)
+            lines = [Line(value, "assistant", continuation=index > 0)
                      for index, value in enumerate(item["text"].split("\n"))]
             return "assistant", lines, [], None
         if item_type not in ("command_execution", "mcp_tool_call", "file_change"):

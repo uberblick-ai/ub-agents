@@ -372,8 +372,11 @@ The time column uses the producer's timezone-aware `timestamp`, converted to loc
 The fixed nine-column time slot reserves its first place for the capture marker:
 exact times appear as ` 07:42:30`, capture times as `~07:42:30`. One space separates
 this slot from the text, so entry text always starts in column 11, including
-assistant continuations. Assistant text is dim and italic; its line
-breaks and wrapped continuations align with the text column. All other C0/C1
+assistant continuations. Assistant text, including the closing summary, is italic
+without dimming, using `view-assistant` (`#c8cdd6` in the default dark theme).
+Themes without this variable derive a color close to their foreground. Its line
+breaks and wrapped continuations align with the text column. User prompt text
+keeps its plain italic style. All other C0/C1
 controls, including terminal escape sequences, remain visibly escaped.
 
 Tool calls show `▸`, the name and the main argument: `file_path` for Read, Edit and

@@ -391,6 +391,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_light_theme_recolors_cached_log_runs_and_all_pane_styles(self):
         self.themed_fixture()
+        with self.log.open('ab') as stream:
+            stream.write(record(content=[{'type': 'text', 'text': 'Closing summary\nContinued summary'}]))
         with patch.dict(os.environ):
             os.environ.pop('NO_COLOR', None)
             app = View(self.root, self.path)
@@ -399,12 +401,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             output = app.query_one(LogPane)
             await pilot.press('f', 'home')
             await self.settled(app, output)
+            summaries = [segment for line in output.lines for segment in line if 'summary' in segment.text]
+            self.assertEqual(len(summaries), 2)
+            self.assertTrue(all(segment.style.italic and not segment.style.dim and
+                                segment.style.color.name == '#c8cdd6' for segment in summaries))
             anchor, selected, focus = output.anchor(), app.selected, app.focused
             app.theme = 'textual-light'
             await pilot.pause()
             await self.settled(app, output)
             self.assertEqual((output.anchor(), app.selected, app.focused), (anchor, selected, focus))
             colors = app.theme_variables
+            self.assertNotEqual(colors['view-assistant'].lower(), '#c8cdd6')
+            summaries = [segment for line in output.lines for segment in line if 'summary' in segment.text]
+            self.assertEqual(len(summaries), 2)
+            self.assertTrue(all(segment.style.italic and not segment.style.dim and
+                                segment.style.color == theme_style(app, 'view-assistant').color
+                                for segment in summaries))
             for value, variable in (('+2', 'view-success'), ('-1', 'view-error')):
                 self.assertTrue(any(value in segment.text and segment.style.color.name.lower() == colors[variable].lower()
                                     for line in output.lines for segment in line))
@@ -547,7 +559,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any('-1' in segment.text and segment.style.color.name == '#ff8b7f' for segment in segments))
             self.assertTrue(any('✗' in segment.text and segment.style.color.name == '#ff8b7f' for segment in segments))
             self.assertTrue(any('· thinking' in segment.text and segment.style.dim for segment in segments))
-            self.assertTrue(any('SPIKE111_MESSAGE_BEGIN' in segment.text and segment.style.italic for segment in segments))
+            self.assertTrue(any('SPIKE111_MESSAGE_BEGIN' in segment.text and segment.style.italic and
+                                not segment.style.dim and segment.style.color.name == '#c8cdd6'
+                                for segment in segments))
             # In raw mode Home lands on a hidden system record. Keep its byte
             # anchor through formatted mode and resize, then recover it with u.
             await pilot.press('f', 'u')
@@ -659,14 +673,28 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_time_column_and_assistant_wrapped_continuations_align(self):
-        self.log.write_bytes(record(content=[{'type': 'text', 'text': 'exact ' + 'word ' * 30 + '\nnext'}],
-                                    timestamp='2026-10-03T12:00:00Z') + record())
+        await self.assistant_wrapped_continuations('claude')
+
+    async def test_codex_assistant_wrapped_continuations_align(self):
+        await self.assistant_wrapped_continuations('codex')
+
+    async def assistant_wrapped_continuations(self, runtime):
+        self.path, self.log, self.state = fixture(self.root, runtime=runtime + ':synthetic-model:high')
+
+        def message(text='hello café', **extra):
+            if runtime == 'claude':
+                return record(content=[{'type': 'text', 'text': text}], **extra)
+            return (json.dumps({'type': 'item.completed', 'item': {
+                'id': 'message', 'type': 'agent_message', 'text': text}, **extra}) + '\n').encode()
+
+        self.log.write_bytes(message('exact ' + 'word ' * 30 + '\nnext',
+                                    timestamp='2026-10-03T12:00:00Z') + message())
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             output = app.query_one(LogPane)
             with self.log.open('ab') as stream:
-                stream.write(record())
+                stream.write(message())
             await self.ready(app, pilot, lambda: len(app.reading.page.refs) == 3)
             await self.settled(app, output)
             lines = [line.text for line in output.lines]
@@ -676,6 +704,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(lines[-1][0], '~')
             self.assertEqual(lines[-1][9:], ' hello café')
             self.assertIn('          next', lines)
+            bodies = [segment for line in output.lines for segment in line if segment.text.strip()
+                      and segment.style.italic]
+            self.assertTrue(bodies)
+            self.assertTrue(all(not segment.style.dim and segment.style.color.name == '#c8cdd6'
+                                for segment in bodies))
             await pilot.press('q')
         app.worker.thread.join(2)
 

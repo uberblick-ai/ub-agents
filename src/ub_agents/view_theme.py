@@ -13,6 +13,7 @@ VIEW_THEME = Theme(
     accent='#b79cff', success='#7ee2a0', error='#ff8b7f', warning='#ff8b7f',
     variables={
         'view-accent': '#b79cff',
+        'view-assistant': '#c8cdd6',
         'view-muted': '#6b7484',
         'view-border': '#2a303b',
         'view-selection': '#1b2030',
@@ -35,6 +36,7 @@ def variable_defaults(theme):
     foreground, background = Color.parse(colors['foreground']), Color.parse(colors['background'])
     return {
         'view-accent': colors['accent' if theme.dark else 'primary'],
+        'view-assistant': foreground.blend(background, 0.05).hex,
         'view-muted': foreground.blend(background, 0.4).hex,
         'view-border': colors['surface-lighten-2' if theme.dark else 'surface-darken-2'],
         'view-selection': colors['primary-muted'],
@@ -61,9 +63,9 @@ def item_reference(number, kind, *, app=None):
 
 
 def log_style(app, token):
-    variables = {'diff-add': 'view-success', 'diff-remove': 'view-error',
+    variables = {'assistant': 'view-assistant', 'diff-add': 'view-success', 'diff-remove': 'view-error',
                  'error': 'view-error', 'dim': 'view-muted', 'dim italic': 'view-muted'}
     if token in variables:
         return theme_style(app, variables[token], dim=token.startswith('dim'),
-                           italic=token.endswith('italic'))
+                           italic=token == 'assistant' or token.endswith('italic'))
     return Style.parse(token)

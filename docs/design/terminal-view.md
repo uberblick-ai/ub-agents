@@ -345,6 +345,7 @@ Slow or failed checks retain the last successful result without delaying work.
 ```text
 Colors, as Textual theme variables with these dark-theme values:
   background #0d1016 · panel/footer #161a22 · text #d4d9e1 · dim #6b7484
+  assistant text (view-assistant, italic without dimming) #c8cdd6
   accent (focus border, pane titles, launcher lines, ⌥) #b79cff · selection row #1b2030
   Running #6cb6ff · Needs attention #ff8b7f · Eligible #7ee2a0
   diff + #7ee2a0 · diff - #ff8b7f
