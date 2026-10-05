@@ -43,7 +43,7 @@ class ApprovalGitHubTests(unittest.TestCase):
         self.assertEqual(calls[0].args[:2], ("graphql", "POST"))
         self.assertEqual(calls[0].args[2]["variables"], {"owner": "org", "name": "project", "number": 42, "cursor": None})
         self.assertEqual(calls[1].args[2]["variables"]["cursor"], "next")
-        self.assertIn("editor { login }", calls[0].args[2]["query"])
+        self.assertIn("editor { login __typename }", calls[0].args[2]["query"])
         self.assertIn("lastEditedAt", calls[0].args[2]["query"])
 
     def test_errors_null_issue_bad_cursor_and_changes_between_pages_fail(self):
@@ -119,6 +119,7 @@ class ApprovalGitHubTests(unittest.TestCase):
         self.assertEqual(reviews[1]["commit_id"], "a" * 40)
         self.assertEqual(request.call_args.args[1]["cursor"], "next")
         self.assertIn("lastEditedAt", request.call_args.args[0])
+        self.assertIn("author { login __typename }", request.call_args.args[0])
 
     def test_review_errors_and_pending_reviews_cannot_supply_input(self):
         github = GitHub("org/project")

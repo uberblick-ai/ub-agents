@@ -18,6 +18,18 @@ from tests.support import DiscoveryCostRunner, RecordingRunner, agent, config, i
 
 
 class GitHubTests(unittest.TestCase):
+    def test_empty_role_is_readable_none_but_failed_or_invalid_roles_are_unreadable(self):
+        github = GitHub("org/project")
+        for raw, expected in (({"role_name": ""}, "none"), ({"role_name": "none"}, "none"),
+                              ({"role_name": "write"}, "write"), ({}, None),
+                              ({"role_name": None}, None), ({"role_name": "unknown"}, None)):
+            with self.subTest(raw=raw), patch.object(github, "request", return_value=raw):
+                self.assertEqual(github.role("github-actions[bot]"), expected)
+        for failure in (GitHubError("GET", "permission", "Copilot is not a user"),
+                        AgentError("Permission unavailable")):
+            with patch.object(github, "request", side_effect=failure):
+                self.assertIsNone(github.role("Copilot"))
+
     def test_45_item_status_and_cold_discovery_request_cost(self):
         from ub_agents.cli import status_rows
         from ub_agents.config import Priority, Queue

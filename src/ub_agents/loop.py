@@ -7,10 +7,12 @@ import threading
 from time import monotonic
 from dataclasses import replace
 
-from .approvals import ApprovalCheck, check_issue, check_pr, resolve_policy, trusted_input
+from . import approvals as input_approvals
+from .approvals import ApprovalCheck, resolve_policy
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
+from .denials import collect_denials
 from .discovery import Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
@@ -58,7 +60,7 @@ class Loop:
         self.approvals = config.approvals or "on"
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
-                                       on_claim=self.claimed, launchers=config.launchers,
+                                       on_claim=self.claimed, launchers=config.launchers, trusted_bots=config.trusted_bots,
                                        on_record=lambda record: self._observe("record", record),
                                        on_author=lambda *args: self._observe("coordination_author", *args),
                                        on_action=lambda *args: self._observe("action_needed", *args))
@@ -186,18 +188,12 @@ class Loop:
 
     def input_check(self, item, github=None, matches=None):
         github = github or self.github
-        if self.approvals == "off":
-            return trusted_input(github, item)
         if matches is None or matches.configured != self.config.agents:
             matches = AgentMatches.for_item(item, self.config.agents)
         triggers = matches.trigger_labels
-        check = (check_issue(github, item.number, triggers) if item.kind == "issue" else
-                 check_pr(github, item.number, triggers, self.coordinator.actor,
-                          launchers=self.config.launchers))
-        if check.snapshot and (check.snapshot["title"], check.snapshot["body"],
-                              check.snapshot.get("head")) != (item.title, item.body, item.head):
-            return ApprovalCheck(False, "Assignment changed while reading approval input; retry")
-        return check
+        return input_approvals.filter_input(github, item, self.approvals, triggers,
+                                           actor=self.coordinator.actor, launchers=self.config.launchers,
+                                           trusted_bots=self.config.trusted_bots)
 
     @staticmethod
     def _rank(plan, priority):
@@ -222,7 +218,7 @@ class Loop:
                                   queue=self.config.queue, output=self.output,
                                   runtime_available=self.maintenance.available,
                                   runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role,
+                                  role=github.current_role, trusted_bots=self.config.trusted_bots,
                                   on_author=lambda *args: self._observe("coordination_author", *args))
         history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
@@ -340,7 +336,7 @@ class Loop:
                                   queue=self.config.queue, output=self.output,
                                   runtime_available=self.maintenance.available,
                                   runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role,
+                                  role=github.current_role, trusted_bots=self.config.trusted_bots,
                                   on_author=lambda *args: self._observe("coordination_author", *args))
         active = (self.github.active_milestone() if item.kind == "issue" and item.state == "open"
                   and self.config.queue.milestones == "gate" else None)
@@ -470,7 +466,8 @@ class Loop:
         # cannot claim. Reuse the discovery pass's permission observation.
         if self.coordinator.actor is not None:
             trusted = LauncherTrust(self.discovery, self.config.launchers, self.discovery.current_role,
-                                    lambda *args: self._observe("coordination_author", *args))
+                                    lambda *args: self._observe("coordination_author", *args),
+                                    trusted_bots=self.config.trusted_bots)
             reason = trusted.reason(self.coordinator.actor)
             if reason and reason != self._launcher_reason:
                 self.output(f"{reason}; claiming no work")
@@ -615,6 +612,7 @@ class Loop:
             self.config = config
             self._observe("configure", config, self.coordinator.actor, path)
             self.coordinator.queue = config.queue
+            self.coordinator.trust.trusted_bots = {login.casefold() for login in config.trusted_bots}
             self.coordinator.trust.launchers = (None if config.launchers is None else
                                                {login.casefold() for login in config.launchers})
             plans = (self.iter_plans() if self._launch_number is None else
@@ -761,6 +759,7 @@ class Loop:
         result, summary = "retry", "Assignment ended without a validated outcome"
         outcome = None
         usage_output = None
+        denials = {}
         try:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
@@ -781,6 +780,7 @@ class Loop:
             context = {"repository": self.config.repository, "assignment": plan.item.number,
                        "kind": plan.item.kind, "title": approval.snapshot["title"],
                        "body": approval.snapshot["body"], "comments": approval.snapshot["comments"],
+                       "withheld_counts": approval.snapshot["withheld_counts"],
                        "feedback": self.coordinator.feedback(plan.item, plan.agent.name),
                        "candidate_sha": plan.item.head, "run": lease["run"],
                        "scratch": str(scratch.path),
@@ -791,12 +791,16 @@ class Loop:
                 context |= {name: approval.snapshot[name] for name in ("reviews", "review_comments")}
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
+            from .read_input import read_policy
+            read_config_path = run_dir / "read-config.json"
+            read_config_path.write_text(json.dumps(read_policy(self.config)))
             env = {key: value for key, value in os.environ.items()
                    if not key.startswith("UB_AGENTS_")}
             env.update({"UB_AGENTS_REPOSITORY": self.config.repository,
                         "UB_AGENTS_ASSIGNMENT": str(plan.item.number),
                         "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
                         "UB_AGENTS_CONTEXT": str(context_path),
+                        "UB_AGENTS_READ_CONFIG": str(read_config_path),
                         "UB_AGENTS_REPORT": report_command,
                         "UB_AGENTS_SCRATCH": str(scratch.path), "TMPDIR": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
@@ -812,12 +816,15 @@ class Loop:
                 self._poll_updates()
                 if usage_output:
                     usage_output.poll(final=final)
-            code = supervise(command, cwd, env, run_dir,
-                             plan.agent.timeout_seconds, self.interrupt_event,
-                             self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
-                             expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
-                             observe_output=observe_output if usage_output or self.updates else None,
-                             **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
+            try:
+                code = supervise(command, cwd, env, run_dir,
+                                 plan.agent.timeout_seconds, self.interrupt_event,
+                                 self.prompt_for(plan, lease, context, instructions) if plan.runtime else None,
+                                 expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
+                                 observe_output=observe_output if usage_output or self.updates else None,
+                                 **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
+            finally:
+                denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
             if usage_output:
                 usage_output.poll(final=True)
             self._observe("process", "exited", "Supervision confirmed execution has ended")
@@ -827,6 +834,8 @@ class Loop:
             completing = True
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
+            if outcome is not None and denials:
+                self.coordinator.update_outcome(lease, outcome, **denials)
             if outcome is None:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
@@ -900,7 +909,9 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         if outcome is None:
             self.coordinator.update(lease, unreported=True)
-            self.coordinator.report(lease, result, summary, agent_report=False)
+            outcome = self.coordinator.report(lease, result, summary, agent_report=False)
+        if denials and any(outcome.get(key) != value for key, value in denials.items()):
+            self.coordinator.update_outcome(lease, outcome, **denials)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
                                  max_attempts=plan.agent.max_attempts)
         diagnostic("released", result=result, summary=summary)
@@ -939,6 +950,7 @@ class Loop:
                 f"End the run with {report_command} report.\n"
                 f"Use {report_command} report wherever project instructions say `ub-agents report`. "
                 "This command runs the launcher's own installation; write it literally in shell commands.\n"
+                f"Read other issues and PRs with {report_command} read N, using the launcher's input policy.\n"
                 "Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, "
                 "not directly under /tmp. TMPDIR points to the same directory. Its absolute "
                 "path is the context's scratch value; use that path directly rather than "

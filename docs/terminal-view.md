@@ -290,7 +290,15 @@ the outcome column. Relative time steps are `just now`, `N min ago`, `N h ago`,
 `yesterday`, `N days ago` within the past week, then `YYYY-MM-DD`. Calendar days
 and dates use the viewer's local timezone.
 
-The where column has a fixed 14-column slot. This host reads `this machine`;
+When an outcome records permission denials, its outcome column also shows
+`N denied`, counting listed entries plus `denials_omitted`. Under that run, each
+listed denial appears as `tool: command`, wrapping when needed. Up to 10 entries
+are recorded, with commands truncated to 200 characters. Claude runs supply these
+fields only after a final `result` event; an empty list, missing or malformed
+fields, and Codex runs show no count. Denials are display-only and do not change
+the run's result or acceptance.
+
+The where column uses up to 14 columns and shrinks in narrow views. This host reads `this machine`;
 other hosts are dim, with their domain removed and long names shortened with
 `…`. Host data comes from the claim, falling back to an outcome's recorded host
 for handoff copies without a claim; older records without either show `unknown`.

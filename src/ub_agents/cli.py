@@ -15,6 +15,7 @@ import uuid
 from . import __version__
 from .config import DEFAULT_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
+from .denials import denial_count
 from .errors import AgentError
 from .execution import repository_checks
 from .github import GitHub
@@ -40,7 +41,7 @@ def parser():
     init.add_argument("--repository", help="GitHub owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="Initial cli:model:effort for starter agents")
     check = commands.add_parser("check", help="Validate local configuration",
-                                 description="Validate project configuration and instruction files without executing agents. "
+                                 description="Validate project configuration, including trusted-bots, and instruction files without executing agents. "
                                  "Use after editing the workflow or before launching it.",
                                  examples=("ub-agents check", "ub-agents check --config workflow.yaml"))
     doctor = commands.add_parser("doctor", help="Diagnose setup or launch issues",
@@ -100,7 +101,15 @@ def parser():
         command.add_argument("number", metavar="NUMBER", type=int, nargs="?", required_for_help=True,
                              help="Issue or PR number")
         command.add_argument("--number", dest="legacy_number", type=int, help=argparse.SUPPRESS)
-    for command in (init, check, doctor, launch, status, cleanup, retry, approve):
+    read = commands.add_parser("read", help="Read filtered issue or PR input as JSON",
+                               description="Read an open or closed issue or PR under the assignment input trust rules. "
+                               "Withheld input is marked or counted; history and permission failures show no item content. "
+                               "trusted-bots trusts listed GitHub bot feedback like write, without maintainer authority. "
+                               "Inside a supervised run use the launcher's report_command followed by read N; "
+                               "its repository and configuration are pinned by the launcher. This command makes no writes.",
+                               examples=("ub-agents read 143", "ub-agents read 150 --config workflow.yaml"))
+    read.add_argument("number", metavar="NUMBER", type=int, help="Issue or PR number in the configured repository")
+    for command in (init, check, doctor, launch, status, cleanup, retry, approve, read):
         command.add_argument("--config", dest="command_config", metavar="CONFIG",
                              help="Project configuration (default: ub-agents.yaml)")
     help_command = commands.add_parser("help", help="Show overview or detailed help",
@@ -134,7 +143,7 @@ def init_project(args):
         targets[config_path] = targets[config_path].replace(
             "[--sandbox, danger-full-access]",
             '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
-            '"Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)", --add-dir, "{scratch}"]').replace(
+            '"Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)", "Bash({report_command} read *)", --add-dir, "{scratch}"]').replace(
             "Grants full access without the Codex sandbox",
             "Grants unattended edits and git/gh/report commands")
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
@@ -175,7 +184,9 @@ def report_run(args):
     except ValueError as exc:
         raise AgentError("Invalid supervised assignment environment") from exc
     github = GitHub(env["REPOSITORY"])
-    coordinator = Coordinator(github, github.actor())
+    from .read_input import supervised_policy
+    bots = supervised_policy()["trusted-bots"] if os.environ.get("UB_AGENTS_READ_CONFIG") else ()
+    coordinator = Coordinator(github, github.actor(), trusted_bots=bots)
     # Only inspect the supervised comment's marker and GitHub author. Future
     # payloads are not a contract this build can validate or use for authority.
     comments = github.comments(number)
@@ -259,6 +270,12 @@ def run(args):
     if args.command == "report":
         report_run(args)
         return
+    if args.command == "read":
+        from .read_input import read_item, read_policy, supervised_policy
+        policy = (supervised_policy() if os.environ.get("UB_AGENTS_RUN") else
+                  read_policy(load_config(args.config)))
+        print(json.dumps(read_item(GitHub(policy["repository"]), args.number, policy), indent=2))
+        return
     if args.command == "doctor":
         from .doctor import diagnose, render
         result = diagnose(args.config)
@@ -283,7 +300,7 @@ def run(args):
         created = approve_issue(github, args.number, actor)
         print(f"Approval posted: {created['html_url']}")
         return
-    coordinator = Coordinator(github, actor, launchers=config.launchers)
+    coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
     if args.command == "retry" and args.agent is None:
         item = github.item(args.number)
         agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)
@@ -337,6 +354,9 @@ def run(args):
                     reported = row["outcome"]
                     acceptance = " (unaccepted)" if reported["status"] == "success" and not reported["accepted"] else ""
                     outcome = f" · reported: {reported['status']}{acceptance}"
+                    count = denial_count(reported)
+                    if count:
+                        outcome += f" · {count} denied"
                 verdict = f" · last result: {row['result']}" if row["result"] else ""
                 priority = row["priority"] or "none"
                 if row["priority_inherited_from"] is not None:
@@ -427,6 +447,8 @@ def main(argv=None):
                 if args.number is None or args.number < 1:
                     command_parser.error(f"{args.command} requires a positive item number")
             args.default_config = args.config is None
+            if args.command == "read" and args.number < 1:
+                command_parser.error("read requires a positive item number")
             if args.command == "launch":
                 if args.agent is not None and args.number is None:
                     command_parser.error("launch --agent requires an item number")

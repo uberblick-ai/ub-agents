@@ -44,7 +44,7 @@ class Cleaner:
         self.config = config
         self.root = config.root
         self.github = github
-        self.coordinator = Coordinator(github, actor, launchers=config.launchers)
+        self.coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
         self.output = output
         self.blocked_runs = set()
         self.preview_worktrees = set()

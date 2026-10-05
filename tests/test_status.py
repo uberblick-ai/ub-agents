@@ -10,7 +10,7 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.errors import CleanupError
 from ub_agents.loop import Loop
-from ub_agents.records import iso, seconds
+from ub_agents.records import body, iso, seconds
 from tests.support import FakeGitHub, PollGitHub, agent, config, edit_lease, issue, pr
 
 
@@ -93,6 +93,39 @@ class StatusTests(unittest.TestCase):
         self.assertIn("reported: success (unaccepted)", plain)
         self.assertIn("Agent process has exited. A launcher accepts the reported outcome when it "
                       "recovers the lease after 09:51Z.", plain)
+
+    def test_latest_outcomes_denials_in_plain_and_json_status(self):
+        lease = self.claim()
+        report = self.loop.coordinator.report(lease, "retry", "Completed")
+        self.loop.coordinator.release(lease, "retry", "Completed")
+        for count, omitted in ((0, None), (2, None), (10, 2)):
+            with self.subTest(count=count, omitted=omitted):
+                fields = {"denials": [{"tool": "Bash", "command": "test"}] * count,
+                          "denials_omitted": omitted}
+                # Fixture writes model the launcher's update before release.
+                self.github.update_comment(report["id"], body(report | fields))
+                rows, plain = self.status()
+                self.assertEqual(rows[0]["outcome"]["denials"], fields["denials"])
+                if count:
+                    self.assertIn(f" · {count + (omitted or 0)} denied\n", plain)
+                else:
+                    self.assertNotIn("denied", plain)
+        self.github.change(1, labels=frozenset({"ready"}))
+        self.claim()
+        _, plain = self.status()
+        self.assertNotIn("denied", plain)
+
+    def test_malformed_denials_do_not_invalidate_outcome_or_break_status(self):
+        lease = self.claim()
+        report = self.loop.coordinator.report(lease, "retry", "Completed")
+        for value in (None, "bad", {}, [None], [{"tool": "Bash", "command": 123}]):
+            with self.subTest(value=value):
+                self.loop.coordinator.update_outcome(lease, report, denials=value, denials_omitted=2)
+                rows, plain = self.status()
+                self.assertEqual(rows[0]["outcome"]["id"], report["id"])
+                self.assertEqual(rows[0]["outcome"].get("denials"), value)
+                self.assertIn("reported: retry", plain)
+                self.assertNotIn("denied", plain)
 
     def test_local_lease_without_process_group_is_starting(self):
         lease = self.claim()

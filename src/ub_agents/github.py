@@ -301,6 +301,8 @@ class GitHub:
                 raise
             return None
         role = raw.get("role_name") if isinstance(raw, dict) else None
+        if role == "":
+            return "none"
         return role if isinstance(role, str) and role in {"admin", "maintain", "write", "triage", "read", "none"} else None
 
     def visibility(self):
@@ -324,17 +326,17 @@ class GitHub:
         owner, name = self.repository.split("/", 1)
         query = """query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
           repository(owner:$owner, name:$name) { issue(number:$number) {
-            title body createdAt lastEditedAt
+            title body createdAt lastEditedAt author { login __typename }
             userContentEdits(first:100, after:$cursor) {
-              nodes { editedAt editor { login } diff deletedAt }
+              nodes { editedAt editor { login __typename } diff deletedAt }
               pageInfo { hasNextPage endCursor }
             }
           } }
         }"""
         if kind == "pullRequest":
             query = query.replace("issue(number:", "pullRequest(number:").replace(
-                "title body createdAt lastEditedAt",
-                "title body createdAt lastEditedAt author { login } headRefOid headRepository { nameWithOwner }")
+                "author { login __typename }",
+                "author { login __typename } headRefOid headRepository { nameWithOwner }")
         edits, cursor, content, seen = [], None, None, set()
         while True:
             raw = self.request("graphql", "POST", {"query": query, "variables": {
@@ -344,6 +346,7 @@ class GitHub:
                     raise ValueError("GraphQL errors")
                 issue = raw["data"]["repository"][kind]
                 current = {key: issue[key] for key in ("title", "body", "createdAt", "lastEditedAt")}
+                current["author"] = issue.get("author")
                 if kind == "pullRequest":
                     head_repository = issue["headRepository"]
                     head_repository = head_repository["nameWithOwner"] if head_repository is not None else None
@@ -401,12 +404,21 @@ class GitHub:
         return sorted(items, key=lambda item: item.number)
 
     def item(self, number, kind=None):
-        if kind == "pr":
-            endpoint = f"{self.prefix}/pulls/{number}"
-            return parse_item(self.request(endpoint), "pr", endpoint)
-        endpoint = f"{self.prefix}/issues/{number}"
+        endpoint = f"{self.prefix}/{'pulls' if kind == 'pr' else 'issues'}/{number}"
         raw = self.request(endpoint)
-        return self.item(number, "pr") if "pull_request" in raw else parse_item(raw, "issue", endpoint)
+        try:
+            if kind == "pr":
+                repository = ((raw.get("base") or {}).get("repo") or {}).get("full_name")
+            else:
+                url = raw.get("repository_url")
+                repository = url.rsplit("/repos/", 1)[-1] if url is not None else None
+            if repository is not None and repository.casefold() != self.repository.casefold():
+                raise GitHubError("GET", endpoint, "Item is outside the configured repository")
+        except (TypeError, AttributeError) as exc:
+            raise GitHubError("GET", endpoint, "Unreadable GitHub work item scope") from exc
+        if kind != "pr" and "pull_request" in raw:
+            return self.item(number, "pr")
+        return parse_item(raw, kind or "issue", endpoint)
 
     def active_milestone(self):
         milestones = self.milestone_order()
@@ -509,7 +521,7 @@ class GitHub:
         query = """query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
           repository(owner:$owner, name:$name) { pullRequest(number:$number) {
             reviews(first:100, after:$cursor) {
-              nodes { databaseId body author { login } submittedAt lastEditedAt state commit { oid } }
+              nodes { databaseId body author { login __typename } submittedAt lastEditedAt state commit { oid } }
               pageInfo { hasNextPage endCursor }
             }
           } }

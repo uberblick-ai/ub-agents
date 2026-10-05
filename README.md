@@ -128,16 +128,26 @@ without GitHub authentication or network access, and creates no files. Square
 brackets indicate optional arguments: `launch [NUMBER]` takes an optional item,
 while `retry NUMBER` and `approve NUMBER` require one.
 
+Read related issues and PRs with `ub-agents read N`. It prints JSON filtered by
+the [assignment input rules](docs/approvals.md#reading-other-issues-and-prs), including
+withheld counts. Inside a run, use the launcher's literal `report_command` followed
+by `read N`; it uses the launcher's repository and configuration. The top-level
+`trusted-bots: [copilot-pull-request-reviewer, Copilot]` list trusts feedback only when
+GitHub identifies that login as a bot, including Copilot's separate inline-comment
+login. Matching ignores the optional `[bot]` suffix. Listed bots gain no maintainer
+or launcher authority.
+
 | Command | What it does |
 |---|---|
 | `ub-agents help [COMMAND]` | Show the overview, or detailed command help with examples |
-| `ub-agents status` | Show matching work, lease details, whether local agents are running, and what they reported |
+| `ub-agents status` | Show matching work, lease details, whether local agents are running, what they reported, and recorded permission denial counts |
 | `ub-agents launch [--no-ui]` | Watch the queue; open the installed view on a TTY or keep plain output with `--no-ui` |
 | `ub-agents launch --once [--no-ui]` | Run at most one assignment, then exit |
 | `ub-agents launch N [--agent NAME] [--no-ui]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
 | `ub-agents cleanup [--apply]` | Preview stale private worktrees and local branches; apply eligible removals |
 | `ub-agents retry N --reason TEXT [--agent NAME]` | Let stopped work run again, with a recorded reason |
 | `ub-agents approve N` | Print current issue or PR input and post a maintainer [approval record](docs/approvals.md) |
+| `ub-agents read N` | Read an open or closed issue or PR as filtered JSON without changing it |
 | `ub-agents check` | Validate the configuration files only |
 | `ub-agents report` | Used by agents to record their outcome |
 

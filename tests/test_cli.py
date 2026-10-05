@@ -11,7 +11,7 @@ from ub_agents.cli import main
 class ArgumentTests(unittest.TestCase):
     commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"),
-                ("approve", "42"))
+                ("approve", "42"), ("read", "42"))
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory()

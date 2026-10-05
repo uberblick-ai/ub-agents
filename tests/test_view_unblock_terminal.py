@@ -1,21 +1,11 @@
 """Unblock acceptance in an owned real PTY with scripted read-only sources."""
 
-from datetime import datetime, timezone
-import fcntl
 import json
-import os
 from pathlib import Path
-import pty
-import select
-import signal
-import struct
-import subprocess
-import sys
 import tempfile
-import termios
-import time
 import unittest
 
+from tests.terminal import Terminal
 from tests.test_view_data import fixture
 from tests.test_view_unblock import AUTHORS, NOTICE
 
@@ -42,8 +32,7 @@ class UnblockTerminalTests(unittest.TestCase):
                 path.write_text(json.dumps(state))
                 proof = root / 'proof.json'
                 script = '''
-import json, pathlib, sys
-sys.path.insert(0, sys.argv[4])
+import pathlib, sys
 from textual.binding import Binding
 from textual.widgets import Markdown
 from tests.support import RecordingDescriptionTransport
@@ -53,9 +42,8 @@ from ub_agents.view_ui import ItemTabs, View
 from ub_agents.view_unblock import stamp
 from ub_agents.view_work import WorkTree
 transport = RecordingDescriptionTransport()
-class ProofView(View):
-    BINDINGS = [*View.BINDINGS, Binding('x', 'checkpoint', priority=True),
-                Binding('a', 'select_attention', priority=True),
+class ProofView(checkpoint_view(View, sys.argv[3])):
+    BINDINGS = [Binding('a', 'select_attention', priority=True),
                 Binding('b', 'select_foreign', priority=True),
                 Binding('e', 'select_eligible', priority=True),
                 Binding('t', 'advance', priority=True), Binding('l', 'complete', priority=True)]
@@ -65,8 +53,7 @@ class ProofView(View):
     def action_advance(self): self.now += 60
     def action_complete(self):
         transport.response = parse_response(comments_reply(comment()), b'', 0, self.now, 'unblock', AUTHORS)
-    def action_checkpoint(self): self.call_after_refresh(self.checkpoint)
-    def checkpoint(self):
+    def proof_values(self):
         tree = self.query_one(WorkTree)
         tree.get_node_at_line(0)
         node = self.nodes.get('plan:178:worker')
@@ -87,46 +74,17 @@ class ProofView(View):
                  'modal': self.screen.query_one('#raw_details').render().plain
                           if self.screen.query('#raw_details') else '',
                  'visible': [strip.text for strip in self.screen._compositor.render_strips()]}
-        staging = pathlib.Path(sys.argv[3] + '.new')
-        staging.write_text(json.dumps(value))
-        staging.replace(sys.argv[3])
+        return value
 app = ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]),
                 descriptions=DescriptionLoads(transport, clock=lambda: app.now))
 app.now = stamp('2026-10-05T12:36:00Z')
 app.run()
 pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
 '''
-                master, slave = pty.openpty()
-                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
-                modes = termios.tcgetattr(slave)
-                process = subprocess.Popen([sys.executable, '-P', '-c', script, str(root), str(path), str(proof),
-                    str(Path(__file__).resolve().parents[1])],
-                    stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
-                    env=dict(os.environ, TERM='xterm-256color'))
-                transcript = bytearray()
-                def drain(seconds=0.05):
-                    deadline = time.monotonic() + seconds
-                    while time.monotonic() < deadline:
-                        if select.select([master], [], [], 0.02)[0]:
-                            transcript.extend(os.read(master, 65536))
-                def checkpoint(condition=lambda _: True):
-                    deadline = time.monotonic() + 5
-                    value = None
-                    while time.monotonic() < deadline:
-                        proof.unlink(missing_ok=True)
-                        os.write(master, b'x')
-                        while not proof.exists() and time.monotonic() < deadline:
-                            drain()
-                        self.assertTrue(proof.exists(), bytes(transcript[-1000:]))
-                        value = json.loads(proof.read_text())
-                        if condition(value):
-                            return value
-                        drain()
-                    self.fail((value, bytes(transcript[-1000:])))
-                try:
-                    checkpoint(lambda value: value['attention'])
-                    os.write(master, b'4g')
-                    cached = checkpoint(lambda value: value['tab'] == 'unblock' and 'snapshot' in value['note']
+                with Terminal(script, root, path, proof, proof=proof) as terminal:
+                    terminal.checkpoint(lambda value: value['attention'])
+                    terminal.send(b'4g')
+                    cached = terminal.checkpoint(lambda value: value['tab'] == 'unblock' and 'snapshot' in value['note']
                                         and 'waiting 24m' in value['header'])
                     self.assertIn('⌥178 Blocked candidate', cached['header'])
                     self.assertIn('worker · needs-human · waiting 24m · since ', cached['header'])
@@ -139,67 +97,52 @@ pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
                     self.assertNotIn('**Action needed**', cached['body'])
                     self.assertIn('1-4 tabs g load', cached['footer'])
                     self.assertEqual(cached['calls'], 0)
-                    os.write(master, b't?')
-                    help_view = checkpoint(lambda value: value['screen'] == 'KeyHelp')
+                    terminal.send(b't?')
+                    help_view = terminal.checkpoint(lambda value: value['screen'] == 'KeyHelp')
                     self.assertIn('g on Unblock', help_view['modal'])
-                    os.write(master, b'?')
-                    advanced = checkpoint(lambda value: value['screen'] != 'KeyHelp' and 'waiting 25m' in value['header'])
+                    terminal.send(b'?')
+                    advanced = terminal.checkpoint(lambda value: value['screen'] != 'KeyHelp' and 'waiting 25m' in value['header'])
                     self.assertTrue(advanced['work'].endswith('25m'), advanced['work'])
                     # Real resize and Enter/Esc navigation at the minimum width.
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 16, 60, 0, 0))
-                    os.kill(process.pid, signal.SIGWINCH)
-                    narrow_work = checkpoint(lambda value: value['size'] == [60, 16])
+                    terminal.resize(60, 16)
+                    narrow_work = terminal.checkpoint(lambda value: value['size'] == [60, 16])
                     self.assertTrue(narrow_work['work'].startswith('? ⌥178 '))
                     self.assertTrue(narrow_work['work'].endswith('25m'))
                     self.assertEqual(narrow_work['detail'], '')
-                    os.write(master, b'\r')
-                    narrow = checkpoint(lambda value: value['item'] and 'g load' in value['footer'])
+                    terminal.send(b'\r')
+                    narrow = terminal.checkpoint(lambda value: value['item'] and 'g load' in value['footer'])
                     self.assertIn('1-4 tabs', narrow['footer'])
                     self.assertIn('v', narrow['footer'])
-                    os.write(master, b'\x1b')
-                    drain(0.3)
-                    checkpoint(lambda value: not value['item'])
-                    os.write(master, b'\r')
-                    checkpoint(lambda value: value['item'])
-                    os.write(master, b'f')
-                    paused = checkpoint(lambda value: 'f follow' in value['footer'])
+                    terminal.send(b'\x1b')
+                    terminal.checkpoint(lambda value: not value['item'])
+                    terminal.send(b'\r')
+                    terminal.checkpoint(lambda value: value['item'])
+                    terminal.send(b'f')
+                    paused = terminal.checkpoint(lambda value: 'f follow' in value['footer'])
                     self.assertIn('g load', paused['footer'])
                     self.assertIn('1-4 tabs', paused['footer'])
                     self.assertIn('v', paused['footer'])
-                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 110, 0, 0))
-                    os.kill(process.pid, signal.SIGWINCH)
-                    checkpoint(lambda value: value['size'] == [110, 32])
-                    os.write(master, b'b4g2g')
-                    pending = checkpoint(lambda value: value['pending'] is not None)
+                    terminal.resize(110, 32)
+                    terminal.checkpoint(lambda value: value['size'] == [110, 32])
+                    terminal.send(b'b4g2g')
+                    pending = terminal.checkpoint(lambda value: value['pending'] is not None)
                     self.assertEqual(pending['calls'], 1)
-                    os.write(master, b'l4')
-                    loaded = checkpoint(lambda value: value['tab'] == 'unblock' and 'GitHub · loaded' in value['note']
+                    terminal.send(b'l4')
+                    loaded = terminal.checkpoint(lambda value: value['tab'] == 'unblock' and 'GitHub · loaded' in value['note']
                                         and 'failed 3/3' in value['header'])
                     self.assertIn('failed 3/3', loaded['header'])
-                    os.write(master, b'g')
-                    self.assertEqual(checkpoint()['calls'], 1)
-                    os.write(master, b'e4')
-                    eligible = checkpoint(lambda value: value['selected'] == 'plan:180')
+                    terminal.send(b'g')
+                    self.assertEqual(terminal.checkpoint()['calls'], 1)
+                    terminal.send(b'e4')
+                    eligible = terminal.checkpoint(lambda value: value['selected'] == 'plan:180')
                     self.assertFalse(eligible['attention'])
                     self.assertEqual(eligible['tab'], 'log')
-                    os.write(master, b'a4')
-                    checkpoint(lambda value: value['tab'] == 'unblock')
+                    terminal.send(b'a4')
+                    terminal.checkpoint(lambda value: value['tab'] == 'unblock')
                     state['latest_pass']['rows'][0]['state'] = 'ready'
                     path.write_text(json.dumps(state))
-                    resumed = checkpoint(lambda value: not value['attention'])
+                    resumed = terminal.checkpoint(lambda value: not value['attention'])
                     self.assertEqual(resumed['tab'], 'log')
-                    os.write(master, quit_key)
-                    deadline = time.monotonic() + 3
-                    while process.poll() is None and time.monotonic() < deadline:
-                        drain()
-                    self.assertEqual(process.wait(timeout=1), 0, bytes(transcript[-1000:]))
-                    drain()
-                    self.assertEqual(termios.tcgetattr(slave), modes)
-                    self.assertIn(b'\x1b[?1049l', transcript)
+                    terminal.send(quit_key)
+                    terminal.wait_exit()
                     self.assertEqual(Path(str(proof) + '.closed').read_text(), 'True')
-                finally:
-                    if process.poll() is None:
-                        process.terminate()
-                    process.wait(timeout=3)
-                    os.close(master)
-                    os.close(slave)
