@@ -74,7 +74,7 @@ The version 1 envelope contains:
 | `session`, `pid`, `host`, `actor`, `repository`, `config_path` | Launcher identity and configuration; `started_at` and `published_at` use UTC ISO 8601 times. |
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
 | `assignment` | Current item, kind, title, agent, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
-| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. Rows include item, kind, title, agent, chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
+| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
 | `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff when reported, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit optional header context. |
 | `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
 
@@ -97,9 +97,11 @@ launcher exit; failures produce at most one publication diagnostic per session.
 Snapshots are never read for claims, coordination or recovery.
 
 `poll-seconds` measures the minimum time between the starts of successful
-continuous discovery passes. A run's report, transitions and cleanup finish
+continuous discovery passes, including observation passes during a run.
+A run's report, transitions and cleanup finish
 immediately; after a pass that ran or recovered work, the launcher waits for the
-part of that interval still remaining. If the run already took the interval, the
+part of that interval still remaining since the latest pass started. If that
+pass already took the interval, the
 next pass starts immediately. See
 [Stopping and restarting](../README.md#stopping-and-restarting) for signals during
 waits. Failed-poll retry delays below are independent of this interval, and
@@ -116,7 +118,13 @@ approval-parking writes; HTTP 304 confirmations, GraphQL and transport failures
 without an HTTP response do not. A five-response pass using REST quota waits
 72 seconds; a cold 230-request pass waits 3,312 seconds (about 55 minutes). Time
 already spent in the pass, including rate-limit waits, counts toward the gap.
-The next pass that runs or recovers work returns to normal `poll-seconds` pacing.
+Observation passes during a continuous run use the same budget, low-quota doubling,
+one-hour cap and rate-limit waits as empty passes. They evaluate the whole ranked
+queue without claiming, recovering, approval-parking or printing plan or idle lines.
+Only completed observation passes replace the snapshot's queue rows; a failed or
+rate-limited pass retains the previous rows and cannot interrupt execution,
+heartbeats, reporting, transitions or cleanup, or stop the launcher.
+After the run, the next claiming pass returns to normal `poll-seconds` pacing.
 
 The launcher retains `X-RateLimit-Remaining`, `X-RateLimit-Limit` and
 `X-RateLimit-Reset` from the latest response for each `X-RateLimit-Resource`
@@ -135,9 +143,13 @@ It does not repeat the message on every empty pass. See
 this idle wait.
 
 Claiming discovery evaluates candidates in rank order and stops once it claims
-work. Lower-ranked rows are evaluated, announced and approval-parked by a later
-pass that reaches them. `status` evaluates every row and remains read-only.
-Within either pass, an item's comments supply history and approval input, and
+work. During that run, separate read-only observation passes evaluate all rows;
+their results never choose the next claim. After the run, fresh claiming discovery
+again walks the rank order and rechecks authority before any write. Lower-ranked
+rows are announced and approval-parked only by a claiming pass that reaches them.
+`launch --once` and `launch N` do not start observation passes; `status` still
+evaluates every row and remains read-only.
+Within each pass, an item's comments supply history and approval input, and
 `status` renders the same history. Fresh repository permissions are read once per
 account across all reached items. These shared reads end with the pass; each
 claim-time approval check reads permissions anew.

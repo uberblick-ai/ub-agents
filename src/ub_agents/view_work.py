@@ -14,6 +14,8 @@ from .view_spinner import SPINNER_FPS, spinner_frame
 from .attention import attention_state, waiting_time
 from .view_theme import SECTION_COLORS, item_reference, theme_style
 
+ELIGIBLE_LIMIT = 10
+
 
 def section_rule(label, width, style):
     heading = Text(label, style=style, no_wrap=True)
@@ -110,6 +112,11 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
         detail = Text('  ' + ', '.join(' '.join(part for part in
                       (text(plan.get('agent'), ''), failure_count(plan)) if part)
                       for plan in row.eligible_plans), no_wrap=True)
+    priority = text(row.data.get('priority'), '')
+    if priority:
+        detail.append(' · ')
+        detail.append(priority, style=(theme_style(app, 'view-priority-' + priority, dim=False)
+                                      if priority in {'urgent', 'high', 'low'} else ''))
     detail.truncate(max(0, width), overflow='ellipsis')
     return first, detail
 
@@ -207,7 +214,7 @@ class WorkTree(Tree):
             if line_no == node._line:
                 value.stylize(theme_style(self.app, SECTION_COLORS.get(row.group, 'view-muted')), 0, 1)
             else:
-                value.stylize(theme_style(self.app, 'view-muted', dim=True))
+                value.stylize_before(theme_style(self.app, 'view-muted', dim=True))
         return Strip(list(value.render(self.app.console))).extend_cell_length(width, style + line_style)
 
     def move_cursor(self, node, animate=False):

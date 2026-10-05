@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Continuous launch keeps planning during assignments; Eligible shows the next ten items in claim order with counts and colored priority words (#248).
+
 ## 0.1.12 — 2026-10-05
 
 **Upgrading:** the coordination record format is unchanged, so launchers can be
