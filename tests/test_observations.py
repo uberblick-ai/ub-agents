@@ -385,11 +385,13 @@ class ObservationTests(unittest.TestCase):
             'kind': 'lease', 'assignment': 1, 'agent': 'worker', 'run': 'new-run',
             'created': iso(1000), 'expires': iso(2000), 'state': 'released'},)))
         session = Session(self.root / 'launcher.json', self.memory.snapshots[-1])
-        refreshed, kept = work_rows(session, self.root)
-        self.assertEqual(local_description(refreshed, session).body, 'New body')
-        self.assertEqual(local_description(kept, session).body, 'Previous body')
-        self.assertEqual(kept.data['history'], previous)
-        self.assertEqual(len(refreshed.data['history']['runs']), 1)
+        merged, = work_rows(session, self.root)
+        refreshed, kept = merged.eligible_plans
+        self.assertEqual(local_description(merged, session).body, 'New body')
+        self.assertEqual([plan['agent'] for plan in merged.eligible_plans], ['worker', 'reviewer'])
+        self.assertEqual(kept['description']['text'], 'Previous body')
+        self.assertEqual(kept['history'], previous)
+        self.assertEqual(len(refreshed['history']['runs']), 1)
         self.observer.complete_pass()
         self.assertEqual(list(self.memory.snapshots[-1]['histories']), ['1'])
 
