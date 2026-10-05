@@ -150,7 +150,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(indicator.region.y, tabs.region.y)
             last_tab = [tab for tab in app.query('#panes Tab') if tab.display][-1]
             self.assertEqual(indicator.region.x, last_tab.region.right)
-            self.assertEqual(strips[tabs.region.y].crop(tabs.region.x, tabs.region.x + 5).text, '1 Log')
+            self.assertEqual(strips[tabs.region.y].crop(last_tab.region.right - 1, indicator.region.x + 1).text,
+                             ' │')
+            self.assertEqual(strips[tabs.region.y].crop(tabs.region.x, tabs.region.x + 7).text, ' 1 Log ')
             self.assertFalse(indicator.can_focus)
             self.assertEqual(len([tab for tab in app.query('#panes Tab') if tab.display]), 3)
             self.assertTrue(all(not widget.display for widget in app.query('#panes Underline')))
@@ -159,6 +161,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             active = app.query_one('#panes Tab.-active', Tab)
             self.assertEqual(active.styles.color, app.screen.styles.background)
             self.assertEqual(active.styles.background.hex.lower(), '#d4d9e1')
+            active_strip = strips[tabs.region.y].crop(active.region.x, active.region.right)
+            self.assertEqual(active_strip.text, ' 1 Log ')
+            self.assertTrue(all(segment.style.bgcolor.name == '#d4d9e1' for segment in active_strip))
             selected = app.selected
             await pilot.click('#log_mode')
             self.assertEqual(app.query_one(TabbedContent).active, 'log')

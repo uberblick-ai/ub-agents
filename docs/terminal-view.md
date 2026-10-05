@@ -41,6 +41,8 @@ top border. Work rows, section rules and Recent activity share this padding. The
 item pane uses it for the tab bar and its Formatted/Raw indicator, the tab rule,
 shared header, every tab's content and log status lines. Right-aligned columns
 and text shortened with `…` end inside the right padding.
+Tab labels have one space on either side, so labels sit one column right of the
+shared header and the inverted active tab has equal padding on both sides.
 
 The default `ub-agents` Textual theme has a dark background, purple focus and
 selection accents, blue Running headings and glyphs, red Needs attention, and

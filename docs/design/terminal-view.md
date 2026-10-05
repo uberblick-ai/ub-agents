@@ -29,7 +29,7 @@ Below 110×32 the single full-width pane keeps the same padding, with no gap.
 ```text
 ╭─ Work · pass complete ─────────────────────╮ ╭─ Log ───────────────────────────────────────────────────────╮
 │                                            │ │                                                             │
-│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │  1 Log  2 Issue  3 Runs  │ Formatted  Raw                   │
+│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Log  2 Issue  3 Runs │ Formatted  Raw                   │
 │  ⠹ #163 Compact timestamped Claude… 04:12  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │    implementer · this launcher · attempt…  │ │  #163 Show Claude log entries as compact timestamped lines  │
 │  Needs attention · 2 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │  implementer · codex · attempt 1                            │
@@ -145,8 +145,10 @@ color; the other border and title are dim.
 
 The current tabs read `1 Log  2 Issue  3 Runs │ Formatted  Raw`. Formatted/Raw is
 an inert indicator of the selected log's `u` mode, visible on every tab. The active
-tab is inverted, the others are dim, and a thin dashed rule replaces Textual's
-underline. The pane's rounded border is titled `Log`, `Issue` or `Runs`.
+tab is inverted with one space on either side of its label, the others are dim,
+and a thin dashed rule replaces Textual's underline. The tab bar starts at the
+pane's two-column inset; labels sit one column right of the shared header.
+The pane's rounded border is titled `Log`, `Issue` or `Runs`.
 Unblock appears only for Needs attention rows. Each tab
 starts with the same item header: `#N title` (issue) or `⌥N title` (PR) in bold,
 then agent · runtime · attempt · PR in dim text and a dashed rule. Missing values
@@ -158,7 +160,7 @@ are omitted. The running assignment shows `attempt N`; planned work shows
 ```text
 ╭─ Log ────────────────────────────────────────────────────────────────────────────╮
 │                                                                                  │
-│  1 Log  2 Issue  3 Runs  │ Formatted  Raw                                        │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                        │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  #163 Show Claude log entries as compact timestamped lines                       │
 │  implementer · codex gpt-6.1-sol xhigh · attempt 1                               │
@@ -201,7 +203,7 @@ are omitted. The running assignment shows `attempt N`; planned work shows
 ```text
 ╭─ Issue ─────────────────────────────────────────────────────────────────────────╮
 │                                                                                 │
-│  1 Log  2 Issue  3 Runs  │ Formatted  Raw                                       │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                       │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  #156 Drop old coordination record formats                                      │
 │  issue · ready · prepared by issue-preparer                                     │
@@ -233,7 +235,7 @@ view comes later; for now the tab is read-only.
 ```text
 ╭─ Unblock ────────────────────────────────────────────────────────────────────────╮
 │                                                                                  │
-│  1 Log  2 Issue  3 Runs  4 Unblock  │ Formatted  Raw                             │
+│   1 Log  2 Issue  3 Runs  4 Unblock │ Formatted  Raw                             │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  ⌥168 Render Issue descriptions as Markdown                                      │
 │  integrator · blocked · waiting 24m · since 12:12                                │
@@ -276,7 +278,7 @@ PR the first row is the issue it closes.
 ```text
 ╭─ Runs ─────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                        │
-│  1 Log  2 Issue  3 Runs  │ Formatted  Raw                                              │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                              │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  ⌥167 Group the terminal view's work list into sections                                │
 │  closes #159 · filed by bk-one · 3 runs                                                │

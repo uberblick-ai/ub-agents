@@ -376,7 +376,7 @@ class View(App):
     #panes { width: 1fr; }
     #panes Tabs { height: 1; }
     #panes Underline { display: none; }
-    #panes Tab { padding: 0 2 0 0; color: $view-muted; text-style: none; }
+    #panes Tab { padding: 0 1; color: $view-muted; text-style: none; }
     #panes Tab.-active, #panes Tabs:focus Tab.-active {
         color: $background; background: $foreground; text-style: none;
     }
