@@ -598,6 +598,22 @@ acceptance criteria, code/diff and candidate-specific evidence, not implementati
 reasoning transcripts. If the assigned head moves, the independent result fails
 validation. No earlier-head result automatically satisfies a newer candidate.
 
+## Project-owned integration refresh
+
+A project may authorize its integrator to cleanly rebase the PR branch under its
+live lease. This is separate from control-checkout refresh below, which never
+rebases assignment checkpoints. Branch pushes are cooperative writes, not fenced
+by the launcher: project instructions must require an ownership reread and an
+explicit expected-old-head push lease.
+
+`report` records the observed destination head as `candidate_sha` while retaining
+the original `assignment_sha`. A non-independent integrator can therefore report
+its configured changes outcome after a refresh, sending the new head to the
+implementer to validate and re-handoff before independent review. An agent with
+`different-runtime-from` cannot do this: success validation rejects an assigned
+head that moved. Never merge a rewritten head as the old assignment or reuse
+old-head evidence. No runtime change or periodic branch-maintenance scan is implied.
+
 ## Execution boundaries
 
 Use argv directly; there is no shell interpolation. Runtimes receive a prompt on

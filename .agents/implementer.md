@@ -23,8 +23,15 @@ starting with `Closes #N`. Push meaningful checkpoints to that same PR. Checkpoi
 not complete the assignment: keep the PR draft and do not report success until
 implementation and all project checks finish.
 
+For a clean-base-refresh handoff from the integrator, continue the new remote
+head it records. Verify the old head, base and new head, adopt that candidate,
+and rerun all relevant checks even when no further commit is needed. Hand it off
+through the normal `handed-off` outcome so runtime provenance and every owed
+review apply to the updated SHA; old-head approvals are insufficient.
+
 After merging the base branch into the PR branch, rerun the checks that cover what
-the PR adds or changes, not only the files that conflicted.
+the PR adds or changes, not only the files that conflicted. The same full coverage
+is required after a rebase refresh.
 
 Before each push and before marking the PR ready, read PR comments, reviews, and
 inline feedback. Incorporate it or explain why you cannot.

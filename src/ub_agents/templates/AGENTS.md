@@ -33,5 +33,9 @@ Run the checks relevant to the assigned change and record the results.
   issue number.
 - Never approve your own PR or enable auto-merge. Follow the project's review and
   merge policy.
+- The integrator may attempt a clean base rebase under `.agents/integrator.md`,
+  with explicit expected-old-head push lease and implementer/review handoff.
+  Customize or restrict this branch-refresh permission with the project's policy;
+  it grants no merge authority.
 - The launcher owns the configured label transitions. Leave workflow labels to it
   when reporting a declared outcome.

@@ -101,6 +101,11 @@ issues and clear them.
 
 ## Merging
 
+The integrator proactively attempts a clean rebase onto the current base under
+`.agents/integrator.md`. Its only branch-writing exception is that mechanical
+refresh, followed by implementer handoff and fresh review; never merge a refreshed
+head under the old assignment or old evidence.
+
 The integrator squash-merges a PR once every owed review and check applies to its
 current head, with `--match-head-commit` set to the assigned SHA. The check is a green
 `signoff` status at that head from local CI. The integrator runs it: detach its own

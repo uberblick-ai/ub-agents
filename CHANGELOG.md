@@ -14,6 +14,10 @@ then upgrade and restart them together. Older launchers reject the new
 
 - Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
 
+### Changed
+
+- Integrators attempt clean base rebases when project policy permits, then hand the updated candidate back for validation and fresh review (#265).
+
 ## 0.1.12 — 2026-10-05
 
 **Upgrading:** the coordination record format is unchanged, so launchers can be
