@@ -1280,7 +1280,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(clipped['starts'], outcome_paused['starts'])
                 self.assertEqual(clipped['anchor'], revisited['anchor'])
                 self.assertEqual(clipped['recent_scroll'], 0)
-                self.assertEqual(len(clipped['recent'].splitlines()), 1 + 2 * len(clipped['recent_rows']))
+                self.assertEqual(len(clipped['recent'].splitlines()), 3 * len(clipped['recent_rows']))
                 state['outcomes'] = original_outcomes
                 path.write_text(json.dumps(state))
                 checkpoint(lambda value: value['recent_rows'] == initial['recent_rows'])

@@ -148,7 +148,11 @@ assignment, `attempt N` for other assignments, or `F/M failures` for plans with
 at least one failure. Missing parts are omitted. Both lines fit
 the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
-Arrow keys move by row, and either line can be clicked to select its item.
+In every Work section, one blank row separates consecutive two-line items. There
+is no gap within an item or after a heading; spacing before the next heading is
+unchanged. The cursor highlights only the item's two lines. Arrow keys skip the
+blank rows, and either item line can be clicked to select it; blank rows select
+nothing.
 In the narrow Work list, live and Recent activity rows use only their first line:
 glyph, item reference, title shortened with `…`, and right-aligned waiting time
 for Needs attention or state for other live rows. Detail
@@ -193,7 +197,8 @@ remains as an earlier observation.
 including `0 today` when there are no outcomes. N counts cached session outcomes
 dated today in the viewer's local timezone. Up to 20 cached outcomes appear
 newest first, including older outcomes, as dim two-line rows in the combined layout; the selected row
-shows at full brightness. Whole rows that do not fit are cut from the oldest end.
+shows at full brightness. Only whole items with their intervening blank rows fit;
+items that do not fit are cut from the oldest end. Narrow lists have no blank rows.
 The lower half does not scroll or collapse, and its header cannot be selected.
 The live sections fill the upper half and scroll independently. Arrow keys move
 between the two halves; `Enter` selects an outcome with the same local log access
