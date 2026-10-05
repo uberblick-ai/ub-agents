@@ -361,7 +361,6 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
         for name in ("title", "body"):
             if isinstance(snapshot[name], dict):
                 return verdict(False, snapshot[name]["reason"], "input", outside_edits[name])
-    if kind == "pr" and trusted_author and not any(isinstance(snapshot[n], dict) for n in ("title", "body")):
         return verdict(True, "Trusted PR author; outside feedback requires clearance")
     if not starts:
         article = "an issue" if kind == "issue" else "a PR"

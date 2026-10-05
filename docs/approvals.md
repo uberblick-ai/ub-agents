@@ -166,7 +166,7 @@ including readable permissions, are cached per item between polls. Each discover
 pass and `status` invocation shares fresh permission reads for repeated accounts
 across items; this shared memo ends with the pass. Both claim-time approval checks
 (before the first write and after election) read permissions independently of it.
-There is no approver list or launcher-account setting. Give every launcher the same
+Bot feedback trust grants no maintainer or launcher authority. Give every launcher the same
 GitHub account with `write`. `doctor` warns when that account has `maintain` or `admin`,
 because agents could start and approve their own work. An unreadable launcher role
 also produces a warning.
@@ -238,12 +238,14 @@ grant inherited eligibility. Chained agent revisions in the base repository inhe
 eligibility; unaccepted, rejected or unrelated outcomes do not. Every other head
 needs explicit maintainer approval, even when its push preceded the start.
 
-Outside title or body edits, comments, reviews and review comments at or after the
-latest maintainer approval suspend outside-authored PR work. The latest approval
-is a maintainer trigger label, valid PR approval record or approving review.
+Outside title or body edits at or after the latest maintainer trigger label or
+valid approval record suspend outside-authored PR work. Outside comments, reviews
+and review comments at or after the latest maintainer approval also suspend it;
+that feedback gate includes approving reviews as well as starts and valid records.
 Reapplying a trigger can lift input suspension but cannot approve an unknown head.
 An approving review approves its commit and lifts feedback suspension, but does
-not clear outside title/body edits or outside feedback. Editing its prose preserves that submission approval and does
+not clear outside title/body edits or outside feedback. Editing its prose preserves
+that submission approval and does
 not create a new approval of later outside input. Only starts and approval records clear feedback, with separate
 ID and body-digest lists for comments, reviews and review comments. Editing cleared
 feedback removes its clearance even if its text returns to the approved body.

@@ -26,11 +26,13 @@ def supervised_policy():
         if not path or not Path(path).is_absolute():
             raise ValueError("missing launcher policy")
         policy = json.loads(Path(path).read_text())
-        if (set(policy) != {"repository", "approvals", "trusted-bots", "triggers"}
+        if (not isinstance(policy, dict)
+                or set(policy) != {"repository", "approvals", "trusted-bots", "triggers"}
                 or not isinstance(policy["repository"], str)
                 or not re.fullmatch(REPOSITORY, policy["repository"])
                 or policy["repository"] != os.environ.get("UB_AGENTS_REPOSITORY")
                 or policy["approvals"] not in (None, "on", "off")
+                or not isinstance(policy["triggers"], dict)
                 or set(policy["triggers"]) != {"issue", "pr"}):
             raise ValueError("invalid launcher policy")
         bot_logins(policy["trusted-bots"])

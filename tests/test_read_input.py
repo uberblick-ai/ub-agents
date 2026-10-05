@@ -12,6 +12,7 @@ from ub_agents import approvals
 from ub_agents.approvals import approval_body
 from ub_agents.cli import main
 from ub_agents.config import load_config
+from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
@@ -175,6 +176,55 @@ class ReadInputTests(unittest.TestCase):
         self.assertTrue(self.read()["body"]["withheld"])
         self.assertFalse(Loop(self.config, self.github, "operator").input_check(self.github.items[1]).allowed)
 
+    def test_listed_bot_approving_review_and_coordination_records_grant_nothing(self):
+        self.config = replace(self.config, trusted_bots=("copilot",))
+        self.github.roles["copilot"] = "admin"
+        self.github.review_store[2] = [feedback(1, "copilot", __typename="Bot") | {"state": "APPROVED"}]
+        self.start(2)
+        original = self.github.pr_content
+        with patch.object(self.github, "pr_content", side_effect=lambda n: original(n) | {
+                "author": {"login": "outsider"}}):
+            check = Loop(self.config, self.github, "operator").input_check(self.github.items[2])
+        self.assertFalse(check.allowed)
+        self.assertEqual(check.gate, "head")
+        self.assertEqual([row["id"] for row in self.read(2)["reviews"]], [1])
+        coordinator = Coordinator(self.github, "operator")
+        coordinator.claim(coordinator.plan(self.github.items[1], agent(self.root), ()))
+        self.github.store[1][0]["user"] = {"login": "copilot", "type": "Bot"}
+        listed = Coordinator(self.github, "operator", trusted_bots=self.config.trusted_bots)
+        self.assertEqual(listed.history(1), [])
+        self.assertFalse(listed.trust.observation()({"login": "copilot", "type": "Bot"}))
+        self.assertTrue(listed.trust.observation()({"login": "copilot", "type": "User"}))
+
+    def test_bot_title_body_edits_are_outside_even_with_write_permissions(self):
+        self.config = replace(self.config, trusted_bots=("copilot",))
+        self.github.roles["copilot"] = "write"
+        self.github.change(1, body="Bot edit")
+        self.github.content_histories[1] |= {"lastEditedAt": at(10), "edits": [{
+            "editedAt": at(10), "editor": {"login": "copilot", "__typename": "Bot"},
+            "diff": "Bot edit", "deletedAt": None}]}
+        self.assertTrue(self.read()["body"]["withheld"])
+
+    def test_stale_forged_edited_and_same_second_records_do_not_clear_input(self):
+        self.github.content_histories[1]["author"] = {"login": "outsider"}
+        comment = feedback(1)
+        self.github.store[1] = [comment]
+        for variant in ("stale", "forged", "edited", "same-second"):
+            with self.subTest(variant=variant):
+                self.github.store[1] = [comment]
+                row = self.approve(second=3 if variant == "same-second" else 10, comments=[comment])
+                if variant == "stale":
+                    row["body"] = approval_body(1, "Stale title", "Acceptance criteria", [comment])
+                elif variant == "forged":
+                    row["user"] = {"login": "operator"}
+                elif variant == "edited":
+                    row["updated_at"] = at(11)
+                result = self.read()
+                self.assertEqual(result["comments"], [])
+                self.assertEqual(result["withheld_counts"]["comments"], 1)
+                if variant != "same-second":
+                    self.assertTrue(result["body"]["withheld"])
+
     def test_off_uses_current_content_and_only_write_feedback_without_history_reads(self):
         self.config = replace(self.config, approvals="off", trusted_bots=("copilot",))
         self.github.content_histories[1] = {"author": {"login": "outsider"}}
@@ -253,9 +303,11 @@ class ReadInputTests(unittest.TestCase):
         github.assert_called_once_with("org/project")
         with patch.dict(os.environ, {"UB_AGENTS_RUN": "run"}):
             self.assertEqual(self.cli()[:2], (1, ""))
-        policy_path.write_text("{}")
-        with patch.dict(os.environ, env):
-            self.assertEqual(self.cli()[:2], (1, ""))
+        for malformed in ({}, [], None, read_policy(self.config) | {"triggers": ["issue", "pr"]},
+                          read_policy(self.config) | {"repository": "other/repository"}):
+            policy_path.write_text(json.dumps(malformed))
+            with patch.dict(os.environ, env):
+                self.assertEqual(self.cli()[:2], (1, ""))
 
     def test_actual_assignment_receives_bot_feedback_and_pinned_read_policy(self):
         stub_refresh(self)
@@ -282,6 +334,14 @@ class ReadInputTests(unittest.TestCase):
                           ({"base": {"repo": {"full_name": "other/project"}}}, "pr")):
             with patch.object(github, "request", return_value=raw), self.assertRaisesRegex(GitHubError, "outside"):
                 github.item(1, kind)
+
+    def test_incomplete_or_changed_history_shows_no_json(self):
+        self.github.content_histories[1]["lastEditedAt"] = at(10)
+        self.assertEqual(self.cli()[:2], (1, ""))
+        self.github.content_histories[1] = {"title": "Changed during read"}
+        code, stdout, stderr = self.cli()
+        self.assertEqual((code, stdout), (1, ""))
+        self.assertIn("changed while reading", stderr)
 
 
 class TrustedBotConfigurationTests(unittest.TestCase):

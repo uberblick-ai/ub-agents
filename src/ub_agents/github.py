@@ -326,7 +326,7 @@ class GitHub:
           repository(owner:$owner, name:$name) { issue(number:$number) {
             title body createdAt lastEditedAt author { login __typename }
             userContentEdits(first:100, after:$cursor) {
-              nodes { editedAt editor { login } diff deletedAt }
+              nodes { editedAt editor { login __typename } diff deletedAt }
               pageInfo { hasNextPage endCursor }
             }
           } }
@@ -402,17 +402,21 @@ class GitHub:
         return sorted(items, key=lambda item: item.number)
 
     def item(self, number, kind=None):
-        if kind == "pr":
-            endpoint = f"{self.prefix}/pulls/{number}"
-            raw = self.request(endpoint)
-            repository = ((raw.get("base") or {}).get("repo") or {}).get("full_name")
-        else:
-            endpoint = f"{self.prefix}/issues/{number}"
-            raw = self.request(endpoint)
-            repository = raw.get("repository_url", "").removeprefix("https://api.github.com/repos/") or None
-        if repository is not None and repository.casefold() != self.repository.casefold():
-            raise GitHubError("GET", endpoint, "Item is outside the configured repository")
-        return self.item(number, "pr") if kind != "pr" and "pull_request" in raw else parse_item(raw, kind or "issue", endpoint)
+        endpoint = f"{self.prefix}/{'pulls' if kind == 'pr' else 'issues'}/{number}"
+        raw = self.request(endpoint)
+        try:
+            if kind == "pr":
+                repository = ((raw.get("base") or {}).get("repo") or {}).get("full_name")
+            else:
+                url = raw.get("repository_url")
+                repository = url.rsplit("/repos/", 1)[-1] if url is not None else None
+            if repository is not None and repository.casefold() != self.repository.casefold():
+                raise GitHubError("GET", endpoint, "Item is outside the configured repository")
+        except (TypeError, AttributeError) as exc:
+            raise GitHubError("GET", endpoint, "Unreadable GitHub work item scope") from exc
+        if kind != "pr" and "pull_request" in raw:
+            return self.item(number, "pr")
+        return parse_item(raw, kind or "issue", endpoint)
 
     def active_milestone(self):
         milestones = self.milestone_order()

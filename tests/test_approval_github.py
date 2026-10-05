@@ -43,7 +43,7 @@ class ApprovalGitHubTests(unittest.TestCase):
         self.assertEqual(calls[0].args[:2], ("graphql", "POST"))
         self.assertEqual(calls[0].args[2]["variables"], {"owner": "org", "name": "project", "number": 42, "cursor": None})
         self.assertEqual(calls[1].args[2]["variables"]["cursor"], "next")
-        self.assertIn("editor { login }", calls[0].args[2]["query"])
+        self.assertIn("editor { login __typename }", calls[0].args[2]["query"])
         self.assertIn("lastEditedAt", calls[0].args[2]["query"])
 
     def test_errors_null_issue_bad_cursor_and_changes_between_pages_fail(self):
