@@ -15,10 +15,12 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.coordination import Plan
+from ub_agents.approvals import ApprovalCheck
 from ub_agents.config import Runtime
 from ub_agents.errors import GitHubError
 from ub_agents.execution import group_members
 from ub_agents.loop import Loop, _GracefulStop
+from ub_agents.notices import ACTION_MARKER, Notices
 from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    MAX_TEXT, RETAINED_SESSIONS, STALE_SECONDS,
                                    Observations, Publisher)
@@ -26,7 +28,7 @@ from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
 from ub_agents.view_data import Session, local_description, work_rows
 from ub_agents.view_worker import LocalWorker, Request
-from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
+from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
 
 
 class ObservationTests(unittest.TestCase):
@@ -42,6 +44,98 @@ class ObservationTests(unittest.TestCase):
     def loop(self, github, observer=True):
         return Loop(self.cfg, github, "operator", output=lambda *_: None,
                     observer=self.observer if observer else None)
+
+    def test_action_notice_post_deduplication_and_claim_clear_snapshot(self):
+        github = FakeGitHub(issue())
+        co = self.loop(github).coordinator
+        plan = co.plan(github.item(1), self.cfg.agents[0], self.cfg.stop_labels)
+        self.observer.begin_pass()
+        self.observer.plan(plan)
+        lease = co.claim(plan, self.cfg.stop_labels)
+        co.update(lease, state='running', started=True)
+        outcome = co.report(lease, 'blocked', 'Choose a direction')
+        co.release(lease, 'blocked', outcome['summary'])
+        comment = next(c for c in github.comments(1) if c['body'].startswith(ACTION_MARKER))
+        cached = self.memory.snapshots[-1]['action_needed']['1']
+        self.assertEqual(cached['text'], comment['body'])
+        self.assertEqual(cached['created_at'], comment['created_at'])
+        self.assertTrue(self.memory.snapshots[-1]['coordination_authors']['operator']['trusted'])
+        self.observer.action_needed(1, None)
+        co.notices.post_action(1, lease, outcome, outcome['summary'], ())
+        self.assertEqual(self.memory.snapshots[-1]['action_needed']['1'], cached)
+        self.assertEqual(len([c for c in github.comments(1) if c['body'].startswith(ACTION_MARKER)]), 1)
+        # The next claim clears the advisory even when minimization fails.
+        with patch.object(github, 'unminimized_comments', side_effect=RuntimeError('unavailable')):
+            co.notices.resumed(1)
+        self.assertEqual(self.memory.snapshots[-1]['action_needed'], {})
+
+    def test_approval_notice_post_and_own_existing_gate_are_cached_but_foreign_is_not(self):
+        github = FakeGitHub(issue())
+        notices = self.loop(github).coordinator.notices
+        gate = ApprovalCheck(False, 'Outside input needs approval', gate='start', gate_key='input')
+        notices.approval(1, gate, ('needs-human',), ('ready',))
+        comment = next(c for c in github.comments(1) if c['body'].startswith(ACTION_MARKER))
+        self.assertEqual(self.memory.snapshots[-1]['action_needed']['1']['text'], comment['body'])
+        self.observer.action_needed(1, None)
+        restarted = Notices(github, 'operator', on_action=self.observer.action_needed)
+        restarted.approval(1, gate, ('needs-human',), ('ready',))
+        self.assertEqual(self.memory.snapshots[-1]['action_needed']['1']['created_at'], comment['created_at'])
+        self.observer.action_needed(1, None)
+        github.store[1][-1]['user']['login'] = 'maintainer'
+        foreign = Notices(github, 'operator', on_action=self.observer.action_needed)
+        foreign.approval(1, gate, ('needs-human',), ('ready',))
+        self.assertEqual(self.memory.snapshots[-1]['action_needed'], {})
+
+    def test_new_claim_or_reset_observed_in_history_drops_action_text(self):
+        github = FakeGitHub(issue())
+        comment = github.create_comment(1, ACTION_MARKER + 'run -->\n**Action needed**\nDecision')
+        self.observer.begin_pass()
+        for kind in ('lease', 'reset'):
+            with self.subTest(kind=kind):
+                self.observer.action_needed(1, comment)
+                plan = Plan(issue(), self.cfg.agents[0], None, 'ready', '', 1, history=({
+                    'kind': kind, 'id': comment['id'] + 1, 'assignment': 1, 'agent': 'worker',
+                    'run': 'new', 'created': iso(1000), 'expires': iso(2000), 'state': 'claiming'},))
+                self.observer.plan(plan)
+                self.assertEqual(self.memory.snapshots[-1]['action_needed'], {})
+                self.observer.action_needed(1, comment)
+                self.observer.record(plan.history[0])
+                self.assertEqual(self.memory.snapshots[-1]['action_needed'], {})
+
+    def test_action_text_and_author_metadata_stay_bounded_without_losing_work(self):
+        github = FakeGitHub(issue())
+        self.observer.begin_pass()
+        self.observer.plan(Plan(issue(), self.cfg.agents[0], None, 'blocked', 'Reason', 1))
+        comment = github.create_comment(1, ACTION_MARKER + 'run -->\n' + '😀' * 3000)
+        for number in range(150):
+            self.observer.action_needed(number + 1, dict(comment, id=number + 1))
+            self.observer.coordination_author(f'writer-{number}', True, None)
+        self.assertEqual(len(self.observer.state['action_needed']), 128)
+        self.assertEqual(len(self.observer.state['coordination_authors']), 128)
+        self.assertEqual(len(self.observer.state['action_needed']['150']['text']), MAX_TEXT)
+        self.assertGreater(self.observer.state['action_needed']['150']['omitted_characters'], 0)
+        snapshot = self.memory.snapshots[-1]
+        self.assertLess(len(snapshot['action_needed']), 128)
+        self.assertEqual(len(snapshot['latest_pass']['rows']), 1)
+        self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+
+    def test_author_observations_use_existing_role_reads_and_fail_closed(self):
+        github = FakeGitHub(issue())
+        loop = self.loop(github)
+        trust = loop.coordinator.trust.observation()
+        with patch.object(github, 'role', wraps=github.role) as role:
+            self.assertTrue(trust({'login': 'operator'}))
+            publications = len(self.memory.snapshots)
+            self.assertTrue(trust({'login': 'OPERATOR'}))
+            self.assertEqual(role.call_count, 1)
+            self.assertEqual(len(self.memory.snapshots), publications)
+        self.assertTrue(self.memory.snapshots[-1]['coordination_authors']['operator']['trusted'])
+        github.roles['operator'] = None
+        with self.assertRaises(GitHubError):
+            loop.coordinator.trust.reason('operator')
+        cached = self.memory.snapshots[-1]['coordination_authors']['operator']
+        self.assertFalse(cached['trusted'])
+        self.assertIn('could not be read', cached['reason'])
 
     def test_partial_pass_keeps_rows_details_and_order_until_completion(self):
         plans = [Plan(replace(issue(n), body=f'Body {n}'), self.cfg.agents[0], None,

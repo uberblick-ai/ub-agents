@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Added
+
+- Needs attention items have an Unblock tab showing trusted action-needed comments from the session snapshot or an explicit GitHub load (#178).
+
 ### Changed
 
 - Below 110×32, the terminal view shows one full-width pane, with Enter/Esc navigation and retained selection and log position across resizes (#177).

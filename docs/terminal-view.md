@@ -11,7 +11,7 @@ an agent's private worktree. A launcher passes its exact session ID; it never
 selects another fresh session. A missing, stale (over 30 seconds), ended or
 incompatible snapshot, or a version mismatch after an upgrade under a running
 launcher, produces a one-line error and plain output continues. The view has no
-workflow controls. Only an explicit Issue-tab description request uses the user's
+workflow controls. Only an explicit Issue or Unblock request uses the user's
 existing authenticated `gh` access.
 
 The target look for upcoming changes is in [design/terminal-view.md](design/terminal-view.md).
@@ -178,7 +178,8 @@ remains an earlier local observation in the right pane. A previous assignment or
 a plan now claimed by another launcher or parked for dependencies or a milestone
 is omitted from the live work sections.
 
-The right pane has `1 Log`, `2 Issue` and `3 Runs` tabs. The active tab is inverted
+The right pane has `1 Log`, `2 Issue` and `3 Runs` tabs, plus `4 Unblock` while the
+selected row is in Needs attention. The active tab is inverted
 and the others are dim. After a `│` separator, the inert `Formatted  Raw` indicator
 shows the selected log's `u` mode: Formatted is underlined in accent when active,
 and Raw is highlighted when active. The indicator has no key or focus target.
@@ -191,6 +192,33 @@ planned work's `F/M failures`, and a session outcome's linked PR (`⌥N`) with
 come from the launcher's existing coordination reads, within the snapshot limits.
 Issue first uses the snapshot description or that session's run `context.json`.
 A shortened or empty cached description is available and needs no GitHub read.
+
+Unblock shows the latest trusted action-needed comment for a parked or blocked
+item, including an exhausted attempt limit. Its bold header keeps the item
+reference and title. Its dim second line shows `agent · parked`, `blocked` or
+`failed F/M`, then red `waiting Nm` and `since HH:MM` in local time. Waiting keeps
+counting while the view is open. The time comes from the comment's creation time,
+or the newest cached run when no comment is available; unknown times are omitted.
+The dashed rule follows as on the other tabs. Changing selection or refreshing
+the item out of Needs attention hides Unblock and returns an active Unblock pane
+to Log. `4` has no effect for other rows.
+
+The comment body uses Issue's inert Markdown rules and 2,048-character limit,
+with a visible shortening notice. The action-needed marker, `**Action needed**`
+title and Claim/Outcome links line (including the no-outcome variant) are removed
+first. SHAs and the remaining Markdown stay verbatim. The last dim line names the
+action-needed comment, its local creation time, and `snapshot` or
+`GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
+
+The session snapshot retains comments this launcher posts or finds already posted
+by its own account for the same run or approval gate. Claims and resets clear
+them. Text and item counts are bounded; comments can be dropped to keep the
+snapshot within 64 KiB, in which case `g` remains available. GitHub loads accept
+only comments whose body starts with `<!-- ub-agents:action-needed ` and whose
+author the launcher has already verified for coordination records. No role read
+is added. Unverified authors are excluded with a reason; a load without a trusted
+match says so. Existing verification changes also remove a cached comment from
+display. The tab is read-only.
 
 Runs shows the **selected item's history**, oldest first, from coordination
 records the launcher has already read, including runs by other launchers. Below
@@ -248,7 +276,9 @@ Claude and Codex Log transcripts are described below.
 | `Enter` in the narrow Work list | Open the selected live or Recent activity item's tabs at full width |
 | `Esc` in the narrow item view | Return to Work; close help or raw access first |
 | `1`, `2`, `3` | Log, Issue, Runs |
+| `4` on Needs attention | Unblock; ignored for other rows |
 | `g` on Issue | Load the selected item's missing title/body, or retry a failed description read |
+| `g` on Unblock | Load the latest trusted action-needed comment, or retry a failed comment read |
 | `f` | Toggle follow/pause; resuming loads the latest generation |
 | `h` | Read an older bounded page, down to byte zero |
 | `u` | Toggle formatted/raw projection of the same page |
@@ -266,8 +296,10 @@ In the narrow layout, the prefix is omitted and `next poll Ns` becomes `poll Ns`
 for example `v0.1.11 · poll 26s`. Other activity and diagnostic labels keep their
 text. The list's right side reads `↑↓ select ⏎ open ? keys q quit`; the item view
 reads `Esc back 1-3 tabs ? keys q quit`. A paused item uses the existing log keys,
-including on Issue and Runs, shortened only when they do not fit. The wide footer
-is unchanged. `?` lists all keys, including narrow `Enter` and `Esc`, in a help overlay.
+including on Issue and Runs, shortened only when they do not fit. Needs attention
+uses `1-4 tabs`; on Unblock the footer also includes `g load`, including when the
+log is paused. `?` includes `4` and `g on Unblock` only for Needs attention rows,
+alongside the other keys and narrow `Enter` and `Esc`.
 
 A pill at the bottom right of the log output, above the run status, appears only
 when paused or behind. It shows PAUSED or BEHIND, nonzero unread entries and byte
@@ -399,12 +431,14 @@ While stopping, selecting the current assignment replaces its Log status with
 their usual process or plan status. The stopping screen uses only the existing
 session snapshot and makes no GitHub reads.
 
-Only `g` on Issue starts a GitHub read. Attachment, selection, tabs, redraws,
-resizes and timers make no GitHub calls. One `gh api graphql` request reads only
-the selected issue or PR's title and body, without comments, history, queue scans
-or prefetch. No reads or retries happen automatically. There is at most one read
+Only `g` on Issue or Unblock starts a GitHub read. Attachment, selection, tabs,
+redraws, resizes and timers make no GitHub calls. Each load makes one
+`gh api graphql` request: Issue reads only the selected issue or PR's title and
+body; Unblock reads its most recent comments (at most 100), with author, creation
+time and body, without paging. There are no history reads, queue scans, prefetch
+or extra role reads. No reads or retries happen automatically. There is at most one read
 in flight: pressing `g` while any read is pending queues nothing. Input and local
-snapshot/log reading continue while it is pending, with a loading notice on Issue.
+snapshot/log reading continue while it is pending, with a loading notice on the requesting tab.
 Closing the view terminates and reaps its owned request processes. A request
 supervisor also cleans them up if the view is killed. `q` and Ctrl-C interrupt an
 attached launcher; either key closes only a standalone view.
@@ -413,11 +447,11 @@ Descriptions show their source and age: snapshot publication time, run context
 file modification time, or GitHub load completion time; missing local timestamps
 say age unavailable. Each title/body projection is limited to 2,048 characters
 plus a visible shortening notice. Successful and failed GitHub reads stay only
-in memory, in a 128-item least-recently-used cache shared across rows for the same
+in memory, in a 128-item least-recently-used cache shared by Issue and Unblock across rows for the same
 repository/item. Revisiting a cached item never calls GitHub; a failed read needs
 `g` to retry. Evicted items need an explicit load again. There is no session load
 count limit. Each request has a 10-second time limit and a 512 KiB response limit.
-After a rate-limit response, Issue shows a global cooldown through the reported
+After a rate-limit response, both tabs show a shared cooldown through the reported
 reset or `Retry-After` time. Loads and retries make no call during it. If GitHub
 provides neither a future reset nor retry time, the cooldown is 60 seconds.
 
@@ -546,14 +580,24 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    remain text without opening or fetching anything on click or keyboard input.
    Repeat with snapshot and run-context descriptions, and with a body shortened
    inside an unclosed code fence; the plain shortening notice must remain visible.
-6. Start a pending or hung description load and quit with `q`; repeat with
+6. Select parked, blocked and exhausted rows and check `4 Unblock`, its contextual
+   footer/help keys, header, advancing waiting time, dashed rule, Markdown and dim
+   provenance line. Check snapshot run and approval-gate comments, both links-line
+   variants, and shortening inside a code fence. With no cached comment, press
+   `g`; verify one bounded comments request and the latest trusted match, no-match
+   and unverified-author explanations. Try `g` on Issue during a pending Unblock
+   read, and vice versa; neither queues a second read. Check cache revisits,
+   explicit retry and the shared cooldown. Move to an eligible row, or publish a
+   refresh that resumes the selected item; Unblock must disappear and return to
+   Log if active. `4` must do nothing outside Needs attention.
+7. Start a pending or hung description or comment load and quit with `q`; repeat with
    `Ctrl-C`. Verify prompt exit and no request process left behind, as well as
    normal terminal input, cursor and alternate-screen restoration. In an automatic
    launch view, confirm launcher exit 130, owned execution cleanup and a visible
    final launcher message with either key.
    A standalone replay observer closes only itself on either key.
 
-7. Exercise `launch`, `--once` and `launch N`, exact-session attachment with another
+8. Exercise `launch`, `--once` and `launch N`, exact-session attachment with another
    fresh snapshot present, stale/version errors, restart, view crash/kill, SIGTERM
    drain and SIGHUP. During SIGTERM drain, confirm the assignment keeps `■` and
    `stopping`, its detail changes from `attempt N` to `agent · this launcher ·
@@ -566,7 +610,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    work. Confirm final launcher output, unchanged exit codes, reaped UI
    and request processes, and cleaned owned agent groups.
 
-8. Publish both an installed-release update and a checkout update in the replay
+9. Publish both an installed-release update and a checkout update in the replay
    snapshot. Confirm one yellow row above both panes and the shared item header,
    with the activity footer still on one row at the bottom. Check the release age
    at the right and the checkout's restart instruction. Resize narrower and wider;
@@ -575,7 +619,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    Confirm plain output prints each new text once across repeated polls, and
    a pending or failed check leaves the previous successful notice in place.
 
-9. Resize to 109×32 and 110×31, then 80×24 and 60×16. Work must fill the full width
+10. Resize to 109×32 and 110×31, then 80×24 and 60×16. Work must fill the full width
    with single-line live and Recent activity rows, shortened titles and aligned
    states; sections, counts, idle/stopping states and the upper/lower split stay
    intact. Move across the split with arrows. Open live and recent rows with

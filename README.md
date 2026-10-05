@@ -425,6 +425,9 @@ The [local terminal view](docs/terminal-view.md) shows one launcher's local work
 cached context, outcomes and paged runtime logs in a separate process. On the Issue
 tab, description bodies render as Markdown with inert links, and `g` can load a
 missing title/body through `gh` on request.
+Needs attention rows also have an Unblock tab showing their trusted action-needed
+comment from the snapshot or an explicit `g` load, using the same inert Markdown
+and bounded GitHub read rules.
 The footer shows launcher activity and main keys; `?` lists all keys, and `p`
 shows the full raw log path and retention diagnostics.
 

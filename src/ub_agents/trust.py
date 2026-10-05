@@ -2,29 +2,40 @@
 
 from urllib.parse import quote
 
-from .errors import GitHubError
+from .errors import AgentError, GitHubError
 
 WRITERS = {"write", "maintain", "admin"}
 
 
 class LauncherTrust:
-    def __init__(self, github, launchers=None, role=None):
+    def __init__(self, github, launchers=None, role=None, on_author=None):
         self.github = github
         self.launchers = None if launchers is None else {login.casefold() for login in launchers}
         self.role = role or (lambda login: github.role(login))
+        self.on_author = on_author
+
+    def observed(self, login, reason):
+        if self.on_author is not None:
+            self.on_author(login, reason is None, reason)
+        return reason
 
     def reason(self, login):
         if not isinstance(login, str) or not login:
             raise GitHubError("GET", "comment author", "Coordination author is unreadable")
         if self.launchers is not None and login.casefold() not in self.launchers:
-            return f"Launcher account @{login} is not listed in launchers"
-        role = self.role(login)
+            return self.observed(login, f"Launcher account @{login} is not listed in launchers")
+        try:
+            role = self.role(login)
+        except AgentError:
+            self.observed(login, f"Launcher account @{login}'s repository role could not be read")
+            raise
         if role is None:
+            self.observed(login, f"Launcher account @{login}'s repository role could not be read")
             raise GitHubError("GET", f"repos/{self.github.repository}/collaborators/{quote(login, safe='')}/permission",
                               f"Launcher account @{login}'s repository role could not be read")
         if role not in WRITERS:
-            return f"Launcher account @{login} has repository role {role}; write or higher is required"
-        return None
+            return self.observed(login, f"Launcher account @{login} has repository role {role}; write or higher is required")
+        return self.observed(login, None)
 
     def __call__(self, author):
         login = author.get("login") if isinstance(author, dict) else None
@@ -40,4 +51,4 @@ class LauncherTrust:
                 cache[key] = self.role(login)
             return cache[key]
 
-        return LauncherTrust(self.github, self.launchers, role)
+        return LauncherTrust(self.github, self.launchers, role, self.on_author)

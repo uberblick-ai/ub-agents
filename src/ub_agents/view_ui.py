@@ -1,6 +1,6 @@
 """Optional responsive Textual UI. Imported only by the view process."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from math import ceil
 from queue import Empty
@@ -22,6 +22,7 @@ from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 from .view_data import (WORK_GROUPS, context_header, context_text, item_handoff, item_header, item_history, mapping, plan_group,
                         rows as snapshot_rows, run_status, text)
 from .view_github import DescriptionLoads
+from .view_unblock import ActionComment, local_action, needs_attention, trust_reason, unblock_metadata
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_worker import LocalWorker, Request
@@ -135,13 +136,16 @@ class KeyHelp(RawAccess, inherit_bindings=False):
     BINDINGS = [Binding('escape,question_mark', 'dismiss', 'Close', priority=True)]
     footer_keys = 'Esc/? close q quit'
 
-    def __init__(self):
+    def __init__(self, unblock=False):
+        unblock_keys = ('4 on Needs attention   Unblock\n'
+                        'g on Unblock   Load the action-needed comment or retry a failed read\n') if unblock else ''
         super().__init__(
             'Keys\n\n'
             'Tab / arrows / Enter   Focus a pane and select a work row\n'
             'Enter below 110×32   Open the selected item at full width\n'
             'Esc below 110×32   Return to Work; close an overlay first\n'
             '1 / 2 / 3   Log / Issue / Runs\n'
+            + unblock_keys +
             'g on Issue   Load a missing description or retry a failed read\n'
             'f   Toggle follow/pause; resuming loads the latest generation\n'
             'h   Read an older bounded page toward byte zero\n'
@@ -384,10 +388,11 @@ class View(App):
     #output { height: 1fr; scrollbar-gutter: stable; overflow-x: hidden; }
     #run_status { height: 2; overflow: hidden; }
     #log_state { height: 1; content-align: right middle; }
-    #issue_body { padding: 0; }
-    #issue_body MarkdownFence { color: $foreground; background: $panel; }
-    #issue_body MarkdownBlockQuote { border: none; background: $panel; }
-    #issue_body MarkdownHorizontalRule { border-bottom: dashed $view-muted; }
+    #issue_body, #unblock_body { padding: 0; }
+    MarkdownFence { color: $foreground; background: $panel; }
+    MarkdownBlockQuote { border: none; background: $panel; }
+    MarkdownHorizontalRule { border-bottom: dashed $view-muted; }
+    #unblock_note { color: $view-muted; text-style: dim; }
     #status { height: 1; background: $panel; }
     '''
     BINDINGS = [
@@ -404,6 +409,7 @@ class View(App):
         Binding('1', "tab('log')", 'Log', priority=True),
         Binding('2', "tab('issue')", 'Issue', priority=True),
         Binding('3', "tab('runs')", 'Runs', priority=True),
+        Binding('4', "tab('unblock')", 'Unblock', priority=True),
         Binding('pageup', 'page_up', 'Page up', priority=True),
         Binding('pagedown', 'page_down', 'Page down', priority=True),
         Binding('home', 'home', 'Top', priority=True),
@@ -418,6 +424,7 @@ class View(App):
         self.worker = worker or LocalWorker(root, session_path)
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
+        self.unblock_visible = False
         self.session = None
         self.rows, self.nodes, self.groups = {}, {}, {}
         self.idle_node = None
@@ -455,9 +462,14 @@ class View(App):
                 with TabPane('3 Runs', id='runs'):
                     with VerticalScroll():
                         yield Static('Select an item to see its history.', id='runs_text', markup=False)
+                with TabPane('4 Unblock', id='unblock'):
+                    with VerticalScroll():
+                        yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
+                        yield Static('', id='unblock_note', markup=False)
         yield Static('', id='status', markup=False)
 
     def on_mount(self):
+        self.query_one(ItemTabs).hide_tab('unblock')
         self.update_layout(self.size)
         self.query_one('#work_pane').border_title = 'Work'
         self.query_one(ItemTabs).border_title = 'Log'
@@ -596,6 +608,7 @@ class View(App):
                 self.busy = True
                 self.pending_history = None
         self.update_issue()
+        self.update_unblock()
         self.update_runs()
         self.update_status()
 
@@ -712,6 +725,7 @@ class View(App):
         self.update_runs()
         self.query_one('#issue_body', Markdown).update('')
         self.query_one('#issue_note', Static).update('')
+        self.update_unblock()
         self.update_status()
 
     def apply(self, result):
@@ -760,15 +774,15 @@ class View(App):
         row = self.rows.get(self.selected)
         details = description.details()
         extra = ''
-        if self.descriptions.pending == key and key is not None:
+        if self.descriptions.pending == key and key is not None and self.descriptions.pending_kind == 'issue':
             extra += '\n\nLoading title/body from GitHub…'
         elif not description.available:
             extra += '\n\nPress g on Issue to ' + ('retry' if description.error else 'load') + ' title/body from GitHub.'
         if self.descriptions.clock() < self.descriptions.cooldown:
             reset = datetime.fromtimestamp(self.descriptions.cooldown, timezone.utc).isoformat()
             extra += f'\nGitHub cooldown until {reset}; no loads or retries before then.'
-        elif self.descriptions.pending is not None and self.descriptions.pending != key:
-            extra += '\nAnother description read is pending; no requests are queued.'
+        elif self.descriptions.pending is not None and (self.descriptions.pending != key or self.descriptions.pending_kind != 'issue'):
+            extra += '\nAnother GitHub read is pending; no requests are queued.'
         value = context_text(row, description) + extra
         if value != self.last_context:
             self.query_one('#issue_text', Static).update(Text(context_header(row, description)))
@@ -782,6 +796,49 @@ class View(App):
     def current_description(self):
         local = self.local_description
         return local if local and local.available else (self.descriptions.get(self.description_key()) or local)
+
+    def current_action(self):
+        row = self.rows.get(self.selected)
+        local = local_action(row, self.session)
+        if local.available:
+            return local
+        cached = self.descriptions.get(self.description_key(), 'unblock')
+        if cached and cached.available:
+            reason = trust_reason(cached.author, mapping(self.session.data.get('coordination_authors')))
+            if reason:
+                # A changed verification cannot keep a previously trusted body
+                # visible, or prevent an explicit retry after trust is restored.
+                cached = replace(cached, body='', available=False, error=reason)
+                self.descriptions.cache[self.description_key()]['unblock'] = cached
+        return cached or local
+
+    def update_unblock(self):
+        visible = needs_attention(self.rows.get(self.selected))
+        tabs = self.query_one(ItemTabs)
+        if visible != self.unblock_visible:
+            if visible:
+                tabs.show_tab('unblock')
+            else:
+                if tabs.active == 'unblock':
+                    tabs.active = 'log'
+                tabs.hide_tab('unblock')
+            self.unblock_visible = visible
+        comment = self.current_action()
+        body = comment.body if visible and comment.available else ''
+        markdown = self.query_one('#unblock_body', Markdown)
+        if body != markdown.source:
+            markdown.update(body)
+        extra = ''
+        key = self.description_key()
+        if self.descriptions.pending == key and self.descriptions.pending_kind == 'unblock':
+            extra += 'Loading action-needed comments from GitHub…\n'
+        elif self.descriptions.pending is not None:
+            extra += 'Another GitHub read is pending; no requests are queued.\n'
+        if self.descriptions.clock() < self.descriptions.cooldown:
+            reset = datetime.fromtimestamp(self.descriptions.cooldown, timezone.utc).isoformat()
+            extra += f'GitHub cooldown until {reset}; no loads or retries before then.\n'
+        details = extra + comment.details(self.descriptions.clock())
+        self.query_one('#unblock_note', Static).update(Text(details))
 
     def raw_details(self):
         row = self.rows.get(self.selected)
@@ -807,6 +864,12 @@ class View(App):
         return '\n\n'.join(part for part in details if part)
 
     def action_load_description(self):
+        if not isinstance(self.screen, RawAccess) and self.query_one(TabbedContent).active == 'unblock':
+            if self.unblock_visible and not self.current_action().available:
+                self.descriptions.request(self.description_key(), 'unblock',
+                                          mapping(self.session.data.get('coordination_authors')))
+                self.update_unblock()
+            return
         if (isinstance(self.screen, RawAccess) or self.query_one(TabbedContent).active != 'issue' or
                 self.local_description is None or self.local_description.available):
             return
@@ -855,6 +918,10 @@ class View(App):
             keys = 'f follow h older u raw PgUp/Dn ? keys q quit'
             if len(keys) + left.cell_len + 1 > width:
                 keys = 'f follow h older u raw ? keys q quit'
+        if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('1-4 tabs f follow'):
+            keys = '1-4 tabs g load f follow h older u raw ? keys q quit'
+            if len(keys) + left.cell_len + 1 > width:
+                keys = '1-4 tabs g load f follow ? keys q quit'
         right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
         right.truncate(max(0, width - 1), overflow='ellipsis')
         left.truncate(max(0, width - right.cell_len - 1), overflow='ellipsis')
@@ -873,7 +940,7 @@ class View(App):
         mode.append('Raw', style=theme_style(self, 'view-accent' if reading.raw else 'view-muted',
                                            reverse=reading.raw))
         indicator = self.query_one('#log_mode', Static)
-        indicator.styles.offset = (sum(tab.region.width for tab in self.query('#panes Tab')), 0)
+        indicator.styles.offset = (sum(tab.region.width for tab in self.query('#panes Tab') if tab.display), 0)
         indicator.update(mode)
         rule = self.query_one('#tab_rule', Static)
         rule.update('┄' * rule.content_size.width)
@@ -886,6 +953,12 @@ class View(App):
                 keys = '↑↓ select ⏎ open ? keys q quit'
             elif reading.follow:
                 keys = 'Esc back 1-3 tabs ? keys q quit'
+        if self.unblock_visible and (not self.narrow or self.item_view):
+            keys = keys.replace('1-3', '1-4')
+            if self.query_one(ItemTabs).active == 'unblock':
+                if '1-4 tabs' not in keys:
+                    keys = '1-4 tabs ' + keys
+                keys = keys.replace('? keys', 'g load ? keys')
         status = self.footer(self.size.width, keys)
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
@@ -907,14 +980,20 @@ class View(App):
         header = self.query_one('#item_header', Static)
         width = header.content_region.width
         title, metadata = item_header(row, self.current_description(), self.session)
+        waiting = ''
+        if self.query_one(ItemTabs).active == 'unblock':
+            metadata, waiting = unblock_metadata(row, self.current_action(), self.session, self.descriptions.clock())
         title_text, metadata_text = Text(title), Text(metadata)
         accent = theme_style(self, 'view-accent')
         if title.startswith('⌥'):
             title_text.stylize(accent, 0, 1)
         handoff = item_handoff(row, self.session)
-        if handoff is not None:
+        if handoff is not None and self.query_one(ItemTabs).active != 'unblock':
             offset = len(metadata) - len(f'⌥{handoff}')
             metadata_text.stylize(accent, offset, offset + 1)
+        if waiting:
+            offset = metadata.find(waiting)
+            metadata_text.stylize(theme_style(self, 'view-error'), offset, offset + len(waiting))
         header_text = Text()
         header_text.append_text(pane_line(title_text, width, 'bold'))
         header_text.append('\n').append_text(pane_line(metadata_text, width, theme_style(self, 'view-muted', dim=True)))
@@ -1004,7 +1083,7 @@ class View(App):
         self.update_status()
 
     def action_tab(self, tab):
-        if isinstance(self.screen, RawAccess):
+        if isinstance(self.screen, RawAccess) or tab == 'unblock' and not self.unblock_visible:
             return
         if self.query_one(TabbedContent).active == 'log':
             self.query_one('#output', LogPane).save_anchor()
@@ -1012,9 +1091,11 @@ class View(App):
 
     def on_tabbed_content_tab_activated(self, event):
         self.query_one(ItemTabs).border_title = Text(
-            {'log': 'Log', 'issue': 'Issue', 'runs': 'Runs'}.get(event.pane.id, event.tab.label.plain))
+            {'log': 'Log', 'issue': 'Issue', 'runs': 'Runs', 'unblock': 'Unblock'}.get(event.pane.id, event.tab.label.plain))
         if event.pane.id == 'log' and self.is_mounted:
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
+        if self.is_mounted:
+            self.update_status()
 
     def get_theme_variable_defaults(self):
         return variable_defaults(self.current_theme)
@@ -1041,7 +1122,7 @@ class View(App):
         if isinstance(self.screen, KeyHelp):
             self.screen.dismiss()
         else:
-            self.push_screen(KeyHelp())
+            self.push_screen(KeyHelp(self.unblock_visible))
 
     def action_page_up(self):
         if isinstance(self.screen, RawAccess):

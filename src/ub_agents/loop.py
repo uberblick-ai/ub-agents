@@ -59,7 +59,9 @@ class Loop:
         self.github = RateLimitReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
                                        on_claim=self.claimed, launchers=config.launchers,
-                                       on_record=lambda record: self._observe("record", record))
+                                       on_record=lambda record: self._observe("record", record),
+                                       on_author=lambda *args: self._observe("coordination_author", *args),
+                                       on_action=lambda *args: self._observe("action_needed", *args))
         self._renewal = None
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
@@ -219,7 +221,8 @@ class Loop:
                                   queue=self.config.queue, output=self.output,
                                   runtime_available=self.maintenance.available,
                                   runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role)
+                                  role=github.current_role,
+                                  on_author=lambda *args: self._observe("coordination_author", *args))
         history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
         latest = latest_leases(history_index)
@@ -334,7 +337,8 @@ class Loop:
                                   queue=self.config.queue, output=self.output,
                                   runtime_available=self.maintenance.available,
                                   runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role)
+                                  role=github.current_role,
+                                  on_author=lambda *args: self._observe("coordination_author", *args))
         active = (self.github.active_milestone() if item.kind == "issue" and item.state == "open"
                   and self.config.queue.milestones == "gate" else None)
         blockers = self._open_blockers(item, github)
@@ -459,7 +463,8 @@ class Loop:
         # Even an empty or already-owned queue must explain why this account
         # cannot claim. Reuse the discovery pass's permission observation.
         if self.coordinator.actor is not None:
-            trusted = LauncherTrust(self.discovery, self.config.launchers, self.discovery.current_role)
+            trusted = LauncherTrust(self.discovery, self.config.launchers, self.discovery.current_role,
+                                    lambda *args: self._observe("coordination_author", *args))
             reason = trusted.reason(self.coordinator.actor)
             if reason and reason != self._launcher_reason:
                 self.output(f"{reason}; claiming no work")

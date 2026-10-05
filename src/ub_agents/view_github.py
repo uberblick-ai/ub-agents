@@ -1,7 +1,7 @@
-"""Explicit description reads only; no launcher client or workflow authority."""
+"""Explicit description/comment reads; no launcher client or workflow authority."""
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email.utils import parsedate_to_datetime
 import json
 import math
@@ -12,7 +12,8 @@ import subprocess
 import sys
 import time
 
-from .view_data import Description
+from .view_data import Description, mapping
+from .view_unblock import ACTION_MARKER, ActionComment, comment_body, stamp, trust_reason
 
 REQUEST_SECONDS = 10
 CACHE_ITEMS = 128
@@ -26,6 +27,14 @@ QUERY = '''query($owner:String!, $repo:String!, $number:Int!) {
     }
   }
 }'''
+COMMENTS_QUERY = '''query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    issueOrPullRequest(number:$number) {
+      ... on Issue { comments(last:100) { nodes { author { login } createdAt body } } }
+      ... on PullRequest { comments(last:100) { nodes { author { login } createdAt body } } }
+    }
+  }
+}'''
 
 
 @dataclass(frozen=True)
@@ -35,6 +44,7 @@ class Response:
     error: str = ''
     reset: float | None = None
     notice: str = ''
+    action: ActionComment | None = None
 
     def __post_init__(self):
         description = Description(self.title, self.body, notice=self.notice, error=self.error)
@@ -42,7 +52,7 @@ class Response:
             object.__setattr__(self, field, getattr(description, field))
 
 
-def parse_response(stdout, stderr, code, now):
+def parse_response(stdout, stderr, code, now, kind='issue', authors=None):
     raw = stdout.decode('utf-8', errors='replace').replace('\r\n', '\n')
     headers = {}
     status = ''
@@ -80,11 +90,31 @@ def parse_response(stdout, stderr, code, now):
         return Response(error=detail.strip() or f'gh exited with status {code}.')
     try:
         item = data['data']['repository']['issueOrPullRequest']
+        if kind == 'unblock':
+            comments = item['comments']['nodes']
+            if not isinstance(comments, list):
+                raise ValueError('Invalid comments')
+            candidates, reasons = [], []
+            for comment in comments[-100:]:
+                if not isinstance(comment, dict) or not isinstance(comment.get('body'), str) or not comment['body'].startswith(ACTION_MARKER):
+                    continue
+                author = mapping(comment.get('author')).get('login')
+                reason = trust_reason(author, authors or {})
+                if reason:
+                    reasons.append(reason)
+                elif stamp(comment.get('createdAt')) is not None:
+                    candidates.append(comment)
+            if not candidates:
+                reason = reasons[-1] if reasons else 'No trusted action-needed comment was found among the latest 100 comments.'
+                return Response(error=reason)
+            comment = max(candidates, key=lambda c: stamp(c['createdAt']))
+            return Response(action=ActionComment(body=comment_body(comment['body']), available=True,
+                                                 created_at=comment['createdAt'], author=comment['author']['login']))
         if not isinstance(item['title'], str) or not isinstance(item['body'], str):
             raise ValueError('Invalid description')
         return Response(item['title'], item['body'])
     except (KeyError, TypeError, ValueError):
-        return Response(error='GitHub returned no readable title/body for this item.')
+        return Response(error='GitHub returned no readable ' + ('comments' if kind == 'unblock' else 'title/body') + ' for this item.')
 
 
 class GhTransport:
@@ -94,12 +124,13 @@ class GhTransport:
         self.process = None
         self.life = None
 
-    def start(self, repository, item):
+    def start(self, repository, item, kind='issue', authors=None):
+        self.kind, self.authors = kind, authors
         owner, repo = repository.split('/')
         env = dict(os.environ, GH_PROMPT_DISABLED='1', GH_PAGER='cat')
         env.pop('GH_DEBUG', None)
         command = ['gh', 'api', 'graphql', '--hostname', 'github.com', '--include',
-             '-f', 'query=' + QUERY, '-f', 'owner=' + owner, '-f', 'repo=' + repo,
+             '-f', 'query=' + (COMMENTS_QUERY if kind == 'unblock' else QUERY), '-f', 'owner=' + owner, '-f', 'repo=' + repo,
              '-F', f'number={item}']
         read, self.life = os.pipe()
         try:
@@ -145,7 +176,7 @@ class GhTransport:
             code = self.process.poll()
             if code is None or not all(self.eof):
                 return None
-            response = parse_response(*self.buffers, code, self.wall_clock())
+            response = parse_response(*self.buffers, code, self.wall_clock(), self.kind, self.authors)
             self.close()
             return response
         except OSError as exc:
@@ -177,6 +208,7 @@ class DescriptionLoads:
         self.clock = clock
         self.cache = OrderedDict()
         self.pending = None
+        self.pending_kind = None
         self.cooldown = 0
 
     @staticmethod
@@ -188,30 +220,39 @@ class DescriptionLoads:
             return repository, item
         return None
 
-    def get(self, key):
-        result = self.cache.get(key)
+    def get(self, key, kind='issue'):
+        result = self.cache.get(key, {}).get(kind)
         if result is not None:
             self.cache.move_to_end(key)
         return result
 
-    def remember(self, key, response):
-        self.cache[key] = Description(response.title, response.body, 'GitHub', self.clock(),
-                                      not response.error, response.notice, response.error)
+    def remember(self, key, response, kind='issue'):
+        if kind == 'unblock':
+            result = (replace(response.action, source='GitHub', observed_at=self.clock()) if response.action else
+                      ActionComment(source='GitHub', observed_at=self.clock(), error=response.error))
+        else:
+            result = Description(response.title, response.body, 'GitHub', self.clock(),
+                                 not response.error, response.notice, response.error)
+        self.cache.setdefault(key, {})[kind] = result
         self.cache.move_to_end(key)
         while len(self.cache) > CACHE_ITEMS:
             self.cache.popitem(last=False)
 
-    def request(self, key):
+    def request(self, key, kind='issue', authors=None):
         if key is None or self.pending is not None or self.clock() < self.cooldown:
             return
-        cached = self.get(key)
+        cached = self.get(key, kind)
         if cached and cached.available:
             return
         try:
-            self.transport.start(*key)
+            if kind == 'unblock':
+                self.transport.start(*key, kind, authors)
+            else:
+                self.transport.start(*key)
             self.pending = key
+            self.pending_kind = kind
         except OSError as exc:
-            self.remember(key, Response(error=str(exc)))
+            self.remember(key, Response(error=str(exc)), kind)
 
     def poll(self):
         if self.pending is None:
@@ -220,10 +261,12 @@ class DescriptionLoads:
         if response is None:
             return
         key, self.pending = self.pending, None
-        self.remember(key, response)
+        kind, self.pending_kind = self.pending_kind, None
+        self.remember(key, response, kind)
         if response.reset is not None:
             self.cooldown = max(self.cooldown, response.reset)
 
     def close(self):
         self.transport.close()
         self.pending = None
+        self.pending_kind = None

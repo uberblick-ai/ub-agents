@@ -41,10 +41,11 @@ class Plan:
 
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
-                 runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None):
+                 runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
+                 on_author=None, on_action=None):
         self.github = github
         self.actor = actor
-        self.trust = LauncherTrust(github, launchers, role)
+        self.trust = LauncherTrust(github, launchers, role, on_author)
         self.output = output
         self.clock = clock
         self.queue = queue
@@ -52,7 +53,7 @@ class Coordinator:
         self.on_record = on_record
         self.runtime_available = runtime_available
         self.runtime_paused = runtime_paused or (lambda cli: None)
-        self.notices = Notices(github, actor, output, trusted=self.trust)
+        self.notices = Notices(github, actor, output, trusted=self.trust, on_action=on_action)
         # Renewal and the supervising launcher's state edits share one writer.
         # Never hold this lock over a rate-limit wait.
         self._lease_lock = threading.RLock()

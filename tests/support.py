@@ -19,8 +19,8 @@ class RecordingDescriptionTransport:
         self.response = None
         self.closed = False
 
-    def start(self, repository, item):
-        self.calls.append((repository, item))
+    def start(self, repository, item, kind='issue', authors=None):
+        self.calls.append((repository, item) if kind == 'issue' else (repository, item, kind, authors))
 
     def poll(self):
         response, self.response = self.response, None
