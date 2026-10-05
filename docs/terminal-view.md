@@ -168,7 +168,10 @@ can run them once their delay passes. Within Eligible, ready/recovery rows keep
 their planned order, followed by delayed rows in their planned order.
 While a pass is incomplete, the Work border title shows `Work · pass partial`.
 Visible rows from the previous pass remain, with their cached descriptions and item
-history, until the new pass completes. Each re-planned item and agent updates in
+history, until the new pass completes, except when discovery observes that the item
+is closed or merged, or no longer carries that agent's trigger. Those rows disappear
+even before planning reaches them. A new plan for the same item and agent, including
+recovery, replaces the prior row. Each re-planned item and agent updates in
 place, moving sections if its state changes; new rows follow the kept rows in
 their section, with ready/recovery rows always preceding delayed rows in Eligible.
 Completion removes omitted rows and applies the new planned order within each

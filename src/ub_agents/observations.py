@@ -13,6 +13,7 @@ from .records import iso, seconds, timestamp
 from .attention import attention_details, notice_summary
 from .notices import ACTION_MARKER
 from .github import closing_issues
+from .eligibility import AgentMatches
 from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from . import __version__
 
@@ -331,7 +332,7 @@ class Observations:
         self.emit()
 
     def begin_pass(self):
-        # Keep the displayed rows and their histories until this pass finishes.
+        # Keep rows and histories until replanned, observed ineligible or finished.
         # Track its plans separately to apply the new order only on completion.
         self.previous_histories = dict(self.state["histories"])
         rows = self.state["latest_pass"]["rows"] if self.state["latest_pass"] else []
@@ -343,6 +344,29 @@ class Observations:
         self.state["omitted"]["plans"] = 0
         self.prune_histories(self.state)
         self.activity("polling")
+
+    def discovered(self, items, agents, all_open=False):
+        """Drop ineligible carried rows using already-read discovery inputs.
+
+        A full repository open-item list also observes missing items as closed.
+        Item reads only reconcile that item. Plans reached in this pass always
+        take precedence, including recovery for closed or untriggered items.
+        """
+        latest = self.state["latest_pass"]
+        if latest is None or not self.kept_keys:
+            return
+        matched = {number: {a.name for a in AgentMatches.for_item(items[number], agents).matched}
+                   for number in {row["item"] for row in latest["rows"]} if number in items}
+        removed = {(row["item"], row["agent"]) for row in latest["rows"]
+                   if (row["item"], row["agent"]) in self.kept_keys
+                   and (row["item"] in items or all_open)
+                   and row["agent"] not in matched.get(row["item"], ())}
+        if not removed:
+            return
+        latest["rows"] = [row for row in latest["rows"] if (row["item"], row["agent"]) not in removed]
+        self.kept_keys.difference_update(removed)
+        self.prune_histories(self.state)
+        self.emit()
 
     def complete_pass(self):
         self.state["latest_pass"].update(state="complete", rows=list(self.pass_rows.values()))
