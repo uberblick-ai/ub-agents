@@ -186,7 +186,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 os.write(master, b'\x1b[B')
                 checkpoint(lambda value: value['cursor'] is None and value['focus'] == 'work')
                 os.write(master, b'\x1b[B')
-                checkpoint(lambda value: value['cursor'] == 'plan:12:reviewer')
+                checkpoint(lambda value: value['cursor'] == 'plan:12')
                 os.write(master, b'\x1b[B')
                 checkpoint(lambda value: value['focus'] == 'recent')
                 os.write(master, b'\r')
@@ -984,7 +984,7 @@ class ProofView(View):
         recent.focus()
         recent.refresh()
     def action_plan_cursor(self):
-        self.cursor(self.nodes['plan:21:worker'])
+        self.cursor(self.nodes['plan:21'])
     def action_assignment_cursor(self):
         self.cursor(self.nodes['assignment:owned-run'])
     def action_checkpoint(self):
@@ -1117,13 +1117,13 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(initial['notice'], '')
                 self.assertEqual(initial['sections'], ['Running · 1', 'Needs attention · 3',
                                                        'Eligible · 5'])
-                self.assertEqual(initial['eligible'], ['plan:12:reviewer', 'plan:20:worker', 'plan:21:worker',
-                                                      'plan:27:worker', 'plan:28:worker'])
+                self.assertEqual(initial['eligible'], ['plan:12', 'plan:20', 'plan:21',
+                                                      'plan:27', 'plan:28'])
                 for item in (25, 26):
-                    self.assertNotIn(f'plan:{item}:worker', initial['nodes'])
-                self.assertTrue(initial['work_lines']['plan:12:reviewer'].endswith('next'))
+                    self.assertNotIn(f'plan:{item}', initial['nodes'])
+                self.assertTrue(initial['work_lines']['plan:12'].endswith('next'))
                 for item, status in ((27, 'backoff'), (28, 'waiting')):
-                    line = initial['work_lines'][f'plan:{item}:worker']
+                    line = initial['work_lines'][f'plan:{item}']
                     self.assertTrue(line.startswith(f'◷ #{item}'), line)
                     self.assertTrue(line.endswith(status), line)
                     self.assertNotIn('next', line)
@@ -1164,12 +1164,12 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn('attempt', stopping['work_details']['assignment:owned-run'])
                 self.assertEqual(stopping['run_status'].splitlines()[1],
                                  '■ Stopping after this run (SIGTERM) · no new claims')
-                for key in ('plan:12:reviewer', 'plan:20:worker', 'plan:21:worker'):
+                for key in ('plan:12', 'plan:20', 'plan:21'):
                     self.assertTrue(stopping['work_lines'][key].endswith('held'))
                 for item, status in ((27, 'backoff'), (28, 'waiting')):
-                    self.assertTrue(stopping['work_lines'][f'plan:{item}:worker'].endswith(status))
+                    self.assertTrue(stopping['work_lines'][f'plan:{item}'].endswith(status))
                 os.write(master, b's\r')
-                other = checkpoint(lambda value: value['selected'] == 'plan:21:worker'
+                other = checkpoint(lambda value: value['selected'] == 'plan:21'
                                    and 'worker recover · no outcome reported' in value['run_status'])
                 self.assertNotIn('Stopping after this run', other['run_status'])
                 os.write(master, b'a\r')
@@ -1291,10 +1291,10 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 state['latest_pass']['rows'] = [
                     {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required'}]
                 path.write_text(json.dumps(state))
-                moved = checkpoint(lambda value: value['group'] == 'Needs attention' and value['cursor'] == plan['cursor'])
+                moved = checkpoint(lambda value: value['group'] == 'Needs attention' and value['cursor'] == 'plan:21:worker')
                 self.assertEqual(moved['group'], 'Needs attention')
-                self.assertEqual(moved['selected'], plan['selected'])
-                self.assertEqual(moved['cursor'], plan['cursor'])
+                self.assertEqual(moved['selected'], 'plan:21:worker')
+                self.assertEqual(moved['cursor'], moved['selected'])
                 self.assertEqual(moved['focus'], plan['focus'])
                 self.assertEqual(moved['sections'], ['Running · 1', 'Needs attention · 1'])
                 self.assertNotIn('partial', moved['title'])
@@ -1302,8 +1302,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 path.write_text(json.dumps(state))
                 hidden = checkpoint(lambda value: value['sections'] == ['Running · 1']
                                     and value['state'] == 'earlier observation')
-                self.assertNotIn(plan['selected'], hidden['nodes'])
-                self.assertEqual(hidden['selected'], plan['selected'])
+                self.assertNotIn(moved['selected'], hidden['nodes'])
+                self.assertEqual(hidden['selected'], moved['selected'])
                 self.assertEqual(hidden['focus'], plan['focus'])
                 state['latest_pass']['rows'] = []
                 path.write_text(json.dumps(state))

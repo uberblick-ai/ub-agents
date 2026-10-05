@@ -164,6 +164,7 @@ class WorkRow:
     log: Path | None = None
     context: Path | None = None
     hidden: bool = False
+    eligible_plans: tuple[dict, ...] = ()
 
     def label(self):
         return f'#{text(str(self.item))} {self.state} · {self.agent}'
@@ -238,8 +239,20 @@ def work_rows(session, root):
     histories = mapping(data.get('histories'))
     result = [replace(row, data=row.data | {'history': histories[row.data.get('history_key', str(row.item))]})
               if row.data.get('history_key', str(row.item)) in histories else row for row in result]
-    return sorted(result, key=lambda row: (WORK_GROUPS.index(row.group),
-                                          row.state in {'backoff', 'waiting'}))
+    ordered = sorted(result, key=lambda row: (WORK_GROUPS.index(row.group),
+                                             row.state in {'backoff', 'waiting'}))
+    grouped, eligible = [], {}
+    for row in ordered:
+        if row.group == 'Eligible':
+            if row.item in eligible:
+                index = eligible[row.item]
+                first = grouped[index]
+                grouped[index] = replace(first, eligible_plans=(*first.eligible_plans, row.data))
+                continue
+            eligible[row.item] = len(grouped)
+            row = replace(row, key=f'plan:{row.item}', eligible_plans=(row.data,))
+        grouped.append(row)
+    return grouped
 
 
 def item_history(row, session):
@@ -247,6 +260,15 @@ def item_history(row, session):
         return {}
     history = mapping(row.data.get('history'))
     return history or (mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {})
+
+
+def related_plan(work, previous):
+    """Follow a plan between Eligible's item row and per-agent attention rows."""
+    if previous is None or not previous.key.startswith('plan:'):
+        return None
+    return next((row for row in work if row.key.startswith('plan:') and row.item == previous.item
+                 and (row.agent == previous.agent or
+                      any(plan.get('agent') == previous.agent for plan in row.eligible_plans))), None)
 
 
 @dataclass(frozen=True)

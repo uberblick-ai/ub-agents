@@ -61,7 +61,7 @@ class ProofView(View):
                 Binding('t', 'advance', priority=True), Binding('l', 'complete', priority=True)]
     def action_select_attention(self): self.select('plan:178:worker')
     def action_select_foreign(self): self.select('plan:179:worker')
-    def action_select_eligible(self): self.select('plan:180:worker')
+    def action_select_eligible(self): self.select('plan:180')
     def action_advance(self): self.now += 60
     def action_complete(self):
         transport.response = parse_response(comments_reply(comment()), b'', 0, self.now, 'unblock', AUTHORS)
@@ -179,7 +179,7 @@ pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
                     os.write(master, b'g')
                     self.assertEqual(checkpoint()['calls'], 1)
                     os.write(master, b'e4')
-                    eligible = checkpoint(lambda value: value['selected'] == 'plan:180:worker')
+                    eligible = checkpoint(lambda value: value['selected'] == 'plan:180')
                     self.assertFalse(eligible['attention'])
                     self.assertEqual(eligible['tab'], 'log')
                     os.write(master, b'a4')

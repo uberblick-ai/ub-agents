@@ -95,7 +95,7 @@ section's row count. Running always appears first; other empty sections are hidd
 | --- | --- |
 | Running | Only this launcher's current assignment, with a count of 0 or 1 |
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
-| Eligible | Ready and recovery plans in the pass's planned order, then retry backoff and paused-runtime plans |
+| Eligible | One row per item, merging ready/recovery plans in planned order, then retry backoff and paused-runtime plans |
 
 With no assignment, Running shows one dim placeholder line,
 `Idle · nothing eligible for this launcher`. It is not a work item and has no
@@ -132,6 +132,15 @@ times leave the right column blank. Waiting updates locally while the view is op
 rounded down to minutes under an hour (`0m`–`59m`), hours under two days
 (`1h`–`47h`), then days (`2d`, `3d`). These observations reuse the pass's comment
 and author-role reads; showing or updating a waiting time adds no GitHub reads.
+
+Eligible merges an item's plans after ordering them, keeping the position, glyph
+and right column of its first agent. Its second line lists agents comma-separated
+in that order; each failure count follows its agent, such as
+`reviewer 1/3 failures, integrator`. A single-agent row keeps `agent · F/M failures`.
+The section count counts items. Selection stays on the item while it remains
+eligible, including when its agents change; Issue and Runs still show that item's
+description and history. Running and Needs attention keep one row per agent, and
+running agents are omitted from Eligible as before.
 
 Other live rows' second line is indented and joins the agent, `this launcher` for the
 assignment, and count with ` · `. The count is `finishing run` for a stopping
@@ -176,8 +185,9 @@ completes. A new plan for the same item and agent, including recovery, replaces 
 prior row. Each re-planned item and agent updates in
 place, moving sections if its state changes; new rows follow the kept rows in
 their section, with ready/recovery rows always preceding delayed rows in Eligible.
-Completion removes omitted rows and applies the new planned order within each
-Eligible subgroup. A selected removed row remains as an earlier observation.
+Completion removes omitted plans and applies the new planned order within each
+Eligible subgroup before merging plans for the same item. A selected removed row
+remains as an earlier observation.
 
 **Recent activity · N today** always fills the lower half of the Work pane,
 including `0 today` when there are no outcomes. N counts cached session outcomes

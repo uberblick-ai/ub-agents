@@ -53,14 +53,18 @@ def assignment_elapsed(row, now=None, claimed_at=None):
     return f'{hours}:{minutes:02}:{seconds:02}' if hours else f'{minutes:02}:{seconds:02}'
 
 
+def failure_count(data):
+    failures, maximum = data.get('failures'), data.get('max_attempts')
+    return (f'{failures}/{maximum} failures'
+            if type(failures) is int and failures > 0 and type(maximum) is int else '')
+
+
 def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None):
     """Two cell-bounded lines for one logical live-work row."""
     if width <= 0:
         return Text('', no_wrap=True), Text('', no_wrap=True)
     own = row.key.startswith('assignment:')
     attention = row.group == 'Needs attention' and row.state != 'earlier observation'
-    failures, maximum = row.data.get('failures'), row.data.get('max_attempts')
-    counted = type(failures) is int and failures > 0 and type(maximum) is int
     if row.state == 'earlier observation':
         glyph, state = '○', row.state
     elif own:
@@ -96,12 +100,16 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     ownership = 'this launcher' if own else ''
     count = ('finishing run' if own and stopping else
              f'attempt {row.data["attempt"]}' if own and type(row.data.get('attempt')) is int else
-             f'{failures}/{maximum} failures' if not own and counted else '')
+             failure_count(row.data) if not own else '')
     detail = Text('  ' + ' · '.join(part for part in (text(row.data.get('agent'), ''), ownership, count)
                                  if part), no_wrap=True)
     if attention:
         detail = Text('  ' + ' · '.join(part for part in
                       (row.agent, text(state, ''), text(row.data.get('attention_reason'), '')) if part), no_wrap=True)
+    elif len(row.eligible_plans) > 1:
+        detail = Text('  ' + ', '.join(' '.join(part for part in
+                      (text(plan.get('agent'), ''), failure_count(plan)) if part)
+                      for plan in row.eligible_plans), no_wrap=True)
     detail.truncate(max(0, width), overflow='ellipsis')
     return first, detail
 

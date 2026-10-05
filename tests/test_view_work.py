@@ -103,6 +103,26 @@ class WorkLineTests(unittest.TestCase):
         for state in ('backoff', 'waiting'):
             self.assertTrue(work_lines(self.row('Eligible', state), 50, next_row=True)[0].plain.endswith(state))
 
+    def test_merged_agents_keep_the_first_status_and_individual_failure_counts(self):
+        for state, glyph in (('ready', '●'), ('recover', '●'), ('backoff', '◷'), ('waiting', '◷')):
+            with self.subTest(state=state):
+                row = self.row('Eligible', state, agent='reviewer', failures=1, max_attempts=3)
+                row = replace(row, eligible_plans=(row.data,
+                              {'agent': 'integrator', 'failures': 2, 'max_attempts': 5},
+                              {'agent': 'worker', 'failures': 0, 'max_attempts': 3}))
+                first, detail = work_lines(row, 80)
+                self.assertTrue(first.plain.startswith(f'{glyph} #160'))
+                self.assertTrue(first.plain.endswith(state))
+                self.assertEqual(detail.plain, '  reviewer 1/3 failures, integrator 2/5 failures, worker')
+                expected = 'next' if state in {'ready', 'recover'} else state
+                self.assertTrue(work_lines(row, 80, next_row=True)[0].plain.endswith(expected))
+                expected = 'held' if state in {'ready', 'recover'} else state
+                self.assertTrue(work_lines(row, 80, stopping=True)[0].plain.endswith(expected))
+                for width in (0, 1, 15, 40):
+                    first, detail = work_lines(row, width)
+                    self.assertEqual(first.cell_len, width)
+                    self.assertLessEqual(detail.cell_len, width)
+
     def test_cell_clipping_and_missing_metadata(self):
         row = self.row('Eligible', 'ready', title='Wide 界 titles and long queue descriptions ' * 5,
                        agent='long-agent-name' * 5)
