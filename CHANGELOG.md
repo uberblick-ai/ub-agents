@@ -26,6 +26,7 @@ notes are copied from that section.
 
 ### Fixed
 
+- Eligible drops stale carried rows during partial passes while preserving open Needs attention rows until replanning or pass completion (#235).
 - The running assignment's Work pane spinner animates at the same rate as the Runs tab and log status line (#217).
 - Item comments fold every agent's superseded candidate records and withdrawn election losers, while preserving current candidate records and parking explanations (#214).
 - Claude's formatted log skips cut-off first records, shows tool progress as elapsed call time, and aligns exact, capture and unknown timestamps (#192).

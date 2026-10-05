@@ -217,6 +217,7 @@ class Loop:
         github = self.discovery if cached else Discovery(self.github)
         lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
+        self._observe("discovered", items, self.config.agents, True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
                                   runtime_available=self.maintenance.available,
@@ -291,6 +292,7 @@ class Loop:
             github.scope = item.number
             if item.kind == "pr":
                 item = github.item(item.number, "pr")
+            self._observe("discovered", {item.number: item}, self.config.agents)
             matches = candidate.matches
             if (item.kind, item.state, item.labels) != (candidate.item.kind, candidate.item.state, candidate.item.labels):
                 matches = AgentMatches.for_item(item, self.config.agents)
@@ -332,6 +334,7 @@ class Loop:
             item = github.item(number)
         except GitHubError as exc:
             raise AgentError(f"Cannot read #{number}: {exc}") from exc
+        self._observe("discovered", {item.number: item}, self.config.agents)
         agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
