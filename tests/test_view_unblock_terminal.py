@@ -31,7 +31,7 @@ class UnblockTerminalTests(unittest.TestCase):
                 state['activity'] = {'state': 'polling'}
                 state['latest_pass'] = {'state': 'complete', 'rows': [
                     {'item': 178, 'agent': 'worker', 'kind': 'pr', 'title': 'Blocked candidate',
-                     'state': 'parked', 'reason': 'Approval needed'},
+                     'state': 'parked', 'reason': 'Approval needed', 'waiting_since': '2026-10-05T12:12:00Z'},
                     {'item': 179, 'agent': 'worker', 'state': 'blocked', 'reason': 'Attempt limit exhausted',
                      'failures': 3, 'max_attempts': 3},
                     {'item': 180, 'agent': 'worker', 'state': 'ready', 'reason': 'Ready'}]}

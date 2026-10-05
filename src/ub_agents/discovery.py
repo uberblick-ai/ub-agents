@@ -67,6 +67,10 @@ class Discovery:
         return next((value for (name, args, _), value in self.cache.items()
                      if name == "item" and args[0] == number), self.items.get(number))
 
+    def observed_comments(self, number):
+        """Only comments already read for this item; never fetch for presentation."""
+        return self.cache.get(("comments", (number,), None), ())
+
     def prepare_dependencies(self, items):
         missing = [i.number for i in items if i.kind == "issue" and i.state == "open"
                    and i.total_blocked_by != 0 and ("blocked_by", (i.number,), None) not in self.cache]

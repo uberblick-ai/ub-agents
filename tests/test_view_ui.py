@@ -1924,8 +1924,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
                         ('plan:12:reviewer', '● ⌥12', 'next', '  reviewer'),
-                        ('plan:20:worker', '! #20', 'blocked', '  worker'),
-                        ('plan:21:worker', '✗ #21', 'failed 3/3', '  worker · 3/3 failures'),
+                        ('plan:20:worker', '! #20', '', '  worker · blocked'),
+                        ('plan:21:worker', '✗ #21', '', '  worker · failed 3/3'),
                         ('plan:22:worker', '● ⌥22', 'ready', '  worker')]
             for key, prefix, status, detail in expected:
                 node = app.nodes[key]

@@ -10,6 +10,8 @@ import threading
 import uuid
 
 from .records import iso, seconds, timestamp
+from .attention import attention_details, notice_summary
+from .notices import ACTION_MARKER
 from .github import closing_issues
 from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from . import __version__
@@ -294,7 +296,7 @@ class Observations:
             authors.pop(next(iter(authors)))
         self.emit()
 
-    def action_needed(self, number, comment):
+    def action_needed(self, number, comment, emit=True):
         notices = self.state["action_needed"]
         key = str(number)
         if comment is None:
@@ -310,7 +312,15 @@ class Observations:
                             "omitted_characters": max(0, len(body) - MAX_TEXT)}
             while len(notices) > MAX_ADVISORIES:
                 notices.pop(next(iter(notices)))
-        self.emit()
+            latest = self.state["latest_pass"] or {}
+            for row in latest.get("rows", ()):
+                if row["item"] == number and row["state"] in {"parked", "blocked", "failed"}:
+                    row.update(waiting_since=comment.get("created_at"),
+                               attention_reason=notice_summary(body)[:MAX_TEXT])
+                    if row["attention_reason"] and row["attention_reason"] not in row["reason"]:
+                        row["reason"] += (": " if row["reason"] else "") + row["attention_reason"]
+        if emit:
+            self.emit()
 
     def activity(self, state, until=None, reason=None):
         self.state["activity"] = {"state": state, "until": until, "reason": reason}
@@ -377,11 +387,26 @@ class Observations:
         observed_blockers(history, plan.item, self.stop_labels)
         return self.bounded(history)
 
-    def plan(self, plan, filing=None):
+    def plan(self, plan, filing=None, comments=None, authors=None):
+        if comments is not None:
+            epoch = max((r["id"] for r in plan.history if r["kind"] in {"lease", "reset"}), default=0)
+            for comment in comments:
+                login = (comment.get("user") or {}).get("login")
+                if (isinstance(login, str) and login.casefold() in (authors or {})
+                        and isinstance(comment.get("body"), str) and comment["body"].startswith(ACTION_MARKER)):
+                    trusted = authors[login.casefold()]
+                    self.coordination_author(login, trusted, None if trusted else
+                                             "The launcher account is not authorized for coordination records")
+            notices = [c for c in comments if isinstance(c.get("body"), str)
+                       and c["body"].startswith(ACTION_MARKER) and c["id"] > epoch
+                       and isinstance((c.get("user") or {}).get("login"), str)
+                       and (authors or {}).get((c.get("user") or {}).get("login", "").casefold())]
+            self.action_needed(plan.item.number, max(notices, key=lambda c: c["id"], default=None), emit=False)
         notice = self.state["action_needed"].get(str(plan.item.number))
         if notice and any(record["kind"] in {"lease", "reset"} and record["id"] > notice["id"]
                           for record in plan.history):
             self.state["action_needed"].pop(str(plan.item.number), None)
+            notice = None
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
                "runtime": plan.runtime.name if plan.runtime else None,
@@ -391,6 +416,10 @@ class Observations:
                     "omitted_characters": max(0, len(plan.item.body) - MAX_TEXT)}
                    if isinstance(plan.item.body, str) else unavailable("Description was not read")),
                "owner": None}
+        row.update(attention_details(plan, self.stop_labels, notice))
+        summary = row.get("attention_reason")
+        if summary and summary not in row["reason"]:
+            row["reason"] += (": " if row["reason"] else "") + summary
         if plan.owner:
             row["owner"] = {key: plan.owner.get(key) for key in ("actor", "host", "run")}
             row["owner"]["host_reason"] = None if plan.owner.get("host") else "Host not recorded"
