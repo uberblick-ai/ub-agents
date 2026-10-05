@@ -514,9 +514,13 @@ N's full history, independently of the repository window. Branches outside that
 pattern have no shared-branch owner.
 
 Within the discovered history, the queue follows the latest non-withdrawn lease
-after the last reset for each item and agent. A released retry or blocked result,
-or an expired run without an outcome, stays visible as blocked on closed or
-unlabelled items; a missing trigger never authorizes reexecution. After a restart,
+after the last reset for each item and agent. A released retry or blocked result
+stays visible as blocked on open, unlabelled items; a missing trigger never
+authorizes reexecution. On closed issues and closed or merged PRs, that released
+result alone produces no plan. Live or expired unfinished leases, pending durable
+outcomes or transitions, unconfirmed cleanup and unreadable or conflicting
+coordination history retain their existing plans and reasons. Planning changes no
+records, labels or triggers on completed items. After a restart,
 older records on closed or untriggered items fall outside discovery and no longer
 appear in `status` or the launcher queue.
 Re-applying a trigger or stop label surfaces an open item again; item evaluation

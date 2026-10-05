@@ -69,7 +69,7 @@ class LocalWorker:
             omitted = any((row.get('state') == 'owned' or plan_group(row) is None) and
                           (row.get('item'), row.get('agent')) == (selected.item, selected.agent)
                           for row in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
-            if selected.key.startswith('plan:') and omitted:
+            if selected.group == 'Needs attention' or selected.key.startswith('plan:') and omitted:
                 selected = replace(selected, hidden=True)
             if selected.state != 'earlier observation':
                 selected = replace(selected, state='earlier observation',

@@ -642,11 +642,12 @@ class View(App):
         if self.selected in self.rows and self.selected not in incoming and not follow:
             incoming[self.selected] = self.rows[self.selected]
         # Retain a picked row's right-pane details without presenting an old run
-        # or a newly foreign-owned or dependency-waiting plan as live work.
+        # or removed attention, foreign-owned or dependency-waiting plans as live work.
         omitted = {(plan.get('item'), text(plan.get('agent'))) for plan in
                    snapshot_rows(mapping(self.session.data.get('latest_pass')).get('rows'), 100)
                    if plan.get('state') == 'owned' or plan_group(plan) is None}
         live = {key: row for key, row in incoming.items() if not row.hidden and row.group != 'Recent activity'
+                and not (row.group == 'Needs attention' and row.state == 'earlier observation')
                 and (row.group != 'Running' or key == own)
                 and (not key.startswith('plan:') or (row.item, row.agent) not in omitted)}
         for key in tuple(self.nodes):

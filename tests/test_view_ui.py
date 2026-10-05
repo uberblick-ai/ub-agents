@@ -1733,6 +1733,49 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_selected_removed_attention_row_keeps_details_without_list_or_count(self):
+        description = {'available': True, 'text': 'Completed candidate'}
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': 21, 'kind': 'pr', 'agent': 'worker', 'state': 'blocked',
+             'reason': 'Last run retry; restore a trigger', 'description': description},
+            {'item': 22, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'}]}
+        self.state['histories']['21'] = {'item': 21, 'kind': 'pr', 'runs': [
+            {'agent': 'worker', 'result': 'retry', 'summary': 'Interrupted run'}]}
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            key = 'plan:21:worker'
+            app.select(key)
+            markdown = app.query_one('#issue_body', Markdown)
+            await self.ready(app, pilot, lambda: markdown.source == description['text'])
+            self.assertEqual(app.groups['Needs attention'].label.plain, 'Needs attention · 2')
+            outcomes = list(self.state['outcomes'])
+            self.state['latest_pass']['rows'].pop(0)
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            self.assertEqual(app.selected, key)
+            self.assertNotIn(key, app.nodes)
+            self.assertEqual(app.groups['Needs attention'].label.plain, 'Needs attention · 1')
+            self.assertTrue(app.rows[key].hidden)
+            self.assertFalse(app.unblock_visible)
+            self.assertEqual(markdown.source, description['text'])
+            await pilot.press('3')
+            stream = io.StringIO()
+            Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
+            self.assertIn('Interrupted run', stream.getvalue())
+            self.assertEqual(app.session.data['outcomes'], outcomes)
+            self.assertFalse(any(row.item == 21 for row in app.query_one(RecentActivity).rows))
+            self.state['latest_pass']['rows'] = []
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'Needs attention' not in app.groups)
+            self.assertEqual(app.selected, key)
+            app.select('assignment:owned-run')
+            await self.ready(app, pilot, lambda: key not in app.rows)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
     async def test_selected_plan_survives_section_order_change_and_disappearance(self):
         description = {'available': True, 'text': '# Planned work\n\n**Cached body**'}
         self.state['latest_pass']['rows'].extend([

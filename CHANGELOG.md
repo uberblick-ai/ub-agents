@@ -31,6 +31,7 @@ notes are copied from that section.
 
 ### Fixed
 
+- Completed issues and PRs leave Needs attention after released retry or blocked runs, including selected rows, while unresolved obligations remain visible (#227).
 - Assistant text and closing summaries in Claude and Codex formatted logs use a readable theme color without dimming, while markers stay dim (#232).
 - Eligible drops stale carried rows during partial passes while preserving open Needs attention rows until replanning or pass completion (#235).
 - The running assignment's Work pane spinner animates at the same rate as the Runs tab and log status line (#217).

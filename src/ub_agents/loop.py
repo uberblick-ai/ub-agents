@@ -403,6 +403,10 @@ class Loop:
                 yield Plan(item, agent, None, "blocked", str(exc),
                            len(attempts(history, agent.name, now)) + 1, history=tuple(history))
                 continue
+            if (item.state != "open" and record and record["state"] == "released"
+                    and record.get("result") in {"retry", "blocked"}
+                    and record.get("cleanup") != "unconfirmed" and not pending):
+                continue
             if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
                                                 and seconds(record["expires"]) > now)):
                 plan = coordinator.plan(item, agent, self.config.stop_labels, history,
