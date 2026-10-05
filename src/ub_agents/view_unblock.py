@@ -48,6 +48,7 @@ def trust_reason(author, authors):
 class ActionComment(Description):
     created_at: str = ''
     author: str = ''
+    comment_id: str = ''
 
     def details(self, now=None):
         now = time.time() if now is None else now
@@ -83,7 +84,8 @@ def local_action(row, session):
         return ActionComment(error=reason)
     return ActionComment(body=comment_body(notice['text']), source='snapshot', available=True,
                          notice='Comment shortened in snapshot.' if notice.get('omitted_characters') else '',
-                         created_at=notice.get('created_at'), author=notice['author'])
+                         created_at=notice.get('created_at'), author=notice['author'],
+                         comment_id=str(notice.get('id') or ''))
 
 
 def unblock_metadata(row, comment, session, now=None):

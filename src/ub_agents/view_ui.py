@@ -848,7 +848,7 @@ class View(App):
         details_markdown = self.query_one('#unblock_details_body', Markdown)
         if supporting != details_markdown.source:
             details_markdown.update(supporting)
-        details_key = (self.description_key(), body)
+        details_key = (self.description_key(), comment.comment_id, comment.created_at, comment.author, body)
         if details_key != self.unblock_details_key:
             fold.collapsed = True
             self.unblock_details_key = details_key

@@ -284,6 +284,10 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(fold.collapsed)
             app.update_unblock()
             self.assertFalse(fold.collapsed)
+            self.state['action_needed']['178']['id'] = 999
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(pilot, lambda: app.current_action().comment_id == '999')
+            self.assertTrue(fold.collapsed)
             app.select('plan:179:worker')
             self.assertTrue(fold.collapsed)
             self.assertFalse(fold.display)
