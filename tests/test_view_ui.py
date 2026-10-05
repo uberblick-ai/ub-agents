@@ -121,7 +121,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(color, svg)
             indicator = app.query_one('#log_mode', Static)
             self.assertFalse(indicator.can_focus)
-            self.assertEqual(len(app.query('#panes Tab')), 3)
+            self.assertEqual(len([tab for tab in app.query('#panes Tab') if tab.display]), 3)
             self.assertTrue(all(not widget.display for widget in app.query('#panes Underline')))
             mode = indicator.render()
             self.assertTrue(mode.get_style_at_offset(mode.plain.index('Formatted')).underline)

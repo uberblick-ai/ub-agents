@@ -11,10 +11,17 @@ ACTION_MARKER = "<!-- ub-agents:action-needed "
 
 
 class Notices:
-    def __init__(self, github, actor, output=print, trusted=None):
+    def __init__(self, github, actor, output=print, trusted=None, on_action=None):
         self.github, self.actor, self.output = github, actor, output
         self.trusted = trusted or LauncherTrust(github)
         self._approval_attempted = set()
+        self.on_action = on_action
+
+    def remember(self, number, comment):
+        login = (comment.get("user") or {}).get("login") if comment else None
+        if self.on_action is not None and (comment is None or
+                isinstance(login, str) and login.casefold() == (self.actor or "").casefold()):
+            self.on_action(number, comment)
 
     def comments(self, number):
         trusted = self.trusted.observation()
@@ -27,9 +34,12 @@ class Notices:
         # A loser removes only the advisory comment it just posted; durable
         # coordination records are never deleted.
         created = self.github.create_comment(number, text)
+        self.remember(number, created)
         matches = [c for c in self.comments(number) if c["body"].startswith(marker)]
         if matches and min(c["id"] for c in matches) < created["id"]:
             self.github.delete_comment(created["id"])
+            self.remember(number, None)
+            self.remember(number, min(matches, key=lambda c: c["id"]))
 
     def advisory(self, operation, action):
         try:
@@ -50,6 +60,7 @@ class Notices:
                           lambda: self.github.minimize_comment(comment))
 
     def resumed(self, number):
+        self.remember(number, None)
         def minimize_actions():
             self.minimize([comment for comment in self.comments(number)
                            if (comment.get("body") or "").startswith(ACTION_MARKER)])
@@ -68,7 +79,9 @@ class Notices:
         if key in self._approval_attempted:
             return
         marker = f"{ACTION_MARKER}approval-{check.gate_key}-{epoch} -->"
-        if any((c.get("body") or "").startswith(marker) for c in comments):
+        existing = next((c for c in comments if (c.get("body") or "").startswith(marker)), None)
+        if existing:
+            self.remember(number, existing)
             self._approval_attempted.add(key)
             return
         # Failed writes are advisory and are not retried for this gate in this
@@ -173,13 +186,15 @@ class Notices:
     def post_action(self, number, lease, outcome, summary, stops, resume_triggers=()):
         marker = f"{ACTION_MARKER}{lease['run']} -->"
         comments = self.comments(number)
-        if any((c.get("body") or "").startswith(marker) for c in comments):
-            return
+        existing = next((c for c in comments if (c.get("body") or "").startswith(marker)), None)
         history = records(comments)
         anchors = [r["id"] for r in history if r["run"] == lease["run"]
                    or (outcome and r["run"] == outcome["run"])]
         if anchors and any(r["kind"] in {"lease", "reset"} and r["id"] > max(anchors) for r in history):
             return  # A later claim/reset already resumed this item.
+        if existing:
+            self.remember(number, existing)
+            return
         sha = (outcome.get("candidate_sha") if outcome else None) or lease.get("assignment_sha")
         evidence = f"Candidate: `{sha}`." if sha else "Candidate: no PR SHA recorded (issue assignment)."
         item = self.advisory(f"evidence item read on #{number}", lambda: self.github.item(number))

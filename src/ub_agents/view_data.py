@@ -78,7 +78,7 @@ def load_session(path):
         data = read_json(path)
         if type(data.get('version')) is not int or data['version'] != 1:
             raise ValueError('Missing or unsupported snapshot version')
-        for key in ('assignment', 'latest_pass', 'activity', 'omitted', 'histories'):
+        for key in ('assignment', 'latest_pass', 'activity', 'omitted', 'histories', 'action_needed', 'coordination_authors'):
             if data.get(key) is not None and not isinstance(data[key], dict):
                 raise ValueError(f'Invalid {key}')
         if 'outcomes' in data and not isinstance(data['outcomes'], list):

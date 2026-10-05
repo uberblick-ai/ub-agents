@@ -17,6 +17,7 @@ from . import __version__
 VERSION = 1
 MAX_PLANS = 100
 MAX_OUTCOMES = 20
+MAX_ADVISORIES = 128
 MAX_TEXT = 2048
 DESCRIPTION_PREVIEW = 256
 MAX_BYTES = 64 * 1024
@@ -149,7 +150,8 @@ class Observations:
             "config_path_reason": None if config_path else "No configuration path supplied",
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
-            "outcomes": [], "histories": {}, "omitted": {"plans": 0, "outcomes": 0},
+            "outcomes": [], "histories": {}, "action_needed": {}, "coordination_authors": {},
+            "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
                        "bytes": MAX_BYTES, "heartbeat_seconds": HEARTBEAT_SECONDS,
                        "stale_seconds": STALE_SECONDS},
@@ -216,6 +218,12 @@ class Observations:
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
+            # Advisory text can always be loaded explicitly; preserve work and
+            # histories before it. This only changes this publication's copy.
+            for key in tuple(state["action_needed"]):
+                if excess <= 0:
+                    break
+                excess -= self.byte_size(state["action_needed"].pop(key)) + len(key) + 4
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
             # Prefer a shorter, still-available description over losing history.
             # Work on this publication's copy, never the retained launcher state.
@@ -265,10 +273,39 @@ class Observations:
 
     def configure(self, config, actor, path):
         self.stop_labels = config.stop_labels
+        self.state["coordination_authors"] = {}
+        if config.repository != self.state["repository"]:
+            self.state["action_needed"] = {}
         self.state.update(repository=config.repository, actor=actor,
                           config_path_reason=None if path else "No configuration path supplied",
                           actor_reason=None if actor else "Authentication unavailable",
                           config_path=str(path) if path else None)
+        self.emit()
+
+    def coordination_author(self, login, trusted, reason):
+        authors = self.state["coordination_authors"]
+        authors.pop(login.casefold(), None)
+        authors[login.casefold()] = {"trusted": trusted, "reason": reason}
+        while len(authors) > MAX_ADVISORIES:
+            authors.pop(next(iter(authors)))
+        self.emit()
+
+    def action_needed(self, number, comment):
+        notices = self.state["action_needed"]
+        key = str(number)
+        if comment is None:
+            notices.pop(key, None)
+        else:
+            cached = notices.get(key)
+            if cached and cached["id"] > comment["id"]:
+                return
+            notices.pop(key, None)
+            body = comment["body"]
+            notices[key] = {"id": comment["id"], "text": body[:MAX_TEXT],
+                            "author": comment["user"]["login"], "created_at": comment.get("created_at"),
+                            "omitted_characters": max(0, len(body) - MAX_TEXT)}
+            while len(notices) > MAX_ADVISORIES:
+                notices.pop(next(iter(notices)))
         self.emit()
 
     def activity(self, state, until=None, reason=None):
@@ -337,6 +374,10 @@ class Observations:
         return self.bounded(history)
 
     def plan(self, plan, filing=None):
+        notice = self.state["action_needed"].get(str(plan.item.number))
+        if notice and any(record["kind"] in {"lease", "reset"} and record["id"] > notice["id"]
+                          for record in plan.history):
+            self.state["action_needed"].pop(str(plan.item.number), None)
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
                "runtime": plan.runtime.name if plan.runtime else None,
@@ -404,6 +445,8 @@ class Observations:
         self.activity("running assignment")
 
     def record(self, record):
+        if record["kind"] == "reset" or (record["kind"] == "lease" and record["state"] == "claiming"):
+            self.state["action_needed"].pop(str(record["assignment"]), None)
         history = self.state["histories"].get(str(record["assignment"]))
         if history:
             merge_record(history["runs"], record, self.stop_labels)
@@ -414,6 +457,7 @@ class Observations:
                 history["omitted_runs"] += 1
         assignment = self.state["assignment"]
         if not assignment or (record["assignment"], record["agent"]) != (assignment["item"], assignment["agent"]):
+            self.emit()
             return
         if record["kind"] == "lease":
             if assignment["run"] not in {None, record["run"]}:
