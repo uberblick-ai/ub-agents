@@ -6,9 +6,25 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** stop all project launchers and wait for them to exit. While stopped,
+update custom role files and stop-report command runtimes to include `--action`,
+then upgrade and restart launchers together (#181). Older launchers reject this
+repository's new `retrospectives` configuration key (#207).
+uberblick-ai/uberblick-2 tracks its role-file update separately.
+
+### Added
+
+- Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
+- Clicking the selected item's header reference opens its GitHub issue or PR in the default browser on every terminal-view tab (#260).
+
 ### Changed
 
+- Stop reports require `--action` for each independent ask; human-action notices collapse full reasoning, evidence and resume instructions in GitHub and terminal views (#181, #195).
 - Recent activity colors success and failure icons and status labels green and red, preserving row dimming and cursor highlighting (#257).
+
+### Fixed
+
+- The Work pane leaves one blank row before displayed Needs attention and Eligible headings in both wide and narrow layouts (#258).
 
 ## 0.1.12 — 2026-10-05
 

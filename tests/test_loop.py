@@ -42,6 +42,19 @@ class LoopTests(unittest.TestCase):
         self.assertIn("reviews, review comments and feedback", prompt)
         self.assertIn("address it when revising the work", prompt)
 
+    def test_retrospective_prompt_line_only_for_configured_agent(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        context = {"earlier_branches": [], "report_command": "/launcher/python -I /launcher/report_command.py"}
+        plain = self.loop.prompt_for(plan, lease, context, "Project rules")
+        self.assertNotIn("retrospective", plain)
+        configured = replace(plan, agent=replace(plan.agent, retrospectives=203))
+        prompt = self.loop.prompt_for(configured, lease, context, "Project rules")
+        line = (f"Post a retrospective with {context['report_command']} retrospective --body-file PATH "
+                "only when the run lost something and you can name the change that would have prevented it.\n")
+        self.assertIn(line, prompt)
+        self.assertEqual(prompt.replace(line, ""), plain)
+
     def test_revision_context_receives_integrator_feedback_on_pr_and_handoff_issue(self):
         for number in (1, 2):
             with self.subTest(assignment=number):
@@ -78,7 +91,7 @@ class LoopTests(unittest.TestCase):
                         "summary": "Add the missing changelog entry",
                         "candidate_sha": github.item(2).head, "created": outcome["created"]}])
                     lease = next(r for r in reversed(co.history(number)) if r["kind"] == "lease")
-                    co.report(lease, "blocked", "Context verified")
+                    co.report(lease, "blocked", "Context verified", action="Maintainer: choose A or B; recommend A.")
                     return 0
 
                 plan = next(p for p in loop.plans() if p.item.number == number)
@@ -830,7 +843,7 @@ class RecoveryTests(unittest.TestCase):
 
         def execute(*args, **kwargs):
             github.change(1, labels=frozenset({"needs-human"}))
-            loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Need a decision")
+            loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Need a decision", action="Maintainer: choose A or B; recommend A.")
             return 0
 
         with patch("ub_agents.loop.supervise", side_effect=execute):

@@ -108,7 +108,7 @@ def main():
                         self.assertNotIn("$UB_AGENTS_REPORT", prompt)
                     else:
                         self.assertIsNone(args[3])
-                    loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Verified")
+                    loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Verified", action="Maintainer: choose A or B; recommend A.")
                     return 0
 
                 with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
@@ -144,7 +144,8 @@ class ReportVersionTests(unittest.TestCase):
             env["UB_AGENTS_REPORT"] = report_command
         with patch.dict(os.environ, env, clear=True), patch("ub_agents.cli.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
-            code = main(["report", "--status", "blocked", "--summary", "Need a decision"])
+            code = main(["report", "--status", "blocked", "--summary", "Need a decision",
+                         "--action", "Maintainer: choose A or B; recommend A."])
         return code, stdout.getvalue(), stderr.getvalue()
 
     def test_newer_supervised_format_fails_clearly_without_parsing_or_writing(self):
