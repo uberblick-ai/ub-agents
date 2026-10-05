@@ -5,7 +5,8 @@ from datetime import datetime
 import re
 import time
 
-from .view_data import Description, description_text, item_history, mapping, text
+from .view_data import Description, description_text, mapping, text
+from .attention import attention_state, stamp, waiting_time
 
 ACTION_MARKER = '<!-- ub-agents:action-needed '
 LINKS = re.compile(r'^\[Claim\]\(.*?\) · (?:\[Outcome\]\(.*?\)|No outcome was reported\.)$')
@@ -21,14 +22,6 @@ def comment_body(value):
     if link is not None:
         lines.pop(link)
     return '\n'.join(lines).strip()
-
-
-def stamp(value):
-    try:
-        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
-        return parsed.timestamp() if parsed.tzinfo is not None else None
-    except (ValueError, TypeError, AttributeError, OverflowError):
-        return None
 
 
 def trust_reason(author, authors):
@@ -85,18 +78,12 @@ def local_action(row, session):
 def unblock_metadata(row, comment, session, now=None):
     if not row:
         return '', ''
-    state = row.state
-    failures, maximum = row.data.get('failures'), row.data.get('max_attempts')
-    exhausted = state == 'failed' or state == 'blocked' and row.reason.startswith('Attempt limit exhausted')
-    if exhausted and type(failures) is int and type(maximum) is int and failures >= maximum:
-        state = f'failed {failures}/{maximum}'
+    _, state = attention_state(row)
     parts = [row.agent, state]
-    created = stamp(comment.created_at) if comment and comment.available else None
-    if created is None:
-        times = [stamp(run.get('time')) for run in item_history(row, session).get('runs', [])]
-        created = max((value for value in times if value is not None), default=None)
+    start = row.data.get('waiting_since')
+    created = stamp(start)
     waiting = ''
     if created is not None:
-        waiting = f'waiting {int(max(0, (time.time() if now is None else now) - created) // 60)}m'
+        waiting = 'waiting ' + waiting_time(start, now)
         parts.extend([waiting, 'since ' + datetime.fromtimestamp(created).astimezone().strftime('%H:%M')])
     return ' · '.join(part for part in parts if part), waiting

@@ -24,10 +24,10 @@ pane has an accent border with its title set into the border.
 │ ⠹ #163 Compact timestamped Claude log lin… 04:12 │
 │   implementer · this launcher · attempt 1        │
 │ Needs attention · 2                             │
-│ ? #156 Drop old coordination record form… parked│
-│   integrator                                    │
-│ ✗ #126 Codex structured run-log form… failed 3/3│
-│   implementer · 3/3 failures                    │
+│ ? #156 Drop old coordination record form…   19h │
+│   integrator · needs-human · maintainer merge   │
+│ ✗ #126 Codex structured run-log format      24m │
+│   implementer · failed 3/3 · runtime exited      │
 │ Eligible · 2                                    │
 │ ● #165 Render issue descriptions as Markdo… next │
 │   implementer                                   │
@@ -62,18 +62,35 @@ rule: one third of the terminal width, rounded down and clamped to 46–64 colum
 including the border, at 110×32 and above.
 
 Every live row has two compact lines. Line 1 contains the glyph, item reference,
-title shortened with `…`, and a short right-aligned state:
+title shortened with `…`, and a right-aligned waiting time or state:
 
 | Row | Glyph | Right column |
 | --- | --- | --- |
 | This launcher's assignment | `⠹` spinner, `■` stopping | Elapsed claim time (`04:12`, `1:04:12`), `claiming` before the claim is known, `stopping` |
-| Needs attention, parked | `?` | `parked` |
-| Needs attention, blocked | `!` | `blocked` |
-| Needs attention, attempt limit reached | `✗` | `failed F/M` |
+| Needs attention, parked | `?` | Waiting time in red (`24m`, `19h`, `3d`) |
+| Needs attention, blocked | `!` | Waiting time in red |
+| Needs attention, attempt limit reached | `✗` | Waiting time in red |
 | Eligible, ready or recovery | `●` | `next` on the first ready/recovery row, otherwise `ready` or `recover` |
 | Eligible, delayed | `◷` | `backoff`, or `waiting` for paused runtimes; never `next` |
 
-Line 2 is indented and contains the agent, `this launcher` for the assignment,
+Needs attention's dim line 2 is `agent · state · reason`. Parked state names the
+stop label(s), joined by `, `; the other states are `blocked` and `failed F/M`.
+The reason is the parking run or notice summary without the `Stop label … is
+present` prefix or retry instructions, and is omitted if no summary is known.
+Long lines end in `…`, with the full reason on Issue.
+
+The launcher puts a waiting start time on every Needs attention snapshot row.
+It starts at the newest action-needed comment from an already verified trusted
+launcher account that parked the item, whichever launcher posted it, since the
+last claim or reset. Without one, it starts at the finalized outcome that added a
+currently present stop label. Blocked or failed rows with neither start at the
+item's latest finished run's release time. Unknown times leave the right column
+blank. Waiting updates while the view is open, rounding down: `0m`–`59m`, then
+`1h`–`47h`, then days starting at `2d`. The launcher uses comments and author
+roles already read in the pass; the launcher and view add no GitHub reads.
+Narrow one-line Work rows keep the glyph, reference, title and waiting time.
+
+Other live rows' line 2 is indented and contains the agent, `this launcher` for the assignment,
 and count, joined with ` · ` and omitting missing parts.
 The count is `attempt N` for the assignment, or `F/M failures`
 for a plan with at least one failure. Long second lines end in `…`; neither line
@@ -115,7 +132,7 @@ The current tabs read `1 Log  2 Issue  3 Runs │ Formatted  Raw`. Formatted/Raw
 an inert indicator of the selected log's `u` mode, visible on every tab. The active
 tab is inverted, the others are dim, and a thin dashed rule replaces Textual's
 underline. The pane's rounded border is titled `Log`, `Issue` or `Runs`.
-An Unblock tab remains a future design below. Each tab
+Unblock appears only for Needs attention rows. Each tab
 starts with the same item header: `#N title` (issue) or `⌥N title` (PR) in bold,
 then agent · runtime · attempt · PR in dim text and a dashed rule. Missing values
 are omitted. The running assignment shows `attempt N`; planned work shows
@@ -218,8 +235,10 @@ view comes later; for now the tab is read-only.
 The body is the latest `<!-- ub-agents:action-needed RUN -->` comment on the item,
 rendered as Markdown like the Issue tab, without its marker and Claim/Outcome
 links. The header gives the agent, the state and how long it has waited. For an
-item this launcher parked the text comes from the snapshot; for one parked
-elsewhere, `g` loads the comment from GitHub.
+item whose trusted notice the launcher already observed, the text comes from the
+snapshot; `g` loads a missing comment from GitHub. Its `waiting … · since HH:MM`
+uses the same published start time and minute/hour/day format as the Work row,
+even after a GitHub load. Unknown times are omitted.
 
 ### Runs
 

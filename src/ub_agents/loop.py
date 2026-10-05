@@ -354,7 +354,10 @@ class Loop:
     def _observe_plan(self, plan, github):
         closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
         filing = github.observed_item(closing[0]) if closing else None
-        self._observe("plan", plan, filing)
+        authors = {login: role in {"write", "maintain", "admin"} and
+                   (self.config.launchers is None or login in {a.casefold() for a in self.config.launchers})
+                   for login, role in github.pass_roles.items()}
+        self._observe("plan", plan, filing, github.observed_comments(plan.item.number), authors)
 
     def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None):
         agents = self.config.agents if agents is None else agents

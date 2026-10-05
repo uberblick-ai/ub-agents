@@ -11,6 +11,7 @@ from textual.widgets import Static, Tree
 
 from .view_data import item_handoff, mapping, outcomes_today, rows, text
 from .view_spinner import SPINNER_FPS, spinner_frame
+from .attention import attention_state, waiting_time
 from .view_theme import SECTION_COLORS, item_reference, theme_style
 
 
@@ -57,6 +58,7 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     if width <= 0:
         return Text('', no_wrap=True), Text('', no_wrap=True)
     own = row.key.startswith('assignment:')
+    attention = row.group == 'Needs attention' and row.state != 'earlier observation'
     failures, maximum = row.data.get('failures'), row.data.get('max_attempts')
     counted = type(failures) is int and failures > 0 and type(maximum) is int
     if row.state == 'earlier observation':
@@ -69,10 +71,8 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
         glyph, state = '◷', row.state
     elif row.group == 'Eligible':
         glyph, state = '●', 'held' if stopping else 'next' if next_row else row.state
-    elif row.state == 'parked':
-        glyph, state = '?', 'parked'
-    elif row.state == 'blocked' and counted and row.reason.startswith('Attempt limit exhausted'):
-        glyph, state = '✗', f'failed {failures}/{maximum}'
+    elif attention:
+        glyph, state = attention_state(row)
     else:
         glyph, state = '!', row.state
     history = mapping(row.data.get('history'))
@@ -81,7 +81,10 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     first = Text(f'{glyph} ', no_wrap=True)
     first.append_text(item_reference(row.item, kind, app=app))
     first.append(f' {title}' if title else '')
-    status = Text(text(state, '') if width > 1 else '', no_wrap=True)
+    right = (waiting_time(row.data.get('waiting_since'), now.timestamp() if now is not None else None)
+             if attention else text(state, ''))
+    status = Text(right if width > 1 else '', no_wrap=True,
+                  style=theme_style(app, 'view-attention') if attention else '')
     status.truncate(max(0, width // 2), overflow='ellipsis')
     room = width - status.cell_len - 1
     if room <= 0:
@@ -96,6 +99,9 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
              f'{failures}/{maximum} failures' if not own and counted else '')
     detail = Text('  ' + ' · '.join(part for part in (text(row.data.get('agent'), ''), ownership, count)
                                  if part), no_wrap=True)
+    if attention:
+        detail = Text('  ' + ' · '.join(part for part in
+                      (row.agent, text(state, ''), text(row.data.get('attention_reason'), '')) if part), no_wrap=True)
     detail.truncate(max(0, width), overflow='ellipsis')
     return first, detail
 
@@ -160,6 +166,8 @@ class WorkTree(Tree):
                              if value.group == 'Eligible' and value.state in {'ready', 'recover'}), None)
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
             value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
+                               now=(datetime.fromtimestamp(self.app.descriptions.clock(), timezone.utc)
+                                    if row.group == 'Needs attention' else None),
                                claimed_at=self.claim_times.get(row.key), app=self.app)[line_no != node._line]
         elif node is self.app.idle_node:
             label_style += theme_style(self.app, 'view-muted', dim=True)

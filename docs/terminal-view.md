@@ -97,18 +97,34 @@ appear in the Work pane; their runs remain in an item's Runs tab.
 
 In the combined layout, each live work row occupies two compact lines. The first shows a status glyph,
 `#N` for an issue or `⌥N` for a pull request from the snapshot's kind, the title
-shortened with `…`, and a short state aligned to the right:
+shortened with `…`, and a right column:
 
-| Row | Glyph | Right-aligned state |
+| Row | Glyph | Right column |
 | --- | --- | --- |
 | This launcher's assignment | Animated spinner, or `■` while stopping | Elapsed claim time (`04:12`, `1:04:12`), `claiming` before the claim is known, or `stopping` |
-| Parked and needing attention | `?` | `parked` |
-| Blocked | `!` | `blocked` |
-| Attempt limit reached | `✗` | `failed F/M` |
+| Parked and needing attention | `?` | Waiting time in red |
+| Blocked | `!` | Waiting time in red |
+| Attempt limit reached | `✗` | Waiting time in red |
 | Eligible, ready or recovery | `●` | `held` while stopping; otherwise `next` for the first ready/recovery row in planned order, then `ready` or `recover` |
 | Eligible, delayed | `◷` | `backoff` for retry backoff; `waiting` for paused runtimes; never `next` |
 
-The second line is indented and joins the agent, `this launcher` for the
+Needs attention's second line is `agent · state · reason`, indented and dim.
+Parked state names the stop label(s), joined by `, `; blocked state is `blocked`,
+and an exhausted attempt limit is `failed F/M`. The reason is the parking run or
+notice summary, without the `Stop label … is present` prefix or retry instructions;
+it is omitted when no summary is known. The full reason remains on Issue.
+
+The launcher publishes `waiting_since` for each Needs attention row. It uses the
+newest action-needed comment from an already verified trusted launcher account,
+whichever launcher posted it, since the last claim or reset. Without that comment,
+it uses the finalized outcome that set a currently present stop label. Blocked or
+failed rows with neither use the latest finished run's release time. Unknown start
+times leave the right column blank. Waiting updates locally while the view is open,
+rounded down to minutes under an hour (`0m`–`59m`), hours under two days
+(`1h`–`47h`), then days (`2d`, `3d`). These observations reuse the pass's comment
+and author-role reads; showing or updating a waiting time adds no GitHub reads.
+
+Other live rows' second line is indented and joins the agent, `this launcher` for the
 assignment, and count with ` · `. The count is `finishing run` for a stopping
 assignment, `attempt N` for other assignments, or `F/M failures` for plans with
 at least one failure. Missing parts are omitted. Both lines fit
@@ -116,7 +132,8 @@ the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
 Arrow keys move by row, and either line can be clicked to select its item.
 In the narrow Work list, live and Recent activity rows use only their first line:
-glyph, item reference, title shortened with `…`, and right-aligned state. Detail
+glyph, item reference, title shortened with `…`, and right-aligned waiting time
+for Needs attention or state for other live rows. Detail
 information remains on the item's tabs. Sections, counts, the idle line, stopping
 state and the fixed upper/lower split behave the same in both layouts.
 The assignment spinner advances through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` one frame every
@@ -125,7 +142,7 @@ remain static. Elapsed time stays in whole seconds, uses the item's cached run
 history and updates while the view is open; the view retains an observed claim
 time when a report updates the history.
 If that claim time is unavailable, the row shows `claiming`.
-These rows require no extra GitHub reads or snapshot fields. Priority
+These rows require no extra GitHub reads. Priority
 markers are absent because the snapshot has no priority.
 
 After SIGTERM, the view uses the snapshot's `activity.state: stopping` to show
@@ -195,10 +212,11 @@ A shortened or empty cached description is available and needs no GitHub read.
 
 Unblock shows the latest trusted action-needed comment for a parked or blocked
 item, including an exhausted attempt limit. Its bold header keeps the item
-reference and title. Its dim second line shows `agent · parked`, `blocked` or
-`failed F/M`, then red `waiting Nm` and `since HH:MM` in local time. Waiting keeps
-counting while the view is open. The time comes from the comment's creation time,
-or the newest cached run when no comment is available; unknown times are omitted.
+reference and title. Its dim second line shows the agent and the same state as the
+Work row, then red `waiting …` and `since HH:MM` in local time. Both displays use
+the row's published `waiting_since` and the same minute/hour/day format, counting
+while the view is open. Unknown times are omitted; loading a comment with `g`
+does not change this start time.
 The dashed rule follows as on the other tabs. Changing selection or refreshing
 the item out of Needs attention hides Unblock and returns an active Unblock pane
 to Log. `4` has no effect for other rows.
@@ -210,8 +228,8 @@ first. SHAs and the remaining Markdown stay verbatim. The last dim line names th
 action-needed comment, its local creation time, and `snapshot` or
 `GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
 
-The session snapshot retains comments this launcher posts or finds already posted
-by its own account for the same run or approval gate. Claims and resets clear
+The session snapshot retains comments this launcher posts or finds in the pass's
+already-read item comments from verified trusted launcher accounts. Claims and resets clear
 them. Text and item counts are bounded; comments can be dropped to keep the
 snapshot within 64 KiB, in which case `g` remains available. GitHub loads accept
 only comments whose body starts with `<!-- ub-agents:action-needed ` and whose

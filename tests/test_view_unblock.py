@@ -42,7 +42,8 @@ def comments_reply(*comments):
 class UnblockDataTests(unittest.TestCase):
     def setUp(self):
         self.row = WorkRow('plan:178:worker', 'Needs attention', 178, 'worker', 'parked', '',
-                           {'kind': 'pr', 'title': 'Item title', 'failures': 3, 'max_attempts': 3})
+                           {'kind': 'pr', 'title': 'Item title', 'failures': 3, 'max_attempts': 3,
+                            'waiting_since': '2026-10-05T12:12:00Z'})
         self.session = Session(Path('session.json'), {'coordination_authors': AUTHORS, 'action_needed': {
             '178': {'text': NOTICE, 'author': 'operator', 'created_at': '2026-10-05T12:12:00Z'}}})
 
@@ -89,7 +90,7 @@ class UnblockDataTests(unittest.TestCase):
             self.assertEqual(result.body, '')
             self.assertIn(error, result.details())
 
-    def test_waiting_uses_comment_then_newest_run_and_omits_unknown_time(self):
+    def test_waiting_uses_row_start_even_when_github_comment_or_history_differs(self):
         now = stamp('2026-10-05T12:36:00Z')
         result = local_action(self.row, self.session)
         metadata, waiting = unblock_metadata(self.row, result, self.session, now)
@@ -99,8 +100,11 @@ class UnblockDataTests(unittest.TestCase):
         self.session.data['histories'] = {'178': {'runs': [
             {'time': '2026-10-05T11:00:00Z'}, {'time': '2026-10-05T12:30:00Z'}]}}
         row = replace(self.row, state='blocked', reason='Attempt limit exhausted')
-        self.assertIn('failed 3/3 · waiting 6m', unblock_metadata(row, ActionComment(), self.session, now)[0])
+        self.assertIn('failed 3/3 · waiting 24m', unblock_metadata(row, ActionComment(), self.session, now)[0])
+        self.assertIn('waiting 24m', unblock_metadata(row, replace(result, created_at='2026-10-05T12:30:00Z'),
+                                                   self.session, now)[0])
         self.session.data['histories'] = {}
+        row = replace(row, data={**row.data, 'waiting_since': None})
         self.assertEqual(unblock_metadata(row, ActionComment(), self.session, now), ('worker · failed 3/3', ''))
         row = replace(row, reason='Previous cleanup was unconfirmed')
         self.assertEqual(unblock_metadata(row, ActionComment(), self.session, now), ('worker · blocked', ''))
@@ -237,7 +241,8 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         self.path, _, self.state = fixture(self.root)
         self.state['latest_pass']['rows'] += [
             {'item': 178, 'agent': 'worker', 'kind': 'pr', 'title': 'Blocked candidate',
-             'state': 'parked', 'reason': 'Approval needed', 'description': {'available': False}},
+             'state': 'parked', 'reason': 'Approval needed', 'description': {'available': False},
+             'waiting_since': '2026-10-05T12:12:00Z'},
             {'item': 179, 'agent': 'worker', 'state': 'blocked', 'reason': 'Attempt limit exhausted',
              'failures': 3, 'max_attempts': 3}]
         self.state['coordination_authors'] = AUTHORS
