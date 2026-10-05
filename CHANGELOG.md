@@ -6,11 +6,12 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.13 — 2026-10-05
+
 **Upgrading:** stop all project launchers and wait for them to exit. While stopped,
 update custom role files and stop-report command runtimes to include `--action`,
-then upgrade and restart launchers together (#181). Older launchers reject this
-repository's new `retrospectives` configuration key (#207).
-uberblick-ai/uberblick-2 tracks its role-file update separately.
+then upgrade and restart launchers together (#181). Add `retrospectives` boards to the
+configuration only once every launcher runs 0.1.13: older launchers reject the key (#207).
 
 ### Added
 
