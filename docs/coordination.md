@@ -615,7 +615,11 @@ head that moved. Never merge a rewritten head as the old assignment or reuse
 old-head evidence. Adoption summaries identify the integrator-produced refresh;
 they record validation provenance without erasing original authorship. Project
 instructions can recognize that current-head adoption in `feedback` to avoid
-repeated publish/review cycles as the base advances. A head moving between report
+repeated publish/review cycles as the base advances. Because `feedback` is windowed,
+projects needing durable refresh recovery/convergence use ordinary trusted PR
+comments for pending intent and verified adoption, never forged coordination
+records or labels. Matching the current head makes unpushed pending intent inert;
+a matching pending head without adoption reenters the existing changes handoff. A head moving between report
 and success validation still rejects the outcome under the existing contract;
 this instruction change adds no atomic reporting API, runtime change or periodic
 branch-maintenance scan.

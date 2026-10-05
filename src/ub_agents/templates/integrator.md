@@ -12,7 +12,14 @@ Do not infer permission to merge from a label alone.
 
 On every integration pickup, fetch the PR's base and head. The remote head must
 match the assigned `candidate_sha`; a mismatch ends with `--status retry` with the race evidence, not a merge
-or a rewrite under the old assignment. If the base is already an ancestor, run
+or a rewrite under the old assignment. First inspect trusted PR comments in the
+assignment snapshot for durable refresh records (plain project comments, never
+launcher coordination records). A `base-refresh-pending old=OLD_SHA base=BASE_SHA
+new=NEW_SHA` record matching this assigned head's NEW_SHA, without a matching
+verified adoption record, requires an automatic changes-requested handoff with the exact
+`base-refresh old=... base=... new=...` prefix below, even when the base is already
+an ancestor. This recovers a push followed by a crash or failed report before
+adoption; do not gate or merge that unadopted rewrite. If the base is already an ancestor, run
 the normal gates. Otherwise proactively attempt a clean rebase when eligible;
 routine maintenance needs no new human decision.
 
@@ -50,19 +57,30 @@ code, unmatched commit or ambiguous correspondence aborts the refresh. The
 implementer independently repeats this preservation check before adoption.
 
 Do not publish another refresh solely because main advanced while this same
-candidate was adopted and reviewed. The current-head feedback marker
+candidate was adopted and reviewed. The durable trusted PR comment
 `base-refresh-adopted old=OLD_SHA base=BASE_SHA new=NEW_SHA` identifies that cycle
-only when NEW_SHA equals the assigned head. Still try the clean rebase locally
+only when NEW_SHA equals the assigned head. Read it from the assignment's trusted
+comments, not just the windowed `feedback`; later no-commit handoffs never erase
+it. Require current-head review evidence under normal gates as well. Still try the clean rebase locally
 when eligible, then discard it and run normal base-freshness gates on the assigned
 head. A new substantive implementer commit starts a new cycle. This prevents
 endless successful refresh/review handoffs on a busy base without skipping gates.
 
-For the first clean refresh in the cycle, reread the own lease and remote head,
-then push only the assigned PR branch using
+Before the first push in the cycle, post `base-refresh-pending old=OLD_SHA
+base=BASE_SHA new=NEW_SHA` as a PR comment from a body file in run scratch, using
+`gh pr comment N --body-file PATH` with literal values. Record its immutable
+comment id/link. Do not push unless this durable intent is confirmed; a pending
+record whose NEW_SHA never becomes the PR head is inert. Then reread the own
+lease and remote head and push only the assigned PR branch using
 `git push --force-with-lease=refs/heads/BRANCH:OLD_SHA origin
 HEAD:refs/heads/BRANCH`. A rejected lease or a head moving again after the push
 ends with `--status retry` and the race evidence; never change the expected SHA
 or use a blind force push.
+A force-push policy/permission rejection with the remote head still at OLD_SHA
+instead skips the refresh and proceeds to normal gates; it is not a lease race.
+For an ambiguous network failure, reread the head: NEW_SHA means the push landed
+and needs adoption, a different head means a race, and an unreadable head requires
+--status retry rather than assuming success. Never bypass branch protection.
 Verify the remote head equals the new local SHA, then end this run with `changes-requested`
 and the exact summary prefix
 `base-refresh old=OLD_SHA base=BASE_SHA new=NEW_SHA; adopt, verify preservation

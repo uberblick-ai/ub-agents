@@ -31,7 +31,13 @@ certifies a rewrite. Hand off through the normal `handed-off` outcome and includ
 `base-refresh-adopted old=OLD_SHA base=BASE_SHA new=NEW_SHA` in its summary only
 when the pushed head still equals NEW_SHA. State that this is adoption/validation
 of an integrator-produced refresh, not a claim to have authored the rewrite;
-original authorship and independent review requirements remain. If repair adds a
+original authorship and independent review requirements remain. Fetch OLD_SHA
+and BASE_SHA explicitly to repeat preservation; if required objects cannot be
+read, do not certify adoption and report the concrete missing evidence. After
+checks pass and the remote head still equals NEW_SHA, post the same
+`base-refresh-adopted old=... base=... new=...` prefix as a durable PR comment from
+a scratch body file before reporting. This keeps adoption discoverable after
+feedback windows advance; later no-commit revisions preserve that record. If repair adds a
 commit, record that new candidate instead. Old-head approvals are insufficient.
 
 After merging the base branch into the PR branch, rerun the checks that cover what
