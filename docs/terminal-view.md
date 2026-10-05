@@ -153,15 +153,18 @@ assignment, `attempt N` for other assignments, or `F/M failures` for plans with
 at least one failure. Missing parts are omitted. Both lines fit
 the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
-In every Work section, one blank row separates consecutive two-line items. There
-is no gap within an item or after a heading; spacing before the next heading is
-unchanged. The cursor highlights only the item's two lines. Arrow keys skip the
-blank rows, and either item line can be clicked to select it; blank rows select
-nothing.
+In every Work section, one blank row separates consecutive two-line items. In
+both layouts, exactly one blank row precedes each displayed Needs attention and
+Eligible heading, including after Running's idle line. Hidden sections add no
+separator. There is no gap within an item, after a heading, before Running or
+before Recent activity. The cursor highlights only the item's lines. Arrow keys
+skip blank rows, and either item line can be clicked to select it; blank rows
+have no cursor or hover highlight and clicking them changes no selection or cursor.
 In the narrow Work list, live and Recent activity rows use only their first line:
 glyph, item reference, title shortened with `…`, and right-aligned waiting time
 for Needs attention or state for other live rows. Detail
-information remains on the item's tabs. Sections, counts, the idle line, stopping
+information remains on the item's tabs, and consecutive single-line items have
+no blank row between them. Sections, counts, the idle line, stopping
 state and the fixed upper/lower split behave the same in both layouts.
 The assignment spinner advances through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` one frame every
 0.1 seconds, like Runs and the log status line. Stopping and other row glyphs
