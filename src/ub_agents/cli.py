@@ -84,6 +84,14 @@ def parser():
     report.add_argument("--summary", required=True, help="Explain the result in 1–8000 characters")
     report.add_argument("--action", help="One non-empty line, at most 300 characters; required for stop reports")
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
+    retrospective = commands.add_parser("retrospective", help="Post to the agent's retrospective board",
+                                        description="Post a body file as a top-level comment on the agent's configured "
+                                        "retrospective discussion. Only available inside a supervised run; use the "
+                                        "launcher's literal report_command. The repository and board are pinned by "
+                                        "the launcher. Prints the comment URL and does not change the run's outcome.",
+                                        examples=("ub-agents retrospective --body-file /run/scratch/retrospective.md",
+                                                  'ub-agents retrospective --body-file "/run/scratch/run notes.md"'))
+    retrospective.add_argument("--body-file", required=True, metavar="PATH", help="UTF-8 retrospective body file")
     retry = commands.add_parser("retry", help="Reset blocked work if authorized",
                                 description="Record a human-authorized reset of blocked work and attempt limits. "
                                 "Use after resolving the cause; stop labels and missing triggers still prevent pickup. "
@@ -269,6 +277,12 @@ def run(args):
         return
     if args.command == "report":
         report_run(args)
+        return
+    if args.command == "retrospective":
+        from .retrospective import read_body, supervised_policy
+        policy = supervised_policy()
+        content = read_body(args.body_file)
+        print(GitHub(policy["repository"]).create_discussion_comment(policy["retrospectives"], content))
         return
     if args.command == "read":
         from .read_input import read_item, read_policy, supervised_policy
@@ -456,7 +470,7 @@ def main(argv=None):
                     command_parser.error("launch requires a positive item number")
                 args.launch_output = stack.enter_context(launch_output(Path(args.config or DEFAULT_CONFIG).resolve().parent))
             args.config = (Path(args.config or DEFAULT_CONFIG).resolve()
-                           if args.command in {"init", "report"} else resolve_config_path(args.config))
+                           if args.command in {"init", "report", "retrospective"} else resolve_config_path(args.config))
             return run(args) or 0
         except KeyboardInterrupt:
             print("Stopped; supervised execution terminated", file=sys.stderr)

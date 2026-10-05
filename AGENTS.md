@@ -85,23 +85,16 @@ useful change. The boards are public: never include credentials, environment val
 local paths, hostnames or log excerpts. Post it before `ub-agents report`; a
 retrospective is telemetry, never a gate, so a failed post blocks nothing.
 
-| Board | Discussion | Node id |
-| --- | --- | --- |
-| issue-preparer | #202 | `D_kwDOU3EDKc4ApxOq` |
-| implementer | #203 | `D_kwDOU3EDKc4ApxOr` |
-| reviewer | #204 | `D_kwDOU3EDKc4ApxOs` |
-| integrator | #205 | `D_kwDOU3EDKc4ApxOt` |
-| workflow-audit | #206 | `D_kwDOU3EDKc4ApxOu` |
-
 Write the paragraph with the file-writing tool to a file in the run's `scratch`
-directory (assignment context), never the worktree, where it could be committed. Post
-it with the node id from the table, never a guessed one:
+directory (assignment context), never the worktree, where it could be committed.
+Post it with the launcher's literal `report_command` from the assignment context:
 
 ```sh
-gh api graphql -f discussionId=NODE_ID -F body=@PATH \
-  -f query='mutation($discussionId:ID!,$body:String!){addDiscussionComment(input:{discussionId:$discussionId,body:$body}){comment{url}}}' \
-  --jq '.data.addDiscussionComment.comment.url'
+<report_command> retrospective --body-file PATH
 ```
+
+The launcher pins the repository and your agent's `retrospectives` board from
+`ub-agents.yaml`; the command checks the resolved discussion URL before posting.
 
 A maintainer runs the `workflow-audit` skill about weekly to turn the boards into
 issues and clear them.

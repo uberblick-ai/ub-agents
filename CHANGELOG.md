@@ -6,10 +6,18 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** stop all of a project's launchers and wait until every one has exited,
+then upgrade and restart them together. Older launchers reject the new
+`retrospectives` agent key now used in this repository's configuration (#207).
+
 **Upgrading:** stop all project launchers and wait for them to exit. Repositories
 with their own role files, or command runtimes that file stop reports, must add
 `--action` before upgrading; upgrade and restart launchers together (#181).
 uberblick-ai/uberblick-2 tracks its role-file change separately.
+
+### Added
+
+- Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
 
 ### Changed
 

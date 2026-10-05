@@ -12,6 +12,7 @@ queue:
 
 agents:
   issue-preparer:
+    retrospectives: 202
     runtime: "claude:claude-opus-5-5:high"
     kind: issue
     trigger: needs-preparation
@@ -34,6 +35,7 @@ agents:
       - "Bash(git *)"
       - "Bash(gh *)"
       - "Bash({report_command} report *)"
+      - "Bash({report_command} retrospective *)"
       - "Bash(python3 *)"
       - "Bash(.venv/bin/*)"
       - "Bash(mise *)"
@@ -51,6 +53,7 @@ agents:
       - "Bash(jq *)"
 
   implementer:
+    retrospectives: 203
     runtime: "codex:gpt-6.1-sol:xhigh"
     trigger: [ready, needs-changes]
     outcomes:
@@ -63,6 +66,7 @@ agents:
     runtime-args: [--sandbox, danger-full-access]
 
   reviewer:
+    retrospectives: 204
     runtime: "claude:claude-opus-5-5:high"
     kind: pr
     trigger: needs-review
@@ -76,6 +80,7 @@ agents:
     runtime-args: *claude-scoped
 
   integrator:
+    retrospectives: 205
     runtime: "claude:claude-opus-5-5:high"
     kind: pr
     trigger: ready-to-merge
