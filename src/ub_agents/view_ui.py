@@ -537,7 +537,10 @@ class View(App):
                     Text(name), after=previous, before=0 if previous is None else None,
                     expand=True)
             previous = group
-            group.set_label(Text(f'{name} · {len(grouped)}'))
+            label = f'{name} · {len(grouped)}'
+            if name == 'Eligible' and mapping(self.session.data.get('activity')).get('state') == 'stopping':
+                label += ' · not claimed while stopping'
+            group.set_label(Text(label))
             if name == 'Running':
                 if grouped and self.idle_node is not None:
                     self.idle_node.remove()

@@ -881,6 +881,91 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_stopping_screen_and_non_stopping_states_at_minimum_size(self):
+        self.state['assignment']['attempt'] = 3
+        self.state['latest_pass']['rows'] = [
+            {'item': 20, 'agent': 'worker', 'state': 'ready'},
+            {'item': 21, 'agent': 'worker', 'state': 'ready'},
+            {'item': 22, 'agent': 'worker', 'state': 'recover'},
+            {'item': 23, 'agent': 'worker', 'state': 'backoff'},
+            {'item': 24, 'agent': 'worker', 'state': 'waiting'},
+        ]
+        self.path.write_text(json.dumps(self.state))
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one('#work', Tree)
+            status = app.query_one('#run_status', Static)
+            own = 'assignment:owned-run'
+            def line(key, detail=False):
+                tree.get_node_at_line(0)
+                return tree.render_line(app.nodes[key]._line + int(detail) - tree.scroll_offset.y).text.rstrip()
+            def normal_work():
+                self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 5')
+                self.assertIn(line(own)[0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
+                self.assertEqual(line(own, True), '  implementer · this launcher · attempt 3')
+                for item, state in ((20, 'next'), (21, 'ready'), (22, 'recover'),
+                                    (23, 'backoff'), (24, 'waiting')):
+                    self.assertTrue(line(f'plan:{item}:worker').endswith(state))
+                self.assertIn('implementer running · no outcome reported', status.render().plain)
+            normal_work()
+            self.state['activity'] = {'state': 'stopping'}
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(app, pilot, lambda: 'Stopping after this run' in status.render().plain)
+            self.assertEqual(app.selected, own)
+            self.assertTrue(line(own).startswith('■ #114'))
+            self.assertTrue(line(own).endswith('stopping'))
+            expected_detail = pane_line('  implementer · this launcher · finishing run',
+                                        tree.scrollable_content_region.width).plain
+            self.assertEqual(line(own, True), expected_detail)
+            self.assertNotIn('attempt', line(own, True))
+            label = 'Eligible · 5 · not claimed while stopping'
+            self.assertEqual(app.groups['Eligible'].label.plain, label)
+            tree.get_node_at_line(0)
+            heading = tree.render_line(app.groups['Eligible']._line - tree.scroll_offset.y).text
+            self.assertTrue(heading.startswith(label))
+            for item in (20, 21, 22):
+                self.assertTrue(line(f'plan:{item}:worker').endswith('held'))
+            for item, state in ((23, 'backoff'), (24, 'waiting')):
+                self.assertTrue(line(f'plan:{item}:worker').endswith(state))
+            self.assertEqual(status.render().plain.splitlines()[1],
+                             '■ Stopping after this run (SIGTERM) · no new claims')
+            self.assertIn('· stopping', app.query_one('#status', Static).render().plain)
+            for key, expected in (('plan:20:worker', 'worker ready · no outcome reported'),
+                                  ('outcome:previous-run', 'preparer exited · reported prepared (finalized)')):
+                app.select(key)
+                await self.ready(app, pilot, lambda: expected in status.render().plain)
+                self.assertNotIn('Stopping after this run', status.render().plain)
+            app.select(own)
+            await self.ready(app, pilot, lambda: 'Stopping after this run' in status.render().plain)
+            await pilot.resize_terminal(80, 24)
+            await pilot.pause()
+            tree.get_node_at_line(0)
+            heading = tree.render_line(app.groups['Eligible']._line - tree.scroll_offset.y).text
+            self.assertTrue(heading.endswith('…'))
+            self.assertEqual(pane_line(heading, 1000).cell_len, tree.scrollable_content_region.width)
+            await pilot.resize_terminal(110, 32)
+            for state in ('polling', 'waiting', 'running assignment', 'ended', 'stale'):
+                with self.subTest(state=state):
+                    self.state['ended'] = state == 'ended'
+                    self.state['published_at'] = (datetime.now(timezone.utc) -
+                                                   timedelta(seconds=60 if state == 'stale' else 0)).isoformat()
+                    self.state['activity'] = {'state': state if state not in {'ended', 'stale'}
+                                              else 'running assignment'}
+                    if state == 'waiting':
+                        self.state['activity']['until'] = (datetime.now(timezone.utc) +
+                                                          timedelta(seconds=30)).isoformat()
+                    self.path.write_text(json.dumps(self.state))
+                    await self.ready(app, pilot, lambda: app.session.data == self.state)
+                    normal_work()
+                    footer = app.query_one('#status', Static).render().plain
+                    self.assertNotIn('stopping', footer)
+                    self.assertIn('next poll' if state == 'waiting' else state, footer)
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_notice_is_one_highlighted_line_only_for_exceptional_log_states(self):
         self.path, self.log, self.state = fixture(self.root, runtime='command:model:high')
         self.log.write_bytes(b'unfinished raw fragment')

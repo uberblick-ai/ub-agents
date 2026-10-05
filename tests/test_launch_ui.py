@@ -321,9 +321,12 @@ class LaunchTerminalTests(unittest.TestCase):
                     os.kill(process.pid, signal.SIGHUP)
                 elif mode == 'drain':
                     os.kill(process.pid, signal.SIGTERM)
-                    drain(0.2)
+                    until(lambda: b'Stopping after this run (SIGTERM)' in transcript)
                     self.assertIsNone(process.poll())
                     os.kill(agent_pid, 0)
+                    snapshot = json.loads(paths[0].read_text())
+                    self.assertFalse(snapshot['ended'])
+                    self.assertEqual(snapshot['activity']['state'], 'stopping')
                     (root / 'finish').touch()
                 else:
                     (root / 'finish').touch()
