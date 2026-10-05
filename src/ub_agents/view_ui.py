@@ -918,6 +918,10 @@ class View(App):
             keys = 'f follow h older u raw PgUp/Dn ? keys q quit'
             if len(keys) + left.cell_len + 1 > width:
                 keys = 'f follow h older u raw ? keys q quit'
+        if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('1-4 tabs f follow'):
+            keys = '1-4 tabs g load f follow h older u raw ? keys q quit'
+            if len(keys) + left.cell_len + 1 > width:
+                keys = '1-4 tabs g load f follow ? keys q quit'
         right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
         right.truncate(max(0, width - 1), overflow='ellipsis')
         left.truncate(max(0, width - right.cell_len - 1), overflow='ellipsis')

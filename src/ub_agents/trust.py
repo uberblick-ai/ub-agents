@@ -2,7 +2,7 @@
 
 from urllib.parse import quote
 
-from .errors import GitHubError
+from .errors import AgentError, GitHubError
 
 WRITERS = {"write", "maintain", "admin"}
 
@@ -26,7 +26,7 @@ class LauncherTrust:
             return self.observed(login, f"Launcher account @{login} is not listed in launchers")
         try:
             role = self.role(login)
-        except GitHubError:
+        except AgentError:
             self.observed(login, f"Launcher account @{login}'s repository role could not be read")
             raise
         if role is None:

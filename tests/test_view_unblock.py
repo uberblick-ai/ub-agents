@@ -68,6 +68,7 @@ class UnblockDataTests(unittest.TestCase):
         no_outcome = NOTICE.replace('[Outcome](https://example.test/outcome)', 'No outcome was reported.')
         self.assertNotIn('[Claim]', comment_body(no_outcome))
         self.assertIn('[Claim](x) is useful context', comment_body(NOTICE + '\n[Claim](x) is useful context'))
+        self.assertIn('**Action needed**', comment_body(NOTICE + '\n**Action needed**'))
         tokens = description_parser().parse('[link](https://example.test)\n![image](x)\n<b>HTML</b>')
         self.assertFalse(any(child.type in {'link_open', 'image', 'html_inline'}
                              for token in tokens for child in token.children or []))
@@ -97,10 +98,12 @@ class UnblockDataTests(unittest.TestCase):
         self.assertIn('waiting 25m', unblock_metadata(self.row, result, self.session, now + 60)[0])
         self.session.data['histories'] = {'178': {'runs': [
             {'time': '2026-10-05T11:00:00Z'}, {'time': '2026-10-05T12:30:00Z'}]}}
-        row = replace(self.row, state='blocked')
+        row = replace(self.row, state='blocked', reason='Attempt limit exhausted')
         self.assertIn('failed 3/3 · waiting 6m', unblock_metadata(row, ActionComment(), self.session, now)[0])
         self.session.data['histories'] = {}
         self.assertEqual(unblock_metadata(row, ActionComment(), self.session, now), ('worker · failed 3/3', ''))
+        row = replace(row, reason='Previous cleanup was unconfirmed')
+        self.assertEqual(unblock_metadata(row, ActionComment(), self.session, now), ('worker · blocked', ''))
 
     def test_github_uses_latest_trusted_marker_including_approval_notices(self):
         result = parse_response(comments_reply(

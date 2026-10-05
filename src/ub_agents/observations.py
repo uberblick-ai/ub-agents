@@ -284,8 +284,12 @@ class Observations:
 
     def coordination_author(self, login, trusted, reason):
         authors = self.state["coordination_authors"]
-        authors.pop(login.casefold(), None)
-        authors[login.casefold()] = {"trusted": trusted, "reason": reason}
+        key = login.casefold()
+        value = {"trusted": trusted, "reason": reason}
+        previous = authors.pop(key, None)
+        authors[key] = value
+        if previous == value:
+            return
         while len(authors) > MAX_ADVISORIES:
             authors.pop(next(iter(authors)))
         self.emit()

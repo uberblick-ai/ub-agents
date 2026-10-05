@@ -125,8 +125,10 @@ class ObservationTests(unittest.TestCase):
         trust = loop.coordinator.trust.observation()
         with patch.object(github, 'role', wraps=github.role) as role:
             self.assertTrue(trust({'login': 'operator'}))
+            publications = len(self.memory.snapshots)
             self.assertTrue(trust({'login': 'OPERATOR'}))
             self.assertEqual(role.call_count, 1)
+            self.assertEqual(len(self.memory.snapshots), publications)
         self.assertTrue(self.memory.snapshots[-1]['coordination_authors']['operator']['trusted'])
         github.roles['operator'] = None
         with self.assertRaises(GitHubError):

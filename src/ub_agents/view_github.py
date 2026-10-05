@@ -1,4 +1,4 @@
-"""Explicit description reads only; no launcher client or workflow authority."""
+"""Explicit description/comment reads; no launcher client or workflow authority."""
 
 from collections import OrderedDict
 from dataclasses import dataclass, replace
@@ -227,10 +227,12 @@ class DescriptionLoads:
         return result
 
     def remember(self, key, response, kind='issue'):
-        result = (replace(response.action, source='GitHub', observed_at=self.clock()) if response.action else
-                  ActionComment(source='GitHub', observed_at=self.clock(), error=response.error)) if kind == 'unblock' else (
-                  Description(response.title, response.body, 'GitHub', self.clock(),
-                              not response.error, response.notice, response.error))
+        if kind == 'unblock':
+            result = (replace(response.action, source='GitHub', observed_at=self.clock()) if response.action else
+                      ActionComment(source='GitHub', observed_at=self.clock(), error=response.error))
+        else:
+            result = Description(response.title, response.body, 'GitHub', self.clock(),
+                                 not response.error, response.notice, response.error)
         self.cache.setdefault(key, {})[kind] = result
         self.cache.move_to_end(key)
         while len(self.cache) > CACHE_ITEMS:

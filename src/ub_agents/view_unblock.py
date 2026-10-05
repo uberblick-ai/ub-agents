@@ -13,9 +13,14 @@ LINKS = re.compile(r'^\[Claim\]\(.*?\) · (?:\[Outcome\]\(.*?\)|No outcome was r
 
 def comment_body(value):
     lines = description_text(value).splitlines()
-    return '\n'.join(line for index, line in enumerate(lines)
-                     if not (index == 0 and line.startswith(ACTION_MARKER))
-                     and line != '**Action needed**' and not LINKS.fullmatch(line)).strip()
+    if lines and lines[0].startswith(ACTION_MARKER):
+        lines.pop(0)
+    if lines and lines[0] == '**Action needed**':
+        lines.pop(0)
+    link = next((index for index, line in enumerate(lines) if LINKS.fullmatch(line)), None)
+    if link is not None:
+        lines.pop(link)
+    return '\n'.join(lines).strip()
 
 
 def stamp(value):
@@ -58,7 +63,11 @@ class ActionComment(Description):
 
 
 def needs_attention(row):
-    return bool(row and not row.hidden and row.group == 'Needs attention' and row.state in {'parked', 'blocked', 'failed'})
+    if not row or row.hidden or row.group != 'Needs attention':
+        return False
+    failures, maximum = row.data.get('failures'), row.data.get('max_attempts')
+    exhausted = type(failures) is int and type(maximum) is int and failures >= maximum
+    return row.state in {'parked', 'blocked'} or row.state == 'failed' and exhausted
 
 
 def local_action(row, session):
@@ -78,7 +87,8 @@ def unblock_metadata(row, comment, session, now=None):
         return '', ''
     state = row.state
     failures, maximum = row.data.get('failures'), row.data.get('max_attempts')
-    if state in {'blocked', 'failed'} and type(failures) is int and type(maximum) is int and failures >= maximum:
+    exhausted = state == 'failed' or state == 'blocked' and row.reason.startswith('Attempt limit exhausted')
+    if exhausted and type(failures) is int and type(maximum) is int and failures >= maximum:
         state = f'failed {failures}/{maximum}'
     parts = [row.agent, state]
     created = stamp(comment.created_at) if comment and comment.available else None
