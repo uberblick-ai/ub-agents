@@ -85,23 +85,16 @@ useful change. The boards are public: never include credentials, environment val
 local paths, hostnames or log excerpts. Post it before `ub-agents report`; a
 retrospective is telemetry, never a gate, so a failed post blocks nothing.
 
-| Board | Discussion | Node id |
-| --- | --- | --- |
-| issue-preparer | #202 | `D_kwDOU3EDKc4ApxOq` |
-| implementer | #203 | `D_kwDOU3EDKc4ApxOr` |
-| reviewer | #204 | `D_kwDOU3EDKc4ApxOs` |
-| integrator | #205 | `D_kwDOU3EDKc4ApxOt` |
-| workflow-audit | #206 | `D_kwDOU3EDKc4ApxOu` |
-
 Write the paragraph with the file-writing tool to a file in the run's `scratch`
-directory (assignment context), never the worktree, where it could be committed. Post
-it with the node id from the table, never a guessed one:
+directory (assignment context), never the worktree, where it could be committed.
+Post it with the launcher's literal `report_command` from the assignment context:
 
 ```sh
-gh api graphql -f discussionId=NODE_ID -F body=@PATH \
-  -f query='mutation($discussionId:ID!,$body:String!){addDiscussionComment(input:{discussionId:$discussionId,body:$body}){comment{url}}}' \
-  --jq '.data.addDiscussionComment.comment.url'
+<report_command> retrospective --body-file PATH
 ```
+
+The launcher pins the repository and your agent's `retrospectives` board from
+`ub-agents.yaml`; the command checks the resolved discussion URL before posting.
 
 A maintainer runs the `workflow-audit` skill about weekly to turn the boards into
 issues and clear them.
@@ -159,6 +152,19 @@ eligibility checks (#127)."
   overview against the changes included in that release. Retain the issue or PR
   references and all required upgrade information. Then turn `Unreleased` into the
   version's section and copy that concise section into the GitHub release notes.
+
+## Human decisions
+
+Every notice requiring human action shows each independent ask as its own concise,
+plain-language sentence. Report one `--action` per action or decision; include who
+can act, the actual step or choices, a recommendation and any consequence needed
+to understand that ask. Do not compress multiple decisions into one headline.
+Put the full supporting reasoning and technical details in `--summary`, preserving
+Markdown, evidence, review and CI links, and diagnostics. Notices collapse that
+material and resume instructions by default; nothing is omitted to shorten an ask.
+Follow the project's authority and resume rules. If another role must act next,
+use its correction or handoff route instead of retrying the role that stopped.
+Formatting grants no approval or label-changing authority.
 
 ## Changes
 

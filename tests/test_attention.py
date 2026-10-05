@@ -12,7 +12,7 @@ from ub_agents.approvals import ApprovalCheck
 from ub_agents.attention import attention_state, waiting_time
 from ub_agents.coordination import Plan
 from ub_agents.loop import Loop
-from ub_agents.notices import ACTION_MARKER
+from ub_agents.notices import ACTION_MARKER, action_body
 from ub_agents.observations import Observations
 from ub_agents.records import iso
 from ub_agents.view_data import Session, work_rows
@@ -72,6 +72,45 @@ class AttentionTests(unittest.TestCase):
                         {'handoff': 2}, {'transition': {'add': ['ready']}}):
             row, _ = self.row(replace(self.plan, history=(self.outcome(**changes),)))
             self.assertIsNone(row.data['waiting_since'])
+
+    def test_notice_action_precedes_reason_and_has_no_bold_markers_in_work_view(self):
+        action = 'Maintainer: choose A or B; recommend A.'
+        notice = self.notice(body=f'**{action}**\n\nLong gate details')
+        row, _ = self.row(replace(self.plan, history=(self.outcome(action='Older action'),)),
+                          comments=[notice], authors={'other': True})
+        self.assertEqual(row.data['attention_reason'], action)
+        self.assertIn(action, work_lines(row, 100)[1].plain)
+        self.assertNotIn('**', work_lines(row, 100)[1].plain)
+
+    def test_parking_outcome_action_is_shown_without_a_notice(self):
+        action = 'Maintainer: merge this PR under project policy.'
+        for outcome in (self.outcome(action=action), self.outcome(action=action, assignment=10, handoff=1)):
+            row, _ = self.row(replace(self.plan, history=(outcome,)))
+            self.assertEqual(row.data['attention_reason'], action)
+        outcome = self.outcome(action=action, accepted=False, status='blocked', transition_complete=False)
+        row, _ = self.row(replace(self.plan, state='blocked', history=(self.finished(), outcome)))
+        self.assertEqual(row.data['attention_reason'], action)
+        recovered = self.finished(id=10, mode='recovery', recovered_lease_id=1)
+        row, _ = self.row(replace(self.plan, state='blocked', history=(outcome, recovered)))
+        self.assertEqual(row.data['attention_reason'], action)
+
+    def test_multiple_asks_are_shown_without_markdown_or_collapsed_reasoning(self):
+        asks = ['Owner: choose A or B; recommend A.', 'Maintainer: use *staging* & review [the PR] when load < capacity -> staged with ~2h downtime.']
+        notice = self.notice()
+        notice['body'] = action_body(ACTION_MARKER + 'r -->', asks, 'Private reasoning\n\nCI evidence')
+        row, _ = self.row(comments=[notice], authors={'other': True})
+        self.assertEqual(row.data['attention_reason'], '; '.join(asks))
+        self.assertNotIn('reasoning', row.data['attention_reason'])
+        row, _ = self.row(replace(self.plan, history=(self.outcome(action=asks[0], actions=asks),)))
+        self.assertEqual(row.data['attention_reason'], '; '.join(asks))
+
+    def test_launcher_fallback_notice_shows_the_review_request_without_diagnostics(self):
+        fallback = 'Maintainer: review the blocker details and decide the next step.'
+        notice = self.notice()
+        notice['body'] = action_body(ACTION_MARKER + 'r -->', [fallback], 'Execution exited 1; inspect the run log.')
+        row, _ = self.row(comments=[notice], authors={'other': True})
+        self.assertEqual(row.data['attention_reason'], fallback)
+        self.assertNotIn('Execution exited', row.reason)
 
     def test_blocked_and_exhausted_fall_back_to_latest_finished_run(self):
         history = (self.finished(), self.finished(id=3, run='new', expires=iso(1500), agent='integrator'),
@@ -153,7 +192,7 @@ class AttentionTests(unittest.TestCase):
         lease = foreign.coordinator.claim(foreign.coordinator.plan(issue(), self.cfg.agents[0], self.cfg.stop_labels),
                                           self.cfg.stop_labels)
         foreign.coordinator.update(lease, state='running', started=True)
-        foreign.coordinator.report(lease, 'blocked', 'Choose direction')
+        foreign.coordinator.report(lease, 'blocked', 'Choose direction', action="Maintainer: choose A or B; recommend A.")
         foreign.coordinator.release(lease, 'blocked', 'Choose direction')
         other = github.create_comment(1, self.notice(author='operator')['body'])
         github.login = 'operator'

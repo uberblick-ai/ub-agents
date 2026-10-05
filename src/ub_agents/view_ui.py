@@ -9,6 +9,7 @@ import time
 from markdown_it import MarkdownIt
 from rich.control import Control
 from rich.segment import Segment
+from rich.style import Style
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -17,12 +18,12 @@ from textual.geometry import Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.screen import ModalScreen
-from textual.widgets import Markdown, Static, TabbedContent, TabPane, Tabs, Tree
+from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
 from .view_data import (WORK_GROUPS, context_header, context_text, item_handoff, item_header, item_history, mapping, plan_group,
                         related_plan, rows as snapshot_rows, run_status, text)
 from .view_github import DescriptionLoads
-from .view_unblock import ActionComment, local_action, needs_attention, trust_reason, unblock_metadata
+from .view_unblock import ActionComment, comment_sections, local_action, needs_attention, trust_reason, unblock_metadata
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_worker import LocalWorker, Request
@@ -75,7 +76,10 @@ class ItemTabs(TabbedContent):
             if isinstance(widget, Tabs):
                 yield Static('', id='log_mode', markup=False)
                 yield Static('', id='tab_rule', markup=False)
-                yield Static('', id='item_header', markup=False)
+                header = Static('', id='item_header', markup=False)
+                # Keep the header's original colors and style while click actions remain active.
+                header.auto_links = False
+                yield header
 
 
 def description_parser():
@@ -426,6 +430,7 @@ class View(App):
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
         self.unblock_visible = False
+        self.unblock_details_key = None
         self.session = None
         self.rows, self.nodes, self.groups = {}, {}, {}
         self.idle_node = None
@@ -466,6 +471,9 @@ class View(App):
                 with TabPane('4 Unblock', id='unblock'):
                     with VerticalScroll():
                         yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
+                        with Collapsible(title='Reasoning, evidence and resume instructions',
+                                         collapsed=True, id='unblock_details'):
+                            yield Markdown('', id='unblock_details_body', parser_factory=description_parser, open_links=False)
                         yield Static('', id='unblock_note', markup=False)
         yield Static('', id='status', markup=False)
 
@@ -775,6 +783,21 @@ class View(App):
         row = self.rows.get(self.selected)
         return self.descriptions.key(self.session.data.get('repository'), row.item) if self.session and row else None
 
+    def item_url(self):
+        key = self.description_key()
+        if key is None:
+            return None
+        repository, number = key
+        title, _ = item_header(self.rows.get(self.selected), self.current_description(), self.session)
+        path = 'pull' if title.startswith('⌥') else 'issues'
+        return f'https://github.com/{repository}/{path}/{number}'
+
+    def action_open_reference(self):
+        # Resolve at click time so a refreshed selection cannot open a stale URL.
+        url = self.item_url()
+        if url is not None:
+            self.open_url(url)
+
     def update_issue(self):
         if self.local_description is None:
             return
@@ -835,9 +858,19 @@ class View(App):
             self.unblock_visible = visible
         comment = self.current_action()
         body = comment.body if visible and comment.available else ''
+        lead, supporting = comment_sections(body)
         markdown = self.query_one('#unblock_body', Markdown)
-        if body != markdown.source:
-            markdown.update(body)
+        if lead != markdown.source:
+            markdown.update(lead)
+        fold = self.query_one('#unblock_details', Collapsible)
+        fold.display = bool(supporting)
+        details_markdown = self.query_one('#unblock_details_body', Markdown)
+        if supporting != details_markdown.source:
+            details_markdown.update(supporting)
+        details_key = (self.description_key(), comment.comment_id, comment.created_at, comment.author, body)
+        if details_key != self.unblock_details_key:
+            fold.collapsed = True
+            self.unblock_details_key = details_key
         extra = ''
         key = self.description_key()
         if self.descriptions.pending == key and self.descriptions.pending_kind == 'unblock':
@@ -994,6 +1027,8 @@ class View(App):
         if self.query_one(ItemTabs).active == 'unblock':
             metadata, waiting = unblock_metadata(row, self.current_action(), self.session, self.descriptions.clock())
         title_text, metadata_text = Text(title), Text(metadata)
+        if self.item_url() is not None:
+            title_text.stylize(Style(meta={'@click': 'app.open_reference'}), 0, len(str(row.item)) + 1)
         accent = theme_style(self, 'view-accent')
         if title.startswith('⌥'):
             title_text.stylize(accent, 0, 1)

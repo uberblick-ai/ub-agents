@@ -44,6 +44,16 @@ and text shortened with `…` end inside the right padding.
 Tab labels have one space on either side, so labels sit one column right of the
 shared header and the inverted active tab has equal padding on both sides.
 
+An ordinary mouse click on the shared header's `#N` or `⌥N` reference opens that
+issue or PR in the default browser, using the attached session's repository.
+This works on Log, Issue, Runs and Unblock, including the narrow item view and
+shortened titles. Only the marker and number open a page; the title, metadata
+(including linked handoff PRs), rule and blank space do not. Missing or malformed
+repository or item numbers leave the reference inert. The terminal must deliver
+mouse clicks to the app and the host must be able to open a browser; terminals
+that intercept clicks or hosts without a browser cannot use this action.
+No Command-click is required.
+
 The default `ub-agents` Textual theme has a dark background, purple focus and
 selection accents, blue Running headings and glyphs, red Needs attention, and
 green Eligible. Selection uses a shaded row. All colors follow the current
@@ -119,9 +129,14 @@ shortened with `…`, and a right column:
 
 Needs attention's second line is `agent · state · reason`, indented and dim.
 Parked state names the stop label(s), joined by `, `; blocked state is `blocked`,
-and an exhausted attempt limit is `failed F/M`. The reason is the parking run or
-notice summary, without the `Stop label … is present` prefix or retry instructions;
-it is omitted when no summary is known. The full reason remains on Issue.
+and an exhausted attempt limit is `failed F/M`. The reason uses the notice or
+parking outcome's actions when available, without Markdown bold or bullet markers.
+New notices without a recorded action show the concise request to review the blocker
+and decide the next step; approval notices show the required authorization. Full
+reasoning and technical details stay in Unblock's collapsed section. Without a
+notice or recorded action, the reason falls back to the parking run's summary,
+without the `Stop label … is present` prefix or retry instructions; it is omitted
+when neither is known. Legacy notice summaries remain readable.
 
 The launcher publishes `waiting_since` for each Needs attention row. It uses the
 newest action-needed comment from an already verified trusted launcher account,
@@ -148,15 +163,18 @@ assignment, `attempt N` for other assignments, or `F/M failures` for plans with
 at least one failure. Missing parts are omitted. Both lines fit
 the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
-In every Work section, one blank row separates consecutive two-line items. There
-is no gap within an item or after a heading; spacing before the next heading is
-unchanged. The cursor highlights only the item's two lines. Arrow keys skip the
-blank rows, and either item line can be clicked to select it; blank rows select
-nothing.
+In every Work section, one blank row separates consecutive two-line items. In
+both layouts, exactly one blank row precedes each displayed Needs attention and
+Eligible heading, including after Running's idle line. Hidden sections add no
+separator. There is no gap within an item, after a heading, before Running or
+before Recent activity. The cursor highlights only the item's lines. Arrow keys
+skip blank rows, and either item line can be clicked to select it; blank rows
+have no cursor or hover highlight and clicking them changes no selection or cursor.
 In the narrow Work list, live and Recent activity rows use only their first line:
 glyph, item reference, title shortened with `…`, and right-aligned waiting time
 for Needs attention or state for other live rows. Detail
-information remains on the item's tabs. Sections, counts, the idle line, stopping
+information remains on the item's tabs, and consecutive single-line items have
+no blank row between them. Sections, counts, the idle line, stopping
 state and the fixed upper/lower split behave the same in both layouts.
 The assignment spinner advances through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` one frame every
 0.1 seconds, like Runs and the log status line. Stopping and other row glyphs
@@ -253,7 +271,10 @@ to Log. `4` has no effect for other rows.
 The comment body uses Issue's inert Markdown rules and 2,048-character limit,
 with a visible shortening notice. The action-needed marker, `**Action needed**`
 title and Claim/Outcome links line (including the no-outcome variant) are removed
-first. SHAs and the remaining Markdown stay verbatim. The last dim line names the
+first. New notices show each ask above a collapsed "Reasoning, evidence and resume
+instructions" control; click its title or focus it and press Enter to expand it.
+The bounded supporting Markdown and SHAs stay intact inside. Legacy notices without
+that fold remain readable. The last dim line names the
 action-needed comment, its local creation time, and `snapshot` or
 `GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
 
@@ -318,8 +339,9 @@ emphasis, inline code and code blocks. Line breaks, including CRLF and lone CR,
 display as real line breaks; tabs are retained. Other control characters stay
 visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
 images and raw HTML display as text; links cannot be opened with the mouse or
-keyboard, and nothing is fetched. The item header, source/age and all notices
-remain literal text. Issue does not repeat the item reference or title in its
+keyboard, and nothing is fetched. The item header stays literal text with only
+its reference clickable; source/age and all notices remain inert literal text.
+Issue does not repeat the item reference or title in its
 content. Shortening notices sit outside the Markdown body, including
 when a description is cut inside a code fence. Runs and the raw log projection
 remain literal text with visibly escaped control characters. The formatted
@@ -692,6 +714,14 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    request appears, including with an overlay open. Grow back and check the
    previous state returns. Quit below the floor with `q`; repeat with Ctrl-C,
    checking terminal restoration and attached-launcher interruption as above.
+
+11. In iTerm2, ordinary clicks on the shared header's `#N` and `⌥N` references
+   must open the selected issue and PR in the attached session's repository in
+   the default browser. Change selection and repeat on Log, Issue, Runs and
+   Unblock, in the combined and narrow item layouts, including a shortened title.
+   A title click must open nothing; also check metadata, the rule and blank space.
+   Command-click alone does not pass this check. Record any failure to deliver
+   mouse clicks or open the browser as a terminal/host limitation.
 
 Record the terminal type, dimensions, replay or live source, exercised controls,
 restoration and launcher-isolation result in the implementation PR. Owned real

@@ -16,7 +16,8 @@ completion is satisfied. Then record `ub-agents report --outcome merged --summar
 
 If the policy leaves this merge to a maintainer, leave a concrete report that names
 the reason and record `ub-agents report --outcome maintainer-merge
---summary "Ready for maintainer merge: REASON"`. Handing a passing candidate to a
+--summary "Gates pass for SHA; maintainer merge required by POLICY"
+--action "Maintainer: merge #N because REASON."`. Handing a passing candidate to a
 maintainer is a successful handoff.
 
 If the candidate conflicts with the base branch, or the project keeps a changelog and the
@@ -24,3 +25,13 @@ entry for a user-facing change is missing or inaccurate, send it back to the imp
 name what to fix in the summary of `ub-agents report --outcome changes-requested`.
 Report blocked only when another gate fails or evidence is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
+
+Every stop report (`--status blocked` or an outcome adding a configured stop label)
+must include `--action "ACTION"`, repeated once per independent action or decision.
+Each value is one concise sentence on a non-empty line of at most 300 characters
+(up to 8000 characters total). Name who must act and the actual step; for a decision,
+include the choices, recommendation and any consequence needed to answer it.
+Each ask must be understandable on its own. Put supporting reasoning, technical
+evidence, diagnostics and links in `--summary`; notices collapse that full Markdown
+by default. Generic blocked reports use `ub-agents report --status blocked
+--summary "Gate evidence: REASON" --action "ACTION"`.

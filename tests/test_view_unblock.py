@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from textual.widgets import Markdown, Static, TabbedContent
+from textual.widgets import Collapsible, Markdown, Static, TabbedContent
 
 from tests.support import RecordingDescriptionTransport
 from tests.test_view_data import fixture
@@ -19,7 +19,8 @@ from ub_agents.view_github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, 
                                    GhTransport, Response, parse_response)
 from ub_agents.view_ui import ItemTabs, View, description_parser
 from ub_agents.view_unblock import (ACTION_MARKER, ActionComment, comment_body, local_action,
-                                    needs_attention, stamp, unblock_metadata)
+                                    comment_sections, needs_attention, stamp, unblock_metadata)
+from ub_agents.notices import action_body
 
 AUTHORS = {'operator': {'trusted': True, 'reason': None},
            'reader': {'trusted': False, 'reason': 'write or higher is required'}}
@@ -259,6 +260,51 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             if condition():
                 return
         self.fail('View did not become ready')
+
+    async def test_new_notice_details_start_collapsed_expand_and_reset_for_another_item(self):
+        asks = ['Owner: approve Q&A rollout -> staged with ~2h downtime; recommend staged when load < capacity.',
+                'Owner: choose immediate or staged rollout; recommend staged.']
+        supporting = '## Reasoning\n\nStorage evidence\n\n```sh\nub-agents retry 178\n```'
+        self.state['action_needed']['178']['text'] = action_body(ACTION_MARKER + 'new -->', asks, supporting)
+        self.path.write_text(json.dumps(self.state))
+        app = self.app
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(pilot, lambda: app.local_description is not None)
+            app.select('plan:178:worker')
+            await pilot.press('4')
+            fold = app.query_one('#unblock_details', Collapsible)
+            self.assertTrue(fold.collapsed)
+            self.assertTrue(fold.display)
+            lead = app.query_one('#unblock_body', Markdown).source
+            for ask in asks:
+                tokens = description_parser().parse(lead)
+                rendered = ''.join(child.content for token in tokens for child in token.children or []
+                                   if child.type == 'text')
+                self.assertIn(ask, rendered)
+            self.assertNotIn('&amp;', lead)
+            self.assertNotIn('&gt;', lead)
+            self.assertNotIn('&lt;', lead)
+            self.assertNotIn('Storage evidence', lead)
+            self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, supporting)
+            await pilot.click('#unblock_details CollapsibleTitle')
+            self.assertFalse(fold.collapsed)
+            await pilot.press('enter')
+            self.assertTrue(fold.collapsed)
+            await pilot.press('enter')
+            self.assertFalse(fold.collapsed)
+            app.update_unblock()
+            self.assertFalse(fold.collapsed)
+            self.state['action_needed']['178']['id'] = 999
+            self.path.write_text(json.dumps(self.state))
+            await self.ready(pilot, lambda: app.current_action().comment_id == '999')
+            self.assertTrue(fold.collapsed)
+            app.select('plan:179:worker')
+            self.assertTrue(fold.collapsed)
+            self.assertFalse(fold.display)
+            app.select('plan:178:worker')
+            self.assertTrue(fold.collapsed)
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_tab_keys_snapshot_header_markdown_and_selection_refresh_fallback(self):
         app = self.app
