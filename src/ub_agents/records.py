@@ -186,7 +186,8 @@ def declared_transition(lease, name):
 
 
 def stop_report(lease, status, outcome=None):
-    return (status == "blocked" or outcome is not None
+    return (status == "blocked" or status == "success" and outcome is not None
+            and outcome in (lease.get("outcomes") or {})
             and bool(set(declared_transition(lease, outcome)["add"]).intersection(lease["stop_labels"])))
 
 

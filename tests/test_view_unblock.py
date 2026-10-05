@@ -262,7 +262,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         self.fail('View did not become ready')
 
     async def test_new_notice_details_start_collapsed_expand_and_reset_for_another_item(self):
-        asks = ['Owner: approve Q&A rollout -> staged; recommend staged when load < capacity.',
+        asks = ['Owner: approve Q&A rollout -> staged with ~2h downtime; recommend staged when load < capacity.',
                 'Owner: choose immediate or staged rollout; recommend staged.']
         supporting = '## Reasoning\n\nStorage evidence\n\n```sh\nub-agents retry 178\n```'
         self.state['action_needed']['178']['text'] = action_body(ACTION_MARKER + 'new -->', asks, supporting)

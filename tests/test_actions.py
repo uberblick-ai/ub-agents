@@ -194,3 +194,32 @@ class ActionReportTests(unittest.TestCase):
         self.assertIn('**Maintainer: review the blocker details and decide the next step.**', visible)
         self.assertNotIn('Missing evidence', visible)
         self.assertIn('Missing evidence\n\nCandidate:', details)
+
+    def test_failure_outcome_name_never_changes_retry_completion_or_recovery(self):
+        for name in ('typo', 'human', 'done'):
+            for recover in (False, True):
+                with self.subTest(name=name, recover=recover):
+                    self.setUp()
+                    def bypass(lease):
+                        outcome = self.co.report(lease, 'retry', 'Transient failure')
+                        self.github.update_comment(outcome['id'], body(payload(outcome) | {'outcome': name}))
+                    if recover:
+                        lease = self.claim()
+                        bypass(lease)
+                        self.now += 61
+                        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                            self.assertTrue(self.loop.tick())
+                    else:
+                        def run(*args, **kwargs):
+                            bypass(self.co.history(1)[0])
+                            return 1
+                        with patch('ub_agents.loop.supervise', side_effect=run):
+                            self.assertTrue(self.loop.tick())
+                    history = self.co.history(1)
+                    leases = [r for r in history if r['kind'] == 'lease']
+                    self.assertEqual(leases[-1]['state'], 'released')
+                    self.assertEqual(leases[-1]['result'], 'retry')
+                    source = next(r for r in history if r['kind'] == 'outcome')
+                    self.assertNotIn('rejected', source)
+                    self.assertFalse(source['accepted'])
+                    self.assertEqual(self.github.item(1).labels, {'ready'})

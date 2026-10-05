@@ -95,7 +95,7 @@ class AttentionTests(unittest.TestCase):
         self.assertEqual(row.data['attention_reason'], action)
 
     def test_multiple_asks_are_shown_without_markdown_or_collapsed_reasoning(self):
-        asks = ['Owner: choose A or B; recommend A.', 'Maintainer: use *staging* & review [the PR] when load < capacity -> staged.']
+        asks = ['Owner: choose A or B; recommend A.', 'Maintainer: use *staging* & review [the PR] when load < capacity -> staged with ~2h downtime.']
         notice = self.notice()
         notice['body'] = action_body(ACTION_MARKER + 'r -->', asks, 'Private reasoning\n\nCI evidence')
         row, _ = self.row(comments=[notice], authors={'other': True})
