@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, load_config
@@ -53,6 +54,20 @@ class ConfigTests(unittest.TestCase):
             self.load(base.replace("trigger: ready", "trigger: needs-human") + "    outcomes: {done: {}}\n")
         with self.assertRaisesRegex(AgentError, "outcomes must be"):
             self.load(base)
+
+    def test_retrospectives_requires_a_positive_integer_and_check_stays_offline(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        self.assertIsNone(self.load(base).agents[0].retrospectives)
+        self.assertEqual(self.load(base + "    retrospectives: 203\n").agents[0].retrospectives, 203)
+        with patch("ub_agents.cli.GitHub", side_effect=AssertionError("offline check")):
+            for value in ("203", "0", "-1", "203.0", ".inf", ".nan", "true", "false", "null",
+                          "'203'", "[]", "{}", "''"):
+                with self.subTest(value=value):
+                    self.path.write_text(base + f"    retrospectives: {value}\n")
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+                        self.assertEqual(main(["--config", str(self.path), "check"]), 0 if value == "203" else 1)
+                    if value != "203":
+                        self.assertIn("task retrospectives", stderr.getvalue())
 
     def test_launchers_requires_a_nonempty_list_of_unique_nonblank_logins(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"

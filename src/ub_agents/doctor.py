@@ -30,7 +30,8 @@ AREAS = {
     "machine": ("python", "platform", "git", "gh", "process-inspection", "local-state", "local-state-ignored"),
     "configuration": ("config", "instructions", "repository-root", "repository-remote", "approvals"),
     "GitHub": ("github-auth", "github-repository", "github-permissions", "github-labels", "github-label",
-               "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit"),
+               "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit",
+               "github-retrospectives"),
     # "commands" is the existing skip check when configuration is unavailable.
     "runtimes": ("command", "commands", "runtime-permissions", "runtime-executable", "runtime-auth", "runtimes",
                  "different-runtime-from"),
@@ -197,6 +198,24 @@ class Doctor:
                          "Ensure the token can read repository visibility, or configure approvals: on or off")
         else:
             self.add("approvals", "skip", "configuration unavailable")
+        if config:
+            for agent in config.agents:
+                if agent.retrospectives is None:
+                    continue
+                number = agent.retrospectives
+                if not gh_ready:
+                    self.add("github-retrospectives", "skip", f"Discussion #{number}: gh unavailable", agent=agent)
+                    continue
+                try:
+                    github.discussion(number)
+                    self.add("github-retrospectives", "ok",
+                             f"{agent.name}: discussion #{number} exists in {config.repository}", agent=agent)
+                except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
+                    self.add("github-retrospectives", "fail",
+                             f"{agent.name}: discussion #{number} in {config.repository} is missing or unreadable "
+                             f"({self.github_failure('discussion lookup', exc)})",
+                             "Set retrospectives to an existing discussion number in the configured repository "
+                             "and ensure the token can read it", agent=agent)
         if gh_ready:
             self.rate_limit(github.quota_headers, github.rate_limited)
         else:

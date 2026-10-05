@@ -6,6 +6,14 @@ notes are copied from that section.
 
 ## Unreleased
 
+**Upgrading:** stop all of a project's launchers and wait until every one has exited,
+then upgrade and restart them together. Older launchers reject the new
+`retrospectives` agent key now used in this repository's configuration (#207).
+
+### Added
+
+- Agents can post retrospectives to configured discussion boards with the launcher's `retrospective --body-file PATH` command, which verifies the target URL (#207).
+
 ### Changed
 
 - Continuous launch keeps planning during assignments; Eligible shows the next ten items in claim order with counts and colored priority words (#248).
