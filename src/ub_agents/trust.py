@@ -8,11 +8,12 @@ WRITERS = {"write", "maintain", "admin"}
 
 
 class LauncherTrust:
-    def __init__(self, github, launchers=None, role=None, on_author=None):
+    def __init__(self, github, launchers=None, role=None, on_author=None, *, trusted_bots=()):
         self.github = github
         self.launchers = None if launchers is None else {login.casefold() for login in launchers}
         self.role = role or (lambda login: github.role(login))
         self.on_author = on_author
+        self.trusted_bots = {login.casefold() for login in trusted_bots}
 
     def observed(self, login, reason):
         if self.on_author is not None:
@@ -39,6 +40,10 @@ class LauncherTrust:
 
     def __call__(self, author):
         login = author.get("login") if isinstance(author, dict) else None
+        if (isinstance(login, str) and login.casefold() in self.trusted_bots and
+                (author.get("type") == "Bot" or author.get("__typename") == "Bot")):
+            self.observed(login, f"Listed bot @{login} supplies feedback, not launcher records")
+            return False
         return self.reason(login) is None
 
     def observation(self):
@@ -51,4 +56,4 @@ class LauncherTrust:
                 cache[key] = self.role(login)
             return cache[key]
 
-        return LauncherTrust(self.github, self.launchers, role, self.on_author)
+        return LauncherTrust(self.github, self.launchers, role, self.on_author, trusted_bots=self.trusted_bots)

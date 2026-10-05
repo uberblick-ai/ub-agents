@@ -119,6 +119,7 @@ class ApprovalGitHubTests(unittest.TestCase):
         self.assertEqual(reviews[1]["commit_id"], "a" * 40)
         self.assertEqual(request.call_args.args[1]["cursor"], "next")
         self.assertIn("lastEditedAt", request.call_args.args[0])
+        self.assertIn("author { login __typename }", request.call_args.args[0])
 
     def test_review_errors_and_pending_reviews_cannot_supply_input(self):
         github = GitHub("org/project")

@@ -42,10 +42,10 @@ class Plan:
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
                  runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
-                 on_author=None, on_action=None):
+                 on_author=None, on_action=None, trusted_bots=()):
         self.github = github
         self.actor = actor
-        self.trust = LauncherTrust(github, launchers, role, on_author)
+        self.trust = LauncherTrust(github, launchers, role, on_author, trusted_bots=trusted_bots)
         self.output = output
         self.clock = clock
         self.queue = queue
@@ -453,7 +453,7 @@ class Coordinator:
         try:
             # Pagination/role reads may outlast the lease. Keep deadlines and
             # local state edits available while those bounded requests finish.
-            trusted = LauncherTrust(github, self.trust.launchers).observation()
+            trusted = LauncherTrust(github, self.trust.launchers, trusted_bots=self.trust.trusted_bots).observation()
             history = records(github.comments(assignment), trusted=trusted)
             with self._lease_lock:
                 self.deadline(lease)

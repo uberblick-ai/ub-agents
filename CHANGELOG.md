@@ -8,6 +8,7 @@ notes are copied from that section.
 
 ### Added
 
+- Agents can read filtered issues and PRs with `read N` and trust configured bot feedback under the assignment input policy (#190).
 - Needs attention items have an Unblock tab showing trusted action-needed comments from the session snapshot or an explicit GitHub load (#178).
 
 ### Changed
