@@ -29,6 +29,11 @@ class WorkLineTests(unittest.TestCase):
         self.assertTrue(work_lines(row, 50, now=now + timedelta(hours=1))[0].plain.endswith('1:04:12'))
         self.assertTrue(work_lines(row, 50, stopping=True)[0].plain.startswith('■ #160'))
         self.assertTrue(work_lines(row, 50, stopping=True)[0].plain.endswith('stopping'))
+        self.assertEqual(work_lines(row, 50, stopping=True)[1].plain,
+                         '  implementer · this launcher · finishing run')
+        self.assertEqual(work_lines(replace(row, data={**row.data, 'attempt': None}), 50,
+                                    stopping=True)[1].plain,
+                         '  implementer · this launcher · finishing run')
         for data in ({}, {'history': {'runs': []}},
                      {'history': {'runs': [{'agent': 'implementer', 'time': 'invalid'}]}},
                      {'history': {'runs': [{'agent': 'implementer', 'time': '2026-10-04T20:00:00'}]}}):
@@ -113,6 +118,23 @@ class WorkLineTests(unittest.TestCase):
         self.assertTrue(second.plain.endswith('…'))
         row = self.row('Eligible', 'ready', agent='', title='', failures=0, max_attempts=3)
         self.assertEqual(work_lines(row, 32)[1].plain.strip(), '')
+
+    def test_stopping_holds_ready_recovery_but_keeps_delays_and_attention(self):
+        for state in ('ready', 'recover'):
+            for next_row in (False, True):
+                with self.subTest(state=state, next_row=next_row):
+                    row = self.row('Eligible', state)
+                    first, detail = work_lines(row, 44, stopping=True, next_row=next_row)
+                    self.assertTrue(first.plain.startswith('● #160'))
+                    self.assertTrue(first.plain.endswith('held'))
+                    self.assertEqual(detail, work_lines(row, 44)[1])
+        for group, state in (('Eligible', 'backoff'), ('Eligible', 'waiting'),
+                             ('Needs attention', 'blocked'), ('Needs attention', 'parked'),
+                             ('Eligible', 'earlier observation')):
+            with self.subTest(group=group, state=state):
+                row = self.row(group, state)
+                self.assertEqual(work_lines(row, 44, stopping=True, next_row=True),
+                                 work_lines(row, 44, next_row=True))
 
     def test_pr_marker_accent_is_bounded_and_does_not_restyle_title(self):
         row = self.row('Eligible', 'ready', kind='pr', title='Verbatim ⌥99 #98')

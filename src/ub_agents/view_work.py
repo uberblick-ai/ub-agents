@@ -68,7 +68,7 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     elif row.state in {'backoff', 'waiting'}:
         glyph, state = '◷', row.state
     elif row.group == 'Eligible':
-        glyph, state = '●', 'next' if next_row else row.state
+        glyph, state = '●', 'held' if stopping else 'next' if next_row else row.state
     elif row.state == 'parked':
         glyph, state = '?', 'parked'
     elif row.state == 'blocked' and counted and row.reason.startswith('Attempt limit exhausted'):
@@ -91,7 +91,8 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     first.append(' ' * max(0, width - first.cell_len - status.cell_len))
     first.append_text(status)
     ownership = 'this launcher' if own else ''
-    count = (f'attempt {row.data["attempt"]}' if own and type(row.data.get('attempt')) is int else
+    count = ('finishing run' if own and stopping else
+             f'attempt {row.data["attempt"]}' if own and type(row.data.get('attempt')) is int else
              f'{failures}/{maximum} failures' if not own and counted else '')
     detail = Text('  ' + ' · '.join(part for part in (text(row.data.get('agent'), ''), ownership, count)
                                  if part), no_wrap=True)

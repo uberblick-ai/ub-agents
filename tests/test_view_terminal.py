@@ -824,6 +824,9 @@ class ProofView(View):
                  'nodes': list(self.nodes),
                  'work_lines': {key: tree.render_line(node._line - tree.scroll_offset.y).text
                                 for key, node in self.nodes.items()},
+                 'work_details': {key: tree.render_line(node._line + 1 - tree.scroll_offset.y).text
+                                  for key, node in self.nodes.items()},
+                 'work_width': tree.scrollable_content_region.width,
                  'idle': self.idle_node.label.plain if self.idle_node else None,
                  'idle_dim': self.idle_node.label.style == 'dim' if self.idle_node else False,
                  'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
@@ -950,7 +953,30 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertLess(int(re.search(r'next poll (\d+)s', counted['footer']).group(1)), remaining)
                 state['activity'] = {'state': 'stopping'}
                 path.write_text(json.dumps(state))
-                self.assertIn('· stopping', checkpoint(lambda value: '· stopping' in value['footer'])['footer'])
+                stopping = checkpoint(lambda value: '· stopping' in value['footer']
+                                      and 'Stopping after this run' in value['run_status'])
+                self.assertEqual(stopping['sections'], ['Running · 1', 'Needs attention · 3',
+                                                        'Eligible · 5 · not claimed while stopping'])
+                self.assertTrue(stopping['work_lines']['assignment:owned-run'].startswith('■ #114'))
+                self.assertTrue(stopping['work_lines']['assignment:owned-run'].endswith('stopping'))
+                from ub_agents.view_ui import pane_line
+                self.assertEqual(stopping['work_details']['assignment:owned-run'].rstrip(),
+                                 pane_line('  implementer · this launcher · finishing run',
+                                           stopping['work_width']).plain)
+                self.assertNotIn('attempt', stopping['work_details']['assignment:owned-run'])
+                self.assertEqual(stopping['run_status'].splitlines()[1],
+                                 '■ Stopping after this run (SIGTERM) · no new claims')
+                for key in ('plan:12:reviewer', 'plan:20:worker', 'plan:21:worker'):
+                    self.assertTrue(stopping['work_lines'][key].endswith('held'))
+                for item, status in ((27, 'backoff'), (28, 'waiting')):
+                    self.assertTrue(stopping['work_lines'][f'plan:{item}:worker'].endswith(status))
+                os.write(master, b's\r')
+                other = checkpoint(lambda value: value['selected'] == 'plan:21:worker'
+                                   and 'worker recover · no outcome reported' in value['run_status'])
+                self.assertNotIn('Stopping after this run', other['run_status'])
+                os.write(master, b'a\r')
+                checkpoint(lambda value: value['selected'] == 'assignment:owned-run'
+                           and 'Stopping after this run' in value['run_status'])
                 state['published_at'] = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
                 path.write_text(json.dumps(state))
                 self.assertIn('· stale', checkpoint(lambda value: '· stale' in value['footer'])['footer'])

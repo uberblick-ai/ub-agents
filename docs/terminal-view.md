@@ -96,12 +96,13 @@ shortened with `…`, and a short state aligned to the right:
 | Parked and needing attention | `?` | `parked` |
 | Blocked | `!` | `blocked` |
 | Attempt limit reached | `✗` | `failed F/M` |
-| Eligible, ready or recovery | `●` | `next` for the first ready/recovery row in planned order; otherwise `ready` or `recover` |
+| Eligible, ready or recovery | `●` | `held` while stopping; otherwise `next` for the first ready/recovery row in planned order, then `ready` or `recover` |
 | Eligible, delayed | `◷` | `backoff` for retry backoff; `waiting` for paused runtimes; never `next` |
 
 The second line is indented and joins the agent, `this launcher` for the
-assignment, and count with ` · `. The count is `attempt N` for the assignment,
-or `F/M failures` for plans with at least one failure. Missing parts are omitted. Both lines fit
+assignment, and count with ` · `. The count is `finishing run` for a stopping
+assignment, `attempt N` for other assignments, or `F/M failures` for plans with
+at least one failure. Missing parts are omitted. Both lines fit
 the current pane width at 110×32; long second lines end in `…`.
 There is no separate reason leaf: the full reason remains on the Issue tab.
 Arrow keys move by row, and either line can be clicked to select its item.
@@ -113,6 +114,12 @@ time when a report updates the history.
 If that claim time is unavailable, the row shows `claiming`.
 These rows require no extra GitHub reads or snapshot fields. Priority
 markers are absent because the snapshot has no priority.
+
+After SIGTERM, the view uses the snapshot's `activity.state: stopping` to show
+that this launcher is finishing its current run and will claim nothing new.
+Eligible's rule reads `Eligible · N · not claimed while stopping`, shortened
+with `…` at narrow widths like other headings. Ready and recovery rows show
+`held`; delayed rows keep `backoff` or `waiting`. The footer reads `stopping`.
 
 Dependency and milestone waits are parked plans whose reasons start with
 `Waiting for blockers …` or `Waiting for active milestone #…`. They are omitted
@@ -369,6 +376,11 @@ pane's width. A highlighted notice above the log appears only for file or
 generation changes, read errors, unfinished records, responses to `h`, or a
 runtime's plain/raw fallback.
 
+While stopping, selecting the current assignment replaces its Log status with
+`■ Stopping after this run (SIGTERM) · no new claims`. Other selected items keep
+their usual process or plan status. The stopping screen uses only the existing
+session snapshot and makes no GitHub reads.
+
 Only `g` on Issue starts a GitHub read. Attachment, selection, tabs, redraws,
 resizes and timers make no GitHub calls. One `gh api graphql` request reads only
 the selected issue or PR's title and body, without comments, history, queue scans
@@ -525,7 +537,15 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
 
 7. Exercise `launch`, `--once` and `launch N`, exact-session attachment with another
    fresh snapshot present, stale/version errors, restart, view crash/kill, SIGTERM
-   drain and SIGHUP. Confirm final launcher output, unchanged exit codes, reaped UI
+   drain and SIGHUP. During SIGTERM drain, confirm the assignment keeps `■` and
+   `stopping`, its detail changes from `attempt N` to `agent · this launcher ·
+   finishing run` (shortened to fit), and Eligible's rule includes `not claimed
+   while stopping`. Ready/recovery rows must show `held`, while delayed rows
+   keep `backoff`/`waiting`. Select the assignment and check
+   `■ Stopping after this run (SIGTERM) · no new claims`; select another item
+   and check its normal Log status. The footer must read `stopping`, and the
+   launcher must stay alive until the current run finishes without claiming new
+   work. Confirm final launcher output, unchanged exit codes, reaped UI
    and request processes, and cleaned owned agent groups.
 
 8. Publish both an installed-release update and a checkout update in the replay

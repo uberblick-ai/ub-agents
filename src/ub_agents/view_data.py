@@ -385,6 +385,8 @@ def run_status(row, session):
     assignment = mapping(session.data.get('assignment')) if session else {}
     if run and (row.item, row.data.get('agent'), run) == (
             assignment.get('item'), assignment.get('agent'), assignment.get('recovered_run') or assignment.get('run')):
+        if row.key.startswith('assignment:') and mapping(session.data.get('activity')).get('state') == 'stopping':
+            return '■ Stopping after this run (SIGTERM) · no new claims', '', False
         state = text(assignment.get('process'), state)
     left = ' '.join(part for part in (text(row.data.get('agent'), ''), state) if part)
     report = 'no outcome reported'

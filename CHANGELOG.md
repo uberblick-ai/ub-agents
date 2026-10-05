@@ -8,6 +8,7 @@ notes are copied from that section.
 
 ### Changed
 
+- The terminal view shows a finishing run and held eligible work while the launcher stops gracefully after SIGTERM (#176).
 - `doctor` shows warnings and failures with area summaries by default; `--verbose` retains the full per-check list (#191).
 - The terminal Work pane grows with terminal width at 110×32 and above, making more of each item title and run line visible (#213).
 - Quitting an attached terminal view with `q` interrupts the launcher and cleans up owned runs, matching Ctrl-C (#182).

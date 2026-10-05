@@ -101,6 +101,25 @@ class ViewDataTests(unittest.TestCase):
         self.assertEqual(item_header(work_rows(session, self.root)[0], Description(title='PR', kind='pr'), session)[0],
                          '⌥114 PR')
 
+    def test_stopping_status_applies_only_to_the_current_assignment(self):
+        self.state['outcomes'].extend([
+            {'item': 114, 'agent': 'implementer', 'run': 'before', 'result': 'success'},
+            {'item': 114, 'agent': 'implementer', 'run': 'owned-run', 'result': 'success',
+             'acceptance': 'unaccepted'}])
+        session = Session(self.path, self.state)
+        work = work_rows(session, self.root)
+        normal = {row.key: run_status(row, session) for row in work}
+        self.state['activity'] = {'state': 'stopping'}
+        for row in work:
+            with self.subTest(key=row.key):
+                self.assertEqual(run_status(row, session),
+                                 ('■ Stopping after this run (SIGTERM) · no new claims', '', False)
+                                 if row.key == 'assignment:owned-run' else normal[row.key])
+        self.state['assignment']['run'] = 'different-run'
+        self.assertNotIn('Stopping after this run', run_status(work[0], session)[0])
+        self.state['assignment'] = None
+        self.assertEqual(run_status(None, session), ('○ Idle · waiting for the next poll', '', False))
+
     def test_status_matches_only_selected_run_and_counts_other_same_item_outcomes(self):
         current = {'item': 114, 'agent': 'implementer', 'run': 'owned-run',
                    'result': 'success', 'acceptance': 'unaccepted'}
