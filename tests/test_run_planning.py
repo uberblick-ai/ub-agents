@@ -251,7 +251,8 @@ class RunPlanningTests(unittest.TestCase):
         worker.planner.observer = events
         list(worker.planner.iter_plans())
         # The pass read the old labels before the run finalized a parking outcome.
-        outcome = self.loop.coordinator.report(lease, 'success', 'Maintainer needed', outcome='done')
+        outcome = self.loop.coordinator.report(lease, 'success', 'Maintainer needed', outcome='done',
+                                               action='Maintainer: choose A or B; recommend A.')
         self.loop.finalize(lease, plan, outcome, 'test completion')
         self.loop.coordinator.release(lease, 'success', 'Maintainer needed')
         previous = deepcopy(self.memory.snapshots[-1])
