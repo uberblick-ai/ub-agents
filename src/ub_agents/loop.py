@@ -24,7 +24,7 @@ from .rate_limits import RateLimitReads
 from .polling import idle_interval
 from .hooks import run_hook
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
-                      lease_summary, resolve_transition, seconds, timestamp)
+                      lease_summary, resolve_transition, seconds, timestamp, validate_report_action)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
@@ -794,6 +794,10 @@ class Loop:
             from .read_input import read_policy
             read_config_path = run_dir / "read-config.json"
             read_config_path.write_text(json.dumps(read_policy(self.config)))
+            from .retrospective import retrospective_policy
+            retrospective_config_path = run_dir / "retrospective-config.json"
+            retrospective_config_path.write_text(json.dumps(
+                retrospective_policy(self.config, plan.agent, lease["run"])))
             env = {key: value for key, value in os.environ.items()
                    if not key.startswith("UB_AGENTS_")}
             env.update({"UB_AGENTS_REPOSITORY": self.config.repository,
@@ -801,6 +805,7 @@ class Loop:
                         "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
                         "UB_AGENTS_CONTEXT": str(context_path),
                         "UB_AGENTS_READ_CONFIG": str(read_config_path),
+                        "UB_AGENTS_RETROSPECTIVE_CONFIG": str(retrospective_config_path),
                         "UB_AGENTS_REPORT": report_command,
                         "UB_AGENTS_SCRATCH": str(scratch.path), "TMPDIR": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
@@ -840,6 +845,7 @@ class Loop:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             elif outcome["status"] != "success":
+                self.validate_failure_report(lease, outcome, lease)
                 result, summary = outcome["status"], outcome["summary"]
                 effect = "unchanged" if result == "blocked" else "failure"
             else:
@@ -908,7 +914,7 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         if outcome is None:
             self.coordinator.update(lease, unreported=True)
-            outcome = self.coordinator.report(lease, result, summary)
+            outcome = self.coordinator.report(lease, result, summary, agent_report=False)
         if denials and any(outcome.get(key) != value for key, value in denials.items()):
             self.coordinator.update_outcome(lease, outcome, **denials)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
@@ -931,6 +937,9 @@ class Loop:
     def prompt_for(self, plan, lease, context, instructions):
         earlier = context["earlier_branches"]
         report_command = context["report_command"]
+        retrospective = (f"Post a retrospective with {report_command} retrospective --body-file PATH "
+                         "only when the run lost something and you can name the change that would have prevented it.\n"
+                         if plan.agent.retrospectives is not None else "")
         continuation = (f"Earlier runs of this issue recorded branches {json.dumps(earlier)}; check each with "
                         "gh pr list --state open --head BRANCH and continue an open draft PR there instead "
                         "of opening another. " if earlier else "")
@@ -950,6 +959,7 @@ class Loop:
                 f"Use {report_command} report wherever project instructions say `ub-agents report`. "
                 "This command runs the launcher's own installation; write it literally in shell commands.\n"
                 f"Read other issues and PRs with {report_command} read N, using the launcher's input policy.\n"
+                f"{retrospective}"
                 "Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, "
                 "not directly under /tmp. TMPDIR points to the same directory. Its absolute "
                 "path is the context's scratch value; use that path directly rather than "
@@ -966,7 +976,13 @@ class Loop:
                 "Apply only project-authorized handoffs and permissions. "
                 f"Declared outcomes: {json.dumps(lease['outcomes'], sort_keys=True)}. "
                 f"Report one with {report_command} report --outcome NAME --summary 'what happened' "
-                "[--handoff PR_NUMBER]. Do not change workflow labels "
+                "[--handoff PR_NUMBER] [--action 'one concise ask'] (repeat as needed). "
+                "Stop reports (--status blocked or outcomes adding a configured stop label) require --action: "
+                "repeat it for each independent action or decision, one non-empty line of at most 300 characters "
+                "per ask (8000 total). Each sentence must be understandable on its own: name who can act, "
+                "the step or choices, recommendation and essential consequence. Put full supporting reasoning, "
+                "technical evidence, diagnostics and links in --summary; notices collapse them by default. "
+                "Do not change workflow labels "
                 f"(trigger, transition or stop labels): {json.dumps(sorted(workflow_labels))}. "
                 "Use --status retry|blocked for failures; those change no labels. "
                 f"{continuation}"
@@ -1034,7 +1050,20 @@ class Loop:
         transition = resolve_transition(transition, declaration)
         if {k: v for k, v in transition.items() if k != "started"} != declaration:
             raise ValidationError("Reported transition does not match the running agent's declaration")
+        try:
+            validate_report_action(source, outcome)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         return transition
+
+    def validate_failure_report(self, lease, outcome, source):
+        try:
+            if outcome.get("rejected"):
+                raise ValueError(outcome["rejected"])
+            validate_report_action(source, outcome)
+        except ValueError as exc:
+            self.coordinator.update_outcome(lease, outcome, rejected=str(exc), attempt_effect="failure")
+            raise ValidationError(str(exc)) from exc
 
     def apply_transition(self, lease, outcome):
         transition = self.validate_report(outcome)
@@ -1094,6 +1123,11 @@ class Loop:
             raise LostOwnership("Recovered outcome disappeared after claiming")
         result, summary = outcome["status"], outcome["summary"]
         effect = "unchanged" if result == "blocked" else "failure"
+        if result != "success":
+            try:
+                self.validate_failure_report(recovery, outcome, source)
+            except ValidationError as exc:
+                result, summary, effect = "blocked", f"Recorded outcome cannot be recovered: {exc}", "failure"
         if result == "success":
             # Validate against the originally assigned candidate, not today's head.
             original = replace(plan, item=replace(plan.item, head=outcome["assignment_sha"]))
@@ -1110,7 +1144,8 @@ class Loop:
                 result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
                 self.coordinator.assert_owned(recovery)
                 self.coordinator.update(recovery, result=result, summary=summary, attempt_effect=effect)
-        verdict = {"result": result, "attempt_effect": effect, "summary": f"Recovered {outcome['run']}: {summary}"}
+        recovery_summary = f"Recovered {outcome['run']}:\n\n{summary}"
+        verdict = {"result": result, "attempt_effect": effect, "summary": recovery_summary}
         # Count the source using this verdict even when its lease is unexpired.
         # Persist the classification and backoff together before report/release,
         # just as the execution supervisor does, so a crash loses neither.
@@ -1121,8 +1156,8 @@ class Loop:
         self.coordinator.assert_owned(recovery)
         self.coordinator.update(recovery, **verdict,
                                 retry_after=iso(self.coordinator.clock() + delay) if delay else None)
-        self.coordinator.report(recovery, result, f"Recovered {outcome['run']}: {summary}")
-        self.coordinator.release(recovery, result, f"Recovered {outcome['run']}: {summary}", delay,
+        self.coordinator.report(recovery, result, recovery_summary, agent_report=False)
+        self.coordinator.release(recovery, result, recovery_summary, delay,
                                  attempt_effect=effect, parking_outcome=outcome)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True

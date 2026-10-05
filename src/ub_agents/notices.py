@@ -1,13 +1,23 @@
 """Advisory comment presentation, isolated from coordination authority."""
 
 import json
+import re
 import socket
 
 from .errors import LostOwnership
-from .records import MARKER, declared_transition, lease_by_id, records, resolve_transition, same_handoff
+from .records import MARKER, declared_transition, lease_by_id, records, reported_actions, resolve_transition, same_handoff
 from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
+
+
+def action_body(marker, actions, details):
+    # Asks are plain sentences. Preserve Markdown only in supporting details.
+    asks = [re.sub(r"([\\`*_\[\]&<>~])", r"\\\1", ask.strip()) for ask in actions]
+    lead = f"**{asks[0]}**" if len(asks) == 1 else "\n".join(f"- **{ask}**" for ask in asks)
+    return (f"{marker}\n**Action needed**\n\n{lead}\n\n"
+            "<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n"
+            f"{details}\n\n</details>\n")
 
 
 class Notices:
@@ -90,18 +100,21 @@ class Notices:
         labels = ", ".join(f"`{label}`" for label in stops)
         trigger_text = ", ".join(f"`{label}`" for label in triggers)
         if check.gate == "start":
+            action = "Maintainer: authorize starting this item and clear its human hold."
             resume = (f"A maintainer must remove the stop label(s) {labels} and re-apply a trigger label: "
                       f"{trigger_text}. An approval alone does not start work.")
         elif check.gate == "head":
+            action = "Maintainer: approve this PR's current head and clear its human hold."
             resume = (f"A maintainer must run `ub-agents approve {number}` or submit an approving "
                       f"review of the current head; then remove the stop label(s) {labels}. "
                       "Re-applying a trigger label does not approve a head.")
         else:
+            action = "Maintainer: approve the updated input and clear its human hold."
             resume = (f"A maintainer must re-apply a trigger label ({trigger_text}), or run "
                       f"`ub-agents approve {number}`; then remove the stop label(s) {labels}.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
         self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
-            number, f"{marker}\n**Action needed**\n\n{check.reason}\n\n{resume}\n", marker))
+            number, action_body(marker, [action], f"{check.reason}\n\n{resume}"), marker))
 
     def superseded(self, number, agent, run):
         def minimize_records():
@@ -219,10 +232,15 @@ class Notices:
             resume = f"After resolving the blocker, run:\n\n```sh\n{command}\n```"
             if triggers:
                 resume += f"\n\nRestore a matching trigger if absent: {triggers}; remove any stop label."
+        resume = (f"Use the following steps only when resuming the same role (`{lease['agent']}`). "
+                  "If a different role must act next, follow the project's documented correction "
+                  f"or handoff route instead.\n\n{resume}")
         extra = ""
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
-        reason = " ".join(summary.split())
-        self.post_once(number,
-            f"{marker}\n**Action needed**\n\n{reason}\n\n{evidence}\n\n{links}{extra}\n\n{resume}\n", marker)
+        actions = reported_actions(outcome) if outcome and not outcome.get("rejected") else []
+        if not actions:
+            actions = ["Maintainer: review the blocker details and decide the next step."]
+        self.post_once(number, action_body(marker, actions,
+            f"{summary.strip()}\n\n{evidence}\n\n{links}{extra}\n\n{resume}"), marker)

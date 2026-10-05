@@ -402,7 +402,7 @@ class CoordinationTests(unittest.TestCase):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         loop.coordinator = self.co
         lease = self.start()
-        self.co.report(lease, "blocked", "Needs human decision")
+        self.co.report(lease, "blocked", "Needs human decision", action="Maintainer: choose A or B; recommend A.")
         self.now += 61
         self.assertTrue(loop.recover(self.plan()))
         self.assertEqual(self.plan().state, "blocked")
@@ -425,7 +425,7 @@ class CoordinationTests(unittest.TestCase):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         loop.coordinator = self.co
         lease = self.start()
-        self.co.report(lease, "blocked", "Need a decision")
+        self.co.report(lease, "blocked", "Need a decision", action="Maintainer: choose A or B; recommend A.")
         self.co.release(lease, "blocked", "Need a decision")
         comment = self.github.store[1][0]["body"]
         written = json.loads(comment.rsplit("```json\n", 1)[1].split("\n```", 1)[0])

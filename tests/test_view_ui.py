@@ -198,7 +198,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tree.region.width, 74)
             self.assertFalse(app.query_one(ItemTabs).display)
             self.assertEqual(tree._get_label_region(app.nodes[app.selected]._line).height, 1)
-            self.assertEqual(tree.virtual_size.height, 4)  # two headings, two rows
+            self.assertEqual(tree.virtual_size.height, 5)  # Two headings, two rows, one separator.
             line = tree.render_line(app.nodes[app.selected]._line - tree.scroll_offset.y).text
             self.assertIn('#114', line)
             self.assertIn('…', line)
@@ -1995,19 +1995,23 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             tree, recent = app.query_one('#work', Tree), app.query_one(RecentActivity)
-            for size in ((110, 32), (140, 44)):
+            for size in ((110, 32), (140, 44), (80, 24)):
                 await pilot.resize_terminal(*size)
                 await pilot.pause()
                 boundary = recent.region.y
                 self.assertLessEqual(abs(tree.size.height - recent.size.height), 1)
                 self.assertEqual(tree.region.bottom, boundary)
                 self.state['latest_pass']['rows'] = [
+                    {'item': 50, 'agent': 'worker', 'state': 'blocked'}] + [
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
                 self.path.write_text(json.dumps(self.state))
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
                                  len(app.groups['Eligible'].children) == 49 and
                                  tree.virtual_size.height > tree.size.height)
+                tree.get_node_at_line(0)
+                separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
+                self.assertTrue(separators <= tree._spacer_lines)
                 tree.scroll_end(animate=False, immediate=True)
                 await pilot.pause()
                 self.assertGreater(tree.scroll_y, 0)
@@ -2226,13 +2230,45 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
             tree.get_node_at_line(0)
-            self.assertEqual(tree.virtual_size.height, 15)
+            self.assertEqual(tree.virtual_size.height, 17)
             groups = list(app.groups.values())
             for index, group in enumerate(groups):
                 self.assertEqual(group.children[0]._line, group._line + 1)
                 if index + 1 < len(groups):
-                    self.assertEqual(groups[index + 1]._line, group.children[-1]._line + 2)
+                    self.assertEqual(groups[index + 1]._line, group.children[-1]._line + 3)
+            async def check_heading_separators():
+                tree.get_node_at_line(0)
+                self.assertEqual(app.groups['Running']._line, 0)
+                for index, name in enumerate(('Needs attention', 'Eligible'), 1):
+                    heading = app.groups[name]
+                    preceding = groups[index - 1].children[-1]
+                    gap = heading._line - 1
+                    self.assertEqual(gap, preceding._line + tree.row_height)
+                    self.assertIsNone(tree.get_node_at_line(gap))
+                    self.assertIsNone(tree._get_label_region(gap))
+                    tree.move_cursor(preceding)
+                    await pilot.press('down')
+                    self.assertIs(tree.cursor_node, heading)
+                    await pilot.press('up')
+                    self.assertIs(tree.cursor_node, preceding)
+                    tree.scroll_to(y=max(0, gap - tree.size.height + 2), animate=False, immediate=True)
+                    await pilot.pause()
+                    await pilot.hover('#work', offset=(2, gap - tree.scroll_offset.y))
+                    blank = tree.render_line(gap - tree.scroll_offset.y)
+                    self.assertEqual(blank.text.strip(), '')
+                    selection = tree.get_component_rich_style('tree--cursor', partial=False).bgcolor
+                    self.assertTrue(all(not segment.style.meta and segment.style.bgcolor != selection
+                                        for segment in blank))
+                    selected, cursor = app.selected, tree.cursor_node
+                    await pilot.click('#work', offset=(2, gap - tree.scroll_offset.y))
+                    self.assertEqual(app.selected, selected)
+                    self.assertIs(tree.cursor_node, cursor)
+                    await pilot.press('down', 'down')
+                    self.assertIs(tree.cursor_node, heading.children[0])
+                    await pilot.press('up', 'up')
+                    self.assertIs(tree.cursor_node, preceding)
             tree.focus()
+            await check_heading_separators()
             for name in ('Needs attention', 'Eligible'):
                 first, second = app.groups[name].children
                 self.assertEqual(second._line, first._line + 3)
@@ -2273,11 +2309,77 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
             tree.get_node_at_line(0)
-            self.assertEqual(tree.virtual_size.height, 8)  # Three headings, five single-line items.
-            self.assertTrue(all(tree.get_node_at_line(line) is not None for line in range(8)))
+            self.assertEqual(tree.virtual_size.height, 10)  # Three headings, five items, two separators.
+            self.assertEqual(tree._spacer_lines, {app.groups[name]._line - 1
+                                               for name in ('Needs attention', 'Eligible')})
             first, second = app.groups['Eligible'].children
             self.assertEqual(second._line, first._line + 1)
             self.assertEqual(tree._get_label_region(first._line).height, 1)
+            await check_heading_separators()
+            tree.move_cursor(second)
+            await pilot.press('down')
+            self.assertIs(app.focused, recent)
+            await pilot.press('up')
+            self.assertIs(app.focused, tree)
+            self.assertIs(tree.cursor_node, second)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_heading_separators_follow_visible_sections_and_idle_across_refresh_and_resize(self):
+        self.state['assignment'] = None
+        eligible = [{'item': 22, 'agent': 'worker', 'state': 'ready'}]
+        attention = [{'item': 20, 'agent': 'worker', 'state': 'blocked'}]
+        self.state['latest_pass'] = {'state': 'complete', 'rows': eligible}
+        self.path.write_text(json.dumps(self.state))
+        app = View(self.root, self.path)
+        async with app.run_test(size=(140, 44)) as pilot:
+            await self.ready(app, pilot, lambda: 'plan:22' in app.nodes)
+            tree = app.query_one(Tree)
+            app.select('plan:22')
+            tree.focus()
+            tree.move_cursor(app.nodes['plan:22'])
+            for size in ((140, 44), (80, 24), (140, 44)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause()
+                for displayed in (False, True, False):
+                    self.state['latest_pass']['rows'] = attention + eligible if displayed else eligible
+                    self.path.write_text(json.dumps(self.state))
+                    await self.ready(app, pilot, lambda: ('Needs attention' in app.groups) == displayed)
+                    tree.get_node_at_line(0)
+                    names = ['Running', 'Needs attention', 'Eligible'] if displayed else ['Running', 'Eligible']
+                    self.assertEqual([node.label.plain.split(' · ')[0] for node in tree.root.children], names)
+                    self.assertEqual(app.selected, 'plan:22')
+                    self.assertIs(tree.cursor_node, app.nodes['plan:22'])
+                    self.assertIs(app.focused, tree)
+                    self.assertEqual(app.groups['Running']._line, 0)
+                    self.assertEqual(app.idle_node._line, 1)
+                    self.assertEqual(app.groups[names[1]]._line, 3)
+                    self.assertIsNone(tree.get_node_at_line(2))
+                    self.assertEqual(tree._spacer_lines, {app.groups[name]._line - 1 for name in names[1:]})
+                    height = 4 + tree.row_height + (2 + tree.row_height if displayed else 0)
+                    self.assertEqual(tree.virtual_size.height, height)
+                    # Repeated snapshot refreshes rebuild from logical nodes, not prior spacers.
+                    for _ in range(2):
+                        app.populate(list(app.rows.values()))
+                        await pilot.pause()
+                        tree.get_node_at_line(0)
+                        self.assertEqual(tree.virtual_size.height, height)
+                        self.assertEqual(tree._spacer_lines, {app.groups[name]._line - 1 for name in names[1:]})
+                        self.assertEqual(app.selected, 'plan:22')
+                        self.assertIs(tree.cursor_node, app.nodes['plan:22'])
+                # With both optional sections hidden, only Running and its idle line remain.
+                app.select('outcome:previous-run')
+                self.state['latest_pass']['rows'] = []
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
+                tree.get_node_at_line(0)
+                self.assertEqual(tree.virtual_size.height, 2)
+                self.assertEqual(tree._spacer_lines, set())
+                self.state['latest_pass']['rows'] = eligible
+                self.path.write_text(json.dumps(self.state))
+                await self.ready(app, pilot, lambda: 'Eligible' in app.groups)
+                app.select('plan:22')
+                tree.move_cursor(app.nodes['plan:22'])
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -2299,7 +2401,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             tree = app.query_one('#work', Tree)
             tree.get_node_at_line(0)
-            self.assertEqual(tree.virtual_size.height, 15)  # Three headings, five items, two gaps.
+            self.assertEqual(tree.virtual_size.height, 17)  # Three headings, five items, four gaps.
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
@@ -2385,7 +2487,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             nodes = tuple(app.nodes.items())
             lines = tree._tree_lines_cached
             position = (app.selected, tree.cursor_node, tree.scroll_offset, app.focused, tree.virtual_size)
-            self.assertEqual(tree.virtual_size.height, 66)  # Two headings, 22 items, 20 gaps.
+            self.assertEqual(tree.virtual_size.height, 67)  # Two headings, 22 items, 21 gaps.
             def displayed(key=own, detail=False):
                 line = app.nodes[key]._line + int(detail) - tree.scroll_offset.y
                 strips = app.screen._compositor.render_strips()

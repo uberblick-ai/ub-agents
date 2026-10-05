@@ -16,7 +16,7 @@ from ub_agents.doctor import diagnose, render
 from ub_agents.errors import AgentError
 from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
-from tests.support import DoctorGitHub, RecordingRunner, issue, isolate_observations
+from tests.support import DoctorGitHub, RecordingDiscussionRunner, RecordingRunner, issue, isolate_observations
 
 
 class DoctorTests(unittest.TestCase):
@@ -84,6 +84,49 @@ agents:
         code, output = self.cli(True)
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
+
+    def test_retrospective_board_is_checked_per_agent_without_writes(self):
+        self.path.write_text(self.path.read_text() + "    retrospectives: 203\n")
+        runner = RecordingDiscussionRunner()
+        self.github.discussion = GitHub("org/project", runner).discussion
+        result = self.diagnose()
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.one(result, "github-retrospectives")["status"], "ok")
+        for discussion in (None, {"id": "foreign", "url": "https://github.com/stranger/repo/discussions/203"}):
+            with self.subTest(discussion=discussion):
+                runner.discussion = discussion
+                result = self.diagnose()
+                self.assertFalse(result["ok"])
+                check = self.one(result, "github-retrospectives")
+                self.assertEqual((check["status"], check["required"], check["agent"]), ("fail", True, "worker"))
+                self.assertIn("worker: discussion #203 in org/project", check["message"])
+                self.assertEqual(self.cli()[0], 1)
+        runner.lookup_error = "Lookup unavailable"
+        self.assertEqual(self.one(self.diagnose(), "github-retrospectives")["status"], "fail")
+        self.missing.add("gh")
+        calls = len(runner.calls)
+        self.assertEqual(self.one(self.diagnose(), "github-retrospectives")["status"], "skip")
+        self.assertEqual(len(runner.calls), calls)
+        self.assertEqual(runner.writes, [])
+
+    def test_doctor_checks_each_configured_agent_board(self):
+        self.path.write_text(self.path.read_text() + '''    retrospectives: 203
+  reviewer:
+    command: [git, --version]
+    trigger: ready
+    outcomes: {done: {}}
+    retrospectives: 204
+''')
+        runner = RecordingDiscussionRunner()
+        self.github.discussion = GitHub("org/project", runner).discussion
+        result = self.diagnose()
+        checks = self.checks(result, "github-retrospectives")
+        self.assertEqual([(check["agent"], check["status"]) for check in checks],
+                         [("worker", "ok"), ("reviewer", "fail")])
+        self.assertIn("reviewer: discussion #204", checks[1]["message"])
+        self.assertEqual([json.loads(kwargs["input"])["variables"]["number"] for _, kwargs in runner.calls],
+                         [203, 204])
+        self.assertEqual(runner.writes, [])
 
     def test_healthy_default_has_one_summary_per_area_and_deduplicates_shared_labels(self):
         worker = self.path.read_text().split("  worker:\n", 1)[1].replace(

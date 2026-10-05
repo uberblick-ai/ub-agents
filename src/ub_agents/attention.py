@@ -4,7 +4,7 @@ from datetime import datetime
 import re
 import time
 
-from .records import lease_summary
+from .records import lease_summary, reported_actions
 
 
 def stamp(value):
@@ -37,8 +37,15 @@ def notice_summary(body):
         lines.pop(0)
     if lines and lines[0] == '**Action needed**':
         lines.pop(0)
-    # Notices put the parking summary first, followed by evidence and retry steps.
-    return short_reason('\n'.join(lines).strip().split('\n\n', 1)[0])
+    # New notices lead with one bold ask per bullet; older notices have a reason.
+    reason = '\n'.join(lines).strip().split('\n\n', 1)[0]
+    asks = reason.splitlines()
+    if asks and all(line.startswith('- **') and line.endswith('**') for line in asks):
+        reason = '; '.join(line[4:-2] for line in asks)
+    elif reason.startswith('**') and reason.endswith('**'):
+        reason = reason[2:-2]
+    reason = re.sub(r'\\([\\`*_\[\]&<>~])', r'\1', reason)
+    return short_reason(reason)
 
 
 def attention_details(plan, stop_labels, notice):
@@ -57,7 +64,8 @@ def attention_details(plan, stop_labels, notice):
                 and set(r.get('transition', {}).get('add', ())).intersection(present_stops)]
     if outcomes:
         outcome = max(outcomes, key=lambda r: r.get('id', 0))
-        details.update(waiting_since=outcome.get('created'), attention_reason=short_reason(outcome.get('summary')))
+        details.update(waiting_since=outcome.get('created'),
+                       attention_reason=short_reason('; '.join(reported_actions(outcome)) or outcome.get('summary')))
         return details
     if plan.approval_gate:
         details['attention_reason'] = short_reason(plan.approval_gate.reason)
@@ -66,7 +74,10 @@ def attention_details(plan, stop_labels, notice):
                 and r['kind'] == 'lease' and r.get('state') == 'released']
     if finished:
         run = max(finished, key=lambda r: (stamp(r.get('expires')) or 0, r.get('id', 0)))
-        details['attention_reason'] = short_reason(lease_summary(plan.history, run))
+        source_id = run.get('recovered_lease_id') or run.get('id')
+        outcome = next((r for r in plan.history if r['kind'] == 'outcome'
+                        and source_id is not None and r.get('lease_id') == source_id and not r.get('rejected')), {})
+        details['attention_reason'] = short_reason('; '.join(reported_actions(outcome)) or lease_summary(plan.history, run))
         details['waiting_since'] = run.get('expires')
     return details
 

@@ -43,7 +43,9 @@ class TransitionTests(unittest.TestCase):
         loop = loop or self.loop
         lease = next(r for r in reversed(loop.coordinator.history(1)) if r['kind'] == 'lease')
         return loop.coordinator.report(lease, status, 'Checks passed', handoff,
-                                       outcome=name if status == 'success' else None)
+                                       outcome=name if status == 'success' else None,
+                                       action='Maintainer: merge this PR under project policy.'
+                                       if status == 'blocked' or name == 'maintainer' else None)
 
     def execute(self, callback=None, handoff=None, status='success', name='handed-off', exit_code=0):
         def supervise(*args, **kwargs):

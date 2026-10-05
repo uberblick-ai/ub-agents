@@ -30,8 +30,8 @@ QUERY = '''query($owner:String!, $repo:String!, $number:Int!) {
 COMMENTS_QUERY = '''query($owner:String!, $repo:String!, $number:Int!) {
   repository(owner:$owner, name:$repo) {
     issueOrPullRequest(number:$number) {
-      ... on Issue { comments(last:100) { nodes { author { login } createdAt body } } }
-      ... on PullRequest { comments(last:100) { nodes { author { login } createdAt body } } }
+      ... on Issue { comments(last:100) { nodes { id author { login } createdAt body } } }
+      ... on PullRequest { comments(last:100) { nodes { id author { login } createdAt body } } }
     }
   }
 }'''
@@ -109,7 +109,8 @@ def parse_response(stdout, stderr, code, now, kind='issue', authors=None):
                 return Response(error=reason)
             comment = max(candidates, key=lambda c: stamp(c['createdAt']))
             return Response(action=ActionComment(body=comment_body(comment['body']), available=True,
-                                                 created_at=comment['createdAt'], author=comment['author']['login']))
+                                                 created_at=comment['createdAt'], author=comment['author']['login'],
+                                                 comment_id=str(comment.get('id') or '')))
         if not isinstance(item['title'], str) or not isinstance(item['body'], str):
             raise ValueError('Invalid description')
         return Response(item['title'], item['body'])
