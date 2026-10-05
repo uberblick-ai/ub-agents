@@ -183,6 +183,8 @@ class RetrospectiveTests(unittest.TestCase):
                         loop.coordinator.report(loop.coordinator.history(1)[-1], "blocked", "Verified")
                         return 0
                     self.runner.calls.clear()
-                    with patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                    # Plans need the runtime CLI on PATH; this machine may not have it.
+                    with patch("ub_agents.loop.supervise", side_effect=execute) as executed, \
+                            patch("ub_agents.coordination.shutil.which", return_value="/tools/runtime"):
                         self.assertTrue(loop.tick())
                     executed.assert_called_once()
