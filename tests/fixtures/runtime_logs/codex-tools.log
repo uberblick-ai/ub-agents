@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"<thread-id>"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll call the fixture echo tool once with each requested value.\n"}}
+{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"fixture","tool":"echo","arguments":{"fail":false},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"fixture","tool":"echo","arguments":{"fail":false},"result":{"content":[{"type":"text","text":"owned tool success"}],"structured_content":null},"error":null,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_2","type":"mcp_tool_call","server":"fixture","tool":"echo","arguments":{"fail":true},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"mcp_tool_call","server":"fixture","tool":"echo","arguments":{"fail":true},"result":{"content":[{"type":"text","text":"owned tool failure"}],"structured_content":null},"error":null,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"Recording complete."}}
+{"type":"turn.completed","usage":{"input_tokens":44468,"cached_input_tokens":39040,"cache_write_input_tokens":0,"output_tokens":102,"reasoning_output_tokens":0}}

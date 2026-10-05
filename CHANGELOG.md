@@ -12,6 +12,7 @@ notes are copied from that section.
 - The terminal Work pane grows with terminal width at 110×32 and above, making more of each item title and run line visible (#213).
 - Quitting an attached terminal view with `q` interrupts the launcher and cleans up owned runs, matching Ctrl-C (#182).
 - The terminal Work pane hides dependency and milestone waits, with retry backoff and paused-runtime plans following ready work in Eligible (#173).
+- Codex JSON run logs show compact assistant messages, command and tool activity, failures and completion in the terminal view (#126).
 - Running shows only this launcher's assignment or an idle placeholder; other launchers' claims are omitted from the terminal Work pane (#172).
 - The terminal view uses a consistent theme, rounded pane titles, colored work sections, numbered tabs, a formatted/raw indicator and a repository window title (#164).
 

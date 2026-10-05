@@ -257,10 +257,10 @@ class ReadingTests(unittest.TestCase):
         self.assertTrue(all(e.capture is None for e in snapshot.entries[:-1]))
         self.assertEqual(snapshot.entries[-1].capture, NOW.isoformat())
 
-    def test_other_runtimes_always_remain_raw_including_current_codex_json(self):
+    def test_other_runtimes_always_remain_raw_including_structured_json(self):
         data = (record() + b'{"type":"item.completed","item":{"type":"agent_message","text":"hello"}}\n'
                 b'{"type":"error","message":"Codex error"}\n' + b"ordinary diagnostic\n")
-        for runtime in ("codex", "command", "unknown"):
+        for runtime in ("command", "unknown"):
             self.path.write_bytes(data)
             entries = self.drain(self.reader(runtime)).entries
             self.assertEqual(len(entries), 4)

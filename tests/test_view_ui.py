@@ -781,12 +781,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_only_applicable_log_notices_remain_visible(self):
-        self.path, self.log, self.state = fixture(self.root, runtime='codex:synthetic-model:high')
+        self.path, self.log, self.state = fixture(self.root, runtime='command:synthetic-model:high')
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             note = app.query_one('#log_note', Static)
-            self.assertEqual(note.render().plain, 'codex: plain/raw fallback')
+            self.assertEqual(note.render().plain, 'command: plain/raw fallback')
             self.log.write_bytes(b'unfinished record')
             await self.ready(app, pilot, lambda: 'Unfinished:' in note.render().plain)
             self.assertIn('plain/raw fallback', note.render().plain)
@@ -882,7 +882,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_notice_is_one_highlighted_line_only_for_exceptional_log_states(self):
-        self.path, self.log, self.state = fixture(self.root, runtime='codex:model:high')
+        self.path, self.log, self.state = fixture(self.root, runtime='command:model:high')
         self.log.write_bytes(b'unfinished raw fragment')
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
