@@ -332,7 +332,7 @@ class Observations:
         self.emit()
 
     def begin_pass(self):
-        # Keep rows and histories until replanned, observed ineligible or finished.
+        # Keep rows and histories until replanned, reconciled by discovery or finished.
         # Track its plans separately to apply the new order only on completion.
         self.previous_histories = dict(self.state["histories"])
         rows = self.state["latest_pass"]["rows"] if self.state["latest_pass"] else []
@@ -346,10 +346,11 @@ class Observations:
         self.activity("polling")
 
     def discovered(self, items, agents, all_open=False):
-        """Drop ineligible carried rows using already-read discovery inputs.
+        """Drop closed carried rows and untriggered Eligible rows from read inputs.
 
         A full repository open-item list also observes missing items as closed.
-        Item reads only reconcile that item. Plans reached in this pass always
+        Item reads only reconcile that item. Open Needs attention rows remain
+        until replanned or the pass completes. Plans reached in this pass always
         take precedence, including recovery for closed or untriggered items.
         """
         latest = self.state["latest_pass"]
@@ -360,6 +361,8 @@ class Observations:
         removed = {(row["item"], row["agent"]) for row in latest["rows"]
                    if (row["item"], row["agent"]) in self.kept_keys
                    and (row["item"] in items or all_open)
+                   and (row["state"] in {"ready", "recover", "backoff", "waiting"}
+                        or row["item"] not in items or items[row["item"]].state != "open")
                    and row["agent"] not in matched.get(row["item"], ())}
         if not removed:
             return

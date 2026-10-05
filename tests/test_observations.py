@@ -222,6 +222,66 @@ class ObservationTests(unittest.TestCase):
                 self.assertFalse(any(name in {'item', 'comments', 'timeline', 'issue_content'}
                                      and args[0] in {3, 4} for name, args in github.reads))
 
+    def test_partial_pass_keeps_needs_human_handoff_before_reaching_it(self):
+        self.cfg = config(self.root, agent(self.root, outcomes={
+            'done': {'add': ('needs-human',), 'remove': ()}}))
+        self.observer = Observations(self.cfg, 'operator', None, self.memory)
+        github = PollGitHub(issue(), pr(labels=(), body='Independent change'))
+        loop = self.loop(github)
+        def finish(*args, **kwargs):
+            lease = loop.coordinator.history(1)[0]
+            loop.coordinator.report(lease, 'success', 'Human follow-up needed', outcome='done')
+            return 0
+        with patch('ub_agents.loop.supervise', side_effect=finish):
+            self.assertTrue(loop.tick())
+        self.assertEqual(github.items[1].labels, frozenset({'needs-human'}))
+        self.assertFalse(loop.tick())
+        previous = deepcopy(self.memory.snapshots[-1])
+        self.assertEqual([(row['item'], row['state']) for row in previous['latest_pass']['rows']],
+                         [(1, 'parked')])
+        github.change(2, labels=frozenset({'needs-changes'}))
+        github.reads.clear()
+        # Repeated partial passes must keep the handoff, its details and history.
+        for _ in range(2):
+            with patch.object(loop, 'execute', return_value=True) as execute:
+                self.assertTrue(loop.tick())
+            self.assertEqual(execute.call_args.args[0].item.number, 2)
+            snapshot = self.memory.snapshots[-1]
+            self.assertEqual(snapshot['latest_pass']['state'], 'partial')
+            self.assertEqual(snapshot['latest_pass']['rows'][0], previous['latest_pass']['rows'][0])
+            self.assertEqual(snapshot['histories']['1'], previous['histories']['1'])
+            self.assertIn((1, 'worker'), self.observer.kept_keys)
+            session = Session(self.root / 'launcher.json', snapshot)
+            self.assertEqual([(row.item, row.state) for row in work_rows(session, self.root)
+                              if row.group == 'Needs attention'], [(1, 'parked')])
+        self.assertFalse(any(name in {'item', 'comments', 'timeline', 'issue_content'}
+                             and args[0] == 1 for name, args in github.reads))
+
+    def test_discovery_only_drops_untriggered_eligible_or_closed_carried_rows(self):
+        for state, kept_open in (('ready', False), ('recover', False), ('backoff', False),
+                                 ('waiting', False), ('parked', True), ('blocked', True),
+                                 ('owned', True), ('failed', True)):
+            for read in ('open', 'closed', 'missing'):
+                with self.subTest(state=state, read=read):
+                    self.observer = Observations(self.cfg, 'operator', None, self.memory)
+                    self.observer.begin_pass()
+                    self.observer.plan(Plan(issue(), self.cfg.agents[0], None, state, 'Reason', 1))
+                    self.observer.complete_pass()
+                    previous = deepcopy(self.memory.snapshots[-1])
+                    self.observer.begin_pass()
+                    items = {} if read == 'missing' else {
+                        1: replace(issue(), state=read, labels=frozenset())}
+                    self.observer.discovered(items, self.cfg.agents, all_open=read == 'missing')
+                    snapshot = self.memory.snapshots[-1]
+                    if not kept_open or read != 'open':
+                        self.assertEqual(snapshot['latest_pass']['rows'], [])
+                        self.assertEqual(snapshot['histories'], {})
+                        self.assertEqual(self.observer.kept_keys, set())
+                    else:
+                        self.assertEqual(snapshot['latest_pass']['rows'], previous['latest_pass']['rows'])
+                        self.assertEqual(snapshot['histories'], previous['histories'])
+                        self.assertEqual(self.observer.kept_keys, {(1, 'worker')})
+
     def test_partial_pass_drops_previous_trigger_agent_and_keeps_matching_agent(self):
         reviewer = agent(self.root, name='reviewer', kind='pr', triggers=('needs-review',))
         integrator = agent(self.root, name='integrator', kind='pr', triggers=('ready-to-merge',))
