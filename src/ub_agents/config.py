@@ -183,6 +183,7 @@ class Config:
     runtime_updates: RuntimeUpdates | None = None
     launchers: tuple[str, ...] | None = None
     approvals: str | None = None
+    trusted_bots: tuple[str, ...] = ()
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
@@ -200,11 +201,12 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
-                          "runtime-updates", "launchers", "approvals"},
+                          "runtime-updates", "launchers", "approvals", "trusted-bots"},
                    "configuration")
     approvals = data.get("approvals")
     if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
         raise AgentError("approvals must be on or off")
+    trusted_bots = bot_logins(data.get("trusted-bots", []))
     launchers = None
     if "launchers" in data:
         launchers = argv(data["launchers"], "launchers")
@@ -354,7 +356,17 @@ def load_config(path):
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
-                  runtime_updates, launchers, approvals)
+                  runtime_updates, launchers, approvals, trusted_bots)
+
+
+def bot_logins(value):
+    if (not isinstance(value, list) or any(not isinstance(login, str) or
+            not re.fullmatch(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:\[bot\])?", login, re.IGNORECASE)
+            for login in value)):
+        raise AgentError("trusted-bots must be a list of GitHub account logins")
+    if len({login.casefold() for login in value}) != len(value):
+        raise AgentError("trusted-bots logins must be unique (case-insensitive)")
+    return tuple(value)
 
 
 def argv(value, where, empty=False):
