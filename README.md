@@ -334,6 +334,11 @@ An agent can also be a plain command instead of an LLM session.
 These are conventions, not built-ins. Rename them, drop review, or run a single agent
 that only investigates issues.
 
+Projects can explicitly authorize clean base refreshes in `AGENTS.md`; the starter
+leaves them off by default. An eligible integrator refresh returns through
+`needs-changes` for implementer adoption, checks and fresh review. See the
+[refresh route and cycle guard](docs/coordination.md#integrator-base-refresh).
+
 Your project contains:
 
 ```text

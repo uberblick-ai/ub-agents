@@ -1,8 +1,9 @@
 # Integrate according to project policy
 
 Read any shared repository guidance (such as AGENTS.md) and the project's acceptance
-and merge rules. Verify that every owed review and check applies to the current
-candidate SHA; old-head evidence is insufficient. Run the declared final checks.
+and merge rules. Consider the base refresh route below, then verify that every owed
+review and check applies to the candidate going through the normal gates; old-head
+evidence is insufficient. Run the declared final checks for that candidate.
 This run is a single, non-interactive session that is never resumed: ending your
 turn ends the run, so run checks in the foreground or wait for every background
 job to finish before ending your turn, and end the run with `ub-agents report`.
@@ -13,17 +14,85 @@ even with allowlisted commands; the tool result already shows each command's exi
 status. Insert the literal PR number from the assignment
 context's `assignment` and the literal full SHA from `candidate_sha` into commands;
 do not read them through shell variables. In the examples below, replace N with
-that number, SHA with that full SHA and PATH with the literal body-file path before
-running the command. Check the head with
-`gh pr view N --json headRefOid` as a separate command before
-merging or publishing a handoff; compare its output with `candidate_sha` and
-report blocked if they differ. Write any GitHub comment with the file-writing tool
+that number, SHA with that full SHA, NEW_SHA with your pushed full SHA, BASE with
+the PR's base branch, BASE_SHA with its fetched full SHA, BRANCH with the PR's head
+branch and PATH with the literal body-file path before running the command. Check
+the head with `gh pr view N --json headRefOid` as a separate command before merging
+or publishing a handoff; compare it with `candidate_sha`, except after your own
+successful refresh push, when the expected head is NEW_SHA. Report blocked if they
+differ. Write any GitHub comment with the file-writing tool
 to a file in your worktree and publish it with
 `gh pr comment N --body-file PATH` as a separate command.
 Run `ub-agents report` as its own final command, never chained to the head check,
 merge or comment publication. If an action is denied, retry with separate commands
 using literal values; if it still fails, report blocked with the evidence instead
 of ending without a report.
+
+## Base refresh before normal gates
+
+Try a refresh only when shared project guidance explicitly grants authority and
+all of these hold:
+
+- The fetched PR base is not an ancestor of the assigned `candidate_sha`.
+- The PR head still equals `candidate_sha`.
+- Your configured integrator allows the assigned head to change. Any
+  `different-runtime-from` setting disallows a refresh: `Loop.validate_success`
+  rejects an independent result when the assigned head moves.
+- You still own the assignment, and the project's branch restrictions allow a
+  force push to this PR's head branch in the same repository. Do not refresh fork
+  heads, the base branch itself, restricted branches that forbid the push, or
+  another owner's head or branch.
+- Trusted assignment `feedback` does not identify the assigned head as an
+  integrator refresh already adopted unchanged by the implementer.
+
+For the cycle guard, use the implementer's accepted `handed-off` feedback whose
+`candidate_sha` equals the assigned head and whose summary explicitly says it
+adopted a clean integrator base refresh unchanged, naming the old and refreshed
+SHAs. The integrator's own earlier outcome is not included in its feedback; the
+implementer carries this evidence forward. Never infer adoption from PR comments.
+If the base has moved again, do not publish another refresh of that adopted head.
+You may rebase locally to detect base conflicts, then restore the assigned head
+and continue the normal base gates. A head with new implementer commits is eligible
+again, subject to all the other conditions.
+
+Fetch the assigned PR's base (`git fetch origin refs/heads/BASE`), record its full
+SHA as BASE_SHA, and compare ancestry with
+`git merge-base --is-ancestor BASE_SHA SHA`. Confirm the PR's head branch and push
+restrictions, and check its head before attempting the rebase. Rebase only your own
+worktree at the assigned SHA with `git rebase BASE_SHA`; never resolve conflicts
+semantically. For a clean result, record the full new HEAD as NEW_SHA, recheck
+ownership and the PR head, then push only to the assigned PR branch:
+
+```sh
+git push --force-with-lease=refs/heads/BRANCH:SHA origin HEAD:refs/heads/BRANCH
+```
+
+The lease must name the full original `candidate_sha`; never widen it, retry with
+a newer expected head, or use an unqualified force push. After a successful push,
+check `gh pr view N --json headRefOid` against NEW_SHA, not the original
+`candidate_sha`. If it matches, end with the existing correction outcome:
+
+```sh
+ub-agents report --outcome changes-requested --summary "Clean base refresh: SHA -> NEW_SHA; implementer must adopt this head, run project checks and hand it off for fresh review."
+```
+
+`Coordinator.report` preserves the original `assignment_sha` and records the
+observed pushed head as `candidate_sha`. Do not merge the refreshed head or reuse
+old-head reviews in this run. The existing `needs-changes` route sends it to the
+implementer, then review of that exact head, then integration.
+
+When a refresh is ineligible, continue with the original assigned head through the
+normal gates below. If a rebase or push stops for any reason other than a real base
+conflict, abandon the refresh: abort any in-progress rebase with `git rebase --abort`
+and restore your worktree to the original SHA (`git switch --detach SHA` after a
+completed rebase). Do not change the remote head to undo a push or overwrite a
+concurrent change. Continue the original head's normal gates, including its head
+check; a moved head still blocks. For a real base conflict, abort and restore the
+assigned head, then report `changes-requested` with the conflict evidence for the
+implementer to repair. A stopped refresh alone is not a reason to request changes.
+Never reset human holds or claim PRs beyond your assignment for a refresh.
+
+## Normal integration gates
 
 If the project's merge policy authorizes this merge and its gates pass, merge exactly
 the assigned SHA with the project's merge method (for example `gh pr merge N

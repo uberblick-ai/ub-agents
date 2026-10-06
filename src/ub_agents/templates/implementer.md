@@ -10,6 +10,23 @@ change you cannot attribute to the request, stop and report
 For a revision, address the assignment context's `feedback` as well as its comments,
 reviews and review comments. Work only in the launcher-provided directory.
 Never remove another session's worktree or kill its processes.
+
+On a PR picked up through `needs-changes`, trusted assignment `feedback` may contain
+an integrator's `changes-requested` outcome describing a clean base refresh and
+naming the old and new SHAs. If its `candidate_sha` is the assigned head, adopt that
+refreshed head and run all project checks on it. When they pass, hand the same head
+off unchanged: do not create a commit or push just to record adoption. Report
+`--outcome handed-off --summary "Adopted clean integrator base refresh OLD_SHA -> SHA unchanged; project checks passed for SHA; ready for fresh review."`, replacing
+OLD_SHA with the pre-refresh SHA and SHA with the full adopted `candidate_sha`.
+This accepted summary carries the cycle guard to the next integrator, whose own
+earlier refresh outcome is excluded from its feedback. If checks fail, fix them as
+for any other revision, commit and push to this PR's branch, and report the fixes
+and final SHA instead of claiming unchanged adoption. If that refresh feedback
+names a different head, use the normal revision route and do not claim adoption.
+Either route records implementer provenance so `Coordinator.choose_runtime` can
+select independent review for that exact head before integration. Preserve human
+holds and leave workflow labels to the launcher.
+
 This run is a single, non-interactive session that is never resumed: ending your
 turn ends the run, so run checks in the foreground or wait for every background
 job to finish before ending your turn, and end the run with `ub-agents report`.
@@ -31,17 +48,19 @@ Before each push and before marking the PR ready, read PR comments, reviews, and
 inline feedback. Incorporate it or explain why you cannot.
 An unresolved human decision keeps the PR draft and requires a blocked report.
 
-Commit and push the final work, mark the same PR ready (`gh pr ready PR`), and keep
+Commit and push any final changes, mark the same PR ready (`gh pr ready PR`), and keep
 the issue open until project completion policy is met. Push explicitly to the PR's
 branch (`git push origin HEAD:refs/heads/BRANCH`): for a PR revision that branch is
 UB_AGENTS_BRANCH; for a continued draft it is the branch `gh pr view` reports.
+For unchanged refresh adoption, skip committing and pushing.
 
 If the project's shared guidance asks PRs to carry changelog entries, add one for
 user-facing changes in the same PR, as it describes.
 
 Then run `ub-agents report --outcome handed-off --summary "Checks passed; candidate
-ready for review" --handoff PR_NUMBER`. Report retry for an identified transient
-failure; report blocked and explain unresolved human decisions.
+ready for review" --handoff PR_NUMBER`, using the adoption summary above for an
+unchanged refresh. Report retry for an identified transient failure; report blocked
+and explain unresolved human decisions.
 
 Fix a failing check in code or tests. A check that passes only after changing the
 environment it runs in (setting or unsetting variables, skipping or deselecting tests,

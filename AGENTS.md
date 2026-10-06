@@ -101,6 +101,13 @@ issues and clear them.
 
 ## Merging
 
+The integrator may refresh the base of its assigned PR with a clean rebase and a
+lease-protected push under `.agents/integrator.md`. This authority applies only
+to the assigned PR while the integrator owns it, subject to its configuration and
+the head branch's push restrictions. A pushed refresh goes back to the implementer
+for adoption, checks and fresh review; it does not authorize merging that new head
+in the same run or changing merge permissions or human holds.
+
 The integrator squash-merges a PR once every owed review and check applies to its
 current head, with `--match-head-commit` set to the assigned SHA. The check is a green
 `signoff` status at that head from local CI. The integrator runs it: detach its own

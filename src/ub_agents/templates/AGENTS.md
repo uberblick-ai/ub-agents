@@ -41,6 +41,23 @@ Run the checks relevant to the assigned change and record the results.
 - The launcher owns the configured label transitions. Leave workflow labels to it
   when reporting a declared outcome.
 
+## Optional integrator base refresh
+
+The integrator has no authority to refresh PR bases by default. It continues to
+the normal integration gates without publishing a rebase.
+
+To opt in, a maintainer replaces the preceding default with an explicit grant,
+such as:
+
+> The integrator may refresh the base of its assigned PR with a clean rebase and
+> a lease-protected push under `.agents/integrator.md`, subject to its configuration
+> and the head branch's push restrictions. A pushed refresh must return to the
+> implementer for adoption, checks and fresh review before integration.
+
+This grant does not change merge authority or permit resetting human holds. See
+[the refresh route](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#integrator-base-refresh)
+for eligibility and the cycle guard.
+
 ## Human decisions
 
 Every notice requiring human action shows each independent ask as its own concise,

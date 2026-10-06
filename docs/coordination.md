@@ -384,6 +384,61 @@ live the PR waits, so one agent at a time touches the branch; the lowest live
 comment id wins a simultaneous claim. Earlier branches are retained for human
 recovery.
 
+## Integrator base refresh
+
+The repository integrator instructions permit a clean refresh of an assigned PR
+when `AGENTS.md` explicitly grants it. The starter leaves this authority off by
+default and shows an opt-in grant. This is a project instruction route using the
+existing outcomes, not a scheduler feature or a change to merge authority.
+
+A refresh is eligible only while the integrator owns the assignment, the fetched
+PR base is not an ancestor of the assigned `candidate_sha`, and the PR head still
+equals that SHA. Project restrictions must permit a force push to the head branch
+in the same repository; fork heads, another owner's branch, the base branch itself
+and branches that forbid the push are excluded. The integrator configuration must
+also permit head changes: any `different-runtime-from` setting makes the assigned
+head immutable for that run because `Loop.validate_success` rejects an independent
+result when it moves.
+
+The integrator rebases only its own worktree onto the fetched base. A clean result
+is pushed explicitly to the assigned PR branch with
+`--force-with-lease=refs/heads/BRANCH:SHA`, where SHA is the full original
+`candidate_sha`. It checks the PR head against its pushed SHA before reporting
+`changes-requested`; comparing against the old assignment head after its own push
+would produce a false mismatch. The summary identifies the clean base refresh and
+both full SHAs. `Coordinator.report` preserves `assignment_sha` and records the
+observed pushed head as `candidate_sha`. The integrator does not merge that new
+head in the same run.
+
+The existing `needs-changes` transition lets the implementer adopt the refreshed
+head and run all project checks. Passing checks lead to an unchanged `handed-off`
+report; adoption needs no new commit or push. Its summary explicitly says
+`Adopted clean integrator base refresh OLD_SHA -> SHA unchanged`, naming both full
+SHAs and the checks for the adopted head. Failing checks follow normal revision,
+with fixes, a push to the same branch and a summary identifying the final head.
+Either route records implementer provenance so `Coordinator.choose_runtime` can
+select independent review for that exact head. Fresh review and normal integration
+gates follow; earlier-head evidence cannot satisfy them.
+
+The cycle guard uses this implementer's accepted `handed-off` entry in trusted
+assignment `feedback`, with `candidate_sha` equal to the integrator's assigned
+head. The integrator's own earlier outcome is excluded from its feedback, so the
+implementer's unchanged-adoption summary carries the evidence forward. PR comments
+are not evidence for this decision. If the base has advanced again, the integrator
+does not publish another refresh of that adopted head. It may rebase locally to
+detect conflicts, then restore the assigned head and continue the normal base
+gates. New implementer commits make a head eligible again, subject to the other
+conditions.
+
+An ineligible refresh leaves the original head to the normal gates. A rebase or
+push stopped for a reason other than a real base conflict is abandoned: abort any
+in-progress rebase, restore the original local head and run those same gates,
+including the original head check. Never overwrite a concurrent head or change the
+remote branch to undo a push. A real base conflict returns to the implementer with
+`changes-requested` and conflict evidence; the integrator never resolves it
+semantically. This route does not reset human holds, publish refreshes of
+unassigned PRs or relax any review, check or merge requirement.
+
 ## Explicit outcomes
 
 New outcome records include the original lease's `host` when recorded. Handoff
