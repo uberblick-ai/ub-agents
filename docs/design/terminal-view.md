@@ -255,7 +255,7 @@ view comes later; for now the tab is read-only.
 │       ┌──────────────────────────────────────────────────────────────────────┐   │
 │       │ mise run ci ea4068a…                                                  │   │
 │       └──────────────────────────────────────────────────────────────────────┘   │
-│    2. Maintainer: merge a fix clearing `UB_AGENTS_READ_CONFIG`.                   │
+│    2. Maintainer: isolate `UB_AGENTS_RUN_CONFIG` in tests.                         │
 │                                                                                  │
 │  Then resume integrator:                                                         │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │

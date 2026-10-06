@@ -9,6 +9,7 @@ import stat
 import time
 
 from .log_format import CONTROLS, inert, shorten
+from .run_config import run_directory
 
 SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
@@ -172,7 +173,7 @@ class WorkRow:
 
 def own_run(root, value):
     if isinstance(value, str) and value and all(c in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in value):
-        return root / '.ub-agents' / 'runs' / value
+        return run_directory(root, value)
     return None
 
 

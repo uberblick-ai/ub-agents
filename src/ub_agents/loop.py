@@ -36,6 +36,7 @@ from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
 from .trust import LauncherTrust
 from .run_planning import RunPlanning
+from .run_config import run_config, run_directory
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -729,7 +730,7 @@ class Loop:
                                     expires=iso(self.coordinator.clock()), summary=approval.reason)
             self.output(f"#{plan.item.number} {plan.agent.name}: parked — {approval.reason}")
             return True
-        run_dir = self.config.root.resolve() / ".ub-agents" / "runs" / lease["run"]
+        run_dir = run_directory(self.config.root.resolve(), lease["run"])
         scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])
         preserve_scratch = False
         workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github)
@@ -846,21 +847,15 @@ class Loop:
                 context |= {name: approval.snapshot[name] for name in ("reviews", "review_comments")}
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
-            from .read_input import read_policy
-            read_config_path = run_dir / "read-config.json"
-            read_config_path.write_text(json.dumps(read_policy(self.config)))
-            from .retrospective import retrospective_policy
-            retrospective_config_path = run_dir / "retrospective-config.json"
-            retrospective_config_path.write_text(json.dumps(
-                retrospective_policy(self.config, plan.agent, lease["run"])))
+            run_config_path = run_dir / "run.json"
+            run_config_path.write_text(json.dumps(run_config(self.config, plan.agent, lease)))
             env = {key: value for key, value in os.environ.items()
                    if not key.startswith("UB_AGENTS_")}
             env.update({"UB_AGENTS_REPOSITORY": self.config.repository,
                         "UB_AGENTS_ASSIGNMENT": str(plan.item.number),
                         "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
                         "UB_AGENTS_CONTEXT": str(context_path),
-                        "UB_AGENTS_READ_CONFIG": str(read_config_path),
-                        "UB_AGENTS_RETROSPECTIVE_CONFIG": str(retrospective_config_path),
+                        "UB_AGENTS_RUN_CONFIG": str(run_config_path),
                         "UB_AGENTS_REPORT": report_command,
                         "UB_AGENTS_SCRATCH": str(scratch.path), "TMPDIR": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",

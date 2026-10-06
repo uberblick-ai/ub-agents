@@ -427,8 +427,18 @@ PATH, the agent's working directory and `PYTHONPATH` cannot select another insta
 The prompt writes the command literally and uses it wherever project instructions
 say `ub-agents report`. Agents must not report through their worktree's development copy.
 
-`report` uses the supervised environment to verify the run's current
-ownership and create one versioned outcome comment. Human summaries lead; JSON is
+The launcher pins in-run context and policy in
+`.ub-agents/runs/<run>/run.json`, supplied through `UB_AGENTS_RUN_CONFIG`.
+`read`, `retrospective` and `report` share one validator: the file must be an
+absolute, readable JSON path with exactly the expected keys and valid values,
+and its repository and run must match `UB_AGENTS_REPOSITORY` and `UB_AGENTS_RUN`.
+Validation failure exits nonzero before any GitHub request, input display or
+record write. Outside a run (`UB_AGENTS_RUN` unset), `read N` still uses local
+configuration; `retrospective` and `report` require the pinned context.
+
+`report` takes repository, assignment, run and lease id from `run.json`, always
+applies its pinned trusted bots, and verifies the run's current
+ownership and creates one versioned outcome comment. Human summaries lead; JSON is
 fenced in `json` blocks inside collapsed details, and arbitrary prose is never parsed for routing. A declared
 outcome is reported with `--outcome NAME` and has status `success`;
 `--status retry|blocked` changes no labels. Undeclared names are rejected, and the
@@ -448,7 +458,7 @@ to show that command in its own code block:
 ```sh
 ub-agents report --status blocked --summary "Local CI is red. Full diagnostics follow." \
   --option 'Maintainer: run CI outside supervision: `mise run ci SHA`' \
-  --option 'Maintainer: merge a fix clearing `UB_AGENTS_READ_CONFIG`.'
+  --option 'Maintainer: merge a fix isolating `UB_AGENTS_RUN_CONFIG` in tests.'
 ```
 
 With options, the notice and Unblock tab show the summary's first sentence,
@@ -485,6 +495,10 @@ When the supervised lease's marker names a newer record format, reporting fails
 with a diagnostic directing the agent to `UB_AGENTS_REPORT`, without interpreting
 the newer payload. This diagnostic is available only in releases that include it;
 0.1.10 and 0.1.11 keep their previous missing-lease message.
+
+**Upgrading:** A run in flight when the launcher's installation is updated to
+this run-context format can no longer `read`, `report` or post a `retrospective`.
+Let running agents finish, or stop the launcher, before updating.
 
 The running lease snapshots the agent's declared outcomes compactly. Each name
 maps to the labels to add, or to an object with `add` and `remove` when extra

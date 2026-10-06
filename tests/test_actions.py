@@ -11,7 +11,7 @@ from ub_agents.errors import AgentError, RecordError
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import body, payload, records, reported_actions, timestamp, validate_report_action
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import FakeGitHub, agent, config, issue, pr, run_environment, stub_refresh
 
 
 class ActionReportTests(unittest.TestCase):
@@ -37,9 +37,8 @@ class ActionReportTests(unittest.TestCase):
         return lease
 
     def cli(self, lease, options):
-        env = {'UB_AGENTS_REPOSITORY': 'org/repo', 'UB_AGENTS_ASSIGNMENT': '1',
-               'UB_AGENTS_RUN': lease['run'], 'UB_AGENTS_LEASE_ID': str(lease['id'])}
-        with patch.dict(os.environ, env), patch('ub_agents.cli.GitHub', return_value=self.github), \
+        env = run_environment(self.loop.config, self.worker, lease)
+        with patch.dict(os.environ, env, clear=True), patch('ub_agents.cli.GitHub', return_value=self.github), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
             code = main(['report', *options, '--summary', 'Gate details'])
         return code, stderr.getvalue()

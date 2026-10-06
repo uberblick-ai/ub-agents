@@ -1,14 +1,7 @@
 """Read-only filtered items, using a launcher's pinned policy inside a run."""
 
-import json
-import os
-from pathlib import Path
-import re
-
 from . import approvals
-from .config import bot_logins
 from .errors import AgentError
-from .github import REPOSITORY
 
 
 def read_policy(config):
@@ -17,31 +10,6 @@ def read_policy(config):
             "triggers": {kind: sorted({label for agent in config.agents
                                       if agent.kind in {kind, "either"} for label in agent.triggers})
                          for kind in ("issue", "pr")}}
-
-
-def supervised_policy():
-    """Never fall back to worktree configuration when supervised context is missing."""
-    path = os.environ.get("UB_AGENTS_READ_CONFIG")
-    try:
-        if not path or not Path(path).is_absolute():
-            raise ValueError("missing launcher policy")
-        policy = json.loads(Path(path).read_text())
-        if (not isinstance(policy, dict)
-                or set(policy) != {"repository", "approvals", "trusted-bots", "triggers"}
-                or not isinstance(policy["repository"], str)
-                or not re.fullmatch(REPOSITORY, policy["repository"])
-                or policy["repository"] != os.environ.get("UB_AGENTS_REPOSITORY")
-                or policy["approvals"] not in (None, "on", "off")
-                or not isinstance(policy["triggers"], dict)
-                or set(policy["triggers"]) != {"issue", "pr"}):
-            raise ValueError("invalid launcher policy")
-        bot_logins(policy["trusted-bots"])
-        for labels in policy["triggers"].values():
-            if not isinstance(labels, list) or any(not isinstance(s, str) or not s.strip() for s in labels):
-                raise ValueError("invalid launcher triggers")
-        return policy
-    except (OSError, ValueError, TypeError, KeyError, AgentError) as exc:
-        raise AgentError("Supervised read requires the launcher's readable input policy; no input shown") from exc
 
 
 def read_item(github, number, policy):

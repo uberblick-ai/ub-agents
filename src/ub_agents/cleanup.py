@@ -11,6 +11,7 @@ from .errors import AgentError, CleanupError
 from .execution import git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
 from .records import seconds
+from .run_config import run_directory
 
 BRANCH = re.compile(r"ub-agents/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
 RUN = re.compile(r"[A-Za-z0-9_-]+\Z")
@@ -112,7 +113,7 @@ class Cleaner:
             raise AgentError("Run lease belongs to another host or has no recorded host")
         if lease.get("cleanup") == "unconfirmed":
             raise AgentError("Run cleanup is unconfirmed")
-        run_dir = self.root / ".ub-agents" / "runs" / lease["run"]
+        run_dir = run_directory(self.root, lease["run"])
         if not RUN.fullmatch(lease["run"]) or run_dir.resolve() != run_dir:
             raise AgentError("Run diagnostics path is uncertain")
         events = run_dir / "events.jsonl"

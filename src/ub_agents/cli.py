@@ -25,6 +25,7 @@ from .launch_log import launch_output
 from .labels import provision_labels
 from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
                       record_version, records, same_run, timestamp)
+from .run_config import supervised_run
 from .status import lease_summary, process_details
 
 
@@ -201,21 +202,12 @@ def runtime_guidance(root, cli):
 
 
 def report_run(args):
-    env = {key: os.environ.get(f"UB_AGENTS_{key}")
-           for key in ("REPOSITORY", "ASSIGNMENT", "RUN", "LEASE_ID")}
-    if any(not value for value in env.values()):
-        raise AgentError("report requires the environment of a supervised ub-agents assignment")
+    context = supervised_run()
     if not args.summary.strip() or len(args.summary) > 8000:
         raise AgentError("summary must contain 1–8000 characters")
-    try:
-        number = int(env["ASSIGNMENT"])
-        lease_id = int(env["LEASE_ID"])
-    except ValueError as exc:
-        raise AgentError("Invalid supervised assignment environment") from exc
-    github = GitHub(env["REPOSITORY"])
-    from .read_input import supervised_policy
-    bots = supervised_policy()["trusted-bots"] if os.environ.get("UB_AGENTS_READ_CONFIG") else ()
-    coordinator = Coordinator(github, github.actor(), trusted_bots=bots)
+    number, lease_id = context["assignment"], context["lease_id"]
+    github = GitHub(context["repository"])
+    coordinator = Coordinator(github, github.actor(), trusted_bots=context["trusted-bots"])
     # Only inspect the supervised comment's marker and GitHub author. Future
     # payloads are not a contract this build can validate or use for authority.
     comments = github.comments(number)
@@ -229,7 +221,7 @@ def report_run(args):
         raise AgentError(f"Supervised lease uses record format v{version}, newer than this ub-agents "
                          f"reads (v{supported}). Report with {instruction}.")
     lease = next((r for r in records(comments, trusted=coordinator.trust.observation()) if r["kind"] == "lease"
-                  and r["id"] == lease_id and r["run"] == env["RUN"]), None)
+                  and r["id"] == lease_id and r["run"] == context["run"]), None)
     if lease is None or lease["actor"].casefold() != coordinator.actor.casefold():
         raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")
     record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
@@ -300,14 +292,16 @@ def run(args):
         report_run(args)
         return
     if args.command == "retrospective":
-        from .retrospective import read_body, supervised_policy
-        policy = supervised_policy()
+        from .retrospective import read_body
+        policy = supervised_run()
+        if policy["retrospectives"] is None:
+            raise AgentError(f"No retrospective board configured for agent {policy['agent']}; nothing posted")
         content = read_body(args.body_file)
         print(GitHub(policy["repository"]).create_discussion_comment(policy["retrospectives"], content))
         return
     if args.command == "read":
-        from .read_input import read_item, read_policy, supervised_policy
-        policy = (supervised_policy() if os.environ.get("UB_AGENTS_RUN") else
+        from .read_input import read_item, read_policy
+        policy = (supervised_run() if "UB_AGENTS_RUN" in os.environ else
                   read_policy(load_config(args.config)))
         print(json.dumps(read_item(GitHub(policy["repository"]), args.number, policy), indent=2))
         return

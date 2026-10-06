@@ -8,10 +8,11 @@ import uuid
 from .errors import AgentError, CleanupError, LostOwnership
 from .execution import group_members, supervise
 from .records import iso, timestamp
+from .run_config import run_directory
 
 
 def diagnostic(config, run, event, **details):
-    directory = config.root / ".ub-agents" / "runs" / run
+    directory = run_directory(config.root, run)
     # Never follow a redirected run-log directory when doing maintenance.
     if directory.resolve() != directory:
         raise CleanupError("Run diagnostics path redirects; preserve artifacts")
@@ -25,7 +26,7 @@ def diagnostic(config, run, event, **details):
 
 def confirm_hook_groups_stopped(config, run):
     """A crashed supervisor's hook must not overlap retries or artifact removal."""
-    parent = config.root / ".ub-agents" / "runs" / run / "cleanup"
+    parent = run_directory(config.root, run) / "cleanup"
     try:
         if parent.resolve() != parent:
             raise ValueError("redirected hook diagnostics")
@@ -59,7 +60,7 @@ def run_hook(config, lease, worktree, outcome=None, expires=None):
     if config.cleanup is None:
         return None
     confirm_hook_groups_stopped(config, lease["run"])
-    directory = config.root / ".ub-agents" / "runs" / lease["run"] / "cleanup" / uuid.uuid4().hex
+    directory = run_directory(config.root, lease["run"]) / "cleanup" / uuid.uuid4().hex
     if directory.resolve() != directory:
         raise CleanupError("Hook diagnostics path redirects; preserve artifacts")
     directory.mkdir(parents=True, exist_ok=True)
