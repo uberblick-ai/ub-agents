@@ -38,8 +38,8 @@ the reason and record `ub-agents report --outcome maintainer-merge
 maintainer is a successful handoff.
 
 If the candidate conflicts with the base branch, a declared check fails for a cause
-that code or tests in the repository can fix, or the project keeps a changelog and the
-entry for a user-facing change is missing or inaccurate, send it back to the implementer:
+that code or tests in the repository can fix, or the project's shared guidance asks PRs to
+carry changelog entries and the entry for a user-facing change is missing or inaccurate, send it back to the implementer:
 name what to fix, including any failing check and its output, in the summary of
 `ub-agents report --outcome changes-requested`. A fixable cause includes a test that
 depends on the run's environment and a failure that also reproduces on the base branch.

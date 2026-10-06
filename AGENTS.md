@@ -115,7 +115,7 @@ to a maintainer, and says why, when the PR:
 - needs all of a project's launchers stopped and restarted together. That applies to
   any change a running launcher of the previous build would reject or misread: the
   coordination record format, agent branch names, the config file, or a config key
-  or value that this repository's `ub-agents.yaml` starts using. Its changelog entry
+  or value that this repository's `ub-agents.yaml` starts using. Its PR body
   carries an **Upgrading** note that says so.
 - changes this repository's own workflow: `AGENTS.md`, `.agents/`, `ub-agents.yaml`
   or `.github/`.
@@ -140,18 +140,19 @@ need no maintainer merge. The reviewer checks that they are accurate.
 For example: "Launchers can run a specific issue or PR while applying the normal
 eligibility checks (#127)."
 
-- The implementer adds an entry under `## Unreleased` in the same PR, in the Added,
-  Changed, Removed or Fixed group, ending with the issue or PR number. Internal-only
-  changes such as tests, CI or refactors without behavior change need no entry; say
-  so in the PR body.
-- The reviewer treats a missing, inaccurate or unnecessarily detailed entry as a
+PRs do not edit `CHANGELOG.md`, so open PRs do not conflict with each other on it.
+The release-prep issue writes the release's section from the PRs merged since the
+previous tag, in the Added, Changed, Removed or Fixed group, each entry ending with
+the issue or PR number.
+
+- The implementer titles the PR with its user-visible change and puts any
+  **Upgrading** note in the PR body. An internal-only PR, such as tests, CI or a
+  refactor without behavior change, says so in its body.
+- The reviewer treats an inaccurate PR title or a missing **Upgrading** note as a
   required correction.
-- The integrator checks the entry again, together with the candidate's conflicts with
-  `main`, and sends the PR back with the `changes-requested` outcome if either fails.
-- Before a release, consolidate related entries, remove repetition and check the
-  overview against the changes included in that release. Retain the issue or PR
-  references and all required upgrade information. Then turn `Unreleased` into the
-  version's section and copy that concise section into the GitHub release notes.
+- Release prep consolidates related changes, keeps every issue or PR reference and
+  required upgrade information, dates the version's section (folding in any
+  `Unreleased` entries) and copies that section into the GitHub release notes.
 
 ## Human decisions
 
