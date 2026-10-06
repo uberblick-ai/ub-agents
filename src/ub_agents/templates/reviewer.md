@@ -17,8 +17,8 @@ If the project requires independent cross-provider review, configure
 different-runtime-from and an eligible runtime. Changing effort or
 resetting the author's conversation does not establish independent review.
 
-If the project keeps a changelog, a missing or inaccurate entry for a user-facing change
-is a required correction. So is a check that passes only after changing the environment
+If the project's shared guidance asks PRs to carry changelog entries, a missing or
+inaccurate entry for a user-facing change is a required correction. So is a check that passes only after changing the environment
 it runs in, such as unsetting a variable or skipping a test.
 
 Post concrete findings tied to the assigned SHA. Report changes-requested for

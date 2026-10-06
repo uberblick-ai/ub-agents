@@ -36,8 +36,8 @@ the issue open until project completion policy is met. Push explicitly to the PR
 branch (`git push origin HEAD:refs/heads/BRANCH`): for a PR revision that branch is
 UB_AGENTS_BRANCH; for a continued draft it is the branch `gh pr view` reports.
 
-If the project keeps a changelog, add an entry for user-facing changes in the same PR,
-as its shared guidance describes.
+If the project's shared guidance asks PRs to carry changelog entries, add one for
+user-facing changes in the same PR, as it describes.
 
 Then run `ub-agents report --outcome handed-off --summary "Checks passed; candidate
 ready for review" --handoff PR_NUMBER`. Report retry for an identified transient
