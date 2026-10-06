@@ -549,7 +549,7 @@ allowed). Omitted lists are empty. `check` rejects unknown keys, non-string labe
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
 
-An agent reports `ub-agents report --outcome NAME --summary TEXT [--handoff PR] [--action TEXT]`.
+An agent reports `ub-agents report --outcome NAME --summary TEXT [--handoff PR] [--action TEXT] [--option TEXT]`.
 Here and in project instructions, replace `ub-agents` with the launcher's literal
 `report_command` from the assignment context (also supplied as `UB_AGENTS_REPORT`).
 It runs the launcher's own installation regardless of PATH, the working directory
@@ -562,25 +562,30 @@ contract. The running lease snapshots the declarations; candidate configuration 
 do not change the current run.
 
 Stop reports are `--status blocked` and named outcomes whose lease declaration adds
-a configured stop label. They require `--action "TEXT"`, repeated for each independent
-action or decision. Each ask is a concise sentence on one non-empty line of at most
-300 characters (8000 total), understandable on its own. Name who can act, the step
-or choices, a recommendation and any essential consequence. The first ask is stored
-as `action`; multiple asks also use `actions`, with that same first value.
+a configured stop label. They require at least one `--action "TEXT"` or `--option "TEXT"`.
+Repeat actions for independent asks that are all needed; repeat options for
+alternative ways to clear one blocker, with the recommendation first. Each value
+is one non-empty line of at most 300 characters (8000 total across both),
+understandable on its own. Name who can act, the step and any essential consequence.
+Single-backtick inline code is preserved; end an option with a colon, a space and
+a single-backtick command to show a separate code block. The
+[coordination contract](coordination.md) describes the compatible record fields.
 Keep full Markdown reasoning, evidence, diagnostics and links in `--summary`. For example:
 
 ```sh
-ub-agents report --outcome needs-human --summary "Preparation blocked by storage policy" --action "Owner: choose local or cloud storage; recommend local."
+ub-agents report --outcome needs-human --summary "Preparation blocked by storage policy." --option "Owner: choose local storage for privacy." --option "Owner: choose cloud storage for sharing."
 ```
 
-Missing or invalid actions are refused before any write. The launcher also rejects
+Missing or invalid asks and options are refused before any write. The launcher also rejects
 reports that bypass this validation for new leases; historical outcome records
 remain readable. `--status retry` and outcomes adding no stop label need no action.
 Repositories with their own role files or command runtimes that file stop reports
-must add `--action` before upgrading. Notices show each ask separately in bold and
-collapse all reasoning, evidence and resume instructions by default. Legacy records
+must supply an action or option. Notices show asks in bold and alternatives as
+numbered options with the first recommended. Resume instructions stay visible;
+reasoning and evidence are collapsed by default. Legacy records
 remain readable and use a concise review request when no action was recorded.
-The terminal view's attention reason includes all recorded asks.
+The terminal view's attention reason uses the summary's first sentence for options
+notices and the recorded asks for notices without options.
 
 After ownership, candidate SHA and issue-link validation, the runner removes all
 of this agent's trigger labels and any `remove` labels from the assignment. It adds

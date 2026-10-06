@@ -11,12 +11,48 @@ from .trust import LauncherTrust
 ACTION_MARKER = "<!-- ub-agents:action-needed "
 
 
-def action_body(marker, actions, details):
-    # Asks are plain sentences. Preserve Markdown only in supporting details.
-    asks = [re.sub(r"([\\`*_\[\]&<>~])", r"\\\1", ask.strip()) for ask in actions]
+INLINE_CODE = re.compile(r"(?<![\\`])`[^`]+`(?!`)")
+OPTION_COMMAND = re.compile(r"^(.*):\s+(`[^`]+`)$")
+
+
+def ask_markdown(ask):
+    """Keep single-backtick code; escape all other Markdown in an ask."""
+    parts, start = [], 0
+    for match in INLINE_CODE.finditer(ask):
+        parts.extend((escape_ask(ask[start:match.start()]), match[0]))
+        start = match.end()
+    return ''.join(parts) + escape_ask(ask[start:])
+
+
+def escape_ask(text):
+    escaped = re.sub(r"([\\`*_{}\[\]()#+!|&<>~])", r"\\\1", text)
+    return re.sub(r'^(\s*)(-|\d+\.)(?=\s)', lambda m: m[1] + m[2][:-1] + '\\' + m[2][-1], escaped)
+
+
+def notice_reason(summary, limit=300):
+    sentence = re.split(r'(?<=[.!?])\s+', ' '.join(summary.split()), maxsplit=1)[0]
+    return sentence if len(sentence) <= limit else sentence[:limit - 1].rstrip() + '…'
+
+
+def action_body(marker, actions, details, *, options=(), reason='', resume=''):
+    asks = [ask_markdown(ask.strip()) for ask in actions]
     lead = f"**{asks[0]}**" if len(asks) == 1 else "\n".join(f"- **{ask}**" for ask in asks)
+    if options:
+        lead = ask_markdown(notice_reason(reason)) + (f"\n\n{lead}" if asks else '')
+        lead += '\n\nTo unblock, do one of:\n\n'
+        for index, option in enumerate(options, 1):
+            option = option.strip()
+            command = OPTION_COMMAND.fullmatch(option)
+            label = command[1].rstrip() if command else option
+            lead += f"{index}. {ask_markdown(label)}" + (' (recommended)' if index == 1 else '') + '\n'
+            if command:
+                indent = ' ' * (len(str(index)) + 2)
+                lead += f"\n{indent}```sh\n{indent}{command[2][1:-1]}\n{indent}```\n"
+            lead += '\n'
+    if resume:
+        lead = lead.rstrip() + f'\n\n{resume}'
     return (f"{marker}\n**Action needed**\n\n{lead}\n\n"
-            "<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n"
+            "<details>\n<summary>Reasoning and evidence</summary>\n\n"
             f"{details}\n\n</details>\n")
 
 
@@ -114,7 +150,7 @@ class Notices:
                       f"`ub-agents approve {number}`; then remove the stop label(s) {labels}.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
         self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
-            number, action_body(marker, [action], f"{check.reason}\n\n{resume}"), marker))
+            number, action_body(marker, [action], check.reason, resume=f"Then resume:\n\n{resume}"), marker))
 
     def superseded(self, number, agent, run):
         def minimize_records():
@@ -229,18 +265,21 @@ class Notices:
             command = (f"ub-agents retry {number} --agent {lease['agent']} "
                        f"--reason {json.dumps('Human resolved the blocker')}")
             triggers = ", ".join(f"`{label}`" for label in lease.get("triggers", ()))
-            resume = f"After resolving the blocker, run:\n\n```sh\n{command}\n```"
+            resume = f"```sh\n{command}\n```"
             if triggers:
                 resume += f"\n\nRestore a matching trigger if absent: {triggers}; remove any stop label."
-        resume = (f"Use the following steps only when resuming the same role (`{lease['agent']}`). "
+        resume = (f"Then resume {lease['agent']}:\n\n{resume}\n\n"
+                  f"Use these steps only when resuming the same role (`{lease['agent']}`). "
                   "If a different role must act next, follow the project's documented correction "
-                  f"or handoff route instead.\n\n{resume}")
+                  "or handoff route instead.")
         extra = ""
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
         actions = reported_actions(outcome) if outcome and not outcome.get("rejected") else []
-        if not actions:
+        options = outcome.get("options", ()) if outcome and not outcome.get("rejected") else ()
+        if not actions and not options:
             actions = ["Maintainer: review the blocker details and decide the next step."]
         self.post_once(number, action_body(marker, actions,
-            f"{summary.strip()}\n\n{evidence}\n\n{links}{extra}\n\n{resume}"), marker)
+            f"{summary.strip()}\n\n{evidence}\n\n{links}{extra}",
+            options=options, reason=summary, resume=resume), marker)

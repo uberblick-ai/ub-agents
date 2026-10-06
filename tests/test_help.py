@@ -106,6 +106,9 @@ class HelpTests(unittest.TestCase):
         details = self.command_line.commands()["report"].format_help()
         self.assertIn("--status {retry,blocked}", details)
         self.assertIn("--outcome OUTCOME", details)
+        self.assertIn("--option OPTION", details)
+        self.assertIn('require --action or --option', ' '.join(details.split()))
+        self.assertIn('--option "Maintainer: use A." --option "Maintainer: use B."', details)
         for option, value in (("--status", "retry"), ("--status", "blocked"),
                               ("--outcome", "handed-off")):
             with self.subTest(option=option, value=value):

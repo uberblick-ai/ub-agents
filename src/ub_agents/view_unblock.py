@@ -19,17 +19,17 @@ def comment_body(value):
     if lines and lines[0] == '**Action needed**':
         lines.pop(0)
     link = next((index for index, line in enumerate(lines) if LINKS.fullmatch(line)), None)
-    if link is not None:
+    if link is not None and '<summary>Reasoning and evidence</summary>' not in lines:
         lines.pop(link)
     return '\n'.join(lines).strip()
 
 
 def comment_sections(body):
     """Fold the generated notice wrapper, leaving nested supporting Markdown intact."""
-    wrapper = '<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n'
-    visible, separator, details = body.partition(wrapper)
-    if not separator:
+    wrapper = re.search(r'<details>\n<summary>(?:Reasoning and evidence|Reasoning, evidence and resume instructions)</summary>\n\n', body)
+    if not wrapper:
         return body, ''
+    visible, details = body[:wrapper.start()], body[wrapper.end():]
     if details.endswith('\n\n</details>'):
         details = details[:-len('\n\n</details>')]
     return visible.strip(), details.strip()

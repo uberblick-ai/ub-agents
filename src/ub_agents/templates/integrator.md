@@ -32,10 +32,14 @@ is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
 
 Every stop report (`--status blocked` or an outcome adding a configured stop label)
-must include `--action "ACTION"`, repeated once per independent action or decision.
-Each value is one concise sentence on a non-empty line of at most 300 characters
-(up to 8000 characters total). Name who must act and the actual step; for a decision,
-include the choices, recommendation and any consequence needed to answer it.
+must include at least one `--action "ACTION"` or `--option "OPTION"`. Repeat `--action`
+for independent asks that are all needed. Use repeated `--option` for alternative
+ways to clear one blocker, with the recommendation first, instead of "choose A or B"
+in one ask. Each value is one concise sentence on a non-empty line of at most 300
+characters (actions and options together up to 8000). Name who must act and the
+actual step, with any consequence needed to answer it. Single-backtick inline code
+is preserved; an option ending with `: ` followed by a single-backtick command shows
+that command in its own code block.
 Each ask must be understandable on its own. Put supporting reasoning, technical
 evidence, diagnostics and links in `--summary`; notices collapse that full Markdown
 by default. Generic blocked reports use `ub-agents report --status blocked
