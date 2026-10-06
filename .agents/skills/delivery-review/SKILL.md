@@ -5,7 +5,7 @@ description: >-
   what shipped, how many runs and rounds each item took, what its
   retrospectives said, and the few changes to authority, wording or
   instructions that would have saved runs. Produces a report and slides. Do not
-  use for a loop role, a PR review, a merge gate or the weekly workflow audit.
+  use for a loop role, a PR review or a merge gate.
 ---
 
 # Delivery review
@@ -20,8 +20,8 @@ more process: no new role, label, gate, review round or checklist.
 
 The review only reads GitHub. It writes the data, the notes and the two pages to
 a directory outside the checkout, and publishes the pages where the session can.
-It files no issues, comments, labels or board posts; the maintainer decides what
-to act on, and the weekly `workflow-audit` clears the boards.
+It files no issues, comments, labels or board posts, and deletes nothing; the
+maintainer decides what to act on.
 
 ## Collect
 
