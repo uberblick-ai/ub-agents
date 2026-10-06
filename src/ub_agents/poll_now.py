@@ -43,15 +43,19 @@ class PollNow:
         wake = threading.Event()
         waiter = (stop, wake)
         with self.lock:
+            if stop.is_set():
+                return True
             self.waiter = waiter
         try:
             deadline = self.clock() + delay
+            next_update = self.clock() + 1
             while not stop.is_set():
                 remaining = deadline - self.clock()
                 if remaining <= 0 or wake.wait(min(0.1, remaining)):
                     break
-                if update is not None:
+                if update is not None and self.clock() >= next_update:
                     update()
+                    next_update = self.clock() + 1
             return stop.is_set()
         finally:
             with self.lock:

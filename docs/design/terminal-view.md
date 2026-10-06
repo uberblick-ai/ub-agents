@@ -341,10 +341,12 @@ Stopping:
 listed in `?`. It wakes idle polling or the running assignment's read-only queue
 planning, with the next scheduled pass counted from that refresh. It does not
 claim or interrupt during a run. In-flight presses are dropped; forced passes
-have a shared 10-second cooldown. Rate-limit waits (shown in local time) and
-poll-retry backoff cannot be shortened. Countdown text remains `Ns`. Narrow
-footers may omit `r poll now` before shortening existing keys. Standalone views
-omit the key and ignore it; `--no-ui` launches are unaffected.
+have a shared 10-second cooldown. Attached views show rate-limit resets in local
+time, alongside `running assignment` when queue planning is rate limited during a
+run. Rate-limit waits and poll-retry backoff cannot be shortened. Countdown text
+remains `Ns`. Narrow footers may omit `r poll now` before shortening existing keys.
+Standalone views omit the key and ignore it, keeping the `next poll Ns` countdown
+during rate-limit waits; `--no-ui` launches are unaffected.
 
 The update banner is one themed row above both panes and the shared item header,
 with the release age at the right when space permits. It truncates to the terminal

@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import threading
+from contextlib import nullcontext
 from time import monotonic
 from dataclasses import replace
 
@@ -119,13 +120,6 @@ class Loop:
             self.poll_now.request()
 
     def _wait(self, event, delay, reason):
-        if self.poll_now is not None and reason == "rate-limit reset":
-            with self.poll_now.rate_limit(self.coordinator.clock() + delay):
-                self._wait_activity(event, delay, reason)
-        else:
-            self._wait_activity(event, delay, reason)
-
-    def _wait_activity(self, event, delay, reason):
         if self.observer is not None:
             self._observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
         if self.poll_now is not None and reason == "next poll or runtime pause":
@@ -162,36 +156,39 @@ class Loop:
         # SIGTERM wakes discovery, but an owned run keeps draining. Only Ctrl-C
         # and SIGHUP wake the in-run wait.
         event = self.interrupt_event if lease is not None else self.stop_event
-        if lease is None:
-            self._wait(event, delay, "rate-limit reset")
+        until, remaining = now + delay, delay
+        # Publish the actual reset once, and reject forced planning polls even
+        # between the ownership checks that split an owned run's wait.
+        with self.poll_now.rate_limit(until) if self.poll_now is not None else nullcontext():
+            if lease is None:
+                self._wait(event, delay, "rate-limit reset")
+                if self.interrupt_event.is_set():
+                    raise KeyboardInterrupt
+                if self.stop_event.is_set():
+                    raise _GracefulStop
+                return
+            while remaining > 0:
+                now = self.coordinator.clock()
+                try:
+                    expiry = self.coordinator.deadline(lease)
+                except LostOwnership as exc:
+                    raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
+                remaining = min(remaining, until - now)
+                if remaining <= 0:
+                    break
+                # Renewal runs independently. Wake at least once a minute so an
+                # extended expiry or known ownership loss changes this wait's bound.
+                wait = min(60, remaining, expiry - now)
+                self._wait(event, wait, "rate-limit reset")
+                remaining -= wait
+                if self.interrupt_event.is_set():
+                    raise KeyboardInterrupt
             if self.interrupt_event.is_set():
                 raise KeyboardInterrupt
-            if self.stop_event.is_set():
-                raise _GracefulStop
-            return
-        until, remaining = now + delay, delay
-        while remaining > 0:
-            now = self.coordinator.clock()
             try:
-                expiry = self.coordinator.deadline(lease)
+                self.coordinator.deadline(lease)
             except LostOwnership as exc:
                 raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
-            remaining = min(remaining, until - now)
-            if remaining <= 0:
-                break
-            # Renewal runs independently. Wake at least once a minute so an
-            # extended expiry or known ownership loss changes this wait's bound.
-            wait = min(60, remaining, expiry - now)
-            self._wait(event, wait, "rate-limit reset")
-            remaining -= wait
-            if self.interrupt_event.is_set():
-                raise KeyboardInterrupt
-        if self.interrupt_event.is_set():
-            raise KeyboardInterrupt
-        try:
-            self.coordinator.deadline(lease)
-        except LostOwnership as exc:
-            raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
 
     def stop_gracefully(self):
         self._observe("activity", "stopping")

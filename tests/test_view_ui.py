@@ -88,12 +88,38 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.state['activity'] = {'state': 'running assignment'}
                 publish_snapshot(self.path, self.state)
                 label = f'rate limited until {reset.astimezone():%H:%M} · r unavailable'
-                await self.ready(app, pilot, lambda: label in status.render().plain)
+                await self.ready(app, pilot, lambda: f'running assignment · {label}' in status.render().plain)
                 self.assertNotIn('poll now available', status.render().plain)
                 await pilot.press('r')
                 app.launcher.poll.assert_called_once_with()
                 await pilot.press('q')
         app.worker.thread.join(2)
+
+    async def test_rate_limit_footer_keeps_standalone_countdown(self):
+        now = datetime.now(timezone.utc)
+        reset = now + timedelta(seconds=400)
+        self.state['activity'] = {'state': 'waiting', 'until': reset.isoformat(),
+                                  'reason': 'rate-limit reset'}
+        for control in (None, {'rate_limit_until': reset.isoformat(), 'cooldown_until': None}):
+            self.state['poll_now'] = control
+            publish_snapshot(self.path, self.state)
+            for attached in (False, True):
+                with self.subTest(control=control, attached=attached):
+                    app = View(self.root, self.path, launcher=Mock() if attached else None)
+                    with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                        clock.now.return_value = now
+                        async with app.run_test(size=(180, 45)) as pilot:
+                            await self.ready(app, pilot)
+                            value = app.query_one('#status', Static).render().plain
+                            if attached:
+                                self.assertIn(f'rate limited until {reset.astimezone():%H:%M} · r unavailable', value)
+                            else:
+                                self.assertIn('next poll 400s', value)
+                                self.assertNotIn('rate limited', value)
+                                self.assertNotIn('r unavailable', value)
+                                self.assertNotIn('r poll now', value)
+                            await pilot.press('q')
+                    app.worker.thread.join(2)
 
     async def test_eligible_limit_heading_order_priority_and_stopping(self):
         self.state['assignment'] = None

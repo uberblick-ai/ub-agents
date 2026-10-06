@@ -959,9 +959,11 @@ class View(App):
             control = mapping(self.session.data.get('poll_now'))
             value = text(activity.get('state'), '')
             now = datetime.now(timezone.utc)
-            limited = control.get('rate_limit_until')
-            if activity.get('reason') == 'rate-limit reset':
-                limited = limited or activity.get('until')
+            limited = None
+            if self.launcher is not None:
+                limited = control.get('rate_limit_until')
+                if activity.get('reason') == 'rate-limit reset':
+                    limited = limited or activity.get('until')
             try:
                 limited = datetime.fromisoformat(limited.replace('Z', '+00:00'))
                 if limited.tzinfo is None or limited <= now:
@@ -977,9 +979,8 @@ class View(App):
                 except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
                     pass
             if limited is not None:
-                value = f'rate limited until {limited.astimezone():%H:%M}'
-                if self.launcher is not None:
-                    value += ' · r unavailable'
+                label = f'rate limited until {limited.astimezone():%H:%M} · r unavailable'
+                value = f'{value} · {label}' if value == 'running assignment' else label
             if value:
                 parts.append(value)
             if self.launcher is not None and limited is None:

@@ -407,9 +407,11 @@ queue refresh during a run, without claiming or changing the running assignment.
 The next regular poll or planning refresh is counted from that forced pass.
 Presses during a pass are dropped. Pressing again within 10 seconds shows
 `poll now available in Ns`; rate-limit waits show
-`rate limited until HH:MM · r unavailable`, in local time. The key never shortens
-rate-limit waits or poll-retry backoff, and does not change attempt limits or the
-regular poll interval. Standalone views do not offer or act on `r`.
+`rate limited until HH:MM · r unavailable`, in local time, alongside
+`running assignment` when queue planning is rate limited during a run. The key
+never shortens rate-limit waits or poll-retry backoff, and does not change attempt
+limits or the regular poll interval. Standalone views do not offer or act on `r`,
+and keep the `next poll Ns` countdown during rate-limit waits.
 In the narrow layout, the prefix is omitted and `next poll Ns` becomes `poll Ns`,
 for example `v0.1.11 · poll 26s`. Other activity and diagnostic labels keep their
 text. The list's right side reads `↑↓ select ⏎ open ? keys q quit`; the item view

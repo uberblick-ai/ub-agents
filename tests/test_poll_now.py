@@ -5,7 +5,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ub_agents.errors import GitHubError
+from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.records import iso
@@ -119,3 +119,72 @@ class PollNowTests(unittest.TestCase):
             self.loop._wait(self.loop.stop_event, 30, 'next poll or runtime pause')
         wait.assert_called_once_with(30)
         self.assertNotIn('poll_now', self.memory.snapshots[-1])
+
+    def test_owned_rate_limit_keeps_actual_reset_and_rejects_polls_between_slices(self):
+        lease = {'id': 'owned-run'}
+        self.loop.github.lease = lease
+        wake = threading.Event()
+        # The read-only planning worker can be waiting while the owned client
+        # waits for a rate limit. Requests must remain blocked between slices.
+        self.loop.poll_now.waiter = (threading.Event(), wake)
+
+        def protected():
+            self.assertEqual(self.memory.snapshots[-1]['poll_now']['rate_limit_until'], iso(2800))
+            self.loop.request_poll()
+            self.assertFalse(wake.is_set())
+
+        def deadline(current):
+            self.assertIs(current, lease)
+            protected()
+            return self.now + 60  # Renewal keeps the lease live through the wait.
+
+        def wait(delay):
+            protected()
+            self.now += delay
+
+        with patch.object(self.loop.coordinator, 'deadline', side_effect=deadline), \
+                patch.object(self.loop.interrupt_event, 'wait', side_effect=wait) as waits:
+            self.loop.wait_rate_limit(GitHubError('GET', 'comments', 'rate limit',
+                                                rate_limited=True, reset_at=2800), lease)
+        self.assertEqual([call.args[0] for call in waits.call_args_list], [60] * 30)
+        self.assertEqual(self.now, 2800)
+        limits = [s['poll_now']['rate_limit_until'] for s in self.memory.snapshots if 'poll_now' in s]
+        self.assertEqual(limits[0], iso(2800))
+        self.assertTrue(all(value == iso(2800) for value in limits[:-1]))
+        self.assertIsNone(limits[-1])
+        self.assertEqual(self.loop.poll_now.next_allowed, 0)
+        self.assertEqual(self.github.writes, [])
+
+    def test_owned_rate_limit_status_clears_on_interruption_or_ownership_loss(self):
+        for failure in (KeyboardInterrupt, LostOwnership):
+            with self.subTest(failure=failure):
+                with patch.object(self.loop.coordinator, 'deadline', side_effect=failure), \
+                        self.assertRaises(failure):
+                    self.loop.wait_rate_limit(GitHubError('GET', 'comments', 'rate limit',
+                                                        rate_limited=True, reset_at=2800), {'id': 'owned-run'})
+                self.assertEqual(self.loop.poll_now.limits, {})
+                self.assertIsNone(self.memory.snapshots[-1]['poll_now']['rate_limit_until'])
+
+    def test_cancelled_planning_waiter_does_not_replace_new_idle_waiter(self):
+        idle = (threading.Event(), threading.Event())
+        self.loop.poll_now.waiter = idle
+        # Cancellation happens after the initial check, before acquiring the
+        # lock where the main loop has already installed its next idle waiter.
+        with patch.object(self.loop.stop_event, 'is_set', side_effect=(False, True)):
+            self.assertTrue(self.loop.poll_now.wait(self.loop.stop_event, 30))
+        self.assertIs(self.loop.poll_now.waiter, idle)
+        self.loop.request_poll()
+        self.assertTrue(idle[1].is_set())
+
+    def test_poll_wait_checks_update_banner_once_per_second(self):
+        wake = threading.Event()
+        updates = []
+
+        def wait(delay):
+            self.now += 0.25
+            return False
+
+        with patch('ub_agents.poll_now.threading.Event', return_value=wake), \
+                patch.object(wake, 'wait', side_effect=wait):
+            self.loop.poll_now.wait(self.loop.stop_event, 2.5, lambda: updates.append(self.now))
+        self.assertEqual(updates, [1001, 1002])
