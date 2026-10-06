@@ -96,8 +96,7 @@ Post it with the launcher's literal `report_command` from the assignment context
 The launcher pins the repository and your agent's `retrospectives` board from
 `ub-agents.yaml`; the command checks the resolved discussion URL before posting.
 
-A maintainer runs the `workflow-audit` skill about weekly to turn the boards into
-issues and clear them.
+A maintainer reads them in the `delivery-review` skill's daily report.
 
 ## Merging
 
