@@ -419,7 +419,7 @@ class FailureCountTests(unittest.TestCase):
             self.assertTrue(self.loop.tick())
         self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
 
-    def test_invalid_success_increments_on_completion_and_recovery(self):
+    def test_invalid_success_with_changed_head_keeps_failure_count_on_completion_and_recovery(self):
         for recovery in (False, True):
             with self.subTest(recovery=recovery):
                 self.setUp()
@@ -432,11 +432,16 @@ class FailureCountTests(unittest.TestCase):
                     self.loop.tick()
                 else:
                     self.execute('success', change=lambda: self.github.change(1, head='b' * 40))
-                self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
+                self.assertEqual((self.count(), self.plan().state, self.plan().attempt), (1, 'ready', 2))
+                history = self.loop.coordinator.history(1)
+                latest = next(r for r in reversed(history) if r['kind'] == 'lease')
+                self.assertEqual((latest['result'], latest['attempt_effect']), ('blocked', 'failure'))
+                self.assertFalse(any(r.get('accepted') for r in history))
                 self.now += 10000
                 self.loop = self.restart()
-                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
-                    self.assertFalse(self.loop.tick())
+                self.assertEqual((self.count(), self.plan().state, self.plan().attempt), (1, 'ready', 2))
+                self.execute()
+                self.assertEqual((self.count(), self.plan().state), (2, 'backoff'))
 
     def test_conflicting_expired_outcomes_count_as_failure_in_status(self):
         source = self.start()
