@@ -345,6 +345,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         if 'released_at' in banner:
                             banner['released_at'] = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
                         state['update'] = banner
+                        # Publish a fresh launcher snapshot even after a slow PTY startup.
+                        state['published_at'] = datetime.now(timezone.utc).isoformat()
                         path.write_text(json.dumps(state))
                         for width in (110, 70, 170):
                             terminal.resize(width, 32)

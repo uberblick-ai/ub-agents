@@ -240,6 +240,10 @@ dated today in the viewer's local timezone. Up to 20 cached outcomes appear
 newest first, including older outcomes, as dim two-line rows in the combined layout; the selected row
 shows at full brightness. Only whole items with their intervening blank rows fit;
 items that do not fit are cut from the oldest end. Narrow lists have no blank rows.
+As an exception to the muted row color, outcome icons and status labels use the
+theme's green success color for `✓` and red error color for `✗`, retaining row
+dimming and cursor highlighting. Neutral `○` outcomes keep the row style.
+`NO_COLOR=1` keeps these cues monochrome.
 The lower half does not scroll or collapse, and its header cannot be selected.
 The live sections fill the upper half and scroll independently. Arrow keys move
 between the two halves; `Enter` selects an outcome with the same local log access
@@ -514,11 +518,31 @@ text; nested payloads are not interpreted. Changed or unfamiliar complete
 records also show a dim type label instead of assuming a newer CLI's semantics.
 Claude-shaped `tool_progress` records are unvalidated for Codex and use that
 dim label; Codex records supply no elapsed call time, so none is invented.
+Malformed Codex lines that begin with `{`, including records below the size
+limit, show a dim
+`· incomplete or unrecognized Codex record omitted · full record in Raw` notice.
 
-Raw mode retains every record, including hidden records. Oversized, split,
-unfinished, malformed and non-JSON fragments, including mixed diagnostic text,
-keep their labelled raw display. Unknown runtimes use the labelled plain/raw
-fallback. Runtime output never establishes a workflow outcome.
+Oversized Codex JSON objects produce one compact projection when their event
+fields can be validated within the existing bounds. Large text is shortened;
+command outcomes are checked at the record's end, so failures still show a red
+`✗` with the first output line. Successful output stays in Raw. Activity labels
+and item-ID deduplication work as for smaller records. JSON-looking text inside
+output, messages and errors remains inert text.
+
+If the shape cannot be validated within the bounds, Formatted shows one dim
+`· oversized Codex record omitted · full record in Raw` notice. Tail attachment
+and history-page boundaries show a compact omission notice for each affected
+span, including pages entirely inside a large record. Unfinished records show
+an incomplete-record notice until their newline arrives; then their single
+projection replaces the notice. The next complete record formats normally.
+
+Raw mode retains every record and bounded fragment, including hidden records,
+with its existing escaping, shortening and labels. The bytes on disk and raw
+access are unchanged. Oversized lines that do not begin as JSON objects, such as
+diagnostic text, keep their labelled raw display in Formatted too. Unknown
+runtimes use the labelled plain/raw fallback. Read, pending-buffer, retained-entry,
+projection and page limits still apply; validation across fragments keeps bounded
+state. Runtime output never establishes a workflow outcome.
 
 Log ends with a dashed rule and a one-line status showing the agent and its
 process or plan state, plus `no outcome reported` or the reported result and

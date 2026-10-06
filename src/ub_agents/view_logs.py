@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import os
 import stat
 
-from .log_format import raw_entry, skipped_entry
+from .log_format import codex_notice, raw_entry, skipped_entry
 from .log_reader import ANCHOR_BYTES, EntryRef, LogReader, MAX_ENTRIES, READ_BUDGET
 
 PAGE_BYTES = READ_BUDGET
@@ -58,8 +58,9 @@ class ViewReader(LogReader):
 
     def page(self):
         refs = tuple(self.refs)
-        if self.pending:
-            refs += (EntryRef(self.record_start, self.offset, self.total_entries + 1, self.preview()),)
+        preview = self.preview()
+        if preview is not None:
+            refs += (EntryRef(self.record_start, self.offset, self.total_entries + 1, preview),)
         return Page(refs, refs[0].start if refs else self.offset,
                     refs[-1].end if refs else self.offset, self.resets, self.total_entries)
 
@@ -88,7 +89,9 @@ class ViewReader(LogReader):
             parser.offset = parser.record_start = start
             if start and preceding != b'\n':
                 parser.raw_kind = 'partial raw record (page boundary); full record in raw file'
-                notice = 'Page byte boundary splits a record; fragment is raw; h continues toward byte zero.'
+                notice = ('Page byte boundary splits a record; h continues toward byte zero; '
+                          'full record in raw file.' if self.runtime == 'codex' else
+                          'Page byte boundary splits a record; fragment is raw; h continues toward byte zero.')
             index = 0
             while index < len(data):
                 parser.processed = 0
@@ -102,8 +105,11 @@ class ViewReader(LogReader):
                 kind = 'partial raw record (page end); full record in raw file'
                 project = (skipped_entry if self.runtime == 'claude' and parser.raw_kind and
                            'page boundary' in parser.raw_kind else raw_entry)
+                value = project(bytes(parser.pending), None, kind)
+                if self.runtime == 'codex':
+                    value = codex_notice(value, 'incomplete Codex record omitted')
                 refs += (EntryRef(parser.record_start, parser.offset, parser.total_entries + 1,
-                                  project(bytes(parser.pending), None, kind)),)
+                                  value),)
             after = os.fstat(stream.fileno())
             self._validate(stream, after)
             current = self.path.stat()

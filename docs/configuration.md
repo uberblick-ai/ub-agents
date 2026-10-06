@@ -852,10 +852,14 @@ does not test whether supplied arguments grant sufficient permissions.
 only on agents with a single runtime. Codex's `workspace-write` sandbox cannot commit in
 private worktrees, whose Git metadata lives in the main checkout.
 
-Each run's scratch directory is outside private worktrees, at
-`.ub-agents/runs/<run>/scratch` in the control checkout. Runtimes restricted to the
-working directory need `runtime-args` that also allow access to scratch. For
-example, add Claude's `--add-dir` with the `{scratch}` placeholder:
+Each run's scratch directory is outside the control checkout and private worktrees,
+at `$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`. As with runtime-update
+state, unset, empty or relative `XDG_STATE_HOME` falls back to `~/.local/state`.
+If the resolved scratch path is inside the target checkout, setup fails visibly
+without starting the agent. Run logs, context files, `events.jsonl` and other
+artifacts stay in `.ub-agents/runs/<run>/` in the control checkout.
+Runtimes restricted to the working directory need `runtime-args` that also allow
+access to scratch. For example, add Claude's `--add-dir` with the `{scratch}` placeholder:
 
 ```yaml
 runtime-args: [--add-dir, "{scratch}"]
@@ -917,9 +921,10 @@ Use `UB_AGENTS_SCRATCH` for temporary files instead of writing directly under
 `/tmp`. Before starting a runtime or command, the launcher creates this directory
 with mode `0700`; creation failure ends the run as a visible setup failure without
 starting the agent. Once the run's processes are confirmed stopped, scratch and
-its contents are removed after success, failure, timeout or interruption. Run logs
-and other artifacts remain. Unconfirmed process termination preserves scratch,
-and a launcher killed before cleanup leaves it behind. If scratch removal fails
+its contents and the state directory's per-run directory are removed after success,
+failure, timeout or interruption. Run logs and other artifacts remain.
+Unconfirmed process termination preserves scratch, and a launcher killed before
+cleanup leaves it behind. If scratch removal fails
 after confirmed termination, the launcher leaves any remaining files, prints the
 error and records a `scratch-removal-failed` event in `events.jsonl`. The run still
 completes and releases its lease; this does not mark process cleanup unconfirmed.

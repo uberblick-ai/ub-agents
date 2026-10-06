@@ -349,7 +349,7 @@ your-project/
 
 Commit these files with your project and review changes to them like code. Credentials
 stay in each tool's own login. `.ub-agents/`, which `init` adds to `.gitignore`,
-holds `launch.log`, run logs and scratch under `runs/`, private `worktrees/`,
+holds `launch.log`, run logs and artifacts under `runs/`, private `worktrees/`,
 and bounded local launcher snapshots under `sessions/`. The private snapshots
 contain already observed issue text;
 see [session publication](docs/configuration.md) for their format and lifecycle.
@@ -415,10 +415,15 @@ Projects can configure a supervised [cleanup hook](docs/configuration.md#project
 for resources associated with each private worktree. Document operator-only recovery
 steps in a project operations document linked from `AGENTS.md`.
 
-Each run also gets a private scratch directory via `UB_AGENTS_SCRATCH` and `TMPDIR`.
-Use it for temporary files; the launcher removes it after confirmed process
-termination while retaining run logs. Removal failures leave a diagnostic and any
-remaining scratch files without blocking run completion. See [runtime permissions](docs/configuration.md#runtime-permissions)
+Each run also gets a private scratch directory at
+`$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`, exposed through
+`UB_AGENTS_SCRATCH` and `TMPDIR`. Unset, empty or relative `XDG_STATE_HOME` falls
+back to `~/.local/state`. Scratch must be outside the target checkout and its
+private worktrees; a path inside the checkout fails setup before the agent starts.
+Use it for temporary files; the launcher removes it and its per-run directory after
+confirmed process termination while retaining run logs. Removal failures leave a
+diagnostic and any remaining scratch files without blocking run completion. See
+[runtime permissions](docs/configuration.md#runtime-permissions)
 for runtimes that need access outside their worktree.
 
 ## Development

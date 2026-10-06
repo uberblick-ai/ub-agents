@@ -25,6 +25,11 @@ assert stat.S_IMODE(scratch.stat().st_mode) == 0o700
 (scratch / 'nested' / 'temporary').write_text('temporary contents')
 with tempfile.NamedTemporaryFile() as temporary:
     assert Path(temporary.name).parent == scratch
+with tempfile.TemporaryDirectory() as sandbox:
+    assert Path(sandbox).parent == scratch
+    assert Path.cwd() not in Path(sandbox).parents
+context = json.loads(Path(os.environ['UB_AGENTS_CONTEXT']).read_text())
+assert context['scratch'] == str(scratch)
 print(json.dumps({'scratch': str(scratch), 'mode': stat.S_IMODE(scratch.stat().st_mode)}), flush=True)
 """
 
@@ -35,6 +40,7 @@ class ScratchTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        self.state = Path(os.environ["XDG_STATE_HOME"]).resolve()
         self.github = FakeGitHub(issue())
         self.output = []
 
@@ -47,6 +53,13 @@ class ScratchTests(unittest.TestCase):
         lease = loop.coordinator.history(1)[0]
         return self.root / ".ub-agents" / "runs" / lease["run"]
 
+    def scratch_dir(self, loop):
+        return self.state / "ub-agents" / loop.config.repository / "runs" / self.run_dir(loop).name / "scratch"
+
+    def assert_scratch_removed(self, loop):
+        self.assertFalse(self.scratch_dir(loop).parent.exists())
+        self.assertFalse((self.run_dir(loop) / "scratch").exists())
+
     def assert_logs_retained(self, directory):
         for name in ("events.jsonl", "process.log", "prompt.txt", "context.json", "pid"):
             self.assertTrue((directory / name).is_file(), name)
@@ -55,7 +68,7 @@ class ScratchTests(unittest.TestCase):
         events = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
         failures = [event for event in events if event["event"] == "scratch-removal-failed"]
         self.assertEqual(len(failures), 1)
-        self.assertEqual(failures[0]["path"], str(directory / "scratch"))
+        self.assertEqual(failures[0]["path"], str(self.state / "ub-agents/org/project/runs" / directory.name / "scratch"))
         self.assertIn(error, failures[0]["error"])
         self.assertTrue(any("Scratch removal failed:" in line and error in line for line in self.output))
         self.assertFalse(any(event["event"] == "cleanup-unconfirmed" for event in events))
@@ -78,8 +91,8 @@ class ScratchTests(unittest.TestCase):
                     self.assertTrue(loop.tick())
                 directory = self.run_dir(loop)
                 recorded = json.loads((directory / "process.log").read_text())
-                self.assertEqual(recorded, {"scratch": str(directory / "scratch"), "mode": 0o700})
-                self.assertFalse((directory / "scratch").exists())
+                self.assertEqual(recorded, {"scratch": str(self.scratch_dir(loop)), "mode": 0o700})
+                self.assert_scratch_removed(loop)
                 self.assert_logs_retained(directory)
                 lease, outcome = loop.coordinator.history(1)
                 self.assertEqual(lease["result"], "success" if success else "retry")
@@ -125,13 +138,14 @@ class ScratchTests(unittest.TestCase):
                                  ("released", "success" if ending == "success" else "retry"))
                 self.assertNotEqual(lease.get("cleanup"), "unconfirmed")
                 self.assertEqual(outcome["accepted"], ending == "success")
-                scratch = directory / "scratch"
+                scratch = self.scratch_dir(loop)
                 if scratch.exists():
                     # Privileged users may remove read-only directories without an error.
                     self.addCleanup((scratch / "nested").chmod, 0o700)
                     self.assertEqual((scratch / "nested" / "temporary").read_text(), "temporary contents")
                     self.assert_removal_diagnostic(directory, "Cannot remove run scratch directory")
                 else:
+                    self.assert_scratch_removed(loop)
                     self.assertFalse(any("Scratch removal failed:" in line for line in self.output))
 
     def test_removal_io_error_is_diagnostic_and_releases_successful_run(self):
@@ -147,7 +161,7 @@ class ScratchTests(unittest.TestCase):
                 patch("ub_agents.execution.shutil.rmtree", side_effect=OSError("disk failure")):
             self.assertTrue(loop.tick())
         directory = self.run_dir(loop)
-        self.assertEqual((directory / "scratch" / "nested" / "temporary").read_text(), "temporary contents")
+        self.assertEqual((self.scratch_dir(loop) / "nested" / "temporary").read_text(), "temporary contents")
         self.assert_removal_diagnostic(directory, "disk failure")
         self.assert_logs_retained(directory)
         lease, outcome = loop.coordinator.history(1)
@@ -174,7 +188,7 @@ class ScratchTests(unittest.TestCase):
         self.assertTrue(loop.tick())
         directory = self.run_dir(loop)
         self.assertIn('"scratch":', (directory / "process.log").read_text())
-        self.assertFalse((directory / "scratch").exists())
+        self.assert_scratch_removed(loop)
         self.assertEqual(group_members(int((directory / "pid").read_text())), [])
         self.assert_logs_retained(directory)
         self.assertIn("timed out", loop.coordinator.history(1)[0]["summary"])
@@ -191,7 +205,7 @@ class ScratchTests(unittest.TestCase):
         with patch("ub_agents.loop.supervise", side_effect=execute), self.assertRaises(KeyboardInterrupt):
             loop.tick()
         directory = self.run_dir(loop)
-        self.assertFalse((directory / "scratch").exists())
+        self.assert_scratch_removed(loop)
         self.assertEqual(group_members(int((directory / "pid").read_text())), [])
         self.assert_logs_retained(directory)
         self.assertIn("Launcher interrupted", loop.coordinator.history(1)[0]["summary"])
@@ -202,7 +216,7 @@ class ScratchTests(unittest.TestCase):
                 self.assertRaisesRegex(CleanupError, "inspection failed"):
             loop.tick()
         directory = self.run_dir(loop)
-        self.assertEqual((directory / "scratch" / "nested" / "temporary").read_text(), "temporary contents")
+        self.assertEqual((self.scratch_dir(loop) / "nested" / "temporary").read_text(), "temporary contents")
         self.assert_logs_retained(directory)
         self.assertEqual(loop.coordinator.history(1)[0]["cleanup"], "unconfirmed")
         self.assertIn("cleanup-unconfirmed", (directory / "events.jsonl").read_text())
@@ -232,7 +246,7 @@ class ScratchTests(unittest.TestCase):
                 self.assertTrue(any("scratch permission denied" in line for line in self.output))
                 directory = self.run_dir(loop)
                 self.assertIn("scratch permission denied", (directory / "events.jsonl").read_text())
-                self.assertFalse((directory / "scratch").exists())
+                self.assert_scratch_removed(loop)
                 self.assertFalse((directory / "pid").exists())
 
     def test_runtime_receives_scratch_outside_worktree_and_prompt_guidance(self):
@@ -245,13 +259,16 @@ class ScratchTests(unittest.TestCase):
 
         def execute(command, cwd, env, directory, timeout, stop, prompt, **kwargs):
             scratch = Path(env["UB_AGENTS_SCRATCH"])
-            self.assertEqual(scratch, directory / "scratch")
+            self.assertEqual(scratch, self.scratch_dir(loop))
             self.assertEqual(env["TMPDIR"], str(scratch))
             self.assertTrue(scratch.is_absolute())
             self.assertEqual(command[-3:], ["--add-dir", str(scratch), f"--add-dir={scratch}"])
             self.assertEqual(stat.S_IMODE(scratch.stat().st_mode), 0o700)
             self.assertEqual(cwd, worktree)
             self.assertFalse(scratch.is_relative_to(worktree))
+            with tempfile.TemporaryDirectory(dir=env["TMPDIR"]) as sandbox:
+                self.assertNotIn(self.root, Path(sandbox).parents)
+                self.assertNotIn(worktree, Path(sandbox).parents)
             self.assertIn("Put temporary files in UB_AGENTS_SCRATCH", prompt)
             self.assertIn("not directly under /tmp", prompt)
             self.assertIn(f'"scratch": "{scratch}"', prompt)
@@ -263,10 +280,90 @@ class ScratchTests(unittest.TestCase):
                 patch("ub_agents.loop.supervise", side_effect=execute) as executed:
             self.assertTrue(loop.tick())
         executed.assert_called_once()
-        self.assertFalse((self.run_dir(loop) / "scratch").exists())
+        self.assert_scratch_removed(loop)
+
+    def test_state_location_uses_absolute_xdg_or_falls_back_to_home(self):
+        home = self.state / "home"
+        for configured in (None, "", "relative", str(self.state / "xdg-state")):
+            with self.subTest(configured=configured), patch.dict(os.environ), \
+                    patch("ub_agents.state.Path.home", return_value=home):
+                if configured is None:
+                    os.environ.pop("XDG_STATE_HOME", None)
+                else:
+                    os.environ["XDG_STATE_HOME"] = configured
+                base = Path(configured) if configured and Path(configured).is_absolute() else home / ".local/state"
+                scratch = ScratchDirectory(self.root, "org/project", "run")
+                self.assertEqual(scratch.prepare(), base / "ub-agents/org/project/runs/run/scratch")
+                scratch.cleanup()
+                self.assertFalse(scratch.path.parent.exists())
+
+    def test_scratch_inside_checkout_is_visible_setup_failure_before_agent_or_worktree(self):
+        redirect = self.state / "redirect"
+        redirect.symlink_to(self.root, target_is_directory=True)
+        for state in (self.root, self.root / ".ub-agents/worktrees/another-run", redirect):
+            with self.subTest(state=state):
+                self.github = FakeGitHub(issue())
+                loop = self.loop()
+                with patch.dict(os.environ, {"XDG_STATE_HOME": str(state)}), \
+                        patch("ub_agents.loop.Workspace.prepare") as workspace, \
+                        patch("ub_agents.loop.supervise") as execute:
+                    self.assertTrue(loop.tick())
+                workspace.assert_not_called()
+                execute.assert_not_called()
+                lease, outcome = loop.coordinator.history(1)
+                self.assertEqual((lease["state"], lease["result"], outcome["status"]), ("released", "retry", "retry"))
+                self.assertIn("inside the target checkout", outcome["summary"])
+                self.assertTrue(any("inside the target checkout" in line for line in self.output))
+                directory = self.run_dir(loop)
+                self.assertIn("inside the target checkout", (directory / "events.jsonl").read_text())
+                self.assertFalse((directory / "pid").exists())
+                self.assertFalse((state / "ub-agents").exists())
+
+    def test_missing_scratch_still_removes_owned_per_run_directory(self):
+        loop = self.loop("import os; from pathlib import Path; Path(os.environ['TMPDIR']).rmdir()")
+        self.assertTrue(loop.tick())
+        self.assert_scratch_removed(loop)
+        self.assertFalse(any("Scratch removal failed:" in line for line in self.output))
+
+    def test_per_run_removal_failure_is_diagnostic(self):
+        loop = self.loop()
+        original = Path.rmdir
+
+        def fail_run(path):
+            if path == self.scratch_dir(loop).parent:
+                raise PermissionError("run removal denied")
+            return original(path)
+
+        with patch.object(Path, "rmdir", fail_run):
+            self.assertTrue(loop.tick())
+        self.assertFalse(self.scratch_dir(loop).exists())
+        self.assertTrue(self.scratch_dir(loop).parent.is_dir())
+        self.assert_removal_diagnostic(self.run_dir(loop), "run removal denied")
+        self.assertEqual(loop.coordinator.history(1)[0]["state"], "released")
+
+    def test_existing_per_run_directory_is_never_adopted_or_removed(self):
+        scratch = ScratchDirectory(self.root, "org/project", "run")
+        scratch.path.parent.mkdir(parents=True)
+        artifact = scratch.path.parent / "keep"
+        artifact.write_text("existing contents")
+        with self.assertRaisesRegex(AgentError, "Cannot create run scratch directory"):
+            scratch.prepare()
+        scratch.cleanup()
+        self.assertEqual(artifact.read_text(), "existing contents")
+
+    def test_existing_per_run_symlink_is_never_followed_to_create_scratch(self):
+        scratch = ScratchDirectory(self.root, "org/project", "run")
+        scratch.path.parent.parent.mkdir(parents=True)
+        target = self.state / "absent"
+        scratch.path.parent.symlink_to(target, target_is_directory=True)
+        with self.assertRaisesRegex(AgentError, "Cannot create run scratch directory"):
+            scratch.prepare()
+        scratch.cleanup()
+        self.assertTrue(scratch.path.parent.is_symlink())
+        self.assertFalse(target.exists())
 
     def test_exact_private_mode_even_under_restrictive_umask(self):
-        scratch = ScratchDirectory(self.root)
+        scratch = ScratchDirectory(self.root, "org/project", "run")
         previous = os.umask(0o777)
         try:
             scratch.prepare()
@@ -274,9 +371,10 @@ class ScratchTests(unittest.TestCase):
             os.umask(previous)
         self.assertEqual(stat.S_IMODE(scratch.path.stat().st_mode), 0o700)
         scratch.cleanup()
+        self.assertFalse(scratch.path.parent.exists())
 
     def test_redirected_scratch_never_removes_shared_files(self):
-        scratch = ScratchDirectory(self.root)
+        scratch = ScratchDirectory(self.root, "org/project", "run")
         scratch.prepare()
         scratch.path.rmdir()
         shared = self.root / "shared"
