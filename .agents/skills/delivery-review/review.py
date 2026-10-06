@@ -164,7 +164,7 @@ def collect(repo, since, until):
             "issues_opened": sum(1 for r in rows if "pull_request" not in r and inside(r["created_at"])),
             "runs": len(window), "runs_accepted": sum(r["accepted"] for r in window),
             "agent_hours": round(sum(r["minutes"] or 0 for r in window) / 60, 1),
-            "deliveries": sum(d["delivered"] for d in deliveries),
+            "deliveries": sum(1 for d in deliveries if d["delivered"] and d["runs"]),
             "first_pass": sum(1 for d in deliveries if d["delivered"] and d["runs"] and not d["extra_runs"]),
             "denials": sum(len(r["denied"]) for r in window)},
         "retrospectives": {"errors": errors, "in_window": [p | {"items": sorted(p["items"])} for p in posts if inside(p["created"])]},
