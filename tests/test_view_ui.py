@@ -2488,6 +2488,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree = app.query_one('#work', Tree)
             tree.get_node_at_line(0)
             self.assertEqual(tree.virtual_size.height, 17)  # Three headings, five items, four gaps.
+            # Building the rows queues scrollbar layout; wait for that refresh
+            # before checking geometry, including under the parallel suite.
+            await self.settled(app, tree)
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
