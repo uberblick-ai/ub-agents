@@ -40,6 +40,7 @@ class LoopTests(unittest.TestCase):
         self.assertIn(f"Report one with {report} report --outcome NAME", prompt)
         self.assertIn(f"Use {report} report wherever project instructions say `ub-agents report`", prompt)
         self.assertNotIn("$UB_AGENTS_REPORT", prompt)
+        self.assertNotIn("Install this checkout only into its own .venv.", prompt)
         self.assertIn("reviews, review comments and feedback", prompt)
         self.assertIn("address it when revising the work", prompt)
 

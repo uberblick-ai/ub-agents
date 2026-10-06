@@ -2,6 +2,7 @@
 
 ## Checks
 
+Install this checkout only into its own .venv.
 Run the checks in `AGENTS.md` before handoff and record the results.
 A check that passes only after changing its environment, skipping tests or adding
 extra flags has not passed. Fix repository causes in code or tests; report external
