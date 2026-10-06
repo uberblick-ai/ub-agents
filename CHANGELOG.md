@@ -13,6 +13,7 @@ notes are copied from that section.
 ### Fixed
 
 - Completed issues and PRs leave Needs attention after released retry or blocked runs, including selected rows, while unresolved obligations remain visible (#227).
+- Formatted Codex logs keep oversized events readable and show compact notices for incomplete records and page boundaries, preserving Raw access (#259).
 
 ## 0.1.13 — 2026-10-05
 

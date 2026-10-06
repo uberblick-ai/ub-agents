@@ -311,8 +311,12 @@ class ReadingTests(unittest.TestCase):
         self.assertIn("private-tool", fragment.display(raw=True))
         self.assertNotIn("private-tool", fragment.display())
         self.assertEqual(snapshot.entries[-1].kind, "assistant")
-        # Other runtimes retain their existing raw fallback for the same bytes.
-        plain = self.drain(self.reader("codex")).entries[0]
+        codex = self.drain(self.reader("codex")).entries[0]
+        self.assertTrue(codex.compact)
+        self.assertNotIn("private-tool", codex.text)
+        self.assertEqual(codex.raw, fragment.raw)
+        # Unknown runtimes retain their existing raw fallback for the same bytes.
+        plain = self.drain(self.reader("command")).entries[0]
         self.assertEqual(plain.text, plain.raw)
 
     def test_progress_updates_call_across_reads_preserves_snapshot_and_finishes(self):
