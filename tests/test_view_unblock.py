@@ -343,7 +343,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         summary = 'Local CI is red. Full CI diagnostics.'
         resume = 'Then resume worker:\n\n```sh\nub-agents retry 178 --agent worker\n```\n\nRestore `ready` if absent.'
         options = ['Maintainer: run CI outside supervision: `mise run ci SHA`',
-                   'Maintainer: merge a fix clearing `UB_AGENTS_READ_CONFIG`.']
+                   'Maintainer: merge a fix isolating `UB_AGENTS_RUN_CONFIG` in tests.']
         body = action_body(ACTION_MARKER + 'options -->', ['Owner: approve `storage`.'], summary,
                            options=options, reason=summary, resume=resume)
         self.state['action_needed']['178']['text'] = body
@@ -364,7 +364,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(pilot, lambda: len(app.query_one('#unblock_body', Markdown).query('MarkdownFence')) == 2)
             code = [child.content for token in tokens for child in token.children or [] if child.type == 'code_inline']
             self.assertIn('storage', code)
-            self.assertIn('UB_AGENTS_READ_CONFIG', code)
+            self.assertIn('UB_AGENTS_RUN_CONFIG', code)
             fold = app.query_one('#unblock_details', Collapsible)
             self.assertTrue(fold.collapsed)
             self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, summary)

@@ -15,6 +15,7 @@ from .notices import ACTION_MARKER
 from .github import closing_issues
 from .eligibility import AgentMatches
 from .run_history import display_run, merge_record, observed_blockers, sort_runs
+from .run_config import run_directory
 from . import __version__
 
 VERSION = 1
@@ -574,7 +575,7 @@ class Observations:
             else:
                 if record["state"] == "released" and assignment["process"] in {"starting", "running"}:
                     assignment.update(process="exited", process_reason="Supervisor released after execution ended")
-                directory = self.root / ".ub-agents" / "runs" / record["run"]
+                directory = run_directory(self.root, record["run"])
                 assignment.update(process_log=str(directory / "process.log"),
                                   context_path=str(directory / "context.json"), paths_reason=None)
                 if record["state"] == "running" and assignment["process"] == "claiming":

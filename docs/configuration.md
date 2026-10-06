@@ -500,7 +500,7 @@ posts a top-level comment and prints its URL. It resolves the configured discuss
 by number and refuses to post unless its URL is exactly
 `https://github.com/<repository>/discussions/<number>`. It works only inside a
 supervised run and takes the repository and the agent's board from the launcher's
-pinned policy; worktree edits and `--config` cannot change the target. There are no
+pinned `run.json`; worktree edits and `--config` cannot change the target. There are no
 repository, number or id options. Missing context, an unconfigured board, an
 unreadable or whitespace-only body, a URL mismatch or a failed GitHub call exits
 nonzero. Success and failure write no coordination records, labels or outcome.
@@ -935,8 +935,7 @@ and configured command receives the same environment variables:
 |---|---|
 | `UB_AGENTS_CONTEXT` | Path to a JSON file describing the assignment |
 | `UB_AGENTS_REPORT` | Absolute, shell-quoted command for the launcher's own installation; also in context as `report_command`; append `report`, `read` or `retrospective` and its arguments |
-| `UB_AGENTS_READ_CONFIG` | Absolute path to the launcher's pinned repository and input policy for supervised `read` calls |
-| `UB_AGENTS_RETROSPECTIVE_CONFIG` | Absolute path to the launcher's pinned repository, agent and retrospective board for this run |
+| `UB_AGENTS_RUN_CONFIG` | Absolute path to `.ub-agents/runs/<run>/run.json` in the control checkout, pinning the run context and policy for `read`, `retrospective` and `report` |
 | `UB_AGENTS_REPOSITORY` | `owner/name` |
 | `UB_AGENTS_ASSIGNMENT` | Issue or PR number |
 | `UB_AGENTS_RUN` | Run id |
@@ -944,6 +943,13 @@ and configured command receives the same environment variables:
 | `UB_AGENTS_LEASE_ID` | The claim's comment id |
 | `UB_AGENTS_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
 | `UB_AGENTS_BRANCH` | The branch to work on, when known |
+
+The launcher writes one `run.json` with `repository`, `run`, `assignment`,
+`lease_id`, `agent`, `approvals`, `trusted-bots`, `triggers` and `retrospectives`.
+In-run commands validate that file and match its repository and run to
+`UB_AGENTS_REPOSITORY` and `UB_AGENTS_RUN` before contacting GitHub. Missing,
+unreadable or invalid context exits nonzero without showing input or posting
+records. `read N` outside a run (`UB_AGENTS_RUN` unset) uses local configuration.
 
 Use `UB_AGENTS_SCRATCH` for temporary files instead of writing directly under
 `/tmp`. Before starting a runtime or command, the launcher creates this directory

@@ -17,7 +17,8 @@ from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.read_input import read_item, read_policy
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from ub_agents.run_config import run_config
+from tests.support import FakeGitHub, agent, config, issue, pr, run_environment, stub_refresh
 from tests.test_approvals import at
 
 
@@ -386,10 +387,8 @@ class ReadInputTests(unittest.TestCase):
         self.assertTrue(filtering.call_args_list[1].kwargs["read_only"])
 
     def test_supervised_read_uses_pinned_policy_and_ignores_worktree_config(self):
-        policy_path = self.root / "read-config.json"
-        policy_path.write_text(json.dumps(read_policy(replace(self.config, approvals="off"))))
-        env = {"UB_AGENTS_RUN": "run", "UB_AGENTS_REPOSITORY": "org/project",
-               "UB_AGENTS_READ_CONFIG": str(policy_path)}
+        env = run_environment(replace(self.config, approvals="off"), self.config.agents[0],
+                              {"run": "run", "assignment": 1, "id": 2})
         with patch.dict(os.environ, env), patch("ub_agents.cli.load_config", side_effect=AssertionError("worktree config")), \
                 patch("ub_agents.cli.GitHub", return_value=self.github) as github, \
                 redirect_stdout(io.StringIO()) as stdout:
@@ -398,11 +397,10 @@ class ReadInputTests(unittest.TestCase):
         github.assert_called_once_with("org/project")
         with patch.dict(os.environ, {"UB_AGENTS_RUN": "run"}):
             self.assertEqual(self.cli()[:2], (1, ""))
-        for malformed in ({}, [], None, read_policy(self.config) | {"triggers": ["issue", "pr"]},
-                          read_policy(self.config) | {"repository": "other/repository"}):
-            policy_path.write_text(json.dumps(malformed))
-            with patch.dict(os.environ, env):
-                self.assertEqual(self.cli()[:2], (1, ""))
+
+    def test_read_outside_a_run_uses_local_config_even_with_stale_run_config(self):
+        with patch.dict(os.environ, {"UB_AGENTS_RUN_CONFIG": "relative.json"}):
+            self.assertEqual(self.cli()[0], 0)
 
     def test_actual_assignment_receives_bot_feedback_and_pinned_read_policy(self):
         stub_refresh(self)
@@ -411,8 +409,9 @@ class ReadInputTests(unittest.TestCase):
         loop = Loop(self.config, self.github, "operator", output=lambda *_: None)
         def execute(command, cwd, env, *args, **kwargs):
             context = json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())
-            pinned = json.loads(Path(env["UB_AGENTS_READ_CONFIG"]).read_text())
-            self.assertEqual(pinned, read_policy(self.config))
+            pinned = json.loads(Path(env["UB_AGENTS_RUN_CONFIG"]).read_text())
+            lease = loop.coordinator.history(2)[-1]
+            self.assertEqual(pinned, run_config(self.config, self.config.agents[0], lease))
             read = read_item(self.github, 2, pinned)
             self.assertEqual(context["reviews"], read["reviews"])
             self.assertEqual([r["id"] for r in context["reviews"]], [1])

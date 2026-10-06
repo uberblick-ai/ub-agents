@@ -370,7 +370,7 @@ class NoticeTests(unittest.TestCase):
         lease = self.start(2)
         summary = 'Local CI is red on `abcdef`. One test reads the launcher environment.\n\nFull diagnostics.'
         options = ['Maintainer: run CI outside a supervised session: `mise run ci abcdef`',
-                   'Maintainer: merge a fix that clears `UB_AGENTS_READ_CONFIG`.']
+                   'Maintainer: merge a fix isolating `UB_AGENTS_RUN_CONFIG` in tests.']
         ask = 'Owner: authorize the *storage* change & review [the PR].'
         outcome = self.co.report(lease, 'blocked', summary, action=ask, option=options)
         self.co.release(lease, 'blocked', summary)
@@ -381,7 +381,7 @@ class NoticeTests(unittest.TestCase):
                    'To unblock, do one of:',
                    '1. Maintainer: run CI outside a supervised session (recommended)',
                    '   ```sh\n   mise run ci abcdef\n   ```',
-                   '2. Maintainer: merge a fix that clears `UB_AGENTS_READ_CONFIG`.',
+                   '2. Maintainer: merge a fix isolating `UB_AGENTS_RUN_CONFIG` in tests.',
                    'Then resume worker:', '```sh\nub-agents retry 2', 'Restore a matching trigger']
         positions = [visible.index(text) for text in ordered]
         self.assertEqual(positions, sorted(positions))

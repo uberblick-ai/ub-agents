@@ -16,7 +16,7 @@ from ub_agents.errors import AgentError, LostOwnership, RetryableExecutionError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, seconds, timestamp
-from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr
+from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr, run_environment
 
 
 class TransitionTests(unittest.TestCase):
@@ -694,9 +694,8 @@ class TransitionTests(unittest.TestCase):
     def test_report_cli_rejections_and_named_outcome_use_running_lease_snapshot(self):
         plan = self.loop.plans()[0]
         lease = self.loop.coordinator.claim(plan, self.loop.config.stop_labels)
-        env = {'UB_AGENTS_REPOSITORY': 'org/project', 'UB_AGENTS_ASSIGNMENT': '1',
-               'UB_AGENTS_RUN': lease['run'], 'UB_AGENTS_LEASE_ID': str(lease['id'])}
-        with patch.dict(os.environ, env), patch('ub_agents.cli.GitHub', return_value=self.github), \
+        env = run_environment(self.loop.config, self.agent, lease)
+        with patch.dict(os.environ, env, clear=True), patch('ub_agents.cli.GitHub', return_value=self.github), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(['report', '--outcome', 'unknown', '--summary', 'done']), 1)
             with self.assertRaises(SystemExit):  # --status success no longer exists
@@ -706,10 +705,9 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.labels_changed(), [])
         self.assertEqual(self.loop.coordinator.history(1)[1]['outcome'], 'handed-off')
 
-    def test_report_requires_every_supervised_environment_field(self):
-        env = {'UB_AGENTS_REPOSITORY': 'org/project', 'UB_AGENTS_ASSIGNMENT': '1',
-               'UB_AGENTS_RUN': 'test-run', 'UB_AGENTS_LEASE_ID': '1'}
-        for field in env:
+    def test_report_requires_pinned_context_repository_and_run(self):
+        env = run_environment(self.loop.config, self.agent, {'run': 'test-run', 'assignment': 1, 'id': 1})
+        for field in ('UB_AGENTS_REPOSITORY', 'UB_AGENTS_RUN', 'UB_AGENTS_RUN_CONFIG'):
             for value in (None, ''):
                 incomplete = env | {field: value}
                 if value is None:
@@ -718,7 +716,7 @@ class TransitionTests(unittest.TestCase):
                         patch('ub_agents.cli.GitHub') as github, redirect_stdout(io.StringIO()) as output, \
                         redirect_stderr(io.StringIO()) as error:
                     self.assertEqual(main(['report', '--outcome', 'handed-off', '--summary', 'done']), 1)
-                    self.assertIn('report requires the environment', error.getvalue())
+                    self.assertIn('run.json (UB_AGENTS_RUN_CONFIG)', error.getvalue())
                     self.assertEqual(output.getvalue(), '')
                     github.assert_not_called()
 

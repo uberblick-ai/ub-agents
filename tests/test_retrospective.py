@@ -13,8 +13,8 @@ from ub_agents.cli import main
 from ub_agents.config import Runtime
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
-from ub_agents.retrospective import retrospective_policy
-from tests.support import FakeGitHub, RecordingDiscussionRunner, agent, config, issue, stub_refresh
+from ub_agents.run_config import run_config
+from tests.support import FakeGitHub, RecordingDiscussionRunner, agent, config, issue, run_environment, stub_refresh
 
 
 class RetrospectiveTests(unittest.TestCase):
@@ -22,14 +22,13 @@ class RetrospectiveTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.policy = retrospective_policy(config(self.root), agent(self.root, retrospectives=203), "run")
-        self.policy_path = self.root / "retrospective-config.json"
-        self.policy_path.write_text(json.dumps(self.policy))
+        role = agent(self.root, retrospectives=203)
+        self.env = run_environment(config(self.root, role), role, {"run": "run", "assignment": 1, "id": 2})
+        self.policy_path = Path(self.env["UB_AGENTS_RUN_CONFIG"])
+        self.policy = json.loads(self.policy_path.read_text())
         self.body_path = self.root / "body.md"
         self.body = "Run #207 lost a review round. A configured board would have prevented it.\n"
         self.body_path.write_text(self.body)
-        self.env = {"UB_AGENTS_RUN": "run", "UB_AGENTS_REPOSITORY": "org/project",
-                    "UB_AGENTS_RETROSPECTIVE_CONFIG": str(self.policy_path)}
         self.runner = RecordingDiscussionRunner()
         self.github = GitHub("org/project", self.runner)
 
@@ -61,11 +60,11 @@ class RetrospectiveTests(unittest.TestCase):
         self.assertNotIn("replyToId", mutation["query"])
         self.assertEqual(self.runner.writes, [mutation])
 
-    def test_missing_or_invalid_supervised_policy_never_reaches_github(self):
+    def test_missing_or_invalid_run_config_never_reaches_github(self):
         for env in ({}, {"UB_AGENTS_RUN": "run"}, self.env | {"UB_AGENTS_RUN": "other"},
                     self.env | {"UB_AGENTS_REPOSITORY": "other/repo"},
-                    self.env | {"UB_AGENTS_RETROSPECTIVE_CONFIG": "relative.json"},
-                    self.env | {"UB_AGENTS_RETROSPECTIVE_CONFIG": str(self.root / "missing")}):
+                    self.env | {"UB_AGENTS_RUN_CONFIG": "relative.json"},
+                    self.env | {"UB_AGENTS_RUN_CONFIG": str(self.root / "missing")}):
             with self.subTest(env=env):
                 code, stdout, stderr = self.cli(env=env)
                 self.assertEqual((code, stdout), (1, ""))
@@ -163,15 +162,15 @@ class RetrospectiveTests(unittest.TestCase):
                     coordination = FakeGitHub(issue())
                     loop = Loop(config(self.root, role), coordination, "operator", output=lambda *_: None)
                     def execute(command, cwd, env, run_dir, timeout, event, prompt, **kwargs):
-                        pinned = json.loads(Path(env["UB_AGENTS_RETROSPECTIVE_CONFIG"]).read_text())
-                        self.assertEqual(pinned, retrospective_policy(loop.config, role, env["UB_AGENTS_RUN"]))
+                        pinned = json.loads(Path(env["UB_AGENTS_RUN_CONFIG"]).read_text())
+                        self.assertEqual(pinned, run_config(loop.config, role, loop.coordinator.history(1)[-1]))
                         if cli:
                             self.assertEqual("Post a retrospective with" in prompt, board is not None)
                             self.assertIn(f"Bash({env['UB_AGENTS_REPORT']} retrospective *)", command)
                         else:
                             self.assertIsNone(prompt)
                         before = list(coordination.writes)
-                        self.policy_path = Path(env["UB_AGENTS_RETROSPECTIVE_CONFIG"])
+                        self.policy_path = Path(env["UB_AGENTS_RUN_CONFIG"])
                         self.runner.discussion = {"id": "configured-board",
                                                   "url": "https://github.com/org/project/discussions/203"}
                         code, _, _ = self.cli(env=env)

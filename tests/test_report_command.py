@@ -19,7 +19,7 @@ from ub_agents.coordination import Coordinator
 from ub_agents.loop import Loop
 from ub_agents.records import MARKER, record_version
 from ub_agents.report_command import launcher_report_command
-from tests.support import FakeGitHub, agent, config, issue, stub_refresh
+from tests.support import FakeGitHub, agent, config, issue, run_environment, stub_refresh
 
 
 class ReportCommandTests(unittest.TestCase):
@@ -81,7 +81,7 @@ def main():
                 result = subprocess.run([shell, "-lc", prefix + report + " report --status retry --summary fixture"],
                                         cwd=other, env=reporting_env, capture_output=True, text=True, timeout=20)
                 self.assertEqual(result.returncode, 1)
-                self.assertIn("report requires the environment of a supervised ub-agents assignment", result.stderr)
+                self.assertIn("requires a supervised ub-agents assignment", result.stderr)
                 self.assertNotIn("wrong", result.stdout + result.stderr)
 
     def test_each_supervised_execution_receives_the_same_literal_report_command(self):
@@ -97,6 +97,21 @@ def main():
 
                 def execute(command, cwd, env, *args, **kwargs):
                     context = json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())
+                    path = Path(env["UB_AGENTS_RUN_CONFIG"])
+                    self.assertEqual(path, args[0] / "run.json")
+                    self.assertTrue(path.is_absolute())
+                    pinned = json.loads(path.read_text())
+                    self.assertEqual({k: pinned[k] for k in ("repository", "run", "assignment", "agent")},
+                                     {k: context[k] for k in ("repository", "run", "assignment", "agent")})
+                    self.assertEqual(str(pinned["lease_id"]), env["UB_AGENTS_LEASE_ID"])
+                    self.assertEqual(str(pinned["assignment"]), env["UB_AGENTS_ASSIGNMENT"])
+                    self.assertEqual({k: pinned[k] for k in ("approvals", "trusted-bots", "triggers", "retrospectives")},
+                                     {"approvals": "on", "trusted-bots": [], "retrospectives": None,
+                                      "triggers": {"issue": ["needs-changes", "ready"], "pr": []}})
+                    for removed in ("UB_AGENTS_READ_CONFIG", "UB_AGENTS_RETROSPECTIVE_CONFIG"):
+                        self.assertNotIn(removed, env)
+                    for removed in ("read-config.json", "retrospective-config.json"):
+                        self.assertFalse((path.parent / removed).exists())
                     report = env["UB_AGENTS_REPORT"]
                     self.assertEqual(report, context["report_command"])
                     self.assertEqual(report, launcher_report_command())
@@ -112,7 +127,9 @@ def main():
                     return 0
 
                 with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                        patch.dict(os.environ, {"UB_AGENTS_REPORT": "/stale/ub-agents"}), \
+                        patch.dict(os.environ, {"UB_AGENTS_REPORT": "/stale/ub-agents",
+                                                "UB_AGENTS_READ_CONFIG": "/stale/read.json",
+                                                "UB_AGENTS_RETROSPECTIVE_CONFIG": "/stale/retro.json"}), \
                         patch("ub_agents.loop.supervise", side_effect=execute) as executed:
                     self.assertTrue(loop.tick())
                 executed.assert_called_once()
@@ -134,12 +151,14 @@ class ReportVersionTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.github = FakeGitHub(issue())
         self.coordinator = Coordinator(self.github, "operator")
-        self.lease = self.coordinator.claim(self.coordinator.plan(issue(), agent(self.root), ()))
+        self.role = agent(self.root)
+        self.config = config(self.root, self.role)
+        self.lease = self.coordinator.claim(self.coordinator.plan(issue(), self.role, ()))
         self.coordinator.update(self.lease, state="running", started=True)
 
-    def report(self, *, report_command="/launcher/ub-agents"):
-        env = {"UB_AGENTS_REPOSITORY": "org/project", "UB_AGENTS_ASSIGNMENT": "1",
-               "UB_AGENTS_RUN": self.lease["run"], "UB_AGENTS_LEASE_ID": str(self.lease["id"])}
+    def report(self, *, report_command="/launcher/ub-agents", env_overrides=None):
+        env = run_environment(self.config, self.role, self.lease)
+        env.update(env_overrides or {})
         if report_command:
             env["UB_AGENTS_REPORT"] = report_command
         with patch.dict(os.environ, env, clear=True), patch("ub_agents.cli.GitHub", return_value=self.github), \
@@ -187,3 +206,17 @@ class ReportVersionTests(unittest.TestCase):
         code, stdout, stderr = self.report()
         self.assertEqual((code, stderr), (0, ""))
         self.assertEqual(json.loads(stdout)["status"], "blocked")
+
+    def test_report_takes_assignment_and_lease_id_from_run_json(self):
+        code, stdout, stderr = self.report(env_overrides={"UB_AGENTS_ASSIGNMENT": "wrong",
+                                                        "UB_AGENTS_LEASE_ID": "wrong"})
+        self.assertEqual((code, stderr), (0, ""))
+        self.assertEqual(json.loads(stdout)["run"], self.lease["run"])
+
+    def test_report_always_applies_pinned_bots_to_coordination_reads(self):
+        self.config = replace(self.config, trusted_bots=("copilot",))
+        self.github.roles["copilot"] = "admin"
+        self.github.store[1].append({"id": 999, "body": MARKER + "\nmalformed bot record",
+                                     "user": {"login": "copilot", "type": "Bot"}})
+        code, _, stderr = self.report()
+        self.assertEqual((code, stderr), (0, ""))

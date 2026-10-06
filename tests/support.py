@@ -133,6 +133,16 @@ def config(root, *agents, queue=Queue()):
                   queue=queue, approvals="on")
 
 
+def run_environment(configured, role, lease):
+    from ub_agents.run_config import run_config, run_directory
+    path = run_directory(configured.root, lease["run"]) / "run.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(run_config(configured, role, lease)))
+    return {"UB_AGENTS_RUN_CONFIG": str(path), "UB_AGENTS_REPOSITORY": configured.repository,
+            "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_ASSIGNMENT": str(lease["assignment"]),
+            "UB_AGENTS_LEASE_ID": str(lease["id"])}
+
+
 def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milestone=None):
     return Item(number, "issue", "Requirements", "Acceptance criteria", frozenset(labels), "open",
                 created_at, milestone=milestone)
