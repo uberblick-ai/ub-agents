@@ -385,19 +385,47 @@ class RunsTests(unittest.TestCase):
         self.assertIsNone(rows[0]['host'])
 
     def test_rejected_success_and_released_or_withdrawn_claims_are_failures(self):
+        live = {'state': 'running', 'expires': iso(self.now.timestamp() + 600),
+                'acceptance': 'unaccepted'}
         for row in ({'result': 'success', 'rejection': 'Changed candidate'},
-                    {'result': 'success', 'acceptance': 'unaccepted'},
+                    live | {'result': 'success', 'rejection': 'Changed candidate'},
+                    live | {'result': 'retry'}, live | {'result': 'blocked'},
                     {'state': 'released'}, {'state': 'withdrawn'}):
-            self.assertEqual(run_status(row, self.now)[0], 'failed')
+            with self.subTest(row=row):
+                self.assertEqual(run_status(row, self.now)[0], 'failed')
 
     def test_unaccepted_run_keeps_a_red_result_without_acceptance_text(self):
-        self.plan(history=(outcome(outcome='approved', accepted=False, transition_complete=False),))
+        stamp = self.now.timestamp()
+        reported = outcome(created=stamp, outcome='approved', accepted=False, transition_complete=False)
+        for fields in (None, {'expires': iso(stamp)}, {'expires': iso(stamp - 1)},
+                       {'state': 'released'}, {'state': 'withdrawn'}):
+            with self.subTest(lease=fields):
+                leases = (claim(created=stamp - 60, **fields),) if fields is not None else ()
+                self.plan(history=leases + (reported,))
+                value, view = self.display()
+                self.assertIn('approved', value)
+                self.assertNotIn('unaccepted', value)
+                glyph = list(view.renderables)[1].columns[1]._cells[0]
+                self.assertEqual(glyph.plain, '✗')
+                self.assertEqual(glyph.style.color.name, '#ff8b7f')
+
+    def test_unaccepted_success_shows_a_spinner_while_the_lease_is_live(self):
+        stamp = self.now.timestamp()
+        reported = outcome(created=stamp, outcome='approved', accepted=False, transition_complete=False)
+        self.plan(history=(claim(created=stamp - 60), reported))
+        run = self.memory.snapshots[-1]['histories']['1']['runs'][0]
+        self.assertEqual(run_status(run, self.now), ('running', 'running'))
         value, view = self.display()
         self.assertIn('approved', value)
         self.assertNotIn('unaccepted', value)
         glyph = list(view.renderables)[1].columns[1]._cells[0]
-        self.assertEqual(glyph.plain, '✗')
-        self.assertEqual(glyph.style.color.name, '#ff8b7f')
+        self.assertIn(glyph.plain, '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
+
+        self.observer.record(reported | {'accepted': True, 'transition_complete': True})
+        _, view = self.display()
+        glyph = list(view.renderables)[1].columns[1]._cells[0]
+        self.assertEqual(glyph.plain, '✓')
+        self.assertEqual(glyph.style.color.name, '#7ee2a0')
 
 
 if __name__ == '__main__':

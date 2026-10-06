@@ -308,7 +308,9 @@ PR the first row is the issue it closes.
   columns. Text too long for any cell is shortened with `…`, never wrapped.
 - The outcome cell shows the outcome or status, then any `BLOCKED: …` human
   blockers, then ` · N denied` for a positive denial count. Outcome and blocker
-  text shorten first to keep the count whole. Unaccepted runs retain a red `✗`.
+  text shorten first to keep the count whole. Unaccepted successes show a spinner
+  while their lease is live, then a red `✗` if it expires, is released or is withdrawn
+  before acceptance. Rejected, blocked and retry results remain red.
 
 ## Footer and states
 

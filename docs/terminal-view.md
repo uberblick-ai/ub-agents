@@ -331,7 +331,9 @@ launcher's pass. Missing filing data leaves out both the row and `filed by`.
 Each run shows its outcome time, or claim time until an outcome exists; a green
 `✓` for success, red `✗` for a failed or abandoned run, or a spinner while in
 progress; the agent and summary; its host; and its named outcome or run status,
-followed by any human blockers (`BLOCKED: …`). Unaccepted runs show a red `✗`.
+followed by any human blockers (`BLOCKED: …`). Unaccepted successes show a spinner
+while their lease is live, then a red `✗` if it expires, is released or is withdrawn
+before acceptance. Rejected, blocked and retry results remain red.
 Every run and filing row occupies exactly one line at any pane width, including
 60 columns; text too long for any cell is shortened with `…`.
 Relative time steps are `just now`, `N min ago`, `N h ago`,

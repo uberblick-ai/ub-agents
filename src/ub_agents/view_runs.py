@@ -76,7 +76,11 @@ def run_status(row, now):
     result = row.get('result')
     expires = moment(row.get('expires'))
     expired = expires is not None and expires.timestamp() <= now.timestamp()
-    if row.get('rejection') or row.get('acceptance') == 'unaccepted' or result in {'retry', 'blocked'}:
+    if row.get('rejection') or result in {'retry', 'blocked'}:
+        return 'failed', result or 'blocked'
+    if row.get('acceptance') == 'unaccepted':
+        if row.get('state') in {'claiming', 'running'} and expires is not None and not expired:
+            return 'running', text(row.get('state'), 'running')
         return 'failed', result or 'blocked'
     if result == 'success':
         return 'success', 'success'
