@@ -2765,6 +2765,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             # Building the rows queues scrollbar layout; wait for that refresh
             # before checking geometry, including under the parallel suite.
             await self.settled(app, tree)
+            # A busy runner can need more than one layout pass to drop the scrollbar.
+            await self.ready(app, pilot, lambda: not tree.show_horizontal_scrollbar)
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
