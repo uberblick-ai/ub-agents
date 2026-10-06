@@ -2,8 +2,8 @@
 
 Based on the accepted #111 Claude adapter and standard-library pretty-printer.
 Codex shapes are checked against the owned 0.160.0 JSONL recordings.
-Other runtimes and incomplete/non-JSON fragments deliberately remain raw text,
-apart from Claude's compact marker for a cut-off first record.
+Other runtimes and non-JSON diagnostics retain their raw display. Codex records
+and boundary spans have bounded, compact projections even when oversized.
 """
 
 from collections import OrderedDict
@@ -67,13 +67,15 @@ class Entry:
     styles: tuple = ()
     calls: tuple[Call, ...] = ()
     progress: tuple = ()
+    raw_kind: str | None = None
 
     def display(self, raw=False):
         if self.compact and not raw:
             return self.text
         timing = (f"producer={self.event}" if self.event else
                   f"capture={self.capture}" if self.capture else "time=unknown (pre-existing bytes)")
-        return shorten(f"{timing} | {self.kind}\n{self.raw if raw else self.text}")
+        kind = (self.raw_kind or self.kind) if raw else self.kind
+        return shorten(f"{timing} | {kind}\n{self.raw if raw else self.text}")
 
 
 def entry(kind, text, raw, capture=None, event=None):
@@ -93,6 +95,12 @@ def skipped_entry(raw, capture, kind):
     original = raw_entry(raw, capture, kind)
     text = " " * 10 + "· earlier output skipped · h older"
     return replace(original, text=text, compact=True, styles=((10, len(text), "dim"),))
+
+
+def codex_notice(original, text):
+    text = _time_column(None, original.capture) + "· " + text + " · full record in Raw"
+    return replace(original, text=text, compact=True, styles=((10, len(text), "dim"),),
+                   raw_kind=original.raw_kind or original.kind)
 
 
 def _identifier(value):
@@ -241,9 +249,15 @@ class StructuredFormatter:
         except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
             self.last_call = None
             return raw_entry(raw, capture)
+        return self.project(data, raw, capture)
+
+    def project(self, data, raw, capture=None, *, oversized=False):
         try:
             kind, lines, calls, last_call = self._project(data)
         except (ValueError, TypeError, RecursionError, OverflowError):
+            if oversized:
+                self.last_call = None
+                return codex_notice(raw_entry(raw, capture), "oversized Codex record omitted")
             # A complete JSON object always has a compact fallback, even when a
             # known record has an unfamiliar shape. Never print its JSON here.
             kind, lines, calls, last_call = "other", [self._label(data)], [], None
@@ -378,6 +392,31 @@ class CodexFormatter(StructuredFormatter):
     Completion records carry their own command/tool fields, so near-tail and
     history attachment do not need an earlier start record to explain a result.
     """
+
+    def decode(self, raw, capture=None):
+        if len(raw) <= MAX_RECORD or not raw.lstrip().startswith(b'{'):
+            value = super().decode(raw, capture)
+            if not value.compact and raw.lstrip().startswith(b'{'):
+                return codex_notice(value, "incomplete or unrecognized Codex record omitted")
+            return value
+        from .log_json import BoundedJSON
+        parser = BoundedJSON()
+        for index in range(0, len(raw), 32 * 1024):
+            parser.feed(raw[index:index + 32 * 1024])
+        return self.oversized(parser, raw, capture)
+
+    def oversized(self, parser, raw, capture=None):
+        from .log_json import ShortenedText
+        data = parser.finish()
+        item = data.get('item') if data else None
+        labels = [data.get('type'), data.get('subtype')] if data else []
+        if isinstance(item, dict):
+            labels.append(item.get('type'))
+        if data is None or not _identifier(data.get('type')) or any(
+                isinstance(label, ShortenedText) for label in labels):
+            self.last_call = None
+            return codex_notice(raw_entry(raw, capture), "oversized Codex record omitted")
+        return self.project(data, raw, capture, oversized=True)
 
     @staticmethod
     def _label(data):
