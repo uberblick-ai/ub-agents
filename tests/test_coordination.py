@@ -294,6 +294,87 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual((self.plan().state, self.plan().attempt), ("ready", 1))
         self.assertEqual(len(self.co.history(1)), 2)
 
+    def test_blocked_pr_head_change_preserves_attempts_and_history(self):
+        lease = self.start(self.github.item(2))
+        self.co.report(lease, "retry", "Transient failure")
+        self.co.release(lease, "retry", "Transient failure")
+        lease = self.start(self.github.item(2))
+        self.co.report(lease, "blocked", "Needs correction", action="Maintainer: push a correction.")
+        self.co.release(lease, "blocked", "Needs correction")
+        history = self.co.history(2)
+        writes = list(self.github.writes)
+        self.assertEqual((self.plan(self.github.item(2)).state, self.plan(self.github.item(2)).attempt),
+                         ("blocked", 2))
+        self.github.change(2, head="b" * 40)
+        restarted = Coordinator(self.github, "operator", lambda: self.now)
+        plan = restarted.plan(self.github.item(2), self.agent, ())
+        self.assertEqual((plan.state, plan.attempt), ("ready", 2))
+        self.assertEqual(self.co.history(2), history)
+        self.assertEqual(self.github.writes, writes)
+
+    def test_blocked_pr_status_change_without_head_change_stays_blocked(self):
+        lease = self.start(self.github.item(2))
+        self.co.report(lease, "blocked", "Check failed", action="Maintainer: fix the check.")
+        self.co.release(lease, "blocked", "Check failed")
+        self.github.candidate_evidence = lambda *_: ("APPROVED", "SUCCESS")
+        self.github.change(2, updated_at=iso(self.now + 1))
+        self.assertEqual(self.plan(self.github.item(2)).state, "blocked")
+
+    def test_blocked_pr_own_push_before_report_does_not_clear_block(self):
+        lease = self.start(self.github.item(2))
+        self.github.change(2, head="b" * 40)
+        outcome = self.co.report(lease, "blocked", "Needs decision", action="Maintainer: decide the next step.")
+        self.co.release(lease, "blocked", "Needs decision")
+        self.assertEqual((lease["assignment_sha"], outcome["candidate_sha"]), ("a" * 40, "b" * 40))
+        self.assertEqual(self.plan(self.github.item(2)).state, "blocked")
+        self.github.change(2, head="c" * 40)
+        self.assertEqual(self.plan(self.github.item(2)).state, "ready")
+
+    def test_blocked_pr_without_outcome_uses_assignment_head(self):
+        lease = self.start(self.github.item(2))
+        self.co.release(lease, "blocked", "Setup failed")
+        self.assertEqual(self.plan(self.github.item(2)).state, "blocked")
+        self.github.change(2, head="b" * 40)
+        plan = self.plan(self.github.item(2))
+        self.assertEqual((plan.state, plan.attempt), ("ready", 2))
+
+    def test_blocked_issue_does_not_clear_when_handoff_head_changes(self):
+        lease = self.start()
+        self.co.report(lease, "blocked", "Needs correction", action="Maintainer: push a correction.")
+        self.co.release(lease, "blocked", "Needs correction")
+        self.github.change(2, head="b" * 40)
+        self.assertEqual(self.plan().state, "blocked")
+
+    def test_blocked_pr_head_change_keeps_other_pickup_gates(self):
+        for gate, expected, reason in (
+                ("cleanup", "blocked", "cleanup was unconfirmed"),
+                ("stop", "parked", "Stop label"),
+                ("attempts", "blocked", "Attempt limit exhausted"),
+                ("backoff", "backoff", "Durable retry backoff"),
+                ("runtime", "blocked", "Command is not installed"),
+                ("trust", "blocked", "write or higher is required"),
+                ("owner", "owned", "unexpired assignment")):
+            with self.subTest(gate=gate):
+                self.setUp()
+                lease = self.start(self.github.item(2))
+                self.co.release(lease, "blocked", "Setup failed", backoff=10 if gate == "backoff" else 0)
+                self.github.change(2, head="b" * 40)
+                if gate == "cleanup":
+                    self.co.update(lease, cleanup="unconfirmed")
+                elif gate == "stop":
+                    self.github.change(2, labels=frozenset({"needs-changes", "needs-human"}))
+                elif gate == "attempts":
+                    self.agent = replace(self.agent, max_attempts=1)
+                elif gate == "runtime":
+                    self.agent = replace(self.agent, command=(str(self.root / "missing-command"),))
+                elif gate == "trust":
+                    self.co.actor = "outsider"
+                elif gate == "owner":
+                    self.start(self.github.item(2), replace(self.agent, name="other"))
+                plan = self.plan(self.github.item(2))
+                self.assertEqual(plan.state, expected)
+                self.assertIn(reason, plan.reason)
+
     def test_checkpoint_publication_keeps_issue_owned_without_outcome(self):
         lease = self.start()
         self.co.update(lease, branch="feature/test")
@@ -406,6 +487,22 @@ class CoordinationTests(unittest.TestCase):
         self.now += 61
         self.assertTrue(loop.recover(self.plan()))
         self.assertEqual(self.plan().state, "blocked")
+
+    def test_recovered_blocked_pr_uses_reported_head(self):
+        for head, expected in (("b" * 40, "blocked"), ("c" * 40, "ready")):
+            with self.subTest(head_at_recovery=head):
+                self.setUp()
+                loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
+                loop.coordinator = self.co
+                lease = self.start(self.github.item(2))
+                self.github.change(2, head="b" * 40)
+                self.co.report(lease, "blocked", "Needs decision", action="Maintainer: decide the next step.")
+                self.github.change(2, head=head)
+                self.now += 61
+                self.assertTrue(loop.recover(self.plan(self.github.item(2))))
+                self.assertEqual(self.plan(self.github.item(2)).state, expected)
+                self.github.change(2, head="d" * 40)
+                self.assertEqual(self.plan(self.github.item(2)).state, "ready")
 
     def test_normal_queue_recovers_completion_even_after_item_closed(self):
         loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)

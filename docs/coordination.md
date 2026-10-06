@@ -37,9 +37,10 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 | Accepted success at completion or through outcome-only recovery | Reset to 0 | Normal transition |
 | Approval fails at pickup or after claiming | Unchanged | Parked until approved, without `retry` |
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
-| Agent reports `--status blocked`; transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
+| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves or an operator uses `retry`; issues need `retry` |
+| Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
-| Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Parked for a human; never retried automatically |
+| Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Blocked; PR head changes or `retry` can resume, except unconfirmed cleanup needs operator action |
 
 A human pause takes precedence over the rejected-success rule when it is the
 reason a transition cannot start. Confirmed claim withdrawals cost nothing.
@@ -56,6 +57,15 @@ preserves prior failures but adds no delay of its own.
 
 Every lease records an `attempt_effect` (`pending`, `failure`, `reset` or `unchanged`)
 so restart discovery distinguishes human pauses and interrupts from failures.
+
+A blocked PR becomes eligible when its head differs from the blocked run's
+outcome `candidate_sha`, or its lease's `assignment_sha` when there is no outcome.
+Commits the run pushed before reporting blocked do not clear its own block;
+a push after the report by anyone does. This planning check writes no records and
+resets no attempts or backoff. Ownership, stop labels, unconfirmed cleanup,
+attempt limits, runtime availability and trust checks still apply, and a matching
+trigger is still required. Status-only changes do not clear the block. Blocked
+issues and unchanged PR heads still need `ub-agents retry`.
 
 ## Selection order
 
@@ -504,9 +514,10 @@ and handoff provenance. The exit code is logged in the run's `events.jsonl`; age
 output is never interpreted. Invalid or rejected success reports still park
 immediately. Timeouts produce durable retry outcomes after confirmed cleanup.
 Interrupts release with a retry verdict but preserve the failure count and add no
-backoff. Explicit blocked outcomes and exhausted budgets require a
-reasoned operator reset. The lease's released `result` records the launcher's final
-verdict; a reported success with failed validation remains unaccepted. After
+backoff. Explicit blocked outcomes require a PR head change or a reasoned operator
+reset; blocked issues and exhausted budgets require the reset. The lease's
+released `result` records the launcher's final verdict; a reported success with
+failed validation remains unaccepted. After
 confirmed cleanup, a nonsuccess verdict and its count effect are persisted before
 reporting or releasing, so a crash in that window cannot promote an early success
 or lose the interrupt classification. The live lease still excludes pickup until
