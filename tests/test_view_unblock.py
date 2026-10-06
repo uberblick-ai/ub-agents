@@ -13,7 +13,7 @@ from unittest.mock import patch
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent
 
 from tests.support import RecordingDescriptionTransport
-from tests.test_view_data import fixture
+from tests.test_view_data import fixture, publish_snapshot
 from ub_agents.view_data import Description, Session, WorkRow
 from ub_agents.view_github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, DescriptionLoads,
                                    GhTransport, Response, parse_response)
@@ -249,7 +249,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         self.state['coordination_authors'] = AUTHORS
         self.state['action_needed'] = {'178': {'text': NOTICE, 'author': 'operator',
             'created_at': '2026-10-05T12:12:00Z'}}
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         self.transport = RecordingDescriptionTransport()
         self.now = stamp('2026-10-05T12:36:00Z')
         self.app = View(self.root, self.path, descriptions=DescriptionLoads(self.transport, clock=lambda: self.now))
@@ -266,7 +266,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 'Owner: choose immediate or staged rollout; recommend staged.']
         supporting = '## Reasoning\n\nStorage evidence\n\n```sh\nub-agents retry 178\n```'
         self.state['action_needed']['178']['text'] = action_body(ACTION_MARKER + 'new -->', asks, supporting)
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = self.app
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
@@ -295,7 +295,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             app.update_unblock()
             self.assertFalse(fold.collapsed)
             self.state['action_needed']['178']['id'] = 999
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(pilot, lambda: app.current_action().comment_id == '999')
             self.assertTrue(fold.collapsed)
             app.select('plan:179:worker')
@@ -346,10 +346,13 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             app.select('plan:178:worker')
             await pilot.press('4')
             self.state['latest_pass']['rows'][-2]['state'] = 'ready'
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(pilot, lambda: not app.unblock_visible)
             self.assertEqual(app.query_one(ItemTabs).active, 'log')
-            await pilot.press('q')
+            # Pilot.press waits for a cancelled tab animation after hiding
+            # Unblock; terminal tests cover q, so close through its action here.
+            await pilot.pause()
+            app.action_quit()
         app.worker.thread.join(2)
         self.assertTrue(self.transport.closed)
 
@@ -380,7 +383,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('1', '4', 'g')
             self.assertEqual(len(self.transport.calls), 2)
             self.state['coordination_authors'] = {}
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(pilot, lambda: not app.current_action().available)
             self.assertEqual(app.query_one('#unblock_body', Markdown).source, '')
             self.assertIn('not verified', app.query_one('#unblock_note', Static).render().plain)

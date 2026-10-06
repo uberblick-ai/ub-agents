@@ -102,7 +102,7 @@ class UpdateTests(unittest.TestCase):
         now = [0]
         runner = RecordingUpdateRunner(json.dumps(release()), OSError('offline'),
                                        'bad json', json.dumps(release('0.1.11', published_at='bad')),
-                                       json.dumps(release('0.1.13')))
+                                       json.dumps(release('99.0.1')))
         update = self.checker('pip', runner, lambda: now[0])
         self.assertTrue(eventually(lambda: update.banner is not None))
         first = update.banner
@@ -123,7 +123,7 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(update.banner, first)
         now[0] += DAY
         update.wake.set()
-        self.assertTrue(eventually(lambda: update.banner and '0.1.13' in update.banner['text']))
+        self.assertTrue(eventually(lambda: update.banner and '99.0.1' in update.banner['text']))
         self.assertEqual(len(runner.calls), 5)
 
     def test_unrelated_checkout_never_runs_a_request(self):

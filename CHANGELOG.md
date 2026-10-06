@@ -6,11 +6,16 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Fixed
+
+- Completed issues and PRs leave Needs attention after released retry or blocked runs, including selected rows, while unresolved obligations remain visible (#227).
+
+## 0.1.13 — 2026-10-05
+
 **Upgrading:** stop all project launchers and wait for them to exit. While stopped,
 update custom role files and stop-report command runtimes to include `--action`,
-then upgrade and restart launchers together (#181). Older launchers reject this
-repository's new `retrospectives` configuration key (#207).
-uberblick-ai/uberblick-2 tracks its role-file update separately.
+then upgrade and restart launchers together (#181). Add `retrospectives` boards to the
+configuration only once every launcher runs 0.1.13: older launchers reject the key (#207).
 
 ### Added
 
@@ -19,12 +24,12 @@ uberblick-ai/uberblick-2 tracks its role-file update separately.
 
 ### Changed
 
+- Agents send fixable check failures back to the implementer: the integrator reports `changes-requested` instead of blocked when code or tests can fix a failing check, and implementer and reviewer treat a check that passes only under a changed environment as failing. Existing projects can copy the new wording from the installed role templates (#268).
 - Stop reports require `--action` for each independent ask; human-action notices collapse full reasoning, evidence and resume instructions in GitHub and terminal views (#181, #195).
 
 ### Fixed
 
 - The Work pane leaves one blank row before displayed Needs attention and Eligible headings in both wide and narrow layouts (#258).
-- Completed issues and PRs leave Needs attention after released retry or blocked runs, including selected rows, while unresolved obligations remain visible (#227).
 
 ## 0.1.12 — 2026-10-05
 
