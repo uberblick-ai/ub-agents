@@ -19,6 +19,13 @@ from ub_agents.eligibility import AgentMatches, check_start
 from tests.support import agent, issue
 
 
+def publish_snapshot(path, state):
+    # Live view readers must see complete snapshots, as with the launcher writer.
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(state))
+    temporary.replace(path)
+
+
 def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
     run = root / '.ub-agents' / 'runs' / 'owned-run'
     run.mkdir(parents=True, exist_ok=True)

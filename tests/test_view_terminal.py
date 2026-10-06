@@ -260,7 +260,10 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 state['latest_pass']['rows'] = [attention, eligible] + [
                     {'item': item, 'agent': 'worker', 'state': 'ready'} for item in range(30, 60)]
                 path.write_text(json.dumps(state))
-                terminal.checkpoint(lambda value: value['rows'] > 90)
+                # Eligible shows ten of its 31 items, still enough to scroll the upper half.
+                capped = terminal.checkpoint(lambda value: value['rows'] == 37)
+                self.assertTrue(capped['live'][capped['groups']['Eligible'] - capped['scroll']]
+                                .startswith('Eligible · 31 · showing 10'))
                 terminal.send(b's')
                 scrolled = terminal.checkpoint(lambda value: value['scroll'] > 0)
                 self.assertEqual(scrolled['recent_y'], boundary)
@@ -1206,7 +1209,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
                 path.write_text(json.dumps(state))
-                overflow = terminal.checkpoint(lambda value: value['sections'] == ['Running · 0', 'Eligible · 49'])
+                overflow = terminal.checkpoint(lambda value: value['sections'] == ['Running · 0', 'Eligible · 49 · showing 10'])
+                self.assertEqual(len(overflow['eligible']), 10)
                 self.assertEqual(overflow['recent_bounds'], empty['recent_bounds'])
                 terminal.resize(110, 32)
                 minimum = terminal.checkpoint(lambda value: value['terminal_size'] == [110, 32]

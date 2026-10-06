@@ -27,7 +27,7 @@ from .view_unblock import ActionComment, comment_sections, local_action, needs_a
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_worker import LocalWorker, Request
-from .view_work import RecentActivity, WorkTree
+from .view_work import ELIGIBLE_LIMIT, RecentActivity, WorkTree
 from .view_theme import VIEW_THEME, log_style, theme_style, variable_defaults
 from .updates import release_age
 
@@ -650,13 +650,17 @@ class View(App):
         if self.selected in self.rows and self.selected not in incoming and not follow:
             incoming[self.selected] = self.rows[self.selected]
         # Retain a picked row's right-pane details without presenting an old run
-        # or a newly foreign-owned or dependency-waiting plan as live work.
+        # or removed attention, foreign-owned or dependency-waiting plans as live work.
         omitted = {(plan.get('item'), text(plan.get('agent'))) for plan in
                    snapshot_rows(mapping(self.session.data.get('latest_pass')).get('rows'), 100)
                    if plan.get('state') == 'owned' or plan_group(plan) is None}
         live = {key: row for key, row in incoming.items() if not row.hidden and row.group != 'Recent activity'
+                and not (row.group == 'Needs attention' and row.state == 'earlier observation')
                 and (row.group != 'Running' or key == own)
                 and (not key.startswith('plan:') or (row.item, row.agent) not in omitted)}
+        eligible_keys = [key for key, row in live.items() if row.group == 'Eligible']
+        for key in eligible_keys[ELIGIBLE_LIMIT:]:
+            del live[key]
         for key in tuple(self.nodes):
             if key not in live:
                 self.nodes.pop(key).remove()
@@ -671,7 +675,10 @@ class View(App):
                     Text(name), after=previous, before=0 if previous is None else None,
                     expand=True)
             previous = group
-            label = f'{name} · {len(grouped)}'
+            count = len(eligible_keys) if name == 'Eligible' else len(grouped)
+            label = f'{name} · {count}'
+            if name == 'Eligible' and count > ELIGIBLE_LIMIT:
+                label += f' · showing {ELIGIBLE_LIMIT}'
             if name == 'Eligible' and mapping(self.session.data.get('activity')).get('state') == 'stopping':
                 label += ' · not claimed while stopping'
             group.set_label(Text(label))

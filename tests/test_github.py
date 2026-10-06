@@ -604,20 +604,20 @@ agents:
                     self.assertEqual(queries[0]["since"], [iso(now - (1800 + 7 * 86400))])
                     self.assertEqual(queries[1]["since"], [iso(now - 60)])
 
-    def test_edit_or_deletion_during_scan_cannot_hide_closed_item_failure(self):
+    def test_edit_or_deletion_during_scan_cannot_hide_closed_item_unfinished_lease(self):
         for mutation in ("edit", "delete"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
                 now = int(timestamp())
                 comments = [{"id": i, "body": "Bot update", "user": {"login": "ci-bot"},
                              "updated_at": iso(now - 86400 + i)} for i in range(1, 151)]
-                failure = {"kind": "lease", "run": "failed", "agent": "worker",
+                unfinished = {"kind": "lease", "run": "unfinished", "agent": "worker",
                            "actor": "operator", "runtime": "direct",
                            "assignment": 42, "assignment_sha": None,
                            "created": iso(now - 86400), "expires": iso(now - 86340),
-                           "state": "released", "result": "retry", "summary": "Execution timed out",
-                           "attempt": 1, "started": True, "attempt_effect": "failure",
+                           "state": "running",
+                           "attempt": 1, "started": True, "attempt_effect": "pending",
                            "declared_triggers": ["ready"], "stop_labels": []}
-                comments[100].update(body=body(failure), user={"login": "operator"},
+                comments[100].update(body=body(unfinished), user={"login": "operator"},
                                      issue_url="https://api.github.com/repos/org/project/issues/42")
                 reads = 0
 
@@ -654,7 +654,7 @@ agents:
                     for _ in range(2):  # Both initial discovery and subsequent polls retain it.
                         plans = loop.plans()
                         self.assertEqual([(p.item.number, p.state) for p in plans], [(42, "blocked")])
-                        self.assertIn("timed out", plans[0].reason)
+                        self.assertIn("Expired run has no outcome", plans[0].reason)
                 self.assertIn(101, github._comment_cache)
 
     def test_full_timestamp_bucket_fails_visibly_without_committing_cursor_or_cache(self):
