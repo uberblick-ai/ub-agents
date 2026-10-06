@@ -627,7 +627,6 @@ class View(App):
         recent = self.query_one(RecentActivity)
         recent.populate(rows, self.session)
         cursor = tree.cursor_node
-        cursor_group = next((name for name, node in self.groups.items() if node is cursor), None)
         incoming = {row.key: row for row in rows}
         # Until a person picks a row, the view follows the launcher's own run,
         # which can start after the view first read the snapshot.
@@ -682,6 +681,8 @@ class View(App):
             if name == 'Eligible' and mapping(self.session.data.get('activity')).get('state') == 'stopping':
                 label += ' · not claimed while stopping'
             group.set_label(Text(label))
+            if not group.is_expanded:
+                group.expand()
             if name == 'Running':
                 if grouped and self.idle_node is not None:
                     self.idle_node.remove()
@@ -723,7 +724,7 @@ class View(App):
                 recent.focus()
         elif cursor:
             cursor_key = self.selected if cursor.data == previous_selection else cursor.data
-            target = self.groups.get(cursor_group) if cursor_group else self.nodes.get(cursor_key)
+            target = self.nodes.get(cursor_key)
             if target is not None and target is not cursor:
                 tree.move_cursor(target)
 
