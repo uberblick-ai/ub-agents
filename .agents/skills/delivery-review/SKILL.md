@@ -21,10 +21,10 @@ decision. This review shows how close one day came. It only reads GitHub.
    The window is the last 24 hours; `--since` and `--until` change it.
 
 2. For each delivery with extra runs or a `no report` run, name the cause in one
-   sentence from its run summaries and denied commands. Group causes by
-   mechanism and count what each cost in runs or hours waited. Say when `main`
-   or an open issue already covers one. A retrospective is a claim; count it
-   only where the records agree.
+   sentence from its run summaries, denied commands and retrospectives. Group
+   causes by mechanism and count what each cost in runs or hours waited. Say
+   when `main` or an open issue already covers one. A retrospective is a claim;
+   count it only where the records agree.
 
 3. Propose at most four changes, each giving clearer authority, better wording,
    fewer instructions or more autonomy. Quote any line you would change. Never
