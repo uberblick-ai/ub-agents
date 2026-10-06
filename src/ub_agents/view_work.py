@@ -295,13 +295,16 @@ class RecentActivity(Static, can_focus=True):
             result = text(row.data.get('result'))
             glyph = '✗' if result in {'retry', 'blocked', 'failed', 'abandoned'} else (
                 '✓' if row.data.get('completed') else '○')
+            outcome_color = {'✓': 'view-success', '✗': 'view-error'}.get(glyph)
+            outcome_style = theme_style(self.app, outcome_color) if outcome_color else ''
             history = mapping(row.data.get('history'))
             title = text(row.data.get('title'), text(history.get('title'), ''))
             kind = row.data.get('kind') or history.get('kind')
             first = Text(f'{glyph} ', no_wrap=True)
+            first.stylize(outcome_style, 0, 1)
             first.append_text(item_reference(row.item, kind, app=self.app))
             first.append(f' {title}')
-            status = Text(result, no_wrap=True)
+            status = Text(result, no_wrap=True, style=outcome_style)
             status.truncate(max(0, width // 2), overflow='ellipsis')
             first.truncate(max(0, width - status.cell_len - 1), overflow='ellipsis')
             first.append(' ' * max(1, width - first.cell_len - status.cell_len))

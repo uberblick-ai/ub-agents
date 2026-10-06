@@ -9,6 +9,7 @@ notes are copied from that section.
 ### Changed
 
 - Continuous launch keeps planning during assignments; Eligible shows the next ten items in claim order with counts and colored priority words (#248).
+- Recent activity colors success and failure icons and status labels green and red, preserving row dimming and cursor highlighting (#257).
 
 ### Fixed
 

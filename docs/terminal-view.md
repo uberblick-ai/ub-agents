@@ -240,6 +240,10 @@ dated today in the viewer's local timezone. Up to 20 cached outcomes appear
 newest first, including older outcomes, as dim two-line rows in the combined layout; the selected row
 shows at full brightness. Only whole items with their intervening blank rows fit;
 items that do not fit are cut from the oldest end. Narrow lists have no blank rows.
+As an exception to the muted row color, outcome icons and status labels use the
+theme's green success color for `✓` and red error color for `✗`, retaining row
+dimming and cursor highlighting. Neutral `○` outcomes keep the row style.
+`NO_COLOR=1` keeps these cues monochrome.
 The lower half does not scroll or collapse, and its header cannot be selected.
 The live sections fill the upper half and scroll independently. Arrow keys move
 between the two halves; `Enter` selects an outcome with the same local log access
