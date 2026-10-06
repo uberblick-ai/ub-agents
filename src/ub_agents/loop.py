@@ -22,6 +22,7 @@ from .report_command import launcher_report_command
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
 from .polling import idle_interval
+from .poll_now import PollNow
 from .hooks import run_hook
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
                       lease_summary, resolve_transition, seconds, timestamp, validate_report_action)
@@ -57,6 +58,7 @@ class Loop:
         self._continuous = False
         self._run_planning = None
         self._planning_workers = []
+        self.poll_now = None
         self.updates = None
         self._last_update = None
         self._update_texts = set()
@@ -107,10 +109,28 @@ class Loop:
                     else:
                         self.output(f"Cannot publish launcher observations: {exc}")
 
+    def enable_poll_now(self):
+        self.poll_now = PollNow(
+            lambda cooldown, limited: self._observe("poll_now", cooldown, limited),
+            lambda: self.coordinator.clock(), clock=lambda: monotonic())
+
+    def request_poll(self):
+        if self.poll_now is not None:
+            self.poll_now.request()
+
     def _wait(self, event, delay, reason):
+        if self.poll_now is not None and reason == "rate-limit reset":
+            with self.poll_now.rate_limit(self.coordinator.clock() + delay):
+                self._wait_activity(event, delay, reason)
+        else:
+            self._wait_activity(event, delay, reason)
+
+    def _wait_activity(self, event, delay, reason):
         if self.observer is not None:
             self._observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
-        if self.updates is None:
+        if self.poll_now is not None and reason == "next poll or runtime pause":
+            self.poll_now.wait(event, delay, self._poll_updates if self.updates is not None else None)
+        elif self.updates is None:
             event.wait(delay)
         else:
             remaining = delay

@@ -9,6 +9,7 @@ from pathlib import Path
 import pty
 import select
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,7 @@ from unittest.mock import Mock, patch
 from ub_agents import __version__
 from ub_agents.launch_log import launch_output
 from ub_agents.launch_ui import ViewProcess, open_view
-from ub_agents.view import attach
+from ub_agents.view import LauncherConnection, attach
 from tests.terminal import Terminal
 from tests.test_view_data import fixture
 
@@ -30,6 +31,23 @@ class Tty(io.StringIO):
 
 
 class LaunchSelectionTests(unittest.TestCase):
+    def test_poll_message_uses_existing_channel_without_interrupting_launcher(self):
+        parent, child = socket.socketpair()
+        self.addCleanup(parent.close)
+        connection = LauncherConnection(child.detach())
+        self.addCleanup(connection.channel.close)
+        received = []
+        process = ViewProcess([], Path('.'), 'own', Mock(), poll=lambda: received.append('poll'))
+        process.channel = parent
+        process.process = Mock()
+        process.process.wait.return_value = 0
+        connection.poll()
+        connection.channel.shutdown(socket.SHUT_WR)
+        with patch('ub_agents.launch_ui.os.kill') as kill:
+            process.monitor()
+        self.assertEqual(received, ['poll'])
+        kill.assert_not_called()
+
     def test_terminal_startup_failure_keeps_plain_output(self):
         with tempfile.TemporaryDirectory() as directory:
             terminal = Tty()

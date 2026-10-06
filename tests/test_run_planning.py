@@ -130,6 +130,35 @@ class RunPlanningTests(unittest.TestCase):
     def test_running_assignment_refreshes_without_writes_then_rechecks_claim_authority(self):
         self.running_assignment()
 
+    def test_poll_now_during_run_refreshes_without_claiming_or_changing_assignment(self):
+        self.loop.enable_poll_now()
+        wait = self.loop.poll_now.wait
+        # Send r once the worker is waiting, long before its regular 30s poll.
+        with patch.object(self.loop.poll_now, 'wait',
+                          side_effect=lambda stop, delay, update=None: wait(stop, delay, self.loop.request_poll)):
+            self.running_assignment(forced=True)
+
+    def test_planning_rate_limit_wait_rejects_poll_but_regular_wait_can_be_forced(self):
+        self.loop.enable_poll_now()
+        worker = RunPlanning(self.loop, self.now)
+        waits = []
+
+        def limited_wait(delay):
+            waits.append(delay)
+            self.loop.request_poll()
+            self.assertEqual(self.memory.snapshots[-1]['poll_now']['rate_limit_until'],
+                             '1970-01-01T00:16:48Z')
+            self.now += delay
+            return False
+
+        with patch.object(worker.stop, 'wait', side_effect=limited_wait), \
+                patch.object(self.loop.poll_now, 'wait', return_value=True) as regular:
+            self.assertTrue(worker._wait(30, 1008))
+        self.assertEqual(waits, [8])
+        regular.assert_called_once_with(worker.stop, 22)
+        self.assertIsNone(self.memory.snapshots[-1]['poll_now']['rate_limit_until'])
+        self.assertEqual(self.github.writes, [])
+
     def test_transient_observation_failure_does_not_change_successful_run(self):
         self.running_assignment(GitHubError('GET', 'items', 'temporary', retryable=True))
 
@@ -137,9 +166,9 @@ class RunPlanningTests(unittest.TestCase):
         self.running_assignment(GitHubError('GET', 'items', 'rate limit', rate_limited=True,
                                             reset_at=self.now + 0.02))
 
-    def running_assignment(self, failure=None):
+    def running_assignment(self, failure=None, forced=False):
         role = replace(self.cfg.agents[0], outcomes={'done': {'add': (), 'remove': ('ready',)}})
-        self.loop.config = replace(self.cfg, poll_seconds=0.01, agents=(role,))
+        self.loop.config = replace(self.cfg, poll_seconds=30 if forced else 0.01, agents=(role,))
         completed = threading.Event()
         submit = self.memory.submit
 
@@ -164,6 +193,7 @@ class RunPlanningTests(unittest.TestCase):
 
         def supervise(*args, **kwargs):
             writes = list(self.github.writes)
+            assignment = deepcopy(self.memory.snapshots[-1]['assignment'])
             if failure:
                 self.github.read_results['observe'] = [failure]
             self.assertTrue(completed.wait(3), 'Observation did not complete while running')
@@ -172,10 +202,13 @@ class RunPlanningTests(unittest.TestCase):
             self.assertEqual({r['item'] for r in snapshot['latest_pass']['rows']}, {1, 2, 3})
             self.assertEqual(snapshot['activity']['state'], 'running assignment')
             self.assertEqual(snapshot['assignment']['item'], 1)
+            self.assertEqual(snapshot['assignment'], assignment)
             self.assertFalse(any('No eligible work' in line for line in self.lines))
             # The previously observed ready item is no longer authorized.
             self.github.change(2, labels=frozenset({'needs-human'}))
             self.loop.coordinator.report(self.loop.github.lease, 'success', 'Finished', outcome='done')
+            if forced:
+                self.loop.stop_event.set()
             return 0
 
         with patch('ub_agents.loop.supervise', side_effect=supervise), \
@@ -185,7 +218,7 @@ class RunPlanningTests(unittest.TestCase):
                   if r['kind'] == 'lease']
         self.assertEqual({r['assignment'] for r in leases}, {1})
         self.assertEqual(leases[-1]['result'], 'success', self.lines)
-        self.assertEqual(len(ticks), 2)
+        self.assertEqual(len(ticks), 1 if forced else 2)
         self.assertTrue(self.memory.snapshots[-1]['ended'])
         self.assertEqual(self.loop._planning_workers, [])
 

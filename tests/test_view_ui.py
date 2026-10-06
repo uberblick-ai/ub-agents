@@ -28,6 +28,73 @@ from ub_agents.view_theme import theme_style
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_poll_key_on_every_tab_pane_and_overlay_only_for_attached_launcher(self):
+        self.state['latest_pass']['rows'].append(
+            {'item': 20, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
+        publish_snapshot(self.path, self.state)
+        for attached in (False, True):
+            with self.subTest(attached=attached):
+                launcher = Mock() if attached else None
+                app = View(self.root, self.path, launcher=launcher)
+                async with app.run_test(size=(160, 45)) as pilot:
+                    await self.ready(app, pilot)
+                    app.select(next(k for k, row in app.rows.items() if row.group == 'Needs attention'))
+                    await self.ready(app, pilot, lambda: app.unblock_visible)
+                    status = app.query_one('#status', Static)
+                    self.assertEqual('r poll now' in status.render().plain, attached)
+                    presses = 0
+                    for tab in ('1', '2', '3', '4'):
+                        await pilot.press(tab)
+                        for pane in ('#work', '#recent', '#output'):
+                            app.query_one(pane).focus()
+                            await pilot.press('r')
+                            presses += 1
+                    await pilot.press('?')
+                    help_text = app.screen.query_one('#raw_details', Static).render().plain
+                    self.assertEqual('r   Poll GitHub now' in help_text, attached)
+                    await pilot.press('r', 'escape', '1', 'p', 'r', 'escape')
+                    presses += 2
+                    await pilot.resize_terminal(60, 16)
+                    self.assertNotIn('r poll now', status.render().plain)
+                    await pilot.press('r', 'enter', 'r')
+                    presses += 2
+                    if attached:
+                        self.assertEqual(launcher.poll.call_count, presses)
+                        launcher.interrupt.assert_not_called()
+                    await pilot.press('q')
+                app.worker.thread.join(2)
+
+    async def test_poll_footer_cooldown_countdown_and_rate_limit_in_local_time(self):
+        now = datetime.now(timezone.utc)
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=400)).isoformat()}
+        self.state['poll_now'] = {'cooldown_until': (now + timedelta(seconds=8)).isoformat(),
+                                  'rate_limit_until': None}
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path, launcher=Mock())
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            async with app.run_test(size=(180, 45)) as pilot:
+                await self.ready(app, pilot)
+                status = app.query_one('#status', Static)
+                self.assertIn('next poll 400s · poll now available in 8s', status.render().plain)
+                clock.now.return_value = now + timedelta(seconds=3)
+                app.update_status()
+                self.assertIn('poll now available in 5s', status.render().plain)
+                clock.now.return_value = now + timedelta(seconds=9)
+                app.update_status()
+                self.assertNotIn('poll now available', status.render().plain)
+                reset = now + timedelta(seconds=400)
+                self.state['poll_now']['rate_limit_until'] = reset.isoformat()
+                self.state['activity'] = {'state': 'running assignment'}
+                publish_snapshot(self.path, self.state)
+                label = f'rate limited until {reset.astimezone():%H:%M} · r unavailable'
+                await self.ready(app, pilot, lambda: label in status.render().plain)
+                self.assertNotIn('poll now available', status.render().plain)
+                await pilot.press('r')
+                app.launcher.poll.assert_called_once_with()
+                await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_eligible_limit_heading_order_priority_and_stopping(self):
         self.state['assignment'] = None
         self.state['outcomes'] = []

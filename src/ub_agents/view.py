@@ -61,6 +61,9 @@ class LauncherConnection:
     def interrupt(self):
         self.send('interrupt')
 
+    def poll(self):
+        self.send('poll')
+
     def close(self):
         self.stopping.set()
         if self.thread is not None:
