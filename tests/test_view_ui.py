@@ -28,6 +28,37 @@ from ub_agents.view_theme import theme_style
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_eligible_limit_heading_order_priority_and_stopping(self):
+        self.state['assignment'] = None
+        self.state['outcomes'] = []
+        order = [30, 18, 42, 15, 9, 31, 22, 13, 37, 5] + list(range(100, 113))
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': n, 'agent': 'worker', 'kind': 'issue', 'title': 'Work', 'priority': 'urgent',
+             'state': 'backoff' if n == 18 else 'ready'} for n in order]}
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(160, 45)) as pilot:
+            tree = app.query_one('#work', Tree)
+            await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
+                             'urgent' in tree.render_line(app.groups['Eligible'].children[0]._line + 1 -
+                                                         tree.scroll_offset.y).text)
+            group = app.groups['Eligible']
+            self.assertEqual(group.label.plain, 'Eligible · 23 · showing 10')
+            self.assertEqual([app.rows[node.data].item for node in group.children],
+                             [n for n in order if n != 18][:10])
+            first = group.children[0]
+            rendered = tree.render_line(first._line + 1 - tree.scroll_offset.y)
+            urgent = next(segment for segment in rendered if 'urgent' in segment.text)
+            self.assertEqual(urgent.style.color, theme_style(app, 'view-priority-urgent').color)
+            self.assertTrue(tree.render_line(first._line - tree.scroll_offset.y).text.endswith('next'))
+            self.state['activity'] = {'state': 'stopping'}
+            publish_snapshot(self.path, self.state)
+            label = 'Eligible · 23 · showing 10 · not claimed while stopping'
+            await self.ready(app, pilot, lambda: group.label.plain == label)
+            self.assertEqual(len(group.children), 10)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def asyncSetUp(self):
         # IsolatedAsyncioTestCase starts its loop in debug mode, which slows
         # Textual by about a third and reports every slow callback.
@@ -436,6 +467,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_color_screenshot_is_monochrome(self):
         self.themed_fixture()
+        for index, row in enumerate(self.state['latest_pass']['rows']):
+            row['priority'] = ('urgent', 'high', 'low')[index % 3]
+        publish_snapshot(self.path, self.state)
         with patch.dict(os.environ, {'NO_COLOR': '1'}):
             app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
@@ -1560,6 +1594,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 2')
             self.assertEqual(app.query_one(TabbedContent).active, 'runs')
             self.assertEqual(markdown.source, description['text'])
+            tree.get_node_at_line(0)  # Resolve the reordered rows before reading node._line.
             self.assertEqual(tree.render_line(node._line + 1 - int(tree.scroll_y)).text.rstrip(), '  integrator')
             self.state['latest_pass']['rows'][1]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
@@ -2058,7 +2093,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     for n in range(1, 50)]
                 publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
-                                 len(app.groups['Eligible'].children) == 49 and
+                                 len(app.groups['Eligible'].children) == 10 and
                                  tree.virtual_size.height > tree.size.height)
                 tree.get_node_at_line(0)
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
@@ -2538,7 +2573,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             nodes = tuple(app.nodes.items())
             lines = tree._tree_lines_cached
             position = (app.selected, tree.cursor_node, tree.scroll_offset, app.focused, tree.virtual_size)
-            self.assertEqual(tree.virtual_size.height, 67)  # Two headings, 22 items, 21 gaps.
+            self.assertEqual(tree.virtual_size.height, 34)  # Two headings, 11 items, ten gaps.
             def displayed(key=own, detail=False):
                 line = app.nodes[key]._line + int(detail) - tree.scroll_offset.y
                 strips = app.screen._compositor.render_strips()

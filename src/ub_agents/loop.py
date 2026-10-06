@@ -32,6 +32,7 @@ from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
 from .trust import LauncherTrust
+from .run_planning import RunPlanning
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -52,6 +53,10 @@ class Loop:
                  config_path=None, interrupt_event=None,
                  default_config=False, observer=None):
         self.observer = observer
+        self._observer_lock = threading.RLock()
+        self._continuous = False
+        self._run_planning = None
+        self._planning_workers = []
         self.updates = None
         self._last_update = None
         self._update_texts = set()
@@ -85,6 +90,10 @@ class Loop:
         self.coordinator.runtime_available = self.maintenance.available
 
     def _observe(self, method, *args):
+        with self._observer_lock:
+            self._publish_observation(method, *args)
+
+    def _publish_observation(self, method, *args):
         if self.observer is not None:
             try:
                 getattr(self.observer, method)(*args)
@@ -555,6 +564,7 @@ class Loop:
         try:
             return self._execute(plan)
         finally:
+            self._stop_planning()
             self._renewal.close()
             self._renewal = None
             self._observe("clear_assignment")
@@ -564,6 +574,26 @@ class Loop:
         self.github.claimed(lease)
         if self._renewal is not None:
             self._renewal.claimed(lease)
+        if self._continuous and self.observer is not None and self._run_planning is None:
+            self._planning_workers = [worker for worker in self._planning_workers if worker.thread.is_alive()]
+            worker = None
+            try:
+                worker = RunPlanning(self, self._pass_started, clock=monotonic)
+                worker.start()
+            except Exception as exc:
+                if worker is not None:
+                    worker.cancel()
+                    if worker.thread.is_alive():
+                        self._planning_workers.append(worker)
+                self.output(f"Cannot start queue observations: {exc}")
+            else:
+                self._run_planning = worker
+                self._planning_workers.append(worker)
+
+    def _stop_planning(self):
+        if self._run_planning is not None:
+            self._pass_started = self._run_planning.cancel()
+            self._run_planning = None
 
     def maintain_runtimes(self):
         self._before_claim()
@@ -1105,6 +1135,7 @@ class Loop:
         try:
             return self._recover(plan)
         finally:
+            self._stop_planning()
             self._renewal.close()
             self._renewal = None
             self._observe("clear_assignment")
@@ -1179,6 +1210,11 @@ class Loop:
             return self._launch(once or number is not None)
         finally:
             try:
+                self._stop_planning()
+                for worker in self._planning_workers:
+                    worker.close()
+                self._planning_workers.clear()
+                self._continuous = False
                 self._poll_updates()
                 self._observe("close")
             finally:
@@ -1187,6 +1223,7 @@ class Loop:
 
     def _launch(self, once):
         self.usage.reset()
+        self._continuous = not once
         self.github.discovery = not once
         if self.coordinator.actor is None:
             self.coordinator.actor = self.github.actor()
@@ -1197,8 +1234,8 @@ class Loop:
         while not self.stop_event.is_set():
             self.github.lease = None
             self._poll_complete = False
-            started = monotonic()
-            requests_before = self.github.quota_requests
+            self._pass_started = monotonic()
+            requests_before = self._requests_before = self.github.quota_requests
             try:
                 worked = (self.tick() if self._launch_number is None else
                           self.tick_item(self._launch_number, self._launch_agent))
@@ -1232,7 +1269,7 @@ class Loop:
                 return
             if once:
                 return (0 if worked else 1) if self._launch_number is not None else None
-            elapsed = monotonic() - started
+            elapsed = monotonic() - self._pass_started
             interval = self.config.poll_seconds
             if worked:
                 idle_state = None

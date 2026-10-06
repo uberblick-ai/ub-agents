@@ -105,7 +105,14 @@ section's row count. Running always appears first; other empty sections are hidd
 | --- | --- |
 | Running | Only this launcher's current assignment, with a count of 0 or 1 |
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
-| Eligible | One row per item, merging ready/recovery plans in planned order, then retry backoff and paused-runtime plans |
+| Eligible | At most ten items in claim order, merging ready/recovery plans before retry backoff and paused-runtime plans |
+
+Eligible's heading counts all eligible items: `Eligible · 7`, or
+`Eligible · 23 · showing 10` when truncated. While stopping it adds
+` · not claimed while stopping`; the heading shortens with `…` to fit the pane.
+Claim order puts existing work first, then milestone, priority, age and number.
+Continuous launch refreshes the queue with complete read-only planning passes
+while an assignment runs; a failed pass keeps the previous rows.
 
 With no assignment, Running shows one dim placeholder line,
 `Idle · nothing eligible for this launcher`. It is not a work item and has no
@@ -157,6 +164,16 @@ eligible, including when its agents change; Issue and Runs still show that item'
 description and history. Running and Needs attention keep one row per agent, and
 running agents are omitted from Eligible as before.
 
+Line 2 appends the item's effective priority word after ` · `, for example
+`issue-preparer · urgent` or `reviewer 1/3 failures, integrator · high`.
+The word is the configured label after its last `:` and has no glyph. Without
+`queue.priority`, or without a label or default, only the usual agent details
+appear. In the default dark theme, urgent is `#e0524a`, high is `#c98a86` and low
+is `#86a891`; medium and other words use the usual muted line color. The
+`view-priority-urgent`, `view-priority-high` and `view-priority-low` theme variables
+derive equivalent colors for other Textual themes. `NO_COLOR=1` leaves words
+uncolored.
+
 Other live rows' second line is indented and joins the agent, `this launcher` for the
 assignment, and count with ` · `. The count is `finishing run` for a stopping
 assignment, `attempt N` for other assignments, or `F/M failures` for plans with
@@ -182,12 +199,12 @@ remain static. Elapsed time stays in whole seconds, uses the item's cached run
 history and updates while the view is open; the view retains an observed claim
 time when a report updates the history.
 If that claim time is unavailable, the row shows `claiming`.
-These rows require no extra GitHub reads. Priority
-markers are absent because the snapshot has no priority.
+Rendering these rows requires no extra GitHub reads.
 
 After SIGTERM, the view uses the snapshot's `activity.state: stopping` to show
 that this launcher is finishing its current run and will claim nothing new.
-Eligible's rule reads `Eligible · N · not claimed while stopping`, shortened
+Eligible's rule reads `Eligible · N · not claimed while stopping`, adding
+` · showing 10` before the stopping note when truncated, shortened
 with `…` at narrow widths like other headings. Ready and recovery rows show
 `held`; delayed rows keep `backoff` or `waiting`. The footer reads `stopping`.
 
