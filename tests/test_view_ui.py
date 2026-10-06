@@ -2473,10 +2473,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         self.assertTrue(all(not segment.style.meta for segment in line))
                         self.assertIsNone(tree._get_label_region(node._line))
                         await pilot.click('#work', offset=(2, node._line - tree.scroll_offset.y))
-                        await pilot.press('space', 'shift+space')
                         self.assertEqual(app.selected, selected)
                         self.assertIs(tree.cursor_node, cursor)
                         assert_expanded()
+                        for key in ('space', 'shift+space'):
+                            await pilot.press(key)
+                            self.assertEqual(app.selected, selected)
+                            self.assertIs(tree.cursor_node, cursor)
+                            assert_expanded()
 
                     assert_expanded()
                     for group in app.groups.values():
