@@ -514,6 +514,9 @@ text; nested payloads are not interpreted. Changed or unfamiliar complete
 records also show a dim type label instead of assuming a newer CLI's semantics.
 Claude-shaped `tool_progress` records are unvalidated for Codex and use that
 dim label; Codex records supply no elapsed call time, so none is invented.
+Malformed Codex lines that begin with `{`, including records below the size
+limit, show a dim
+`· incomplete or unrecognized Codex record omitted · full record in Raw` notice.
 
 Oversized Codex JSON objects produce one compact projection when their event
 fields can be validated within the existing bounds. Large text is shortened;
