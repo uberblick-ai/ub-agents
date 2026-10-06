@@ -225,8 +225,14 @@ prior row. Each re-planned item and agent updates in
 place, moving sections if its state changes; new rows follow the kept rows in
 their section, with ready/recovery rows always preceding delayed rows in Eligible.
 Completion removes omitted plans and applies the new planned order within each
-Eligible subgroup before merging plans for the same item. A selected removed row
-remains as an earlier observation.
+Eligible subgroup before merging plans for the same item. A selected removed
+Needs attention row leaves the Work list and count; its Issue and Runs details
+remain as an earlier observation until selection moves. Other selected removed
+plans remain as earlier observations. Closed or merged items with only a released
+retry or blocked run no longer need attention. Live or unfinished leases, pending
+outcomes or transitions, unconfirmed cleanup and invalid coordination history still
+require resolution. Recent activity contains recorded outcomes only; removing a
+completed item adds no outcome.
 
 **Recent activity · N today** always fills the lower half of the Work pane,
 including `0 today` when there are no outcomes. N counts cached session outcomes
@@ -641,7 +647,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    check selection, focus and paused positions. Revisit the outcome and check
    the restored paused page. Add newer outcomes until the selected outcome is
    clipped; its right pane must keep showing it. Remove a selected plan and
-   check its earlier observation remains. Park a selected plan for dependencies
+   check its earlier observation remains. Remove a selected Needs attention row;
+   it must leave the list and count while Issue and Runs keep their cached details,
+   without adding Recent activity. Park a selected plan for dependencies
    or a milestone; it must leave the Work rows and counts while its cached
    details remain in the right pane.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
