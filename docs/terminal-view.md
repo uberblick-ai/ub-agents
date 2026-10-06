@@ -762,12 +762,17 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    explicit retry and the shared cooldown. Move to an eligible row, or publish a
    refresh that resumes the selected item; Unblock must disappear and return to
    Log if active. `4` must do nothing outside Needs attention.
-7. Start a pending or hung description or comment load and quit with `q`; repeat with
-   `Ctrl-C`. Verify prompt exit and no request process left behind, as well as
-   normal terminal input, cursor and alternate-screen restoration. In an automatic
-   launch view, confirm launcher exit 130, owned execution cleanup and a visible
-   final launcher message with either key.
-   A standalone replay observer closes only itself on either key.
+7. Start a pending or hung description or comment load and press `q`; repeat with
+   `Ctrl-C`. In an attached view, confirm that `q` replaces any overlay with the
+   centered shutdown screen and waits for the run's report, label transitions and
+   cleanup before exiting 0. Check the item reference, agent and updating elapsed
+   assignment time, plus the idle `No run in progress.` case. Ctrl-C from the normal
+   view or shutdown screen must show the Stopping screen, terminate owned execution
+   and release its claim before exiting 130. Repeated stop keys must do nothing.
+   Both screens must retain terminal ownership until launcher exit; confirm the
+   final launcher message, reaped request processes, normal terminal input, cursor
+   and alternate-screen restoration. A standalone replay observer closes only
+   itself promptly on either key.
 
 8. Exercise `launch`, `--once` and `launch N`, exact-session attachment with another
    fresh snapshot present, stale/version errors, restart, view crash/kill, SIGTERM
@@ -805,7 +810,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    returning to Work. At 59×16 and 60×15, check only one centered enlargement
    request appears, including with an overlay open. Grow back and check the
    previous state returns. Quit below the floor with `q`; repeat with Ctrl-C,
-   checking terminal restoration and attached-launcher interruption as above.
+   checking the shutdown screens, stop behavior and terminal restoration as above.
 
 11. In iTerm2, ordinary clicks on the shared header's `#N` and `⌥N` references
    must open the selected issue and PR in the attached session's repository in
