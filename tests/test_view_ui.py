@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 from xml.etree import ElementTree
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from rich.console import Console
 from tests.test_view_data import event, fixture, publish_snapshot
@@ -20,6 +20,7 @@ from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
+from textual.geometry import Size
 from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
@@ -1778,7 +1779,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([node.label.plain for node in tree.root.children], ['Running · 0'])
             self.assertFalse(tree.show_root)
             self.assertEqual(tree.virtual_size.height, 2)
-            self.assertEqual(tree._get_label_region(idle._line).height, 1)
+            self.assertIsNone(tree._get_label_region(idle._line))
             line = tree.render_line(idle._line - tree.scroll_offset.y)
             self.assertEqual(idle.label.plain, '    Idle · nothing eligible for this launcher')
             self.assertTrue(line.text.strip().startswith('Idle · nothing eligible'))
@@ -1790,6 +1791,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree.move_cursor(idle)
             await pilot.press('enter')
             await pilot.click('#work', offset=(6, idle._line - tree.scroll_offset.y))
+            self.assertIsNone(tree.cursor_node)
             self.assertIsNone(app.selected)
             self.assertEqual(app.rows, {})
             self.assertEqual(app.nodes, {})
@@ -2469,7 +2471,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             recent = app.query_one(RecentActivity)
-            await self.ready(app, pilot, lambda: len(recent.rows) == 20)
+            # Selection and focus follow the rows in a later refresh.
+            await self.ready(app, pilot, lambda: len(recent.rows) == 20 and app.focused is recent
+                             and app.selected == 'outcome:past-19')
             self.assertEqual(app.selected, 'outcome:past-19')
             self.assertIs(app.focused, recent)
             visible = recent.visible_rows
@@ -2529,6 +2533,143 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_work_headers_and_idle_clicks_and_expansion_keys_are_inert(self):
+        assignment = self.state['assignment']
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': 20, 'agent': 'worker', 'state': 'blocked'},
+            {'item': 12, 'agent': 'reviewer', 'state': 'ready'},
+            {'item': 22, 'agent': 'worker', 'state': 'ready'},
+        ]}
+        for size in ((140, 44), (80, 24)):
+            with self.subTest(size=size):
+                self.state['assignment'] = assignment
+                publish_snapshot(self.path, self.state)
+                app = View(self.root, self.path)
+                async with app.run_test(size=size) as pilot:
+                    await self.ready(app, pilot)
+                    tree = app.query_one(Tree)
+                    tree.focus()
+
+                    def assert_expanded():
+                        tree.get_node_at_line(0)
+                        self.assertTrue(tree.root.is_expanded)
+                        for group in app.groups.values():
+                            self.assertTrue(group.is_expanded)
+                            for child in group.children:
+                                self.assertIs(tree.get_node_at_line(child._line), child)
+                                line = tree.render_line(child._line - tree.scroll_offset.y)
+                                reference = str(app.rows[child.data].item) if child.data else 'Idle'
+                                self.assertIn(reference, line.text)
+
+                    async def click_label(node):
+                        selected, cursor = app.selected, tree.cursor_node
+                        tree.scroll_to(y=node._line, animate=False, immediate=True)
+                        await pilot.pause()
+                        line = tree.render_line(node._line - tree.scroll_offset.y)
+                        self.assertTrue(all(not segment.style.meta for segment in line))
+                        self.assertIsNone(tree._get_label_region(node._line))
+                        await pilot.click('#work', offset=(2, node._line - tree.scroll_offset.y))
+                        self.assertEqual(app.selected, selected)
+                        self.assertIs(tree.cursor_node, cursor)
+                        assert_expanded()
+                        for key in ('space', 'shift+space'):
+                            await pilot.press(key)
+                            self.assertEqual(app.selected, selected)
+                            self.assertIs(tree.cursor_node, cursor)
+                            assert_expanded()
+
+                    assert_expanded()
+                    for group in app.groups.values():
+                        await click_label(group)
+                    # A reused group is expanded again on the next snapshot too.
+                    app.groups['Needs attention'].collapse()
+                    self.state['assignment'] = None
+                    publish_snapshot(self.path, self.state)
+                    await self.ready(app, pilot, lambda: app.idle_node is not None and
+                                     app.groups['Needs attention'].is_expanded)
+                    tree.move_cursor(app.nodes['plan:22'])
+                    app.select('plan:22')
+                    for node in (*app.groups.values(), app.idle_node):
+                        await click_label(node)
+                    app.query_one(LogPane).focus()
+                    tree.focus()
+                    await pilot.pause()
+                    self.assertIs(tree.cursor_node, app.nodes['plan:22'])
+                    assert_expanded()
+                    await pilot.press('q')
+                app.worker.thread.join(2)
+
+    async def test_work_keyboard_cursor_only_visits_items_in_both_layouts(self):
+        plans = [
+            {'item': 20, 'agent': 'worker', 'state': 'blocked'},
+            {'item': 21, 'agent': 'worker', 'state': 'blocked'},
+            {'item': 12, 'agent': 'reviewer', 'state': 'ready'},
+            {'item': 22, 'agent': 'worker', 'state': 'ready'},
+        ]
+        assignment = self.state['assignment']
+        for size in ((140, 44), (80, 24)):
+            with self.subTest(size=size):
+                self.state['assignment'] = assignment
+                self.state['latest_pass'] = {'state': 'complete', 'rows': plans}
+                publish_snapshot(self.path, self.state)
+                app = View(self.root, self.path)
+                async with app.run_test(size=size) as pilot:
+                    await self.ready(app, pilot)
+                    tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
+                    tree.focus()
+                    tree.get_node_at_line(0)
+                    items = sorted(app.nodes.values(), key=lambda node: node._line)
+                    self.assertIs(tree.cursor_node, items[0])
+                    await pilot.press('up')
+                    self.assertIs(tree.cursor_node, items[0])
+                    for node in items[1:]:
+                        await pilot.press('down')
+                        self.assertIs(tree.cursor_node, node)
+                    await pilot.press('down')
+                    self.assertIs(app.focused, recent)
+                    await pilot.press('up')
+                    self.assertIs(app.focused, tree)
+                    self.assertIs(tree.cursor_node, items[-1])
+                    for node in reversed(items[:-1]):
+                        await pilot.press('up')
+                        self.assertIs(tree.cursor_node, node)
+                    for node in items:
+                        tree.move_cursor(node)
+                        for key in ('shift+left', 'shift+right', 'shift+up', 'shift+down',
+                                    'space', 'shift+space', 'pageup', 'pagedown', 'home', 'end'):
+                            await pilot.press(key)
+                            self.assertIn(tree.cursor_node, items, key)
+                    # Exercise the inherited direct cursor-line assignments even
+                    # though the app's page/home/end keys normally scroll the tabs.
+                    for action in ('scroll_home', 'scroll_end', 'page_up', 'page_down'):
+                        await tree.run_action(action)
+                        self.assertIn(tree.cursor_node, items, action)
+                    self.state['assignment'] = None
+                    publish_snapshot(self.path, self.state)
+                    await self.ready(app, pilot, lambda: app.idle_node is not None)
+                    tree.get_node_at_line(0)
+                    first = app.groups['Needs attention'].children[0]
+                    tree.move_cursor(first)
+                    await pilot.press('up')
+                    self.assertIs(tree.cursor_node, first)
+                    # With only labels left, Up from Recent stays on an outcome.
+                    self.state['latest_pass']['rows'] = []
+                    publish_snapshot(self.path, self.state)
+                    await self.ready(app, pilot, lambda: not app.nodes)
+                    recent.cursor = recent.visible_rows[0].key
+                    recent.focus()
+                    await pilot.press('up')
+                    self.assertIs(app.focused, recent)
+                    self.assertIsNone(tree.cursor_node)
+                    tree.focus()
+                    await pilot.press('up', 'space', 'shift+space', 'home', 'end')
+                    self.assertIsNone(tree.cursor_node)
+                    self.assertTrue(app.groups['Running'].is_expanded)
+                    await pilot.press('down')
+                    self.assertIs(app.focused, recent)
+                    await pilot.press('q')
+                app.worker.thread.join(2)
+
     async def test_combined_work_blank_rows_preserve_headings_selection_and_narrow_rows(self):
         self.state['latest_pass'] = {'state': 'complete', 'rows': [
             {'item': 20, 'agent': 'worker', 'state': 'blocked'},
@@ -2560,7 +2701,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNone(tree._get_label_region(gap))
                     tree.move_cursor(preceding)
                     await pilot.press('down')
-                    self.assertIs(tree.cursor_node, heading)
+                    self.assertIs(tree.cursor_node, heading.children[0])
                     await pilot.press('up')
                     self.assertIs(tree.cursor_node, preceding)
                     tree.scroll_to(y=max(0, gap - tree.size.height + 2), animate=False, immediate=True)
@@ -2575,9 +2716,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.click('#work', offset=(2, gap - tree.scroll_offset.y))
                     self.assertEqual(app.selected, selected)
                     self.assertIs(tree.cursor_node, cursor)
-                    await pilot.press('down', 'down')
+                    await pilot.press('down')
                     self.assertIs(tree.cursor_node, heading.children[0])
-                    await pilot.press('up', 'up')
+                    await pilot.press('up')
                     self.assertIs(tree.cursor_node, preceding)
             tree.focus()
             await check_heading_separators()
@@ -2752,10 +2893,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree.focus()
             tree.move_cursor(own)
             await pilot.press('down')
-            self.assertIs(tree.cursor_node, app.groups['Needs attention'])
-            await pilot.press('down')
             self.assertIs(tree.cursor_node, blocked)
-            await pilot.press('up', 'up')
+            await pilot.press('up')
             self.assertIs(tree.cursor_node, own)
             for offset in (0, 1):
                 await pilot.click('#work', offset=(3, blocked._line + offset - tree.scroll_offset.y))
@@ -3112,6 +3251,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('running assignment', footer)
             self.assertNotIn('FOLLOW', footer)
             self.assertIn('bytes ', app.screen.query_one('#raw_details', Static).render().plain)
+            # An update can also land after compose but before the footer's first layout.
+            with patch.object(Static, 'size', new_callable=PropertyMock, return_value=Size(0, 0)):
+                app.update_status()
+            footer = app.screen.query_one('#raw_status', Static).render().plain
+            self.assertIn('running assignment', footer)
+            self.assertIn('q quit', footer)
             await pilot.press('q')
         app.worker.thread.join(2)
 

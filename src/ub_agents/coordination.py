@@ -14,7 +14,7 @@ from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
 from .records import (MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       payload, records, recovers, same_handoff, same_run, seconds, stop_report, timestamp,
-                      report_actions)
+                      report_asks)
 from .trust import LauncherTrust
 
 
@@ -512,7 +512,7 @@ class Coordinator:
             self.observed(matches[0])
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, agent_report=True):
+    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True):
         declarations = lease.get("outcomes")
         if outcome is not None:
             if declarations is None or outcome not in declarations or status != "success":
@@ -520,7 +520,7 @@ class Coordinator:
         elif status == "success" and declarations is not None:
             raise AgentError("Success must name a declared outcome: report --outcome NAME")
         try:
-            actions = report_actions(action, required=agent_report and stop_report(lease, status, outcome))
+            actions, options = report_asks(action, option, required=agent_report and stop_report(lease, status, outcome))
         except ValueError as exc:
             raise AgentError(str(exc)) from exc
         self.assert_owned(lease)
@@ -533,8 +533,12 @@ class Coordinator:
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         if actions:
             record["action"] = actions[0]
-            if len(actions) > 1:
+            if len(actions) > 1 or options:
                 record["actions"] = actions
+        if options:
+            record["options"] = options
+            if not actions:
+                record["action"] = options[0]  # Valid for v0.1.13 completion and recovery.
         if lease.get("host"):
             record["host"] = lease["host"]
         if outcome is not None:

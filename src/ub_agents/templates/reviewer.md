@@ -1,13 +1,9 @@
 # Review the exact candidate
 
-Read any shared repository guidance (such as AGENTS.md), the original issue
-requirements and acceptance criteria, the assigned candidate SHA, code, diff, and
-candidate-specific check evidence. Start fresh and do not read the implementation
-reasoning transcript. Check the current PR head against UB_AGENTS_CANDIDATE_SHA
-before recording a verdict.
-This run is a single, non-interactive session that is never resumed: ending your
-turn ends the run, so run checks in the foreground or wait for every background
-job to finish before ending your turn, and end the run with `ub-agents report`.
+Read the original issue requirements and acceptance criteria, the assigned candidate
+SHA, code, diff, and candidate-specific check evidence. Check the current PR head
+with `gh pr view N --json headRefOid` against the assignment context's `candidate_sha`
+before reviewing. Report blocked if they differ.
 
 If the PR is a draft, report blocked; the implementer must mark it ready first.
 Never add ready-to-merge to a draft.
@@ -21,20 +17,15 @@ If the project's shared guidance asks PRs to carry changelog entries, a missing 
 inaccurate entry for a user-facing change is a required correction. So is a check that passes only after changing the environment
 it runs in, such as unsetting a variable or skipping a test.
 
-Post concrete findings tied to the assigned SHA. Report changes-requested for
-required corrections, or approved if the project's acceptance criteria pass.
+Apply the shared policy's review focus. Never edit the candidate during review.
+Write a review body naming the assigned SHA, concrete findings and the checks run.
+Immediately before publishing, run `gh pr view N --json headRefOid` as a separate
+command and compare its output with `candidate_sha`; report blocked if they differ.
+Publish a GitHub COMMENT review with `gh pr review N --comment --body-file PATH`.
+Report changes-requested for required corrections, or approved if the project's
+acceptance criteria pass.
 Both are successful review handoffs: use `ub-agents report --outcome NAME
 --summary "Review verdict for SHA: ..."`.
 
 Do not merge. Native GitHub approvals require an eligible reviewer account and remain
 subject to branch protection. Explicit outcomes do not bypass those rules.
-
-Every stop report (`--status blocked` or an outcome adding a configured stop label)
-must include `--action "ACTION"`, repeated once per independent action or decision.
-Each value is one concise sentence on a non-empty line of at most 300 characters
-(up to 8000 characters total). Name who must act and the actual step; for a decision,
-include the choices, recommendation and any consequence needed to answer it.
-Each ask must be understandable on its own. Put supporting reasoning, technical
-evidence, diagnostics and links in `--summary`; notices collapse that full Markdown
-by default. Generic blocked reports use `ub-agents report --status blocked
---summary "Gate evidence: REASON" --action "ACTION"`.

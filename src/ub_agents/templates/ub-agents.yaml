@@ -1,9 +1,11 @@
 # Project-owned starter. Customize models, checks, instructions, and merge authority.
 repository: your-org/your-project
+shared-instructions: .agents/ub_agents.md
 queue:
   milestones: ignore
   dependencies: wait
 
+# Customize these outcomes and rules with the project's owners.
 agents:
   issue-preparer:
     runtime: "codex:gpt-6.1-sol:high"
@@ -15,6 +17,7 @@ agents:
       prepared: {add: [ready]}
       needs-human: {add: [needs-human]}
     instructions: .agents/issue-preparer.md
+    worktree: true
     agent-timeout-minutes: 60
 
   implementer:

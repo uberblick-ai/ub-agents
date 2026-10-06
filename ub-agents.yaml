@@ -1,6 +1,7 @@
 # ub-agents develops itself with ub-agents. Project-owned: models, permissions,
-# checks and merge authority are ours to change. Shared guidance is in AGENTS.md.
+# checks and merge authority are ours to change. Loop policy is in .agents/ub_agents.md.
 repository: uberblick-ai/ub-agents
+shared-instructions: .agents/ub_agents.md
 runtime-updates:
   claude: auto
   codex: auto
@@ -43,7 +44,7 @@ agents:
       # Shell helpers for inspecting issue context (preparer), code/check output (reviewer),
       # and merge evidence (integrator), including plain pipelines such as `… | tail`.
       # Arguments are unrestricted; these permissions do not enforce read-only access.
-      # Shell expansion can still be denied: see each role's publication guidance.
+      # Shell expansion can still be denied: see the launcher prompt's publication guidance.
       - "Bash(cat *)"
       - "Bash(grep *)"
       - "Bash(ls *)"

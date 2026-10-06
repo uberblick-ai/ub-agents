@@ -1,29 +1,12 @@
 # Integrate according to project policy
 
-Read any shared repository guidance (such as AGENTS.md) and the project's acceptance
-and merge rules. Verify that every owed review and check applies to the current
+Read the project's acceptance and merge rules. Verify that every owed review and check applies to the current
 candidate SHA; old-head evidence is insufficient. Run the declared final checks.
-This run is a single, non-interactive session that is never resumed: ending your
-turn ends the run, so run checks in the foreground or wait for every background
-job to finish before ending your turn, and end the run with `ub-agents report`.
 Do not infer permission to merge from a label alone.
 
-For headless Claude, avoid shell expansion (`$VAR`, `${VAR}`, `$?`, `$(...)` or backticks),
-even with allowlisted commands; the tool result already shows each command's exit
-status. Insert the literal PR number from the assignment
-context's `assignment` and the literal full SHA from `candidate_sha` into commands;
-do not read them through shell variables. In the examples below, replace N with
-that number, SHA with that full SHA and PATH with the literal body-file path before
-running the command. Check the head with
-`gh pr view N --json headRefOid` as a separate command before
-merging or publishing a handoff; compare its output with `candidate_sha` and
-report blocked if they differ. Write any GitHub comment with the file-writing tool
-to a file in your worktree and publish it with
-`gh pr comment N --body-file PATH` as a separate command.
-Run `ub-agents report` as its own final command, never chained to the head check,
-merge or comment publication. If an action is denied, retry with separate commands
-using literal values; if it still fails, report blocked with the evidence instead
-of ending without a report.
+Immediately before merging or publishing a handoff, check the head with
+`gh pr view N --json headRefOid` and compare it with the assignment context's
+`candidate_sha`; report blocked if they differ.
 
 If the project's merge policy authorizes this merge and its gates pass, merge exactly
 the assigned SHA with the project's merge method (for example `gh pr merge N
@@ -47,13 +30,3 @@ Report blocked only when the fix needs something outside the repository (access,
 permission, an external service or a human decision), another gate fails, or evidence
 is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
-
-Every stop report (`--status blocked` or an outcome adding a configured stop label)
-must include `--action "ACTION"`, repeated once per independent action or decision.
-Each value is one concise sentence on a non-empty line of at most 300 characters
-(up to 8000 characters total). Name who must act and the actual step; for a decision,
-include the choices, recommendation and any consequence needed to answer it.
-Each ask must be understandable on its own. Put supporting reasoning, technical
-evidence, diagnostics and links in `--summary`; notices collapse that full Markdown
-by default. Generic blocked reports use `ub-agents report --status blocked
---summary "Gate evidence: REASON" --action "ACTION"`.

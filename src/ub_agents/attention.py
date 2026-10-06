@@ -44,7 +44,7 @@ def notice_summary(body):
         reason = '; '.join(line[4:-2] for line in asks)
     elif reason.startswith('**') and reason.endswith('**'):
         reason = reason[2:-2]
-    reason = re.sub(r'\\([\\`*_\[\]&<>~])', r'\1', reason)
+    reason = re.sub(r'\\([\\`*_{}\[\]()#+.!|&<>~\-])', r'\1', reason)
     return short_reason(reason)
 
 

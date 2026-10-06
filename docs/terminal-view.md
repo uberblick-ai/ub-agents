@@ -107,6 +107,10 @@ section's row count. Running always appears first; other empty sections are hidd
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
 | Eligible | At most ten items in claim order, merging ready/recovery plans before retry backoff and paused-runtime plans |
 
+Work sections stay expanded and cannot be collapsed. Their headers and Running's
+idle line cannot be selected or take the cursor; clicking them leaves the cursor
+and selection unchanged.
+
 Eligible's heading counts all eligible items: `Eligible · 7`, or
 `Eligible · 23 · showing 10` when truncated. While stopping it adds
 ` · not claimed while stopping`; the heading shortens with `…` to fit the pane.
@@ -137,7 +141,8 @@ shortened with `…`, and a right column:
 Needs attention's second line is `agent · state · reason`, indented and dim.
 Parked state names the stop label(s), joined by `, `; blocked state is `blocked`,
 and an exhausted attempt limit is `failed F/M`. The reason uses the notice or
-parking outcome's actions when available, without Markdown bold or bullet markers.
+parking outcome's asks when available, without Markdown bold or bullet markers.
+Notices with options lead with the summary's first sentence instead of an ask.
 New notices without a recorded action show the concise request to review the blocker
 and decide the next step; approval notices show the required authorization. Full
 reasoning and technical details stay in Unblock's collapsed section. Without a
@@ -185,8 +190,9 @@ both layouts, exactly one blank row precedes each displayed Needs attention and
 Eligible heading, including after Running's idle line. Hidden sections add no
 separator. There is no gap within an item, after a heading, before Running or
 before Recent activity. The cursor highlights only the item's lines. Arrow keys
-skip blank rows, and either item line can be clicked to select it; blank rows
-have no cursor or hover highlight and clicking them changes no selection or cursor.
+skip headers, the idle line and blank rows, and either item line can be clicked
+to select it; blank rows have no cursor or hover highlight and clicking them
+changes no selection or cursor.
 In the narrow Work list, live and Recent activity rows use only their first line:
 glyph, item reference, title shortened with `…`, and right-aligned waiting time
 for Needs attention or state for other live rows. Detail
@@ -297,11 +303,16 @@ to Log. `4` has no effect for other rows.
 
 The comment body uses Issue's inert Markdown rules and 2,048-character limit,
 with a visible shortening notice. The action-needed marker, `**Action needed**`
-title and Claim/Outcome links line (including the no-outcome variant) are removed
-first. New notices show each ask above a collapsed "Reasoning, evidence and resume
-instructions" control; click its title or focus it and press Enter to expand it.
-The bounded supporting Markdown and SHAs stay intact inside. Legacy notices without
-that fold remain readable. The last dim line names the
+title are removed first. New notices keep Claim/Outcome links with the folded
+evidence; earlier formats omit their standalone links line, including the
+no-outcome variant. New notices show the reason, any independent asks, numbered alternative
+options with the first recommended, and visible "Then resume" steps. Option
+commands render as separate code blocks; single-backtick inline code is preserved.
+Without options the asks keep their previous layout and resume steps stay visible.
+The "Reasoning and evidence" control starts collapsed; click its title or focus it
+and press Enter to expand it. The bounded supporting Markdown and SHAs stay intact
+inside. v0.1.13 notices keep their "Reasoning, evidence and resume instructions"
+fold, and earlier prose notices remain readable. The last dim line names the
 action-needed comment, its local creation time, and `snapshot` or
 `GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
 

@@ -474,7 +474,7 @@ class View(App):
                 with TabPane('4 Unblock', id='unblock'):
                     with VerticalScroll():
                         yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
-                        with Collapsible(title='Reasoning, evidence and resume instructions',
+                        with Collapsible(title='Reasoning and evidence',
                                          collapsed=True, id='unblock_details'):
                             yield Markdown('', id='unblock_details_body', parser_factory=description_parser, open_links=False)
                         yield Static('', id='unblock_note', markup=False)
@@ -634,7 +634,6 @@ class View(App):
         recent = self.query_one(RecentActivity)
         recent.populate(rows, self.session)
         cursor = tree.cursor_node
-        cursor_group = next((name for name, node in self.groups.items() if node is cursor), None)
         incoming = {row.key: row for row in rows}
         # Until a person picks a row, the view follows the launcher's own run,
         # which can start after the view first read the snapshot.
@@ -689,6 +688,8 @@ class View(App):
             if name == 'Eligible' and mapping(self.session.data.get('activity')).get('state') == 'stopping':
                 label += ' · not claimed while stopping'
             group.set_label(Text(label))
+            if not group.is_expanded:
+                group.expand()
             if name == 'Running':
                 if grouped and self.idle_node is not None:
                     self.idle_node.remove()
@@ -730,7 +731,7 @@ class View(App):
                 recent.focus()
         elif cursor:
             cursor_key = self.selected if cursor.data == previous_selection else cursor.data
-            target = self.groups.get(cursor_group) if cursor_group else self.nodes.get(cursor_key)
+            target = self.nodes.get(cursor_key)
             if target is not None and target is not cursor:
                 tree.move_cursor(target)
 
@@ -877,6 +878,9 @@ class View(App):
         if lead != markdown.source:
             markdown.update(lead)
         fold = self.query_one('#unblock_details', Collapsible)
+        fold.title = ('Reasoning, evidence and resume instructions'
+                      if '<summary>Reasoning, evidence and resume instructions</summary>' in body
+                      else 'Reasoning and evidence')
         fold.display = bool(supporting)
         details_markdown = self.query_one('#unblock_details_body', Markdown)
         if supporting != details_markdown.source:
@@ -1048,7 +1052,9 @@ class View(App):
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
             for footer in self.screen.query('#raw_status').results(Static):
-                footer.update(self.footer(footer.size.width, self.screen.footer_keys))
+                # Before its first layout the footer has no width; use the width compose used.
+                width = footer.size.width or self.size.width - self.screen.styles.padding.width
+                footer.update(self.footer(width, self.screen.footer_keys))
         pill = self.query_one('#log_state', Static)
         pill.display = bool((page or log) and (not reading.follow or unread or lag))
         parts = ['⏸ PAUSED' if not reading.follow else '↓ BEHIND']

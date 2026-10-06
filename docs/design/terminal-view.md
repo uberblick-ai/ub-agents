@@ -248,34 +248,49 @@ view comes later; for now the tab is read-only.
 │  ⌥168 Render Issue descriptions as Markdown                                      │
 │  integrator · blocked · waiting 24m · since 12:12                                │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
-│  Local CI not run for ea4068a, so no signoff gate. `mise run ci ea4068a…`        │
-│  failed: mise reports this worktree's mise.toml is not trusted. Running          │
-│  `sh bin/ci.sh SHA` was denied by the session permission policy. Other gates     │
-│  pass: PR head matches the candidate, it is mergeable on top of main, the        │
-│  reviewer approved this SHA, and the changelog entry is accurate.                │
+│  Local CI is red on ea4068a: one test reads the launcher environment.            │
 │                                                                                  │
-│  Needs: trust mise.toml for integrator worktrees, or allow bin/ci.sh, then       │
-│  re-run integration.                                                             │
+│  To unblock, do one of:                                                           │
+│    1. Maintainer: run CI outside supervision (recommended)                        │
+│       ┌──────────────────────────────────────────────────────────────────────┐   │
+│       │ mise run ci ea4068a…                                                  │   │
+│       └──────────────────────────────────────────────────────────────────────┘   │
+│    2. Maintainer: merge a fix clearing `UB_AGENTS_READ_CONFIG`.                   │
 │                                                                                  │
-│  Candidate ea4068a · review: no decision · CI: no checks or statuses             │
-│                                                                                  │
-│  After resolving the blocker                                                     │
+│  Then resume integrator:                                                         │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
-│  │ ub-agents retry --number 168 --agent integrator --reason "Human resolved…" │  │
+│  │ ub-agents retry 168 --agent integrator --reason "Human resolved…"           │  │
 │  └────────────────────────────────────────────────────────────────────────────┘  │
 │  Restore a matching trigger if absent: `ready-to-merge`; remove any stop label.  │
+│                                                                                  │
+│  ▸ Reasoning and evidence                                                        │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  Source: action-needed comment · 12:12 · snapshot                                │
 ╰──────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 The body is the latest `<!-- ub-agents:action-needed RUN -->` comment on the item,
-rendered as Markdown like the Issue tab, without its marker and Claim/Outcome
-links. The header gives the agent, the state and how long it has waited. For an
+rendered as Markdown like the Issue tab, without its marker and Action needed
+title. New notices keep Claim/Outcome links with the folded evidence; earlier
+formats omit their standalone links line. The header gives the agent, the state
+and how long it has waited. For an
 item whose trusted notice the launcher already observed, the text comes from the
 snapshot; `g` loads a missing comment from GitHub. Its `waiting … · since HH:MM`
 uses the same published start time and minute/hour/day format as the Work row,
 even after a GitHub load. Unknown times are omitted.
+
+New notices show the reason first: the first action without options, or the
+summary's first sentence with options, normalized to one line and cut at 300
+characters with `…`. Independent asks follow, then "To unblock, do one of:" with
+numbered options and "(recommended)" on the first. An option's trailing
+single-backtick command after a colon and space renders in its own code block;
+other single-backtick code stays inline and other ask Markdown is escaped.
+"Then resume AGENT:" stays visible, including retry and trigger instructions,
+or stop-label and trigger steps for outcomes adding a stop label. The summary,
+candidate, review, CI and links stay in a collapsed "Reasoning and evidence"
+section. Without options, asks retain their previous layout with resume steps
+visible. v0.1.13's "Reasoning, evidence and resume instructions" fold and earlier
+prose comments still render as written.
 
 ### Runs
 

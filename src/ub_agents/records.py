@@ -191,32 +191,45 @@ def stop_report(lease, status, outcome=None):
             and bool(set(declared_transition(lease, outcome)["add"]).intersection(lease["stop_labels"])))
 
 
-def validate_action(action, required=False):
+def validate_action(action, required=False, flag="--action"):
     if action is None and not required:
         return
     if (not isinstance(action, str) or not action.strip() or len(action) > 300
             or action.splitlines() != [action] or "\x00" in action):
-        raise ValueError("--action must be one non-empty line of at most 300 characters")
+        raise ValueError(f"{flag} must be one non-empty line of at most 300 characters")
 
 
-def report_actions(action, required=False):
+def report_actions(action, required=False, flag="--action"):
     """Normalize the report API's scalar or repeated asks before any write."""
     if action is None:
-        validate_action(None, required=required)
+        validate_action(None, required=required, flag=flag)
         return []
     actions = action if isinstance(action, list) else [action]
     if not actions:
-        raise ValueError("--action must include at least one action")
+        raise ValueError(f"{flag} must include at least one value")
     for ask in actions:
-        validate_action(ask, required=True)
+        validate_action(ask, required=True, flag=flag)
     if sum(map(len, actions)) > 8000:
-        raise ValueError("--action values must total at most 8000 characters")
+        raise ValueError(f"{flag} values must total at most 8000 characters")
     return actions
+
+
+def report_asks(action, option, required=False):
+    actions = report_actions(action)
+    options = report_actions(option, flag="--option")
+    if required and not (actions or options):
+        raise ValueError("Stop reports require at least one --action or --option")
+    if sum(map(len, actions + options)) > 8000:
+        raise ValueError("--action and --option values must total at most 8000 characters")
+    return actions, options
 
 
 def reported_actions(outcome):
     """Read validated repeated asks, retaining historical scalar records."""
-    return outcome.get("actions") or ([outcome["action"]] if outcome.get("action") else [])
+    if "actions" in outcome:
+        return outcome["actions"]
+    # Options-only reports retain a scalar for v0.1.13 readers, not an extra ask.
+    return [] if outcome.get("options") else ([outcome["action"]] if outcome.get("action") else [])
 
 
 def validate_outcome_actions(outcome, required=False):
@@ -228,6 +241,13 @@ def validate_outcome_actions(outcome, required=False):
         report_actions(actions, required=True)
         if actions[0] != outcome.get("action"):
             raise ValueError("--action first value must match the scalar action")
+    if "options" in outcome:
+        options = outcome["options"]
+        if not isinstance(options, list):
+            raise ValueError("--option values must be a non-empty list")
+        report_asks(reported_actions(outcome) or None, options, required=required)
+        if "actions" not in outcome and (not options or options[0] != outcome.get("action")):
+            raise ValueError("--option first value must match the compatibility scalar action")
 
 
 def validate_report_action(lease, outcome):

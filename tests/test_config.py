@@ -15,7 +15,8 @@ class ConfigTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # Resolve like load_config does: macOS temporary paths live under /private/var.
+        self.root = Path(self.temp.name).resolve()
         self.path = self.root / "ub-agents.yaml"
 
     def load(self, content):
@@ -37,6 +38,60 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(main(["--config", str(custom), "check"]), 0)
             custom.rename(self.path)
             self.assertEqual(main(["check"]), 0)
+
+    def test_shared_instructions_are_optional_and_resolve_like_role_paths(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        self.assertIsNone(self.load(base).shared_instructions)
+        policy = self.root / 'policy.md'
+        policy.write_text('Project loop policy')
+        alias = self.root / 'alias.md'
+        alias.symlink_to('policy.md')
+        configured = self.load(base + 'shared-instructions: alias.md\n')
+        self.assertEqual(configured.shared_instructions, alias)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(main(['--config', str(self.path), 'check']), 0)
+
+    def test_check_rejects_invalid_shared_paths_and_unreadable_text(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        policy = self.root / 'policy.md'
+        policy.write_bytes(b'\xff')
+        alias = self.root / 'alias.md'
+        alias.symlink_to('../outside.md')
+        for value, message in (('missing.md', 'does not exist'), ('../outside.md', 'inside the project'),
+                               (str(self.root.parent / 'outside.md'), 'inside the project'),
+                               ('alias.md', 'inside the project'), ('policy.md', 'unreadable'),
+                               ('null', 'nonempty string'), ('[]', 'nonempty string')):
+            with self.subTest(value=value):
+                self.path.write_text(base + f'shared-instructions: {value}\n')
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as error:
+                    self.assertEqual(main(['--config', str(self.path), 'check']), 1)
+                self.assertIn('shared-instructions', error.getvalue())
+                self.assertIn(message, error.getvalue())
+        policy.write_text('Readable policy')
+        self.path.write_text(base + 'shared-instructions: policy.md\n')
+        original = Path.read_text
+        def denied(path, *args, **kwargs):
+            if path == policy:
+                raise PermissionError('Synthetic unreadable policy')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', denied), redirect_stderr(io.StringIO()) as error:
+            self.assertEqual(main(['--config', str(self.path), 'check']), 1)
+        self.assertIn('shared-instructions is unreadable', error.getvalue())
+
+    def test_repository_guidance_keeps_project_rules_and_shared_file_holds_loop_policy(self):
+        root = Path(__file__).resolve().parents[1]
+        project = (root / 'AGENTS.md').read_text()
+        shared = (root / '.agents/ub_agents.md').read_text()
+        for section in ('Inside the loop', 'Retrospectives', 'Merging', 'Human decisions', 'Review focus'):
+            self.assertNotIn('## ' + section, project)
+        for section in ('Checks', 'Merging', 'Human decisions', 'Review focus'):
+            self.assertIn('## ' + section, shared)
+        self.assertEqual(load_config(root / 'ub-agents.yaml').shared_instructions, root / '.agents/ub_agents.md')
+        for path in (root / '.agents').rglob('*.md'):
+            text = path.read_text()
+            self.assertNotIn('Every stop report', text)
+            self.assertNotIn('Stop reports need', text)
+            self.assertNotIn('at most 300 characters', text)
 
     def test_outcome_configuration_and_check_rejections(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n"

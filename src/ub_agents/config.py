@@ -185,6 +185,7 @@ class Config:
     launchers: tuple[str, ...] | None = None
     approvals: str | None = None
     trusted_bots: tuple[str, ...] = ()
+    shared_instructions: Path | None = None
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
@@ -202,8 +203,13 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
-                          "runtime-updates", "launchers", "approvals", "trusted-bots"},
+                          "runtime-updates", "launchers", "approvals", "trusted-bots", "shared-instructions"},
                    "configuration")
+    # Keep symlinks in the configured path so each run revalidates their targets.
+    shared = (root / string(data["shared-instructions"], "shared-instructions")
+              if "shared-instructions" in data else None)
+    if shared is not None:
+        project_path(root, str(shared), "shared-instructions")
     approvals = data.get("approvals")
     if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
         raise AgentError("approvals must be on or off")
@@ -360,7 +366,7 @@ def load_config(path):
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
-                  runtime_updates, launchers, approvals, trusted_bots)
+                  runtime_updates, launchers, approvals, trusted_bots, shared)
 
 
 def bot_logins(value):

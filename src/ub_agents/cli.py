@@ -74,15 +74,16 @@ def parser():
     report = commands.add_parser("report", help="Record a supervised run result",
                                  description="Record a supervised run's explicit result on GitHub. "
                                  "Use inside the launcher-provided assignment environment; choose --status or --outcome (required). "
-                                 "Stop reports (--status blocked or an outcome adding a configured stop label) require --action.",
+                                 "Stop reports (--status blocked or an outcome adding a configured stop label) require --action or --option.",
                                  examples=('ub-agents report --outcome handed-off --summary "Ready for review" --handoff 150',
                                            'ub-agents report --status blocked --summary "Decision pending" '
-                                           '--action "Maintainer: choose A or B; recommend A."'))
+                                           '--option "Maintainer: use A." --option "Maintainer: use B."'))
     verdict = report.add_mutually_exclusive_group(required=True)
     verdict.add_argument("--outcome", help="Declared project outcome; reports success")
     verdict.add_argument("--status", choices=["retry", "blocked"], help="Failure verdict; changes no labels")
     report.add_argument("--summary", required=True, help="Explain the result in 1–8000 characters")
-    report.add_argument("--action", action="append", help="One concise ask, at most 300 characters; repeat for each decision; required for stop reports")
+    report.add_argument("--action", action="append", help="One independent ask that is needed, at most 300 characters; repeat for each ask")
+    report.add_argument("--option", action="append", help="One alternative way to unblock, at most 300 characters; repeat with the recommendation first; append : `COMMAND` for a command block")
     report.add_argument("--handoff", type=int, help="Implementation PR number; its head is recorded")
     retrospective = commands.add_parser("retrospective", help="Post to the agent's retrospective board",
                                         description="Post a body file as a top-level comment on the agent's configured "
@@ -154,16 +155,24 @@ def init_project(args):
             '"Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)", "Bash({report_command} read *)", --add-dir, "{scratch}"]').replace(
             "Grants full access without the Codex sandbox",
             "Grants unattended edits and git/gh/report commands")
+        targets[config_path] = targets[config_path].replace(
+            '    # runtime-args:',
+            '    # Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".\n'
+            '    # runtime-args:')
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
         targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
+    guidance = runtime_guidance(root, args.runtime.split(":", 1)[0])
+    checks = (f"Run the project checks documented in `{guidance.relative_to(root)}` before handoff."
+              if guidance else
+              "Replace these placeholders with the project's required commands before launch:\n\n"
+              "- Build: `<project build command>`\n"
+              "- Tests: `<project test command>`\n"
+              "- Other checks: `<project lint or validation command>`")
+    targets[root / ".agents" / "ub_agents.md"] = templates.joinpath("ub_agents.md").read_text().replace(
+        "{checks}", checks)
     existing = [str(p) for p in targets if p.exists()]
     if existing:
         raise AgentError(f"Starter files already exist; nothing overwritten: {', '.join(existing)}")
-    guidance = root / "AGENTS.md"
-    if guidance.exists():
-        print(f"Kept existing {guidance}; shared guidance was not modified.")
-    else:
-        targets[guidance] = templates.joinpath("AGENTS.md").read_text()
     for target, content in targets.items():
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("x") as stream:
@@ -174,9 +183,21 @@ def init_project(args):
             stream.write("\n# Disposable ub-agents execution artifacts\n.ub-agents/\n")
     # Validate even the generated configuration; errors are actionable before launch.
     config = load_config(config_path)
-    print(f"Created {config_path} and .agents instructions; shared guidance is in {guidance}. "
+    print(f"Created {config_path} and .agents instructions; loop policy is in .agents/ub_agents.md. "
           "Customize and commit them before launch.")
+    for cli in sorted({runtime.cli for agent in config.agents for runtime in agent.runtimes}):
+        guidance = runtime_guidance(root, cli)
+        if guidance:
+            print(f"{cli} loads project guidance from {guidance.relative_to(root)}; kept unchanged.")
+        else:
+            choices = "AGENTS.md" if cli == "codex" else "CLAUDE.md, .claude/CLAUDE.md or AGENTS.md"
+            print(f"Warning: {cli} loads no project guidance; add {choices} so agents know how to build and test.")
     provision_labels(config, GitHub(config.repository))
+
+
+def runtime_guidance(root, cli):
+    names = ("AGENTS.md",) if cli == "codex" else ("CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md")
+    return next((root / name for name in names if (root / name).is_file()), None)
 
 
 def report_run(args):
@@ -212,7 +233,7 @@ def report_run(args):
     if lease is None or lease["actor"].casefold() != coordinator.actor.casefold():
         raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")
     record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
-                                outcome=args.outcome, action=args.action)
+                                outcome=args.outcome, action=args.action, option=args.option)
     print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
 
 
@@ -301,6 +322,7 @@ def run(args):
             parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}")
     if args.command == "check":
         from .config import instruction_text
+        instruction_text(config.root, config.shared_instructions, "shared-instructions")
         for agent in config.agents:
             instruction_text(config.root, agent.instructions, f"{agent.name} instructions")
         print(f"Valid configuration: {config.repository}, {len(config.agents)} agents")

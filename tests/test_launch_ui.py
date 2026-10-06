@@ -15,6 +15,7 @@ import sys
 import tempfile
 import termios
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -218,6 +219,19 @@ sys.exit(result)
 '''
 
 
+def wait_for_observation_worker(root, timeout=5):
+    """The session writer outlives its launcher by design; let it finish before cleanup."""
+    roots = {str(root), str(Path(root).resolve())}
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        table = subprocess.check_output(['ps', '-axo', 'command='], text=True)
+        if not any('ub_agents.observation_worker' in line and any(r in line for r in roots)
+                   for line in table.splitlines()):
+            return
+        time.sleep(0.05)
+    raise AssertionError(f'Observation worker for {root} did not exit')
+
+
 class LaunchTerminalTests(unittest.TestCase):
     # Each launch form is its own test so a parallel run spreads them over cores.
     def test_q_stops_the_launch(self):
@@ -354,6 +368,7 @@ class LaunchTerminalTests(unittest.TestCase):
                         with self.assertRaises(ProcessLookupError):
                             os.kill(pid, 0)
                 self.assertFalse(list((Path(state) / 'ub-agents/org/project/runs').glob('*')))
+                wait_for_observation_worker(root)
             if mode == 'once':
                 # Restart the same control root with two old snapshots;
                 # the new launcher still attaches to its own new ID.
@@ -363,3 +378,4 @@ class LaunchTerminalTests(unittest.TestCase):
                     self.assertEqual(len(list((root / '.ub-agents/sessions').glob('*.json'))), 3)
                     (root / 'finish').touch()
                     terminal.wait_exit(timeout=8)
+                    wait_for_observation_worker(root)
