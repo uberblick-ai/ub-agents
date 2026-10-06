@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 from xml.etree import ElementTree
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from rich.console import Console
 from tests.test_view_data import event, fixture, publish_snapshot
@@ -20,6 +20,7 @@ from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
+from textual.geometry import Size
 from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
@@ -3155,6 +3156,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('running assignment', footer)
             self.assertNotIn('FOLLOW', footer)
             self.assertIn('bytes ', app.screen.query_one('#raw_details', Static).render().plain)
+            # An update can also land after compose but before the footer's first layout.
+            with patch.object(Static, 'size', new_callable=PropertyMock, return_value=Size(0, 0)):
+                app.update_status()
+            footer = app.screen.query_one('#raw_status', Static).render().plain
+            self.assertIn('running assignment', footer)
+            self.assertIn('q quit', footer)
             await pilot.press('q')
         app.worker.thread.join(2)
 

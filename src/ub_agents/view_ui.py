@@ -1017,7 +1017,9 @@ class View(App):
         self.query_one('#status', Static).update(status)
         if isinstance(self.screen, RawAccess):
             for footer in self.screen.query('#raw_status').results(Static):
-                footer.update(self.footer(footer.size.width, self.screen.footer_keys))
+                # Before its first layout the footer has no width; use the width compose used.
+                width = footer.size.width or self.size.width - self.screen.styles.padding.width
+                footer.update(self.footer(width, self.screen.footer_keys))
         pill = self.query_one('#log_state', Static)
         pill.display = bool((page or log) and (not reading.follow or unread or lag))
         parts = ['⏸ PAUSED' if not reading.follow else '↓ BEHIND']
