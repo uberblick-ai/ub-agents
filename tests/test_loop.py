@@ -820,7 +820,7 @@ class RecoveryTests(unittest.TestCase):
                 self.assertIsNone(restarted.coordinator.pending_completion(history, self.agent.name, timestamp() + 120))
                 self.assertFalse(history[1]["accepted"])
 
-    def test_released_timeout_stays_visible_without_trigger_even_on_closed_item(self):
+    def test_released_timeout_without_trigger_is_visible_only_while_open(self):
         for state in ("open", "closed"):
             with self.subTest(state=state):
                 github = FakeGitHub(issue())
@@ -832,7 +832,11 @@ class RecoveryTests(unittest.TestCase):
 
                 with patch("ub_agents.loop.supervise", side_effect=execute):
                     loop.tick()
-                row = status_rows(self.loop(github))[0]
+                rows = status_rows(self.loop(github))
+                if state == "closed":
+                    self.assertEqual(rows, [])
+                    continue
+                row = rows[0]
                 self.assertEqual((row["number"], row["state"], row["attempts"]), (1, "blocked", 1))
                 self.assertEqual(row["result"], "retry")
                 self.assertIn("timed out", row["reason"])

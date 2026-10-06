@@ -37,10 +37,15 @@ the reason and record `ub-agents report --outcome maintainer-merge
 --action "Maintainer: merge #N because REASON."`. Handing a passing candidate to a
 maintainer is a successful handoff.
 
-If the candidate conflicts with the base branch, or the project keeps a changelog and the
+If the candidate conflicts with the base branch, a declared check fails for a cause
+that code or tests in the repository can fix, or the project keeps a changelog and the
 entry for a user-facing change is missing or inaccurate, send it back to the implementer:
-name what to fix in the summary of `ub-agents report --outcome changes-requested`.
-Report blocked only when another gate fails or evidence is missing. The framework never grants merge authority, approves its own PR, or
+name what to fix, including any failing check and its output, in the summary of
+`ub-agents report --outcome changes-requested`. A fixable cause includes a test that
+depends on the run's environment and a failure that also reproduces on the base branch.
+Report blocked only when the fix needs something outside the repository (access, a
+permission, an external service or a human decision), another gate fails, or evidence
+is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
 
 Every stop report (`--status blocked` or an outcome adding a configured stop label)

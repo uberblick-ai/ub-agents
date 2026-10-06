@@ -105,7 +105,14 @@ section's row count. Running always appears first; other empty sections are hidd
 | --- | --- |
 | Running | Only this launcher's current assignment, with a count of 0 or 1 |
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
-| Eligible | One row per item, merging ready/recovery plans in planned order, then retry backoff and paused-runtime plans |
+| Eligible | At most ten items in claim order, merging ready/recovery plans before retry backoff and paused-runtime plans |
+
+Eligible's heading counts all eligible items: `Eligible · 7`, or
+`Eligible · 23 · showing 10` when truncated. While stopping it adds
+` · not claimed while stopping`; the heading shortens with `…` to fit the pane.
+Claim order puts existing work first, then milestone, priority, age and number.
+Continuous launch refreshes the queue with complete read-only planning passes
+while an assignment runs; a failed pass keeps the previous rows.
 
 With no assignment, Running shows one dim placeholder line,
 `Idle · nothing eligible for this launcher`. It is not a work item and has no
@@ -157,6 +164,16 @@ eligible, including when its agents change; Issue and Runs still show that item'
 description and history. Running and Needs attention keep one row per agent, and
 running agents are omitted from Eligible as before.
 
+Line 2 appends the item's effective priority word after ` · `, for example
+`issue-preparer · urgent` or `reviewer 1/3 failures, integrator · high`.
+The word is the configured label after its last `:` and has no glyph. Without
+`queue.priority`, or without a label or default, only the usual agent details
+appear. In the default dark theme, urgent is `#e0524a`, high is `#c98a86` and low
+is `#86a891`; medium and other words use the usual muted line color. The
+`view-priority-urgent`, `view-priority-high` and `view-priority-low` theme variables
+derive equivalent colors for other Textual themes. `NO_COLOR=1` leaves words
+uncolored.
+
 Other live rows' second line is indented and joins the agent, `this launcher` for the
 assignment, and count with ` · `. The count is `finishing run` for a stopping
 assignment, `attempt N` for other assignments, or `F/M failures` for plans with
@@ -182,12 +199,12 @@ remain static. Elapsed time stays in whole seconds, uses the item's cached run
 history and updates while the view is open; the view retains an observed claim
 time when a report updates the history.
 If that claim time is unavailable, the row shows `claiming`.
-These rows require no extra GitHub reads. Priority
-markers are absent because the snapshot has no priority.
+Rendering these rows requires no extra GitHub reads.
 
 After SIGTERM, the view uses the snapshot's `activity.state: stopping` to show
 that this launcher is finishing its current run and will claim nothing new.
-Eligible's rule reads `Eligible · N · not claimed while stopping`, shortened
+Eligible's rule reads `Eligible · N · not claimed while stopping`, adding
+` · showing 10` before the stopping note when truncated, shortened
 with `…` at narrow widths like other headings. Ready and recovery rows show
 `held`; delayed rows keep `backoff` or `waiting`. The footer reads `stopping`.
 
@@ -208,8 +225,14 @@ prior row. Each re-planned item and agent updates in
 place, moving sections if its state changes; new rows follow the kept rows in
 their section, with ready/recovery rows always preceding delayed rows in Eligible.
 Completion removes omitted plans and applies the new planned order within each
-Eligible subgroup before merging plans for the same item. A selected removed row
-remains as an earlier observation.
+Eligible subgroup before merging plans for the same item. A selected removed
+Needs attention row leaves the Work list and count; its Issue and Runs details
+remain as an earlier observation until selection moves. Other selected removed
+plans remain as earlier observations. Closed or merged items with only a released
+retry or blocked run no longer need attention. Live or unfinished leases, pending
+outcomes or transitions, unconfirmed cleanup and invalid coordination history still
+require resolution. Recent activity contains recorded outcomes only; removing a
+completed item adds no outcome.
 
 **Recent activity · N today** always fills the lower half of the Work pane,
 including `0 today` when there are no outcomes. N counts cached session outcomes
@@ -491,11 +514,31 @@ text; nested payloads are not interpreted. Changed or unfamiliar complete
 records also show a dim type label instead of assuming a newer CLI's semantics.
 Claude-shaped `tool_progress` records are unvalidated for Codex and use that
 dim label; Codex records supply no elapsed call time, so none is invented.
+Malformed Codex lines that begin with `{`, including records below the size
+limit, show a dim
+`· incomplete or unrecognized Codex record omitted · full record in Raw` notice.
 
-Raw mode retains every record, including hidden records. Oversized, split,
-unfinished, malformed and non-JSON fragments, including mixed diagnostic text,
-keep their labelled raw display. Unknown runtimes use the labelled plain/raw
-fallback. Runtime output never establishes a workflow outcome.
+Oversized Codex JSON objects produce one compact projection when their event
+fields can be validated within the existing bounds. Large text is shortened;
+command outcomes are checked at the record's end, so failures still show a red
+`✗` with the first output line. Successful output stays in Raw. Activity labels
+and item-ID deduplication work as for smaller records. JSON-looking text inside
+output, messages and errors remains inert text.
+
+If the shape cannot be validated within the bounds, Formatted shows one dim
+`· oversized Codex record omitted · full record in Raw` notice. Tail attachment
+and history-page boundaries show a compact omission notice for each affected
+span, including pages entirely inside a large record. Unfinished records show
+an incomplete-record notice until their newline arrives; then their single
+projection replaces the notice. The next complete record formats normally.
+
+Raw mode retains every record and bounded fragment, including hidden records,
+with its existing escaping, shortening and labels. The bytes on disk and raw
+access are unchanged. Oversized lines that do not begin as JSON objects, such as
+diagnostic text, keep their labelled raw display in Formatted too. Unknown
+runtimes use the labelled plain/raw fallback. Read, pending-buffer, retained-entry,
+projection and page limits still apply; validation across fragments keeps bounded
+state. Runtime output never establishes a workflow outcome.
 
 Log ends with a dashed rule and a one-line status showing the agent and its
 process or plan state, plus `no outcome reported` or the reported result and
@@ -624,7 +667,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    check selection, focus and paused positions. Revisit the outcome and check
    the restored paused page. Add newer outcomes until the selected outcome is
    clipped; its right pane must keep showing it. Remove a selected plan and
-   check its earlier observation remains. Park a selected plan for dependencies
+   check its earlier observation remains. Remove a selected Needs attention row;
+   it must leave the list and count while Issue and Runs keep their cached details,
+   without adding Recent activity. Park a selected plan for dependencies
    or a milestone; it must leave the Work rows and counts while its cached
    details remain in the right pane.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,

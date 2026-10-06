@@ -12,7 +12,7 @@ from xml.etree import ElementTree
 from unittest.mock import Mock, patch
 
 from rich.console import Console
-from tests.test_view_data import event, fixture
+from tests.test_view_data import event, fixture, publish_snapshot
 from tests.test_log_reader import FIXTURE, progress, record, result, tool
 from tests.test_view_github import reply
 from tests.support import MemoryPublisher, RecordingDescriptionTransport, agent, config, issue
@@ -28,6 +28,37 @@ from ub_agents.view_theme import theme_style
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_eligible_limit_heading_order_priority_and_stopping(self):
+        self.state['assignment'] = None
+        self.state['outcomes'] = []
+        order = [30, 18, 42, 15, 9, 31, 22, 13, 37, 5] + list(range(100, 113))
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': n, 'agent': 'worker', 'kind': 'issue', 'title': 'Work', 'priority': 'urgent',
+             'state': 'backoff' if n == 18 else 'ready'} for n in order]}
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(160, 45)) as pilot:
+            tree = app.query_one('#work', Tree)
+            await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
+                             'urgent' in tree.render_line(app.groups['Eligible'].children[0]._line + 1 -
+                                                         tree.scroll_offset.y).text)
+            group = app.groups['Eligible']
+            self.assertEqual(group.label.plain, 'Eligible · 23 · showing 10')
+            self.assertEqual([app.rows[node.data].item for node in group.children],
+                             [n for n in order if n != 18][:10])
+            first = group.children[0]
+            rendered = tree.render_line(first._line + 1 - tree.scroll_offset.y)
+            urgent = next(segment for segment in rendered if 'urgent' in segment.text)
+            self.assertEqual(urgent.style.color, theme_style(app, 'view-priority-urgent').color)
+            self.assertTrue(tree.render_line(first._line - tree.scroll_offset.y).text.endswith('next'))
+            self.state['activity'] = {'state': 'stopping'}
+            publish_snapshot(self.path, self.state)
+            label = 'Eligible · 23 · showing 10 · not claimed while stopping'
+            await self.ready(app, pilot, lambda: group.label.plain == label)
+            self.assertEqual(len(group.children), 10)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def asyncSetUp(self):
         # IsolatedAsyncioTestCase starts its loop in debug mode, which slows
         # Textual by about a third and reports every slow callback.
@@ -55,7 +86,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['update'] = {'text': 'New version available'}
         self.state['histories']['114']['runs'].append(
             {'agent': 'worker', 'result': 'blocked', 'time': self.state['published_at']})
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         self.log.write_bytes(record(timestamp='2026-10-03T12:00:00Z', content=[{**tool(name='Edit'), 'input': {
             'file_path': 'a.py', 'new_string': 'one\ntwo\n', 'old_string': 'old'}}]))
 
@@ -186,7 +217,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_narrow_rows_split_navigation_and_last_active_tab(self):
         self.state['histories']['114']['title'] = 'Long title ' * 20
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(80, 24)) as pilot:
             await self.ready(app, pilot)
@@ -285,7 +316,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_floor_is_one_centered_line_and_restores_list_and_overlays(self):
         self.state['update'] = {'text': 'New version available'}
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(60, 16)) as pilot:
             await self.ready(app, pilot)
@@ -333,7 +364,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         now = datetime.now(timezone.utc)
         self.state['base_version'] = '9.8.7'
         self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=26)).isoformat()}
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
@@ -354,7 +385,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('escape')
                 for state in ('stopping', 'polling'):
                     self.state['activity'] = {'state': state}
-                    self.path.write_text(json.dumps(self.state))
+                    publish_snapshot(self.path, self.state)
                     await self.ready(app, pilot, lambda: f'· {state}' in footer.render().plain)
                     if state == 'stopping':
                         tree = app.query_one(Tree)
@@ -365,7 +396,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         node = app.nodes['plan:12']
                         self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('held'))
                 self.state.update(assignment=None, outcomes=[], latest_pass={'state': 'complete', 'rows': []})
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: app.idle_node is not None and not app.nodes)
                 tree = app.query_one(Tree)
                 tree.move_cursor(app.idle_node)
@@ -436,6 +467,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_color_screenshot_is_monochrome(self):
         self.themed_fixture()
+        for index, row in enumerate(self.state['latest_pass']['rows']):
+            row['priority'] = ('urgent', 'high', 'low')[index % 3]
+        publish_snapshot(self.path, self.state)
         with patch.dict(os.environ, {'NO_COLOR': '1'}):
             app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
@@ -469,7 +503,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     {'text': '⬆ This launcher runs code 2 commits behind origin/main · restart the launcher'},
                     {'text': '[bold]inert[/bold]\nnext\x1b[31m'}):
                 self.state['update'] = value
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: banner.banner == value and banner.size.height == 1
                                  and app.query_one('#body').region.y == 1)
                 self.assertTrue(banner.display)
@@ -507,7 +541,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(banner.size.height, 1)
                 await pilot.resize_terminal(110, 32)
             self.state['update'] = None
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: not banner.display and app.query_one('#body').region.y == 0)
             self.assertEqual(app.query_one('#body').region.y, 0)
             self.assertEqual(app.selected, selected)
@@ -779,7 +813,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             row = self.state['latest_pass']['rows'][0]
             row['title'] = title
             row['description'] = {'available': True, 'text': body}
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
         elif source == 'run context.json':
             (self.log.parent / 'context.json').write_text(json.dumps({'title': title, 'body': body}))
         else:
@@ -792,7 +826,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         now = datetime.now(timezone.utc)
         self.state['base_version'] = '9.8.7'
         self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=30)).isoformat()}
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
@@ -814,15 +848,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn('next poll 0s', footer.render().plain)
                 for state in ('polling', 'running assignment', 'stopping'):
                     self.state['activity'] = {'state': state}
-                    self.path.write_text(json.dumps(self.state))
+                    publish_snapshot(self.path, self.state)
                     await self.ready(app, pilot, lambda: f'· {state}' in footer.render().plain)
                     self.assertTrue(footer.render().plain.endswith(keys))
                 self.state['published_at'] = (now - timedelta(seconds=60)).isoformat()
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'stale' in footer.render().plain)
                 self.assertNotIn('snapshot', footer.render().plain)
                 self.state['ended'] = True
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'ended' in footer.render().plain)
                 self.path.write_text('{broken')
                 await self.ready(app, pilot, lambda: 'malformed:' in footer.render().plain)
@@ -1080,7 +1114,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_shared_header_stays_below_tabs_including_a_later_tab(self):
         self.state['assignment'].update(kind='pr', attempt=2)
         self.state['outcomes'].append({'item': 114, 'run': 'prior', 'handoff': 1235})
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(130, 36)) as pilot:
@@ -1128,7 +1162,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
              'reason': 'Needs a decision', 'title': 'Long title ' + '界' * 200}
             for number, kind in ((114, 'issue'), (12, 'pr'))]}
         self.state['outcomes'].append({'item': 114, 'run': 'handoff', 'handoff': 1235})
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         for size in ((130, 36), (60, 16)):
             with self.subTest(size=size):
                 transport = RecordingDescriptionTransport()
@@ -1243,7 +1277,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['outcomes'].extend([
             {'item': 114, 'run': 'before', 'agent': 'preparer'},
             {'item': 114, 'run': 'other', 'agent': 'implementer'}])
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -1261,7 +1295,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['assignment']['process'] = 'exited'
             self.state['outcomes'].append({'item': 114, 'run': 'owned-run', 'result': 'success',
                                            'acceptance': 'finalized'})
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: 'reported success' in status.render().plain)
             self.assertIn('implementer exited · reported success', status.render().plain)
             self.assertIn('…', status.render().plain)
@@ -1288,7 +1322,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 23, 'agent': 'worker', 'state': 'backoff'},
             {'item': 24, 'agent': 'worker', 'state': 'waiting'},
         ]
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -1310,7 +1344,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn('implementer running · no outcome reported', status.render().plain)
             normal_work()
             self.state['activity'] = {'state': 'stopping'}
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: 'Stopping after this run' in status.render().plain)
             self.assertEqual(app.selected, own)
             self.assertTrue(line(own).startswith('■ #114'))
@@ -1355,7 +1389,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     if state == 'waiting':
                         self.state['activity']['until'] = (datetime.now(timezone.utc) +
                                                           timedelta(seconds=30)).isoformat()
-                    self.path.write_text(json.dumps(self.state))
+                    publish_snapshot(self.path, self.state)
                     await self.ready(app, pilot, lambda: app.session.data == self.state)
                     normal_work()
                     footer = app.query_one('#status', Static).render().plain
@@ -1488,7 +1522,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 24, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
             {'item': 25, 'agent': 'worker', 'state': 'backoff', 'reason': 'Retry backoff'},
         ])
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -1507,7 +1541,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('Recent activity', app.query_one(RecentActivity).render().plain)
             self.state['latest_pass'] = {'state': 'complete', 'rows': []}
             self.state['outcomes'] = []
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and
                              app.groups['Running'].label.plain == 'Running · 1' and
                              app.session.data.get('latest_pass', {}).get('state') == 'complete')
@@ -1524,7 +1558,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 20, 'agent': 'worker', 'state': 'ready'},
             {'item': 12, 'agent': 'integrator', 'state': 'ready', 'description': description},
         ])
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(200, 40)) as pilot:
             await self.ready(app, pilot)
@@ -1550,18 +1584,23 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('reviewer', stream.getvalue())
             self.assertIn('other-host', stream.getvalue())
             self.state['latest_pass']['rows'][1]['state'] = 'owned'
-            self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: app.rows[key].agent == 'integrator')
+            publish_snapshot(self.path, self.state)
+            # Row data can change before the Tree rebuilds its line positions.
+            await self.ready(app, pilot, lambda: app.rows[key].agent == 'integrator' and
+                             tree.render_line(node._line + 1 - tree.scroll_offset.y).text.rstrip() == '  integrator')
             self.assertEqual(app.selected, key)
             self.assertIs(app.nodes[key], node)
             self.assertIs(tree.cursor_node, node)
             self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 2')
             self.assertEqual(app.query_one(TabbedContent).active, 'runs')
             self.assertEqual(markdown.source, description['text'])
+            tree.get_node_at_line(0)  # Resolve the reordered rows before reading node._line.
             self.assertEqual(tree.render_line(node._line + 1 - int(tree.scroll_y)).text.rstrip(), '  integrator')
             self.state['latest_pass']['rows'][1]['state'] = 'ready'
-            self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: len(app.rows[key].eligible_plans) == 2)
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: len(app.rows[key].eligible_plans) == 2 and
+                             tree.render_line(app.nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
+                             '  reviewer 1/3 failures, integrator')
             self.assertEqual(app.selected, key)
             self.assertIs(tree.cursor_node, app.nodes[key])
             self.assertEqual(sum(row.item == 12 for row in app.rows.values()), 1)
@@ -1570,15 +1609,17 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             plans = self.state['latest_pass']['rows']
             plans[1]['state'] = 'blocked'
             plans[1], plans[-1] = plans[-1], plans[1]
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             attention = 'plan:12:reviewer'
             await self.ready(app, pilot, lambda: attention in app.nodes)
             app.select(attention)
             tree.move_cursor(app.nodes[attention])
             await self.ready(app, pilot, lambda: app.worker.selected_row.key == attention)
             plans[-1]['state'] = 'ready'
-            self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: app.selected == key and attention not in app.rows)
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.selected == key and attention not in app.rows and
+                             tree.render_line(app.nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
+                             '  integrator, reviewer 1/3 failures')
             self.assertIs(tree.cursor_node, app.nodes[key])
             self.assertEqual([plan['agent'] for plan in app.rows[key].eligible_plans], ['integrator', 'reviewer'])
             self.assertNotIn('Needs attention', app.groups)
@@ -1593,7 +1634,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 20, 'agent': 'worker', 'state': 'backoff', 'reason': 'Retry backoff'},
             {'item': 21, 'agent': 'worker', 'state': 'waiting', 'reason': 'Runtime paused'},
         ]}
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot, lambda: 'plan:21' in app.nodes)
@@ -1609,7 +1650,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn('next', line)
             self.state['latest_pass']['rows'].append(
                 {'item': 22, 'agent': 'worker', 'state': 'recover', 'reason': 'Pending outcome'})
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: 'plan:22' in app.nodes)
             self.assertEqual([node.data for node in app.groups['Eligible'].children],
                              ['plan:22', 'plan:20', 'plan:21'])
@@ -1622,7 +1663,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 {'item': 20, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'},
                 {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
             ]
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not app.nodes)
             self.assertEqual(tree.root.children[0].label.plain, 'Running · 0')
             await pilot.press('q')
@@ -1633,7 +1674,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['assignment'] = None
         self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][2]]
         self.state['outcomes'] = []
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -1666,13 +1707,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(transport.calls, [])
             self.state['latest_pass']['rows'].append(
                 {'item': 21, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: 'Needs attention' in app.groups)
             self.assertIs(app.idle_node, idle)
             self.assertEqual([node.label.plain for node in tree.root.children],
                              ['Running · 0', 'Needs attention · 1'])
             self.state['assignment'] = assignment
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run')
             self.assertIsNone(app.idle_node)
             self.assertEqual([node.label.plain for node in tree.root.children],
@@ -1691,7 +1732,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('f')
             page = app.reading.page
             self.state['assignment'] = None
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
             self.assertEqual(app.selected, key)
             self.assertNotIn(key, app.nodes)
@@ -1699,7 +1740,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(app.idle_node)
             self.assertEqual(app.reading.page, page)
             self.state['assignment'] = dict(assignment, run='next-run')
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: 'assignment:next-run' in app.nodes)
             self.assertEqual(app.selected, key)
             self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
@@ -1716,8 +1757,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.select(key)
             await self.ready(app, pilot, lambda: app.local_description is not None)
             self.state['latest_pass']['rows'][1]['state'] = 'owned'
-            self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation' and
+                             key not in app.nodes and list(app.groups) == ['Running'])
             self.assertEqual(app.selected, key)
             self.assertNotIn(key, app.nodes)
             self.assertEqual(list(app.groups), ['Running'])
@@ -1728,14 +1770,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('other-host', stream.getvalue())
             self.state['latest_pass']['state'] = 'complete'
             self.state['latest_pass']['rows'] = []
-            self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: app.session.data['latest_pass']['state'] == 'complete')
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.session.data['latest_pass']['state'] == 'complete' and
+                             key not in app.nodes)
             self.assertNotIn(key, app.nodes)
             self.assertEqual(app.selected, key)
             self.state['latest_pass']['rows'] = [
                 {'item': 12, 'agent': 'reviewer', 'state': 'ready', 'reason': 'Trigger matched'}]
-            self.path.write_text(json.dumps(self.state))
-            await self.ready(app, pilot, lambda: key in app.nodes)
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: key in app.nodes and app.rows[key].state == 'ready')
             self.assertEqual(app.selected, key)
             self.assertEqual(app.rows[key].state, 'ready')
             await pilot.press('q')
@@ -1766,11 +1809,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('filed by', displayed())
             self.assertNotIn('#114', displayed())
             self.state['histories']['12']['title'] = 'Updated candidate'
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: '⌥12 Updated candidate' in identity())
             self.state['latest_pass']['rows'] = []
             self.state['histories'].pop('12')
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')
             self.assertIn('⌥12 Updated candidate', identity())
             app.select('outcome:previous-run')
@@ -1813,7 +1856,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_cursor_follows_row_when_tree_changes_before_a_render(self):
         self.state['latest_pass']['rows'].append(
             {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'})
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -1835,22 +1878,65 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         assignment = self.state['assignment']
         self.state['assignment'] = None
         self.state['latest_pass']['rows'][0]['state'] = 'ready'
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot, lambda: app.rows)
             self.assertTrue(app.selected.startswith('plan:'))
             self.state['assignment'] = assignment
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run')
             self.assertNotIn('plan:114', app.rows)
             app.select('plan:12')
             self.state['assignment'] = dict(assignment, run='next-run')
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: 'assignment:next-run' in app.rows)
             self.assertEqual(app.selected, 'plan:12')
             await pilot.press('q')
         app.worker.thread.join(2)
+
+    async def test_selected_removed_attention_row_keeps_details_without_list_or_count(self):
+        description = {'available': True, 'text': 'Completed candidate'}
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': 21, 'kind': 'pr', 'agent': 'worker', 'state': 'blocked',
+             'reason': 'Last run retry; restore a trigger', 'description': description},
+            {'item': 22, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'}]}
+        self.state['histories']['21'] = {'item': 21, 'kind': 'pr', 'runs': [
+            {'agent': 'worker', 'result': 'retry', 'summary': 'Interrupted run'}]}
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            key = 'plan:21:worker'
+            app.select(key)
+            markdown = app.query_one('#issue_body', Markdown)
+            await self.ready(app, pilot, lambda: markdown.source == description['text'])
+            self.assertEqual(app.groups['Needs attention'].label.plain, 'Needs attention · 2')
+            outcomes = list(self.state['outcomes'])
+            self.state['latest_pass']['rows'].pop(0)
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            self.assertEqual(app.selected, key)
+            self.assertNotIn(key, app.nodes)
+            self.assertEqual(app.groups['Needs attention'].label.plain, 'Needs attention · 1')
+            self.assertTrue(app.rows[key].hidden)
+            self.assertFalse(app.unblock_visible)
+            self.assertEqual(markdown.source, description['text'])
+            await pilot.press('3')
+            stream = io.StringIO()
+            Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
+            self.assertIn('Interrupted run', stream.getvalue())
+            self.assertEqual(app.session.data['outcomes'], outcomes)
+            self.assertFalse(any(row.item == 21 for row in app.query_one(RecentActivity).rows))
+            self.state['latest_pass']['rows'] = []
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: 'Needs attention' not in app.groups)
+            self.assertEqual(app.selected, key)
+            app.select('assignment:owned-run')
+            await self.ready(app, pilot, lambda: key not in app.rows)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
 
     async def test_selected_plan_survives_section_order_change_and_disappearance(self):
         description = {'available': True, 'text': '# Planned work\n\n**Cached body**'}
@@ -1859,7 +1945,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched',
              'description': description},
         ])
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -1878,7 +1964,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['latest_pass']['rows'] = [
                 {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required',
                  'description': description}]
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             # The tree moves its cursor back to the kept node after the next refresh.
             key = 'plan:21:worker'
             await self.ready(app, pilot, lambda: key in app.nodes and
@@ -1892,7 +1978,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                              ['Running · 1', 'Needs attention · 1'])
             for reason in ('Waiting for blockers #31', 'Waiting for active milestone #10'):
                 self.state['latest_pass']['rows'][0]['reason'] = reason
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: app.rows[key].hidden and key not in app.nodes
                                  and app.session.data['latest_pass']['rows'][0]['reason'] == reason)
                 self.assertEqual(app.selected, key)
@@ -1900,7 +1986,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(markdown.source, description['text'])
                 self.assertEqual([node.label.plain for node in tree.root.children], ['Running · 1'])
             self.state['latest_pass']['rows'] = []
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
@@ -2005,9 +2091,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     {'item': 50, 'agent': 'worker', 'state': 'blocked'}] + [
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
-                                 len(app.groups['Eligible'].children) == 49 and
+                                 len(app.groups['Eligible'].children) == 10 and
                                  tree.virtual_size.height > tree.size.height)
                 tree.get_node_at_line(0)
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
@@ -2022,7 +2108,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.state['latest_pass'] = {'state': 'complete', 'rows': []}
                 self.state['outcomes'] = []
                 app.select('outcome:previous-run')  # Retain only a right-pane outcome, not live work.
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not recent.rows)
                 self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
                 self.assertEqual(recent.region.y, boundary)
@@ -2040,7 +2126,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 12, 'run': 'pr-merged', 'agent': 'integrator', 'time': stamp,
              'result': 'merged', 'completed': True, 'target': 12, 'summary': 'squash-merged'},
         ]
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(160, 40)) as pilot:
@@ -2093,7 +2179,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['outcomes'][0]['target'] = self.state['outcomes'][0].pop('handoff')
             self.state['outcomes'][1].update(kind='issue', title='Snapshot issue')
             self.state['outcomes'][1].pop('summary')
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: 'Summary' not in recent.render().plain)
             lines = recent.render().plain.splitlines()
             self.assertTrue(lines[1].startswith('✓ #12 Snapshot issue'))
@@ -2106,7 +2192,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_recent_blank_rows_are_inert_and_only_whole_items_fit(self):
         self.state['outcomes'] = [dict(self.state['outcomes'][0], run=f'past-{n}') for n in range(8)]
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(140, 44)) as pilot:
             recent = app.query_one(RecentActivity)
@@ -2153,7 +2239,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
         self.state['outcomes'] = [dict(self.state['outcomes'][0], run=f'past-{n}', title=f'Outcome {n}',
                                       time=old, summary=f'Summary {n}') for n in range(20)]
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             recent = app.query_one(RecentActivity)
@@ -2176,7 +2262,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('enter', '2')
             selected, focus = app.selected, app.focused
             self.state['outcomes'] = self.state['outcomes'][1:] + [dict(self.state['outcomes'][-1], run='newest')]
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: recent.rows[0].key == 'outcome:newest')
             self.assertNotIn(selected, [row.key for row in recent.visible_rows])
             self.assertEqual(app.selected, selected)
@@ -2185,7 +2271,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                              app.query_one('#item_header', Static).render().plain)
             # Once it also leaves the cache, it remains only in the right pane.
             self.state['outcomes'] = [dict(self.state['outcomes'][-1], run=f'new-{n}') for n in range(20)]
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[selected].state == 'earlier observation')
             self.assertEqual(len(recent.rows), 20)
             self.assertNotIn(selected, [row.key for row in recent.rows])
@@ -2224,7 +2310,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': 12, 'agent': 'reviewer', 'state': 'ready'},
             {'item': 22, 'agent': 'worker', 'state': 'ready'},
         ]}
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(140, 44)) as pilot:
             await self.ready(app, pilot)
@@ -2330,7 +2416,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         eligible = [{'item': 22, 'agent': 'worker', 'state': 'ready'}]
         attention = [{'item': 20, 'agent': 'worker', 'state': 'blocked'}]
         self.state['latest_pass'] = {'state': 'complete', 'rows': eligible}
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(140, 44)) as pilot:
             await self.ready(app, pilot, lambda: 'plan:22' in app.nodes)
@@ -2343,7 +2429,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 for displayed in (False, True, False):
                     self.state['latest_pass']['rows'] = attention + eligible if displayed else eligible
-                    self.path.write_text(json.dumps(self.state))
+                    publish_snapshot(self.path, self.state)
                     await self.ready(app, pilot, lambda: ('Needs attention' in app.groups) == displayed)
                     tree.get_node_at_line(0)
                     names = ['Running', 'Needs attention', 'Eligible'] if displayed else ['Running', 'Eligible']
@@ -2370,13 +2456,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 # With both optional sections hidden, only Running and its idle line remain.
                 app.select('outcome:previous-run')
                 self.state['latest_pass']['rows'] = []
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
                 tree.get_node_at_line(0)
                 self.assertEqual(tree.virtual_size.height, 2)
                 self.assertEqual(tree._spacer_lines, set())
                 self.state['latest_pass']['rows'] = eligible
-                self.path.write_text(json.dumps(self.state))
+                publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups)
                 app.select('plan:22')
                 tree.move_cursor(app.nodes['plan:22'])
@@ -2394,7 +2480,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
              'failures': 3, 'max_attempts': 3},
             {'item': 22, 'agent': 'worker', 'kind': 'pr', 'title': 'Eligible work', 'state': 'ready'},
         ])
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -2402,6 +2488,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree = app.query_one('#work', Tree)
             tree.get_node_at_line(0)
             self.assertEqual(tree.virtual_size.height, 17)  # Three headings, five items, four gaps.
+            # Building the rows queues scrollbar layout; wait for that refresh
+            # before checking geometry, including under the parallel suite.
+            await self.settled(app, tree)
             self.assertFalse(tree.show_horizontal_scrollbar)
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
@@ -2458,7 +2547,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_assignment_spinner_and_timer_refresh_without_rebuilding_or_moving_rows(self):
         self.state['latest_pass']['rows'].extend(
             {'item': item, 'agent': 'worker', 'state': 'ready'} for item in range(20, 40))
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
@@ -2487,7 +2576,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             nodes = tuple(app.nodes.items())
             lines = tree._tree_lines_cached
             position = (app.selected, tree.cursor_node, tree.scroll_offset, app.focused, tree.virtual_size)
-            self.assertEqual(tree.virtual_size.height, 67)  # Two headings, 22 items, 21 gaps.
+            self.assertEqual(tree.virtual_size.height, 34)  # Two headings, 11 items, ten gaps.
             def displayed(key=own, detail=False):
                 line = app.nodes[key]._line + int(detail) - tree.scroll_offset.y
                 strips = app.screen._compositor.render_strips()
@@ -2541,7 +2630,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['outcomes'][0]['time'] = now.isoformat()
         self.state['outcomes'].insert(0, dict(self.state['outcomes'][0], run='older-run',
                                            time=(now - timedelta(days=2)).isoformat()))
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         previous = self.root / '.ub-agents' / 'runs' / 'previous-run'
         previous.mkdir()
         log = previous / 'process.log'
@@ -2590,7 +2679,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['latest_pass']['rows'].append({
             'item': 15, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched',
             'description': {'available': True, 'text': 'Cached description'}})
-        self.path.write_text(json.dumps(self.state))
+        publish_snapshot(self.path, self.state)
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -2640,7 +2729,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             # A shortened snapshot is available, including an empty body.
             self.state['latest_pass']['rows'][0]['description'] = {
                 'available': True, 'text': '', 'omitted_characters': 1000}
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.local_description.source == 'snapshot')
             await pilot.press('2', 'g')
             self.assertIn('Description shortened in snapshot', app.last_context)
@@ -2893,11 +2982,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('f')
             page = app.reading.page
             self.state['latest_pass']['state'] = '[/red]'
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.session.data.get('latest_pass', {}).get('state') == '[/red]')
             self.assertIn('[/red]', app.query_one('#work_pane').border_title)
             self.state['assignment'] = None
-            self.path.write_text(json.dumps(self.state))
+            publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')
             self.assertIn('earlier observation', app.last_context)
             self.path.write_text('{broken')

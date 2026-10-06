@@ -165,6 +165,7 @@ class Observations:
         self.pass_histories = {}
         self.pass_omitted = 0
         self.kept_keys = set()
+        self._batching = False
         self.emit()
 
     @staticmethod
@@ -196,6 +197,8 @@ class Observations:
         return result
 
     def emit(self):
+        if self._batching:
+            return
         shortened = {"fields": 0, "characters": 0}
         histories = {}
         for key, history in self.state["histories"].items():
@@ -331,12 +334,40 @@ class Observations:
         self.state["update"] = banner
         self.emit()
 
-    def begin_pass(self):
+    def observation_pass(self, started, events):
+        """Publish only a completed worker pass, preserving live run updates."""
+        activity = self.state["activity"]
+        assignment = self.state["assignment"]
+        key = str(assignment["item"]) if assignment else None
+        history = self.state["histories"].get(key)
+        notice = self.state["action_needed"].get(key)
+        run = self.source_run or (assignment or {}).get("run")
+        outcomes = {row["run"]: dict(row) for row in self.state["outcomes"] if row["run"] == run}
+        self._batching = True
+        try:
+            self.begin_pass(started)
+            for method, args in events:
+                getattr(self, method)(*args)
+            self.complete_pass()
+            if history is not None:
+                self.state["histories"][key] = history
+            # Reads may predate a report or its completed label transition. The
+            # current run's records and notices remain authoritative for it.
+            if notice is not None:
+                self.state["action_needed"][key] = notice
+            self.state["outcomes"] = [outcomes.get(row["run"], row) for row in self.state["outcomes"]]
+        finally:
+            self.state["activity"] = activity
+            self._batching = False
+        self.emit()
+
+    def begin_pass(self, started=None):
         # Keep rows and histories until replanned, reconciled by discovery or finished.
         # Track its plans separately to apply the new order only on completion.
         self.previous_histories = dict(self.state["histories"])
         rows = self.state["latest_pass"]["rows"] if self.state["latest_pass"] else []
-        self.state["latest_pass"] = {"started_at": iso(self.clock()), "state": "partial", "rows": list(rows)}
+        self.state["latest_pass"] = {"started_at": iso(self.clock() if started is None else started),
+                                     "state": "partial", "rows": list(rows)}
         self.pass_rows = {}
         self.pass_histories = {}
         self.pass_omitted = 0
@@ -436,6 +467,7 @@ class Observations:
             notice = None
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
+               "priority": plan.priority.rsplit(":", 1)[-1] if plan.priority else None,
                "runtime": plan.runtime.name if plan.runtime else None,
                "failures": plan.attempt - 1, "max_attempts": plan.agent.max_attempts,
                "observed_at": iso(self.clock()), "description": (
@@ -496,6 +528,7 @@ class Observations:
         self.state["assignment"] = {
             "item": plan.item.number, "kind": plan.item.kind, "agent": plan.agent.name,
             "title": plan.item.title[:MAX_TEXT], "attempt": plan.attempt,
+            "priority": plan.priority.rsplit(":", 1)[-1] if plan.priority else None,
             "run": None, "runtime": None, "lease_state": None, "lease_expires": None,
             "process": "claiming", "process_reason": "No process has been recorded",
             "process_log": None, "context_path": None,

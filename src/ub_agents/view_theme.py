@@ -23,6 +23,9 @@ VIEW_THEME = Theme(
         'view-success': '#7ee2a0',
         'view-error': '#ff8b7f',
         'view-warning': '#ff8b7f',
+        'view-priority-urgent': '#e0524a',
+        'view-priority-high': '#c98a86',
+        'view-priority-low': '#86a891',
     },
 )
 
@@ -46,6 +49,9 @@ def variable_defaults(theme):
         'view-success': colors['text-success'],
         'view-error': colors['text-error'],
         'view-warning': colors['text-warning'],
+        'view-priority-urgent': colors['text-error'],
+        'view-priority-high': Color.parse(colors['text-error']).blend(foreground, 0.4).hex,
+        'view-priority-low': Color.parse(colors['text-success']).blend(foreground, 0.4).hex,
     }
 
 
