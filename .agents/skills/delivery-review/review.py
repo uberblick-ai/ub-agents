@@ -75,25 +75,16 @@ def runs_of(records):
 
 
 def board_posts(repo, boards):
-    owner, name = repo.split("/")
-    query = ("query($o:String!,$n:String!,$d:Int!,$a:String){repository(owner:$o,name:$n){discussion(number:$d)"
-             "{comments(first:100,after:$a){pageInfo{hasNextPage endCursor}nodes{url createdAt authorAssociation body}}}}}")
     posts, errors = [], []
     for agent, number in boards.items():
-        after = []
-        while True:
-            try:
-                data = gh("graphql", f"-fquery={query}", f"-fo={owner}", f"-fn={name}", f"-Fd={number}", *after)
-            except RuntimeError as exc:
-                errors.append(f"{agent} board #{number}: {str(exc)[:160]}")
-                break
-            comments = data["data"]["repository"]["discussion"]["comments"]
-            posts += [{"agent": agent, "url": c["url"], "created": c["createdAt"], "body": public(c["body"], 1200),
-                       "items": {int(n) for n in re.findall(r"(?:#|/(?:issues|pull)/)(\d+)", c["body"])}}
-                      for c in comments["nodes"] if c["authorAssociation"] in TRUSTED]
-            if not comments["pageInfo"]["hasNextPage"]:
-                break
-            after = [f'-fa={comments["pageInfo"]["endCursor"]}']
+        try:
+            comments = list(pages(f"repos/{repo}/discussions/{number}/comments"))
+        except RuntimeError as exc:
+            errors.append(f"{agent} board #{number}: {str(exc)[:160]}")
+            continue
+        posts += [{"agent": agent, "url": c["html_url"], "created": c["created_at"], "body": public(c["body"], 1200),
+                   "items": {int(n) for n in re.findall(r"(?:#|/(?:issues|pull)/)(\d+)", c["body"])}}
+                  for c in comments if c["author_association"] in TRUSTED and not c.get("parent_id")]
     return posts, errors
 
 

@@ -18,9 +18,7 @@ decision. This review shows how close one day came. It only reads GitHub.
    python3 .agents/skills/delivery-review/review.py collect --repo OWNER/NAME > DIR/data.json
    ```
 
-   The window is the last 24 hours; `--since` and `--until` change it. Reading
-   the retrospective boards needs GitHub GraphQL; if it fails, the report says
-   the boards were not read.
+   The window is the last 24 hours; `--since` and `--until` change it.
 
 2. For each delivery with extra runs or a `no report` run, name the cause in one
    sentence from its run summaries and denied commands. Group causes by
