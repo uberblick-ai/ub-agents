@@ -159,7 +159,8 @@ class Coordinator:
             outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == agent.name]
             summary = lease_summary(history, latest[-1]) if latest else (outcomes[-1]["summary"] if outcomes else "")
             state, reason = "parked", start.stop_reason + (f": {summary}" if summary else "")
-        elif finished and finished[-1].get("result") == "blocked":
+        elif (finished and finished[-1].get("result") == "blocked"
+              and not self.head_moved_since_block(item, history, finished[-1])):
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
                                         f"inspect outcome and use ub-agents retry {item.number} "
                                         f"--agent {agent.name} --reason TEXT")
@@ -185,6 +186,17 @@ class Coordinator:
             if untrusted := self.trust.reason(self.actor):
                 state, reason, runtime = "blocked", untrusted, None
         return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches)
+
+    @staticmethod
+    def head_moved_since_block(item, history, lease):
+        if item.kind != "pr":
+            return False
+        # Recovery settles the source run's outcome without copying it to its lease.
+        source = lease_by_id(history, lease.get("recovered_lease_id", lease["id"])) or lease
+        blocked_sha = next((r["candidate_sha"] for r in history
+                            if r["kind"] == "outcome" and r["lease_id"] == source["id"]
+                            and same_run(r, source)), lease["assignment_sha"])
+        return item.head != blocked_sha
 
     def choose_runtime(self, item, agent, history):
         if agent.command:
