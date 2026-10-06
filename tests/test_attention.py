@@ -112,6 +112,14 @@ class AttentionTests(unittest.TestCase):
         self.assertEqual(row.data['attention_reason'], fallback)
         self.assertNotIn('Execution exited', row.reason)
 
+    def test_options_notice_uses_the_reason_without_choices_or_resume_text(self):
+        notice = self.notice()
+        notice['body'] = action_body(ACTION_MARKER + 'r -->', ['Owner: authorize the change.'],
+            'CI is red. Full diagnostics.', options=['Maintainer: run CI.', 'Maintainer: merge a fix.'],
+            reason='CI is red. Full diagnostics.', resume='Then resume worker:\n\n```sh\nub-agents retry 1\n```')
+        row, _ = self.row(comments=[notice], authors={'other': True})
+        self.assertEqual(row.data['attention_reason'], 'CI is red.')
+
     def test_blocked_and_exhausted_fall_back_to_latest_finished_run(self):
         history = (self.finished(), self.finished(id=3, run='new', expires=iso(1500), agent='integrator'),
                    self.finished(id=4, run='active', state='running', expires=iso(5000)))

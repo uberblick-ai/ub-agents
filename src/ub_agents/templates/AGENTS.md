@@ -33,7 +33,8 @@ Run the checks relevant to the assigned change and record the results.
   require at least one `--action "ACTION"` or `--option "OPTION"`. Repeat actions
   for independent asks that are all needed; repeat options for alternatives, with
   the recommendation first. Each value is one non-empty line of at most 300
-  characters (8000 total across both). Name who can act, the step and any essential consequence;
+  characters (8000 total across both). Name who can act, the step and any essential
+  consequence;
   keep supporting reasoning and evidence in the summary.
 - Start implementation PR bodies with `Closes #N`, replacing N with the assigned
   issue number.

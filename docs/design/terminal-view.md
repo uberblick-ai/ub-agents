@@ -272,7 +272,8 @@ view comes later; for now the tab is read-only.
 The body is the latest `<!-- ub-agents:action-needed RUN -->` comment on the item,
 rendered as Markdown like the Issue tab, without its marker and Action needed
 title. New notices keep Claim/Outcome links with the folded evidence; earlier
-formats omit their standalone links line. The header gives the agent, the state and how long it has waited. For an
+formats omit their standalone links line. The header gives the agent, the state
+and how long it has waited. For an
 item whose trusted notice the launcher already observed, the text comes from the
 snapshot; `g` loads a missing comment from GitHub. Its `waiting … · since HH:MM`
 uses the same published start time and minute/hour/day format as the Work row,

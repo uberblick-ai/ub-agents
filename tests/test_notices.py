@@ -405,6 +405,24 @@ class NoticeTests(unittest.TestCase):
         self.assertTrue(reason.endswith('…'))
         self.assertNotIn('\n', reason)
 
+    def test_preexisting_prose_and_v013_folded_notices_keep_the_posted_body(self):
+        for old_body in (
+                'Local CI is red on 0afe8c4: one test reads the launcher environment. '
+                'Maintainer: run CI outside supervision or merge a test fix.\n\n'
+                '```sh\nub-agents retry 2 --agent worker\n```\n',
+                '**Maintainer: resolve the blocker.**\n\n'
+                '<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n'
+                'CI is red.\n\n```sh\nub-agents retry 2 --agent worker\n```\n\n</details>\n'):
+            with self.subTest(old_body=old_body):
+                self.setUp()
+                lease = self.start(2)
+                outcome = self.co.report(lease, 'blocked', 'CI is red.', action='Maintainer: resolve the blocker.')
+                old = f"{ACTION_MARKER}{lease['run']} -->\n**Action needed**\n\n{old_body}"
+                posted = self.github.create_comment(2, old)
+                self.co.release(lease, 'blocked', outcome['summary'])
+                self.assertEqual(self.notices(2), [posted])
+                self.assertEqual(self.notices(2)[0]['body'], old)
+
     def test_legacy_record_preserves_summary_without_inventing_decisions(self):
         lease = self.start()
         self.co.update(lease, action_required=None)

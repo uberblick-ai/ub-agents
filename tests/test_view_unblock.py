@@ -33,6 +33,10 @@ OLD_FOLDED_NOTICE = (ACTION_MARKER + 'old -->\n**Action needed**\n\n'
                      '**Maintainer: resolve the blocker.**\n\n'
                      '<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n'
                      'CI is red.\n\n```sh\nub-agents retry 178\n```\n\n</details>\n')
+OLD_PROSE_NOTICE = (ACTION_MARKER + '261 -->\n**Action needed**\n\n'
+                    'Local CI is red on 0afe8c4: one test reads the launcher environment. '
+                    'Maintainer: run CI outside a supervised session or merge a fix.\n\n'
+                    '```sh\nub-agents retry 261 --agent integrator\n```\n')
 
 
 def comment(body=NOTICE, author='operator', created='2026-10-05T12:12:00Z'):
@@ -83,11 +87,7 @@ class UnblockDataTests(unittest.TestCase):
         lead, details = comment_sections(comment_body(OLD_FOLDED_NOTICE))
         self.assertEqual(lead, '**Maintainer: resolve the blocker.**')
         self.assertEqual(details, 'CI is red.\n\n```sh\nub-agents retry 178\n```')
-        prose = (ACTION_MARKER + '261 -->\n**Action needed**\n\n'
-                 'Local CI is red on 0afe8c4: one test reads the launcher environment. '
-                 'Maintainer: run CI outside a supervised session or merge a fix.\n\n'
-                 '```sh\nub-agents retry 261 --agent integrator\n```\n')
-        visible, supporting = comment_sections(comment_body(prose))
+        visible, supporting = comment_sections(comment_body(OLD_PROSE_NOTICE))
         self.assertIn('Local CI is red on 0afe8c4', visible)
         self.assertIn('run CI outside a supervised session or merge a fix.', visible)
         self.assertIn('ub-agents retry 261 --agent integrator', visible)
@@ -361,13 +361,14 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             tokens = description_parser().parse(lead)
             self.assertEqual([token.content.strip() for token in tokens if token.type == 'fence'],
                              ['mise run ci SHA', 'ub-agents retry 178 --agent worker'])
+            await self.ready(pilot, lambda: len(app.query_one('#unblock_body', Markdown).query('MarkdownFence')) == 2)
             code = [child.content for token in tokens for child in token.children or [] if child.type == 'code_inline']
             self.assertIn('storage', code)
             self.assertIn('UB_AGENTS_READ_CONFIG', code)
             fold = app.query_one('#unblock_details', Collapsible)
             self.assertTrue(fold.collapsed)
             self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, summary)
-            for old in (OLD_FOLDED_NOTICE, NOTICE):
+            for old in (OLD_FOLDED_NOTICE, OLD_PROSE_NOTICE):
                 self.state['action_needed']['178']['text'] = old
                 publish_snapshot(self.path, self.state)
                 await self.ready(pilot, lambda: app.current_action().body == comment_body(old))

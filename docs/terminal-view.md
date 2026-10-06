@@ -137,7 +137,8 @@ shortened with `…`, and a right column:
 Needs attention's second line is `agent · state · reason`, indented and dim.
 Parked state names the stop label(s), joined by `, `; blocked state is `blocked`,
 and an exhausted attempt limit is `failed F/M`. The reason uses the notice or
-parking outcome's actions when available, without Markdown bold or bullet markers.
+parking outcome's asks when available, without Markdown bold or bullet markers.
+Notices with options lead with the summary's first sentence instead of an ask.
 New notices without a recorded action show the concise request to review the blocker
 and decide the next step; approval notices show the required authorization. Full
 reasoning and technical details stay in Unblock's collapsed section. Without a
