@@ -11,6 +11,7 @@ import time
 
 from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from .report_command import launcher_report_command
+from .state import user_state_directory
 
 
 def command_for(agent, runtime, scratch, report_command=None):
@@ -61,32 +62,53 @@ def repository_checks(config, read_git=None):
 
 
 class ScratchDirectory:
-    def __init__(self, run_dir):
-        self.path = run_dir / "scratch"
+    def __init__(self, checkout, repository, run):
+        self.checkout = checkout
+        self.path = user_state_directory() / repository / "runs" / run / "scratch"
+        self.run_created = False
         self.created = False
 
     def prepare(self):
         try:
+            self.path = self.path.parent.parent.resolve() / self.path.parent.name / "scratch"
+            if self.path.resolve().is_relative_to(self.checkout.resolve()):
+                raise AgentError(f"Cannot create run scratch directory {self.path}: path is inside the target checkout")
+            for parent in reversed(self.path.parent.parents):
+                try:
+                    parent.mkdir(mode=0o700)
+                except FileExistsError:
+                    continue
+                parent.chmod(0o700)
+            # Own only this run's directory; never adopt an existing run's files.
+            self.path.parent.mkdir(mode=0o700)
+            self.run_created = True
+            self.path.parent.chmod(0o700)
             self.path.mkdir(mode=0o700)
             self.created = True
             # Set the exact mode even when the launcher's umask is more restrictive.
             self.path.chmod(0o700)
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             raise AgentError(f"Cannot create run scratch directory {self.path}: {exc}") from exc
         return self.path
 
     def cleanup(self):
-        if not self.created:
+        if not self.run_created:
             return
         try:
             if self.path.resolve() != self.path:
                 raise AgentError("Scratch path redirects outside its owned directory; preserve artifacts")
-            shutil.rmtree(self.path)
+            if self.created:
+                try:
+                    shutil.rmtree(self.path)
+                except FileNotFoundError:
+                    pass  # The agent may already have removed its scratch directory.
+            self.path.parent.rmdir()
         except FileNotFoundError:
-            pass  # The agent may already have removed its scratch directory.
+            pass  # The agent may already have removed its per-run directory.
         except (OSError, RuntimeError) as exc:
             raise AgentError(f"Cannot remove run scratch directory {self.path}; preserve artifacts: {exc}") from exc
         self.created = False
+        self.run_created = False
 
 
 class Workspace:

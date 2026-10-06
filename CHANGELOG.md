@@ -31,6 +31,7 @@ configuration only once every launcher runs 0.1.13: older launchers reject the k
 
 - Agents send fixable check failures back to the implementer: the integrator reports `changes-requested` instead of blocked when code or tests can fix a failing check, and implementer and reviewer treat a check that passes only under a changed environment as failing. Existing projects can copy the new wording from the installed role templates (#268).
 - Stop reports require `--action` for each independent ask; human-action notices collapse full reasoning, evidence and resume instructions in GitHub and terminal views (#181, #195).
+- Run scratch and `TMPDIR` now live at `$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`, defaulting to `~/.local/state`, outside the target checkout (#255).
 
 ### Fixed
 
