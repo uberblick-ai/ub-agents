@@ -878,18 +878,8 @@ class Loop:
             if outcome is None:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
-            elif outcome["status"] != "success":
-                self.validate_failure_report(lease, outcome, lease)
-                result, summary = outcome["status"], outcome["summary"]
-                effect = "unchanged" if result == "blocked" else "failure"
             else:
-                try:
-                    self.finalize(lease, plan, outcome, "completion")
-                except ValidationError:
-                    result = "blocked"
-                    raise
-                result, summary = "success", outcome["summary"]
-                effect = "reset"
+                result, summary, effect = self.reported_verdict(lease, plan, outcome, lease, "completion")
         except CleanupError as exc:
             self._observe("process", "unknown", str(exc))
             preserve_scratch = True
@@ -933,26 +923,11 @@ class Loop:
         if usage_output and usage_output.reached and effect != "reset" and not interrupted:
             result, effect = "retry", "unchanged"
             summary = usage_output.summary
-        delay = backoff(plan.agent, lease["attempt"]) if result == "retry" and effect == "failure" else 0
-        if result != "success":
-            # Persist the supervised verdict before a report/release can crash.
-            # It supersedes early agent reports without relinquishing live ownership.
-            self.coordinator.assert_owned(lease)
-            self.coordinator.update(lease, result=result, summary=summary, attempt_effect=effect,
-                                    retry_after=iso(self.coordinator.clock() + delay) if delay else None)
-        # Framework failures are themselves explicit durable outcomes. If GitHub is
-        # unreadable, this fails closed and the last lease expires without a lie.
         if outcome is None:
             # A report can precede a timeout/interruption. Keep that report
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
-        if outcome is None:
-            self.coordinator.update(lease, unreported=True)
-            outcome = self.coordinator.report(lease, result, summary, agent_report=False)
-        if denials and any(outcome.get(key) != value for key, value in denials.items()):
-            self.coordinator.update_outcome(lease, outcome, **denials)
-        self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
-                                 max_attempts=plan.agent.max_attempts)
+        self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials)
         diagnostic("released", result=result, summary=summary)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
@@ -1022,6 +997,36 @@ class Loop:
                 f"{continuation}"
                 "Issue-to-PR handoffs must link the issue in the PR body. "
                 "For candidate acceptance, results and checks must name the assigned SHA.\n")
+
+    def reported_verdict(self, lease, plan, outcome, source, what):
+        """A recorded report's (result, summary, attempt effect); raises ValidationError if rejected."""
+        if outcome["status"] != "success":
+            self.validate_failure_report(lease, outcome, source)
+            return outcome["status"], outcome["summary"], "unchanged" if outcome["status"] == "blocked" else "failure"
+        self.finalize(lease, plan, outcome, what)
+        return "success", outcome["summary"], "reset"
+
+    def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, denials=None,
+               parking_outcome=None):
+        """End a run: persist verdict and backoff, then its report, then release, so a crash loses neither.
+
+        Without an outcome the launcher writes the run's report. The run is unreported
+        unless a recovery parks the source's agent report."""
+        delay = backoff(plan.agent, attempt) if result == "retry" and effect == "failure" else 0
+        if result != "success":
+            # The verdict supersedes early agent reports without relinquishing live ownership.
+            # If GitHub is unreadable, this fails closed and the lease expires without a lie.
+            unreported = {"unreported": True} if outcome is None and parking_outcome is None else {}
+            self.coordinator.assert_owned(lease)
+            self.coordinator.update(lease, result=result, summary=summary, attempt_effect=effect,
+                                    retry_after=iso(self.coordinator.clock() + delay) if delay else None,
+                                    **unreported)
+        if outcome is None:
+            outcome = self.coordinator.report(lease, result, summary, agent_report=False)
+        if denials and any(outcome.get(key) != value for key, value in denials.items()):
+            self.coordinator.update_outcome(lease, outcome, **denials)
+        self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
+                                 parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts)
 
     def finalize(self, lease, plan, outcome, what):
         """Validate a success report, apply its transition and accept it.
@@ -1156,44 +1161,22 @@ class Loop:
         outcome = self.coordinator.outcome(source) if source else None
         if outcome is None:
             raise LostOwnership("Recovered outcome disappeared after claiming")
-        result, summary = outcome["status"], outcome["summary"]
-        effect = "unchanged" if result == "blocked" else "failure"
-        if result != "success":
-            try:
-                self.validate_failure_report(recovery, outcome, source)
-            except ValidationError as exc:
-                result, summary, effect = "blocked", f"Recorded outcome cannot be recovered: {exc}", "failure"
-        if result == "success":
-            # Validate against the originally assigned candidate, not today's head.
-            original = replace(plan, item=replace(plan.item, head=outcome["assignment_sha"]))
-            try:
-                self.finalize(recovery, original, outcome, "recovered completion")
-                effect = "reset"
-            except ValidationError as exc:
-                result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
-                effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
-            except (LostOwnership, CleanupError):
-                raise
-            except Exception as exc:
-                # An unclassified recovery failure must not be retried forever.
-                result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
-                self.coordinator.assert_owned(recovery)
-                self.coordinator.update(recovery, result=result, summary=summary, attempt_effect=effect)
-        recovery_summary = f"Recovered {outcome['run']}:\n\n{summary}"
-        verdict = {"result": result, "attempt_effect": effect, "summary": recovery_summary}
-        # Count the source using this verdict even when its lease is unexpired.
-        # Persist the classification and backoff together before report/release,
-        # just as the execution supervisor does, so a crash loses neither.
-        history = [r | verdict if r["id"] == recovery["id"] else r
-                   for r in self.coordinator.history(plan.item.number)]
-        failures = len(attempts(history, plan.agent.name, self.coordinator.clock()))
-        delay = backoff(plan.agent, max(1, failures)) if result == "retry" else 0
-        self.coordinator.assert_owned(recovery)
-        self.coordinator.update(recovery, **verdict,
-                                retry_after=iso(self.coordinator.clock() + delay) if delay else None)
-        self.coordinator.report(recovery, result, recovery_summary, agent_report=False)
-        self.coordinator.release(recovery, result, recovery_summary, delay,
-                                 attempt_effect=effect, parking_outcome=outcome)
+        # Validate against the originally assigned candidate, not today's head.
+        original = replace(plan, item=replace(plan.item, head=outcome["assignment_sha"]))
+        try:
+            result, summary, effect = self.reported_verdict(recovery, original, outcome, source,
+                                                            "recovered completion")
+        except ValidationError as exc:
+            result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
+            effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
+        except AgentError:
+            raise
+        except Exception as exc:
+            # An unclassified recovery failure must not be retried forever.
+            result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
+        # The source's attempt counts this failure, as an execution lease's does.
+        self.settle(plan, recovery, source["attempt"], result, f"Recovered {outcome['run']}:\n\n{summary}",
+                    effect, parking_outcome=outcome)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 

@@ -232,6 +232,20 @@ class FailureCountTests(unittest.TestCase):
                 self.assertEqual((self.count(), self.plan().state), (count, state))
                 self.assertEqual(recovery['recovered_lease_id'], source['id'])
 
+    def test_recovered_retry_backs_off_like_an_executed_retry(self):
+        self.execute()
+        self.finish_backoff()
+        source = self.start()
+        self.loop.coordinator.report(source, 'retry', 'Reported before crash')
+        self.now += 61
+        self.loop = self.restart()
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+            self.assertTrue(self.loop.tick())
+        recovery = self.loop.coordinator.history(1)[-2]
+        self.assertEqual(recovery['recovered_lease_id'], source['id'])
+        self.assertEqual(seconds(recovery['retry_after']) - self.now, 20)
+        self.assertEqual(self.count(), 2)
+
     def test_classified_failures_retry_but_unsafe_failures_park_and_increment(self):
         cases = [('timeout', RetryableExecutionError('Timeout'), None, 0, 'backoff'),
                  ('launch', RetryableExecutionError('Cannot start'), None, 0, 'backoff'),
