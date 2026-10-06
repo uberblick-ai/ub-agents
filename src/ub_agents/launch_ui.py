@@ -111,6 +111,8 @@ class ViewProcess:
                             self.ready.set()
                         elif message == b'interrupt':
                             os.kill(os.getpid(), signal.SIGINT)
+                        elif message == b'drain':
+                            os.kill(os.getpid(), signal.SIGTERM)
                         elif message == b'poll' and self.poll is not None:
                             self.poll()
                         elif message.startswith(b'error '):

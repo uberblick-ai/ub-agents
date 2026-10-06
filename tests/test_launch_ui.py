@@ -32,6 +32,23 @@ class Tty(io.StringIO):
 
 
 class LaunchSelectionTests(unittest.TestCase):
+    def test_stop_messages_use_the_existing_launcher_signal_handlers(self):
+        for message, sig in (('drain', signal.SIGTERM), ('interrupt', signal.SIGINT)):
+            with self.subTest(message=message):
+                parent, child = socket.socketpair()
+                self.addCleanup(parent.close)
+                connection = LauncherConnection(child.detach())
+                self.addCleanup(connection.channel.close)
+                process = ViewProcess([], Path('.'), 'own', Mock())
+                process.channel = parent
+                process.process = Mock()
+                process.process.wait.return_value = 0
+                getattr(connection, message)()
+                connection.channel.shutdown(socket.SHUT_WR)
+                with patch('ub_agents.launch_ui.os.kill') as kill:
+                    process.monitor()
+                kill.assert_called_once_with(os.getpid(), sig)
+
     def test_poll_message_uses_existing_channel_without_interrupting_launcher(self):
         parent, child = socket.socketpair()
         self.addCleanup(parent.close)
@@ -178,9 +195,10 @@ from ub_agents.errors import AgentError
 from ub_agents.loop import Loop
 root = pathlib.Path(sys.argv[2])
 mode = sys.argv[3]
-github = FakeGitHub(issue(116))
+github = FakeGitHub() if mode == 'q-idle' else FakeGitHub(issue(116))
 cfg = replace(config(root, agent(root, kind='issue', command=(),
-                               runtimes=(Runtime('claude', 'synthetic', 'high'),))), poll_seconds=400)
+                               runtimes=(Runtime('claude', 'synthetic', 'high'),),
+                               outcomes={'done': {'add': ('completed',), 'remove': ('ready',)}})), poll_seconds=400)
 # One real supervised owned agent replays the sanitized captured Claude fixture.
 source = pathlib.Path(sys.argv[1]) / 'tests/fixtures/runtime_logs/claude.log'
 loop = None
@@ -193,6 +211,14 @@ def launch(self, *args, **kwargs):
 def create(*args, **kwargs):
     global loop
     loop = Loop(*args, **kwargs)
+    original_release = loop.coordinator.release
+    def release(*args, **kwargs):
+        if mode in {'q', 'interrupt-q'}:
+            (root / 'releasing').touch()
+            while not (root / 'release').exists():
+                time.sleep(0.03)
+        return original_release(*args, **kwargs)
+    loop.coordinator.release = release
     return loop
 def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
     script = """import pathlib, sys, time
@@ -214,7 +240,8 @@ with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop
      patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
      patch('ub_agents.loop.supervise', side_effect=run):
     result = main(['--config', str(root / 'ub-agents.yaml'), 'launch', *sys.argv[4:]])
-(root / 'result.json').write_text(json.dumps({'exit': result, 'history': loop.coordinator.history(116)}))
+(root / 'result.json').write_text(json.dumps({'exit': result, 'history': loop.coordinator.history(116),
+    'labels': sorted(github.items[116].labels) if 116 in github.items else []}))
 sys.exit(result)
 '''
 
@@ -234,8 +261,28 @@ def wait_for_observation_worker(root, timeout=5):
 
 class LaunchTerminalTests(unittest.TestCase):
     # Each launch form is its own test so a parallel run spreads them over cores.
-    def test_q_stops_the_launch(self):
+    def test_q_drains_the_active_run_through_report_and_cleanup(self):
         self.check_launch_form('q')
+
+    def test_q_while_idle_exits_zero_promptly(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as state:
+            root = Path(directory)
+            shim = root / 'claude'
+            shim.write_text('#!/bin/sh\nexit 0\n')
+            shim.chmod(0o700)
+            env = {'XDG_STATE_HOME': state, 'NO_COLOR': None,
+                   'PATH': str(root) + os.pathsep + os.environ['PATH']}
+            repository = Path(__file__).resolve().parents[1]
+            with Terminal(HARNESS, repository, root, 'q-idle', env=env) as terminal:
+                terminal.expect(b'Idle', timeout=8)
+                terminal.send(b'q')
+                terminal.expect(b'Shutting down the launcher', b'No run in progress.')
+                terminal.wait_exit(0, timeout=3)
+                result = json.loads((root / 'result.json').read_text())
+                self.assertEqual(result, {'exit': 0, 'history': [], 'labels': []})
+                self.assertNotIn(b'Stopped; supervised execution terminated', terminal.transcript)
+                self.assertNotIn(b'Terminal view closed:', terminal.transcript)
+                wait_for_observation_worker(root)
 
     def test_view_crash_keeps_launch_running(self):
         self.check_launch_form('crash', '--once')
@@ -248,6 +295,9 @@ class LaunchTerminalTests(unittest.TestCase):
 
     def test_interrupt_during_drain_stops_the_launch(self):
         self.check_launch_form('interrupt-drain')
+
+    def test_ctrl_c_on_q_shutdown_interrupts_the_active_run(self):
+        self.check_launch_form('interrupt-q')
 
     def test_once_exits_and_restart_attaches_to_its_own_session(self):
         self.check_launch_form('once', '--once')
@@ -318,22 +368,41 @@ class LaunchTerminalTests(unittest.TestCase):
                     terminal.resize(59, 15)
                     terminal.wait_for(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
                     terminal.send(b'q')
-                    terminal.wait_for(lambda: b'\x1b[?1049l' in transcript)
+                    terminal.expect(b'Shutting down the launcher', b'Waiting for #116 (worker,',
+                                    b'No new work will be claimed. Press Ctrl-C to stop now.')
+                    self.assertIsNone(process.poll())
+                    self.assertNotIn(b'\x1b[?1049l', transcript)
+                    self.assertNotEqual(termios.tcgetattr(terminal.slave), terminal.modes)
+                    os.kill(agent_pid, 0)
+                    snapshot = json.loads(paths[0].read_text())
+                    self.assertFalse(snapshot['ended'])
+                    self.assertEqual(snapshot['assignment']['run'], assignment['run'])
+                    terminal.send(b'q')
+                    (root / 'finish').touch()
                 elif mode == 'crash':
                     os.kill(view_pid, signal.SIGKILL)
                     terminal.wait_for(lambda: b'Terminal view closed:' in transcript)
                     self.assertIsNone(process.poll())
                     terminal.assert_restored()
                     (root / 'finish').touch()
-                elif mode in {'interrupt', 'interrupt-drain'}:
+                elif mode in {'interrupt', 'interrupt-drain', 'interrupt-q'}:
                     if mode == 'interrupt-drain':
                         os.kill(process.pid, signal.SIGTERM)
                         terminal.wait_for(lambda: b'Stopping after this run (SIGTERM)' in transcript)
                         self.assertIsNone(process.poll())
+                    elif mode == 'interrupt-q':
+                        terminal.send(b'?')
+                        terminal.expect(b'Keys')
+                        terminal.send(b'q')
+                        terminal.expect(b'Shutting down the launcher')
+                        self.assertIsNone(process.poll())
+                        self.assertNotIn(b'\x1b[?1049l', transcript)
+                        os.kill(agent_pid, 0)
                     else:
                         terminal.resize(59, 15)
                         terminal.wait_for(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
                     terminal.send(b'\x03')
+                    terminal.expect(b'Stopping the launcher')
                 elif mode == 'hup':
                     os.kill(process.pid, signal.SIGHUP)
                 elif mode == 'drain':
@@ -347,22 +416,41 @@ class LaunchTerminalTests(unittest.TestCase):
                     (root / 'finish').touch()
                 else:
                     (root / 'finish').touch()
-                expected = 130 if mode in {'q', 'interrupt', 'interrupt-drain', 'hup'} else 1 if mode == 'error' else 0
+                if mode in {'q', 'interrupt-q'}:
+                    terminal.wait_for(lambda: (root / 'releasing').exists())
+                    # Report/transition or process termination has finished, but
+                    # the view still owns the terminal until the lease is released.
+                    self.assertIsNone(process.poll())
+                    self.assertNotIn(b'\x1b[?1049l', transcript)
+                    os.kill(view_pid, 0)
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(agent_pid, 0)
+                    terminal.send(b'q' if mode == 'q' else b'q\x03\x03')
+                    (root / 'release').touch()
+                expected = 130 if mode in {'interrupt', 'interrupt-drain', 'interrupt-q', 'hup'} else 1 if mode == 'error' else 0
                 terminal.wait_exit(expected, timeout=8, sequences=mode != 'no-ui')
                 if mode == 'no-ui':
                     self.assertNotIn(b'\x1b[?1049h', transcript)
                 message = (b'Intentional launcher error' if mode == 'error' else
                            b'Stopped; supervised execution terminated' if expected else b'Captured replay finished')
                 self.assertIn(message, transcript)
-                if mode in {'q', 'interrupt', 'interrupt-drain'}:
+                if mode in {'q', 'interrupt', 'interrupt-drain', 'interrupt-q'}:
                     self.assertEqual(transcript.count(message), 1)
                     self.assertNotIn(b'Terminal view closed:', transcript)
                 elif mode == 'crash':
                     self.assertEqual(transcript.count(b'Terminal view closed:'), 1)
-                history = json.loads((root / 'result.json').read_text())['history']
+                result = json.loads((root / 'result.json').read_text())
+                history = result['history']
                 self.assertEqual(history[0]['state'], 'released')
                 if expected == 130:
                     self.assertEqual(history[0]['attempt_effect'], 'unchanged')
+                elif mode == 'q':
+                    self.assertEqual(history[0]['attempt_effect'], 'reset')
+                    self.assertEqual(history[1]['kind'], 'outcome')
+                    self.assertEqual(history[1]['outcome'], 'done')
+                    self.assertTrue(history[1]['accepted'])
+                    self.assertTrue(history[1]['transition_complete'])
+                    self.assertEqual(result['labels'], ['completed'])
                 for pid in (view_pid, agent_pid):
                     if pid is not None:
                         with self.assertRaises(ProcessLookupError):

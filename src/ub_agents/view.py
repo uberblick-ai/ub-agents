@@ -61,6 +61,9 @@ class LauncherConnection:
     def interrupt(self):
         self.send('interrupt')
 
+    def drain(self):
+        self.send('drain')
+
     def poll(self):
         self.send('poll')
 

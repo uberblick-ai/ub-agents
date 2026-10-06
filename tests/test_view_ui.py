@@ -12,6 +12,7 @@ from xml.etree import ElementTree
 from unittest.mock import Mock, PropertyMock, patch
 
 from rich.console import Console
+from rich.text import Text
 from tests.test_view_data import event, fixture, publish_snapshot
 from tests.test_log_reader import FIXTURE, progress, record, result, tool
 from tests.test_view_github import reply
@@ -29,6 +30,90 @@ from ub_agents.view_theme import theme_style
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_shutdown_replaces_every_surface_keeps_elapsed_time_and_allows_interrupt(self):
+        now = datetime.now(timezone.utc)
+        self.state['histories']['114']['kind'] = 'pr'
+        self.state['histories']['114']['runs'][-1]['time'] = (now - timedelta(seconds=252)).isoformat()
+        self.state['update'] = {'text': 'An update is available'}
+        publish_snapshot(self.path, self.state)
+        launcher = Mock()
+        app = View(self.root, self.path, launcher=launcher)
+        with patch('ub_agents.view_work.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                # The selected item and help overlay must not replace the running item.
+                app.select(next(k for k, row in app.rows.items() if row.item == 12))
+                await pilot.press('?')
+                await pilot.press('q')
+                shutdown = app.query_one('#shutdown', Static)
+                expected = ('Shutting down the launcher\n\n'
+                            'Waiting for ⌥114 (implementer, 04:12) to finish.\n'
+                            'No new work will be claimed. Press Ctrl-C to stop now.')
+                self.assertEqual(shutdown.render().plain, expected)
+                self.assertEqual(len(app.screen_stack), 1)
+                self.assertFalse(app._exit)
+                launcher.drain.assert_called_once_with()
+                launcher.interrupt.assert_not_called()
+                for size in ((110, 32), (60, 16), (59, 15), (160, 45)):
+                    await pilot.resize_terminal(*size)
+                    self.assertEqual(shutdown.region.size, app.size)
+                    self.assertEqual(shutdown.styles.content_align, ('center', 'middle'))
+                    lines = [shutdown.render_line(y).text for y in range(app.size.height)]
+                    visible = [(y, line) for y, line in enumerate(lines) if line.strip()]
+                    self.assertEqual([line.strip() for _, line in visible],
+                                     [line for line in expected.splitlines() if line])
+                    self.assertLessEqual(abs(visible[0][0] - (app.size.height - 4) // 2), 1)
+                    for _, line in visible:
+                        self.assertLessEqual(abs(len(line) - len(line.lstrip())
+                                                 - (app.size.width - Text(line.strip()).cell_len) // 2), 1)
+                    for selector in ('#body', '#status', '#size_warning', '#update'):
+                        self.assertFalse(app.query_one(selector).display, selector)
+                clock.now.return_value = now + timedelta(seconds=3)
+                app.update_status()
+                self.assertIn('04:15', shutdown.render().plain)
+                # Outcome time must not reset the elapsed assignment time during cleanup.
+                self.state['histories']['114']['runs'][-1].update(
+                    acceptance='finalized', time=clock.now.return_value.isoformat())
+                self.state['assignment']['process'] = 'exited'
+                publish_snapshot(self.path, self.state)
+                await self.ready(app, pilot, lambda: app.session.data['assignment']['process'] == 'exited')
+                self.assertIn('04:15', shutdown.render().plain)
+                await pilot.press('q', '?', 'escape', 'r', '2', 'tab')
+                launcher.drain.assert_called_once_with()
+                launcher.poll.assert_not_called()
+                self.assertEqual(len(app.screen_stack), 1)
+                await pilot.press('ctrl+c')
+                self.assertEqual(shutdown.render().plain, 'Stopping the launcher\n\n'
+                                 'Terminating ⌥114 (implementer) and releasing its claim…')
+                self.assertFalse(app._exit)
+                launcher.interrupt.assert_called_once_with()
+                await pilot.press('q', 'ctrl+c', 'ctrl+c')
+                launcher.drain.assert_called_once_with()
+                launcher.interrupt.assert_called_once_with()
+                app.exit()  # The launcher's lifetime channel closes the actual view.
+        app.worker.thread.join(2)
+
+    async def test_stop_screens_name_issues_recovery_and_idle_assignments(self):
+        for running in (True, False):
+            for key, title in (('q', 'Shutting down the launcher'), ('ctrl+c', 'Stopping the launcher')):
+                with self.subTest(running=running, key=key):
+                    if running:
+                        self.state['assignment']['process'] = 'recovery'
+                    else:
+                        self.state['assignment'] = None
+                    publish_snapshot(self.path, self.state)
+                    app = View(self.root, self.path, launcher=Mock())
+                    async with app.run_test(size=(60, 16)) as pilot:
+                        await self.ready(app, pilot, lambda: app.session is not None)
+                        await pilot.press(key)
+                        message = app.query_one('#shutdown', Static).render().plain
+                        self.assertTrue(message.startswith(title + '\n\n'))
+                        self.assertIn('#114 (implementer' if running else 'No run in progress.', message)
+                        self.assertFalse(app._exit)
+                        app.exit()
+                    app.worker.thread.join(2)
+
     async def test_poll_key_on_every_tab_pane_and_overlay_only_for_attached_launcher(self):
         self.state['latest_pass']['rows'].append(
             {'item': 20, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
@@ -1172,8 +1257,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
                             'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', '?', 'Escape', 'q   ', 'Ctrl-C'):
                     self.assertIn(key, help_text)
-                self.assertIn('q   Quit: interrupt an attached launcher; close a standalone view', help_text)
-                self.assertIn('Ctrl-C   Same as q', help_text)
+                self.assertIn('q   Stop after run; close a standalone view', help_text)
+                self.assertIn('Ctrl-C   Stop now; close a standalone view', help_text)
                 await pilot.press('f', 'h', 'u', 'g', 'p', '2', 'pageup', 'pagedown', 'home', 'end')
                 self.assertIsInstance(app.screen, KeyHelp)
                 await pilot.press(close)
@@ -3165,10 +3250,19 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await pilot.press('?')
                         self.assertIsInstance(app.screen, KeyHelp)
                         await pilot.press(key)
+                        if attached:
+                            self.assertFalse(app._exit)
+                            self.assertFalse(transport.closed)
+                            app.exit()  # Launcher cleanup, rather than the key, closes the view.
                     self.assertTrue(transport.closed)
                     self.assertIsNone(app.descriptions.pending)
                     if attached:
-                        launcher.interrupt.assert_called_once_with()
+                        if key == 'q':
+                            launcher.drain.assert_called_once_with()
+                            launcher.interrupt.assert_not_called()
+                        else:
+                            launcher.interrupt.assert_called_once_with()
+                            launcher.drain.assert_not_called()
                         launcher.close.assert_called_once_with()
                     app.worker.thread.join(2)
 
