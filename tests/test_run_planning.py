@@ -140,7 +140,7 @@ class RunPlanningTests(unittest.TestCase):
 
     def test_planning_rate_limit_wait_rejects_poll_but_regular_wait_can_be_forced(self):
         self.loop.enable_poll_now()
-        worker = RunPlanning(self.loop, self.now)
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
         waits = []
 
         def limited_wait(delay):
@@ -157,6 +157,56 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual(waits, [8])
         regular.assert_called_once_with(worker.stop, 22)
         self.assertIsNone(self.memory.snapshots[-1]['poll_now']['rate_limit_until'])
+        self.assertEqual(self.github.writes, [])
+
+    def test_rate_limit_wakeup_delay_does_not_extend_planning_interval(self):
+        self.loop.enable_poll_now()
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+
+        def late_wakeup(delay):
+            self.now += delay + 5
+            return False
+
+        with patch.object(worker.stop, 'wait', side_effect=late_wakeup), \
+                patch.object(self.loop.poll_now, 'wait', return_value=True) as regular:
+            self.assertTrue(worker._wait(30, 1008))
+        regular.assert_called_once_with(worker.stop, 17)
+
+    def test_forced_planning_refresh_resets_regular_schedule_and_drops_inflight_press(self):
+        self.loop.enable_poll_now()
+        self.loop.poll_now.clock = lambda: self.now
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+        wait = self.loop.poll_now.wait
+        event = threading.Event
+        starts, delays = [], []
+        plans = worker.planner.iter_plans
+
+        def refresh():
+            starts.append(self.now)
+            self.loop.request_poll()  # A pass already in progress is not queued again.
+            yield from plans()
+
+        def waiting(stop, delay):
+            delays.append(delay)
+            if len(delays) == 3:
+                return True
+            wake = event()
+
+            def wakeup(_):
+                self.now += 2 if len(delays) == 1 else delay
+                if len(delays) == 1:
+                    self.loop.request_poll()
+                return wake.is_set()
+
+            with patch('ub_agents.poll_now.threading.Event', return_value=wake), \
+                    patch.object(wake, 'wait', side_effect=wakeup):
+                return wait(stop, delay)
+
+        with patch.object(self.loop.poll_now, 'wait', side_effect=waiting), \
+                patch.object(worker.planner, 'iter_plans', side_effect=refresh):
+            worker._run()
+        self.assertEqual(starts, [1002, 1032])
+        self.assertEqual(delays, [30, 30, 30])
         self.assertEqual(self.github.writes, [])
 
     def test_transient_observation_failure_does_not_change_successful_run(self):

@@ -84,14 +84,14 @@ class RunPlanning:
         control = self.loop.poll_now
         if control is None:
             return self.stop.wait(delay)
+        deadline = self.clock() + delay
         if rate_until is not None:
             limited_delay = min(delay, max(0, rate_until - self.planner.coordinator.clock()))
             if limited_delay:
                 with control.rate_limit(rate_until):
                     if self.stop.wait(limited_delay):
                         return True
-                delay -= limited_delay
-        return control.wait(self.stop, delay)
+        return control.wait(self.stop, max(0, deadline - self.clock()))
 
     def _run(self):
         elapsed = self.clock() - self.started

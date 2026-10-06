@@ -178,7 +178,8 @@ from ub_agents.loop import Loop
 root = pathlib.Path(sys.argv[2])
 mode = sys.argv[3]
 github = FakeGitHub(issue(116))
-cfg = config(root, agent(root, kind='issue', command=(), runtimes=(Runtime('claude', 'synthetic', 'high'),)))
+cfg = replace(config(root, agent(root, kind='issue', command=(),
+                               runtimes=(Runtime('claude', 'synthetic', 'high'),))), poll_seconds=400)
 # One real supervised owned agent replays the sanitized captured Claude fixture.
 source = pathlib.Path(sys.argv[1]) / 'tests/fixtures/runtime_logs/claude.log'
 loop = None
@@ -280,12 +281,18 @@ class LaunchTerminalTests(unittest.TestCase):
                     self.assertIn(b'--session', table.encode())
                     self.assertIn(first_session, next(line for line in table.splitlines() if line.split()[0] == str(view_pid)))
                 if mode == 'q':
+                    assignment = json.loads(paths[0].read_text())['assignment']
+                    terminal.send(b'r')
+                    terminal.wait_for(lambda: json.loads(paths[0].read_text())['latest_pass']['state'] == 'complete')
+                    self.assertEqual(json.loads(paths[0].read_text())['assignment'], assignment)
+                    self.assertIsNone(process.poll())
+                    os.kill(agent_pid, 0)
                     terminal.send(b'f')
                     terminal.expect(b'PAUSED')
                     terminal.send(b'\x1b[5~hu')
                     terminal.expect(b'RAW')
                     terminal.resize(100, 25)
-                    terminal.expect('↑↓ select ⏎ open ? keys q quit'.encode())
+                    terminal.expect('↑↓ select ⏎ open r poll now ? keys q quit'.encode())
                     self.assertNotIn(b'minimum 110', transcript)
                     terminal.resize(110, 32)
                     terminal.expect(lambda out: b'PgUp/PgDn scroll' in out or b'1-3 tabs' in out)
