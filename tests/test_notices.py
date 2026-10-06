@@ -12,7 +12,7 @@ from ub_agents.cli import main
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
-from ub_agents.notices import ACTION_MARKER
+from ub_agents.notices import ACTION_MARKER, action_body, notice_reason
 from ub_agents.records import attempts, body, iso, payload, records, seconds
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
@@ -358,11 +358,52 @@ class NoticeTests(unittest.TestCase):
         visible, details = comment.split('<details>', 1)
         self.assertIn('\n'.join(f'- **{ask}**' for ask in asks), visible)
         self.assertIn(summary.strip(), details)
-        for evidence in ('Candidate:', 'Review decision:', 'CI for this SHA:', lease['url'],
-                         outcome['url'], 'ub-agents retry', 'same role (`worker`)', 'different role'):
+        for evidence in ('Candidate:', 'Review decision:', 'CI for this SHA:', lease['url'], outcome['url']):
             self.assertNotIn(evidence, visible)
             self.assertIn(evidence, details)
+        for resume in ('Then resume worker:', 'ub-agents retry', 'same role (`worker`)', 'different role'):
+            self.assertIn(resume, visible)
+            self.assertNotIn(resume, details)
         self.assertNotIn('<details open', comment)
+
+    def test_options_notice_orders_reason_asks_choices_resume_and_folded_evidence(self):
+        lease = self.start(2)
+        summary = 'Local CI is red on `abcdef`. One test reads the launcher environment.\n\nFull diagnostics.'
+        options = ['Maintainer: run CI outside a supervised session: `mise run ci abcdef`',
+                   'Maintainer: merge a fix that clears `UB_AGENTS_READ_CONFIG`.']
+        ask = 'Owner: authorize the *storage* change & review [the PR].'
+        outcome = self.co.report(lease, 'blocked', summary, action=ask, option=options)
+        self.co.release(lease, 'blocked', summary)
+        notice = self.notices(2)[0]['body']
+        visible, details = notice.split('<details>', 1)
+        ordered = ['**Action needed**', 'Local CI is red on `abcdef`.',
+                   '**Owner: authorize the \\*storage\\* change \\& review \\[the PR\\].**',
+                   'To unblock, do one of:',
+                   '1. Maintainer: run CI outside a supervised session (recommended)',
+                   '   ```sh\n   mise run ci abcdef\n   ```',
+                   '2. Maintainer: merge a fix that clears `UB_AGENTS_READ_CONFIG`.',
+                   'Then resume worker:', '```sh\nub-agents retry 2', 'Restore a matching trigger']
+        positions = [visible.index(text) for text in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(notice.count('(recommended)'), 1)
+        self.assertNotIn('One test reads', visible)
+        self.assertIn('<summary>Reasoning and evidence</summary>', details)
+        for evidence in (summary, 'Candidate:', 'Review decision:', 'CI for this SHA:', lease['url'], outcome['url']):
+            self.assertIn(evidence, details)
+        self.assertNotIn('ub-agents retry', details)
+
+    def test_single_backtick_code_survives_and_other_markdown_is_escaped(self):
+        ask = 'Maintainer: run `check --flag` and review **bold** [link](https://x) <b>HTML</b> ~~strike~~ ``double``.'
+        notice = action_body('marker', [ask], 'Evidence')
+        visible = notice.split('<details>', 1)[0]
+        self.assertIn('`check --flag`', visible)
+        for escaped in ('\\*\\*bold\\*\\*', '\\[link\\]\\(https://x\\)', '\\<b\\>', '\\~\\~strike\\~\\~', '\\`\\`double\\`\\`'):
+            self.assertIn(escaped, visible)
+        self.assertEqual(notice_reason('CI is red.\nEvidence follows.'), 'CI is red.')
+        reason = notice_reason('A long blocker ' * 50)
+        self.assertEqual(len(reason), 300)
+        self.assertTrue(reason.endswith('…'))
+        self.assertNotIn('\n', reason)
 
     def test_legacy_record_preserves_summary_without_inventing_decisions(self):
         lease = self.start()
@@ -376,7 +417,7 @@ class NoticeTests(unittest.TestCase):
         self.assertIn(summary, details)
         self.assertNotIn('action', records(self.github.comments(1))[1])
 
-    def parked_loop(self, handoff=None, action="Maintainer: choose A or B; recommend A."):
+    def parked_loop(self, handoff=None, action="Maintainer: choose A or B; recommend A.", option=None):
         worker = agent(self.root, kind="issue" if handoff else "pr",
                        outcomes={"human": {"add": ("needs-human",), "remove": ()}})
         github = FakeGitHub(issue(), pr(labels=("ready",)))
@@ -385,7 +426,7 @@ class NoticeTests(unittest.TestCase):
         def run(*args, **kwargs):
             number = 1 if handoff else 2
             loop.coordinator.report(loop.coordinator.history(number)[0], "success",
-                                    "Maintainer must merge because docs changed", handoff=handoff, outcome="human", action=action)
+                                    "Maintainer must merge because docs changed", handoff=handoff, outcome="human", action=action, option=option)
             return 0
         with patch("ub_agents.loop.supervise", side_effect=run):
             self.assertTrue(loop.tick())
@@ -439,8 +480,23 @@ class NoticeTests(unittest.TestCase):
         visible, details = notice.split('<details>', 1)
         for ask in asks:
             self.assertIn(f'- **{ask}**', visible)
-        self.assertIn('same role (`worker`)', details)
-        self.assertIn('different role', details)
+        self.assertIn('same role (`worker`)', visible)
+        self.assertIn('different role', visible)
+
+    def test_options_handoff_keeps_choices_and_stop_label_resume_visible(self):
+        options = ['Maintainer: merge after CI: `mise run ci SHA`', 'Maintainer: request a fix.']
+        loop, github = self.parked_loop(handoff=2, action=None, option=options)
+        copied = loop.coordinator.history(2)[0]
+        self.assertEqual(copied['options'], options)
+        self.assertEqual(copied['action'], options[0])
+        notice = next(c['body'] for c in github.comments(2) if c['body'].startswith(ACTION_MARKER))
+        visible, details = notice.split('<details>', 1)
+        for text in ('To unblock, do one of:', '1. Maintainer: merge after CI (recommended)',
+                     '   mise run ci SHA', '2. Maintainer: request a fix.', 'Then resume worker:',
+                     'Remove the stop label(s) `needs-human`', '`ready`', '`needs-changes`'):
+            self.assertIn(text, visible)
+            self.assertNotIn(text, details)
+        self.assertNotIn('ub-agents retry', notice)
 
     def test_stop_notice_reads_propagate_lost_ownership(self):
         loop, github = self.parked_loop(handoff=2)

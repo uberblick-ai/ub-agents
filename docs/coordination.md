@@ -425,23 +425,51 @@ outcome is reported with `--outcome NAME` and has status `success`;
 runner blocks records that bypass reporting validation.
 
 A stop report is `--status blocked`, or a named outcome whose running lease
-declares that it adds a configured stop label. It requires `--action "TEXT"`, repeated
-for each independent action or decision. Each ask is one concise sentence on a
-non-empty line of at most 300 characters (8000 total), understandable on its own:
-name who can act, the step or choices, a recommendation and any essential consequence.
-The first ask remains in the scalar `action`; multiple asks also use a non-empty
-`actions` list whose first value matches `action`. Both are preserved on handoff
-copies. Historical scalar actions remain valid. The summary retains full Markdown
-reasoning and supporting evidence. Missing or invalid actions
-are rejected before any write, while retry and outcomes adding no stop label
-do not require one.
+declares that it adds a configured stop label. It requires at least one
+`--action "TEXT"` or `--option "TEXT"`. Repeat actions for independent asks that
+are all needed. Repeat options for alternative ways to clear one blocker, with
+the recommendation first, instead of "choose A or B" in one ask. Each is one
+non-empty line of at most 300 characters (8000 total across actions and options),
+understandable on its own: name who can act, the step and any essential consequence.
+Single-backtick inline code is preserved; other Markdown in asks and options is
+escaped. An option can end with a colon, a space and a single-backtick command
+to show that command in its own code block:
+
+```sh
+ub-agents report --status blocked --summary "Local CI is red. Full diagnostics follow." \
+  --option 'Maintainer: run CI outside supervision: `mise run ci SHA`' \
+  --option 'Maintainer: merge a fix clearing `UB_AGENTS_READ_CONFIG`.'
+```
+
+With options, the notice and Unblock tab show the summary's first sentence,
+normalized to one line and cut at 300 characters with `…`, followed by any
+independent asks. They then show "To unblock, do one of:" and numbered options,
+with "(recommended)" on the first, then "Then resume AGENT:" with the retry command
+and trigger instructions. Outcomes adding a stop label show the stop-label and
+trigger steps instead of retry. Full summary Markdown, candidate SHA, review,
+CI and links stay in the collapsed "Reasoning and evidence" section. Without
+options, the first action is the reason and asks keep their previous bold layout;
+resume instructions remain visible. The tab still displays v0.1.13's older fold
+and earlier prose notices.
+
+The first ask remains in the scalar `action`; multiple asks, or an ask alongside
+options, also use a non-empty `actions` list whose first value matches `action`.
+The `options` list stores alternatives in recommendation order. An options-only
+report stores its first option in scalar `action` for v0.1.13 launchers, which
+ignore `options` but require an action during completion and recovery. New readers
+treat that scalar as compatibility data, without displaying an extra independent
+ask. All fields are preserved on handoff copies; historical scalar actions remain
+valid. Missing or invalid asks and options are rejected before any write, while
+retry and outcomes adding no stop label do not require one.
 
 New leases include `action_required: true`, so the launcher also rejects an agent
 stop report that bypasses the command's check, during completion or recovery.
 Leases and outcome records written before this requirement remain valid; their
 notices use a concise review request with the full summary collapsed. Launcher-only reports and recovery receipts do
 not require an agent action. Repositories with their own role files or command
-runtimes that file stop reports must add `--action` before upgrading.
+runtimes that file stop reports must supply an action or option. Existing
+v0.1.13 stop-report records remain valid, and the new records remain readable by
+v0.1.13 launchers; adopting options needs the updated report command and guidance.
 
 When the supervised lease's marker names a newer record format, reporting fails
 with a diagnostic directing the agent to `UB_AGENTS_REPORT`, without interpreting

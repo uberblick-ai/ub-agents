@@ -297,11 +297,16 @@ to Log. `4` has no effect for other rows.
 
 The comment body uses Issue's inert Markdown rules and 2,048-character limit,
 with a visible shortening notice. The action-needed marker, `**Action needed**`
-title and Claim/Outcome links line (including the no-outcome variant) are removed
-first. New notices show each ask above a collapsed "Reasoning, evidence and resume
-instructions" control; click its title or focus it and press Enter to expand it.
-The bounded supporting Markdown and SHAs stay intact inside. Legacy notices without
-that fold remain readable. The last dim line names the
+title are removed first. New notices keep Claim/Outcome links with the folded
+evidence; earlier formats omit their standalone links line, including the
+no-outcome variant. New notices show the reason, any independent asks, numbered alternative
+options with the first recommended, and visible "Then resume" steps. Option
+commands render as separate code blocks; single-backtick inline code is preserved.
+Without options the asks keep their previous layout and resume steps stay visible.
+The "Reasoning and evidence" control starts collapsed; click its title or focus it
+and press Enter to expand it. The bounded supporting Markdown and SHAs stay intact
+inside. v0.1.13 notices keep their "Reasoning, evidence and resume instructions"
+fold, and earlier prose notices remain readable. The last dim line names the
 action-needed comment, its local creation time, and `snapshot` or
 `GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
 

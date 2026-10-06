@@ -471,7 +471,7 @@ class View(App):
                 with TabPane('4 Unblock', id='unblock'):
                     with VerticalScroll():
                         yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
-                        with Collapsible(title='Reasoning, evidence and resume instructions',
+                        with Collapsible(title='Reasoning and evidence',
                                          collapsed=True, id='unblock_details'):
                             yield Markdown('', id='unblock_details_body', parser_factory=description_parser, open_links=False)
                         yield Static('', id='unblock_note', markup=False)
@@ -870,6 +870,9 @@ class View(App):
         if lead != markdown.source:
             markdown.update(lead)
         fold = self.query_one('#unblock_details', Collapsible)
+        fold.title = ('Reasoning, evidence and resume instructions'
+                      if '<summary>Reasoning, evidence and resume instructions</summary>' in body
+                      else 'Reasoning and evidence')
         fold.display = bool(supporting)
         details_markdown = self.query_one('#unblock_details_body', Markdown)
         if supporting != details_markdown.source:

@@ -29,6 +29,10 @@ NOTICE = (ACTION_MARKER + 'run -->\n**Action needed**\n\n'
           'Candidate: `abcdef1234567890`.\n\n'
           '[Claim](https://example.test/claim) · [Outcome](https://example.test/outcome)\n\n'
           'After resolving the blocker, run:\n\n```sh\nub-agents retry 178\n```\n')
+OLD_FOLDED_NOTICE = (ACTION_MARKER + 'old -->\n**Action needed**\n\n'
+                     '**Maintainer: resolve the blocker.**\n\n'
+                     '<details>\n<summary>Reasoning, evidence and resume instructions</summary>\n\n'
+                     'CI is red.\n\n```sh\nub-agents retry 178\n```\n\n</details>\n')
 
 
 def comment(body=NOTICE, author='operator', created='2026-10-05T12:12:00Z'):
@@ -74,6 +78,32 @@ class UnblockDataTests(unittest.TestCase):
         tokens = description_parser().parse('[link](https://example.test)\n![image](x)\n<b>HTML</b>')
         self.assertFalse(any(child.type in {'link_open', 'image', 'html_inline'}
                              for token in tokens for child in token.children or []))
+
+    def test_old_folded_and_prose_notices_remain_readable(self):
+        lead, details = comment_sections(comment_body(OLD_FOLDED_NOTICE))
+        self.assertEqual(lead, '**Maintainer: resolve the blocker.**')
+        self.assertEqual(details, 'CI is red.\n\n```sh\nub-agents retry 178\n```')
+        prose = (ACTION_MARKER + '261 -->\n**Action needed**\n\n'
+                 'Local CI is red on 0afe8c4: one test reads the launcher environment. '
+                 'Maintainer: run CI outside a supervised session or merge a fix.\n\n'
+                 '```sh\nub-agents retry 261 --agent integrator\n```\n')
+        visible, supporting = comment_sections(comment_body(prose))
+        self.assertIn('Local CI is red on 0afe8c4', visible)
+        self.assertIn('run CI outside a supervised session or merge a fix.', visible)
+        self.assertIn('ub-agents retry 261 --agent integrator', visible)
+        self.assertEqual(supporting, '')
+        self.assertEqual(comment_sections(comment_body(NOTICE)), (comment_body(NOTICE), ''))
+
+    def test_new_notice_keeps_evidence_links_and_double_digit_option_commands(self):
+        evidence = 'CI diagnostics\n\n[Claim](https://x/claim) · [Outcome](https://x/outcome)'
+        options = ['Maintainer: try another CI runner.'] * 9 + ['Maintainer: run CI: `mise run ci SHA`']
+        body = action_body(ACTION_MARKER + 'new -->', [], evidence, options=options,
+                           reason='CI is red.', resume='Then resume worker:\n\n```sh\nub-agents retry 178\n```')
+        visible, supporting = comment_sections(comment_body(body))
+        self.assertEqual(supporting, evidence)
+        tokens = description_parser().parse(visible)
+        self.assertEqual([token.content.strip() for token in tokens if token.type == 'fence'],
+                         ['mise run ci SHA', 'ub-agents retry 178'])
 
     def test_controls_normalization_shortening_and_unknown_snapshot_author(self):
         notice = self.session.data['action_needed']['178']
@@ -264,8 +294,9 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
     async def test_new_notice_details_start_collapsed_expand_and_reset_for_another_item(self):
         asks = ['Owner: approve Q&A rollout -> staged with ~2h downtime; recommend staged when load < capacity.',
                 'Owner: choose immediate or staged rollout; recommend staged.']
-        supporting = '## Reasoning\n\nStorage evidence\n\n```sh\nub-agents retry 178\n```'
-        self.state['action_needed']['178']['text'] = action_body(ACTION_MARKER + 'new -->', asks, supporting)
+        supporting = '## Reasoning\n\nStorage evidence'
+        resume = 'Then resume worker:\n\n```sh\nub-agents retry 178\n```'
+        self.state['action_needed']['178']['text'] = action_body(ACTION_MARKER + 'new -->', asks, supporting, resume=resume)
         publish_snapshot(self.path, self.state)
         app = self.app
         async with app.run_test(size=(110, 32)) as pilot:
@@ -275,7 +306,9 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             fold = app.query_one('#unblock_details', Collapsible)
             self.assertTrue(fold.collapsed)
             self.assertTrue(fold.display)
+            self.assertEqual(fold.title, 'Reasoning and evidence')
             lead = app.query_one('#unblock_body', Markdown).source
+            self.assertIn(resume, lead)
             for ask in asks:
                 tokens = description_parser().parse(lead)
                 rendered = ''.join(child.content for token in tokens for child in token.children or []
@@ -303,6 +336,48 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(fold.display)
             app.select('plan:178:worker')
             self.assertTrue(fold.collapsed)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_options_and_old_notices_render_in_unblock(self):
+        summary = 'Local CI is red. Full CI diagnostics.'
+        resume = 'Then resume worker:\n\n```sh\nub-agents retry 178 --agent worker\n```\n\nRestore `ready` if absent.'
+        options = ['Maintainer: run CI outside supervision: `mise run ci SHA`',
+                   'Maintainer: merge a fix clearing `UB_AGENTS_READ_CONFIG`.']
+        body = action_body(ACTION_MARKER + 'options -->', ['Owner: approve `storage`.'], summary,
+                           options=options, reason=summary, resume=resume)
+        self.state['action_needed']['178']['text'] = body
+        publish_snapshot(self.path, self.state)
+        app = self.app
+        async with app.run_test(size=(110, 40)) as pilot:
+            await self.ready(pilot, lambda: app.local_description is not None)
+            app.select('plan:178:worker')
+            await pilot.press('4')
+            lead = app.query_one('#unblock_body', Markdown).source
+            self.assertTrue(lead.startswith('Local CI is red.'))
+            for text in ('Owner: approve `storage`.', 'To unblock, do one of:', '(recommended)',
+                         '2. Maintainer:', resume):
+                self.assertIn(text, lead)
+            tokens = description_parser().parse(lead)
+            self.assertEqual([token.content.strip() for token in tokens if token.type == 'fence'],
+                             ['mise run ci SHA', 'ub-agents retry 178 --agent worker'])
+            code = [child.content for token in tokens for child in token.children or [] if child.type == 'code_inline']
+            self.assertIn('storage', code)
+            self.assertIn('UB_AGENTS_READ_CONFIG', code)
+            fold = app.query_one('#unblock_details', Collapsible)
+            self.assertTrue(fold.collapsed)
+            self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, summary)
+            for old in (OLD_FOLDED_NOTICE, NOTICE):
+                self.state['action_needed']['178']['text'] = old
+                publish_snapshot(self.path, self.state)
+                await self.ready(pilot, lambda: app.current_action().body == comment_body(old))
+                expected, details = comment_sections(comment_body(old))
+                self.assertEqual(app.query_one('#unblock_body', Markdown).source, expected)
+                self.assertEqual(fold.display, bool(details))
+                if details:
+                    self.assertTrue(fold.collapsed)
+                    self.assertEqual(fold.title, 'Reasoning, evidence and resume instructions')
+                    self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, details)
             await pilot.press('q')
         app.worker.thread.join(2)
 
