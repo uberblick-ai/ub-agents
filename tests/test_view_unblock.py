@@ -381,7 +381,8 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(self.transport.calls), 2)
             self.state['coordination_authors'] = {}
             self.path.write_text(json.dumps(self.state))
-            await self.ready(pilot, lambda: not app.current_action().available)
+            await self.ready(pilot, lambda: not app.current_action().available and
+                             'not verified' in app.query_one('#unblock_note', Static).render().plain)
             self.assertEqual(app.query_one('#unblock_body', Markdown).source, '')
             self.assertIn('not verified', app.query_one('#unblock_note', Static).render().plain)
             await pilot.press('g', 'q')

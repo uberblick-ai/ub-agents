@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import io
 import unittest
 
 from rich.console import Console
@@ -10,6 +11,26 @@ from ub_agents.view_theme import theme_style
 
 
 class WorkLineTests(unittest.TestCase):
+    def test_priority_words_colors_and_missing_priority(self):
+        expected = {'urgent': '#e0524a', 'high': '#c98a86', 'low': '#86a891'}
+        for priority in ('urgent', 'high', 'medium', 'low', 'custom', None):
+            with self.subTest(priority=priority):
+                row = self.row('Eligible', 'ready', priority=priority)
+                line = work_lines(row, 80)[1]
+                self.assertEqual(line.plain, '  implementer' + (f' · {priority}' if priority else ''))
+                if priority in expected:
+                    console = Console()
+                    self.assertEqual(line.get_style_at_offset(console, len(line.plain) - 1).color,
+                                     theme_style(None, 'view-priority-' + priority).color)
+                    self.assertEqual(line.get_style_at_offset(console, len(line.plain) - 1).color.name,
+                                     expected[priority])
+                stream = io.StringIO()
+                Console(file=stream, force_terminal=True, no_color=True).print(line)
+                self.assertNotIn('38;2', stream.getvalue())
+        plans = ({'agent': 'reviewer', 'failures': 1, 'max_attempts': 3}, {'agent': 'integrator'})
+        row = replace(self.row('Eligible', 'ready', priority='high'), eligible_plans=plans)
+        self.assertEqual(work_lines(row, 80)[1].plain, '  reviewer 1/3 failures, integrator · high')
+
     def row(self, group, state, **data):
         data = {'agent': 'implementer', 'title': 'Compact work rows', 'kind': 'issue', **data}
         return WorkRow('plan:160:implementer', group, 160, data['agent'], state,

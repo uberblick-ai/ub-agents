@@ -6,6 +6,10 @@ notes are copied from that section.
 
 ## Unreleased
 
+### Changed
+
+- Continuous launch keeps planning during assignments; Eligible shows the next ten items in claim order with counts and colored priority words (#248).
+
 ## 0.1.13 — 2026-10-05
 
 **Upgrading:** stop all project launchers and wait for them to exit. While stopped,
