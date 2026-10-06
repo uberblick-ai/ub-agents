@@ -6,13 +6,32 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.14 — 2026-10-06
+
+**Upgrading:** stop all of this repository's launchers and restart them together
+on the new build before adopting `shared-instructions`. Other projects need no
+configuration changes, and loop text in their `AGENTS.md` can be removed after
+upgrading (#306). `--option` needs no coordinated restart, but submitting it
+requires the updated report command and guidance (#288).
+
+### Added
+
+- Projects can share loop policy across roles with optional `shared-instructions`, reloaded before work is claimed (#306).
+- Stop reports accept numbered `--option` alternatives, and action-needed notices show resume instructions above folded reasoning and evidence (#288).
+
 ### Changed
 
+- `init` preserves project guidance files; launchers supply loop rules, and starter roles follow project guidance for changelog entries (#276, #306).
+- Starter integrators return fixable check failures to implementers; starter implementers and reviewers reject checks that pass only after changing the environment (#268).
+- Run scratch and `TMPDIR` now live at `$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`, defaulting to `~/.local/state`, outside the target checkout (#255).
 - Continuous launch keeps planning during assignments; Eligible shows the next ten items in claim order with counts and colored priority words (#248).
 - Recent activity colors success and failure icons and status labels green and red, preserving row dimming and cursor highlighting (#257).
+- Runs tab rows stay on one line with denial counts; successful reports show a spinner until accepted or a failure icon after their lease ends unaccepted (#284).
 
 ### Fixed
 
+- Blocked PR runs become eligible when their head changes after reporting, subject to the existing pickup gates, attempts and backoff (#293).
+- Work sections stay expanded, and mouse clicks and keyboard navigation select only item rows, leaving headers and the idle line unselectable (#303).
 - Completed issues and PRs leave Needs attention after released retry or blocked runs, including selected rows, while unresolved obligations remain visible (#227).
 - Formatted Codex logs keep oversized events readable and show compact notices for incomplete records and page boundaries, preserving Raw access (#259).
 
@@ -30,9 +49,7 @@ configuration only once every launcher runs 0.1.13: older launchers reject the k
 
 ### Changed
 
-- Agents send fixable check failures back to the implementer: the integrator reports `changes-requested` instead of blocked when code or tests can fix a failing check, and implementer and reviewer treat a check that passes only under a changed environment as failing. Existing projects can copy the new wording from the installed role templates (#268).
 - Stop reports require `--action` for each independent ask; human-action notices collapse full reasoning, evidence and resume instructions in GitHub and terminal views (#181, #195).
-- Run scratch and `TMPDIR` now live at `$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`, defaulting to `~/.local/state`, outside the target checkout (#255).
 
 ### Fixed
 
