@@ -1,18 +1,22 @@
 from copy import deepcopy
 from dataclasses import replace
+import json
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import unittest
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
-from ub_agents.config import Priority, Queue
+from ub_agents.config import LEASE_SECONDS, Priority, Queue
 from ub_agents.errors import GitHubError
-from ub_agents.loop import Loop
+from ub_agents.github import GitHub
+from ub_agents.loop import COMMENT_RECOVERY_SECONDS, Loop
 from ub_agents.observations import Observations
-from ub_agents.records import records
+from ub_agents.records import iso, records, seconds
 from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning
-from tests.support import MemoryPublisher, PollGitHub, config, issue, stub_refresh
+from tests.support import DiscoveryCostRunner, MemoryPublisher, PollGitHub, config, issue, pr, stub_refresh
 
 
 class RunPlanningTests(unittest.TestCase):
@@ -72,6 +76,169 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
         self.assertEqual(self.lines, [])
         self.assertIsNot(worker.planner.discovery, self.loop.discovery)
+
+    def test_claimed_worker_first_pass_uses_cursor_discovery_and_etags(self):
+        transport = DiscoveryCostRunner()
+        transport.rows = transport.rows[:3]
+        transport.comments = {n: transport.comments[n] for n in (1, 2, 3)}
+        responses = {}
+
+        def request(command, **kwargs):
+            endpoint = command[command.index('--include') + 1]
+            path = urlsplit(endpoint).path
+            method = command[command.index('--method') + 1]
+            if path == 'repos/org/project/issues/1':
+                transport.calls.append(command)
+                raw = transport.rows[0]
+            elif method == 'POST' and path == 'repos/org/project/issues/1/comments':
+                transport.calls.append(command)
+                raw = {'id': 100, 'body': json.loads(kwargs['input'])['body'],
+                       'user': {'login': 'operator'}, 'created_at': iso(self.now),
+                       'updated_at': iso(self.now),
+                       'issue_url': 'https://api.github.com/repos/org/project/issues/1'}
+                transport.comments[1].append(raw)
+            else:
+                raw = json.loads(transport(command, **kwargs).stdout)
+            query = parse_qs(urlsplit(endpoint).query)
+            if path.endswith('/issues/comments'):
+                raw = [c for c in raw if seconds(c['updated_at']) > seconds(query['since'][0])]
+                raw.sort(key=lambda c: seconds(c['updated_at']))
+            payload = json.dumps(raw)
+            headers, status, code = '', 200, 0
+            if method == 'GET' and path != 'graphql' and 'since' not in query:
+                version, previous = responses.get(endpoint, (0, None))
+                version += payload != previous
+                responses[endpoint] = (version, payload)
+                etag = f'"v{version}"'
+                headers = f'ETag: {etag}\n'
+                if f'If-None-Match: {etag}' in command:
+                    status, code, payload = 304, 1, ''
+            return subprocess.CompletedProcess(command, code, f'HTTP/2.0 {status} Response\n{headers}\n{payload}', '')
+
+        github = GitHub('org/project', request)
+        loop = Loop(self.cfg, github, 'operator', observer=self.observer, output=self.lines.append)
+        loop.coordinator.clock = lambda: self.now
+        with patch('ub_agents.github.timestamp', side_effect=lambda: self.now):
+            plans = list(loop.iter_plans())
+            cursor = github._comment_since
+            self.assertEqual(cursor, iso(self.now - 60))
+            loop._continuous = True
+            loop._pass_started = self.now
+            self.now += 1
+            with patch.object(RunPlanning, 'start'):
+                lease = loop.coordinator.claim(plans[0], self.cfg.stop_labels)
+            self.assertIsNotNone(lease)
+            worker = loop._run_planning
+            self.assertIsNotNone(worker)
+            source_cache = deepcopy(loop.discovery.cache)
+            source_comments = deepcopy(github._comment_cache)
+            source_etags = deepcopy(github._etag_cache)
+            source_counters = (github.rest_requests, github.quota_requests)
+            transport.calls.clear()
+            observed = list(worker.planner.iter_plans())
+
+        paths = [urlsplit(c[c.index('--include') + 1]).path for c in transport.calls]
+        scans = [c for c, p in zip(transport.calls, paths) if p.endswith('/issues/comments')]
+        self.assertEqual(len(scans), 1)
+        self.assertEqual(parse_qs(urlsplit(scans[0][scans[0].index('--include') + 1]).query)['since'], [cursor])
+        self.assertNotIn('If-None-Match', ' '.join(scans[0]))
+        self.assertIn('If-None-Match: "v1"', transport.calls[0])  # Unchanged issue list revalidates.
+        item_reads = [p for p in paths if any(f'/issues/{n}/' in p for n in (1, 2, 3))]
+        self.assertEqual(item_reads, ['repos/org/project/issues/1/dependencies/blocked_by',
+                                     'repos/org/project/issues/1/comments'])
+        self.assertNotIn('graphql', paths)
+        for command, path in zip(transport.calls, paths):
+            if path in item_reads:
+                self.assertIn('If-None-Match: "v1"', command)
+        self.assertEqual(observed[0].state, 'owned')
+        self.assertEqual(observed[0].history[0]['id'], lease['id'])
+        self.assertEqual(worker.planner.discovery.comments_index[1][-1]['id'], lease['id'])
+        self.assertEqual(loop.discovery.cache, source_cache)
+        self.assertEqual(github._comment_cache, source_comments)
+        self.assertEqual(github._etag_cache, source_etags)
+        self.assertEqual(github._comment_since, cursor)
+        self.assertEqual((github.rest_requests, github.quota_requests), source_counters)
+        self.assertIsNone(worker.planner.github.lease)
+        self.assertEqual(loop.github.lease, lease)
+
+    def test_discovery_copies_are_independent_in_both_directions(self):
+        self.github.create_comment(1, 'Feedback')
+        list(self.loop.iter_plans())
+        self.loop.discovery.closed_items.add(4)
+        worker = RunPlanning(self.loop, self.now)
+        source, copied = self.loop.discovery, worker.planner.discovery
+        names = ('items', 'closed_items', 'comments_index', 'cache')
+        snapshot = {name: deepcopy(getattr(copied, name)) for name in names}
+        self.assertEqual({name: getattr(source, name) for name in names}, snapshot)
+        self.assertIs(copied.github, worker.planner.github)
+        source.items.pop(3)
+        source.closed_items.add(5)
+        source.comments_index[1][0]['user']['login'] = 'changed'
+        source.cache[('comments', (1,), None)][0]['body'] = 'Changed feedback'
+        source.invalidate(2)
+        self.assertEqual({name: getattr(copied, name) for name in names}, snapshot)
+        snapshot = {name: deepcopy(getattr(source, name)) for name in names}
+        copied.items.pop(2)
+        copied.closed_items.add(6)
+        copied.comments_index[1][0]['user']['login'] = 'worker'
+        copied.cache[('comments', (1,), None)][0]['body'] = 'Worker feedback'
+        copied.invalidate(3)
+        self.assertEqual({name: getattr(source, name) for name in names}, snapshot)
+
+    def test_worker_reuses_unchanged_issue_and_pr_discovery_inputs(self):
+        for items in ([issue(1), issue(2)], [pr(1, body=''), pr(2, body='')]):
+            with self.subTest(kind=items[0].kind):
+                github = PollGitHub(*items)
+                loop = Loop(self.cfg, github, 'operator')
+                list(loop.iter_plans())
+                worker = RunPlanning(loop, self.now)
+                github.reads.clear()
+                self.assertEqual(len(list(worker.planner.iter_plans())), 2)
+                self.assertEqual(github.reads, [('observe', ()),
+                                               ('repository_comments', (LEASE_SECONDS + COMMENT_RECOVERY_SECONDS,)),
+                                               ('role', ('operator',))])
+
+    def test_production_client_copies_caches_but_keeps_own_accounting_and_rate_state(self):
+        github = GitHub('org/project')
+        github._etag_cache = {'user': ('"initial"', '{"login": "operator"}')}
+        github._comment_cache = {1: {'id': 1, 'body': 'Feedback', 'user': {'login': 'operator'}}}
+        github._comment_since = iso(self.now - 60)
+        github.resource_quotas = {'core': {'x-ratelimit-remaining': '1000'}}
+        github.rest_requests, github.quota_requests = 12, 8
+        github.quota_headers = {'x-ratelimit-remaining': '1000'}
+        github.rate_limited = True
+        loop = Loop(self.cfg, github, 'operator')
+        worker = RunPlanning(loop, self.now)
+        copied = worker.planner.github.github.github
+        self.assertIsNot(copied, github)
+        self.assertIsNot(worker.planner.github, loop.github)
+        names = ('_etag_cache', '_comment_cache', '_comment_since', 'resource_quotas')
+        snapshot = {name: deepcopy(getattr(copied, name)) for name in names}
+        self.assertEqual({name: getattr(github, name) for name in names}, snapshot)
+        self.assertEqual((copied.rest_requests, copied.quota_requests), (0, 0))
+        self.assertEqual(copied.quota_headers, {})
+        self.assertFalse(copied.rate_limited)
+        github._etag_cache.clear()
+        github._comment_cache[1]['user']['login'] = 'launcher'
+        github._comment_since = iso(self.now)
+        github.resource_quotas['core']['x-ratelimit-remaining'] = '900'
+        self.assertEqual({name: getattr(copied, name) for name in names}, snapshot)
+        snapshot = {name: deepcopy(getattr(github, name)) for name in names}
+        copied._etag_cache['user'] = ('"worker"', '{}')
+        copied._comment_cache[1]['body'] = 'Worker feedback'
+        copied._comment_since = iso(self.now + 60)
+        copied.resource_quotas['core']['x-ratelimit-remaining'] = '800'
+        self.assertEqual({name: getattr(github, name) for name in names}, snapshot)
+
+    def test_worker_with_cold_launcher_keeps_initial_lookback_scan(self):
+        loop = Loop(self.cfg, GitHub('org/project'), 'operator')
+        worker = RunPlanning(loop, self.now)
+        with patch.object(GitHub, 'observe', return_value=[]), \
+                patch.object(GitHub, 'request', return_value=[]) as request, \
+                patch('ub_agents.github.timestamp', return_value=self.now):
+            self.assertEqual(list(worker.planner.iter_plans()), [])
+        query = parse_qs(urlsplit(request.call_args.args[0]).query)
+        self.assertEqual(query['since'], [iso(self.now - LEASE_SECONDS - COMMENT_RECOVERY_SECONDS)])
 
     def test_effective_default_and_inherited_priority_words(self):
         priority = Priority(('queue:priority:urgent', 'priority:medium'), 'priority:medium')

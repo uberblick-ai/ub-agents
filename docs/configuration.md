@@ -163,6 +163,11 @@ work. During that run, separate read-only observation passes evaluate all rows;
 their results never choose the next claim. After the run, fresh claiming discovery
 again walks the rank order and rechecks authority before any write. Lower-ranked
 rows are announced and approval-parked only by a claiming pass that reaches them.
+The observation worker starts with independent copies of the launcher's discovery
+inputs, REST ETags, repository comment cache and comment cursor. Its first scan
+continues from that cursor; new claim comments invalidate the claimed item's
+inputs. Later cache changes stay local to each client, and the worker keeps its
+own request counters and rate-limit state.
 `launch --once` and `launch N` do not start observation passes; `status` still
 evaluates every row and remains read-only.
 Within each pass, an item's comments supply history and approval input, and
