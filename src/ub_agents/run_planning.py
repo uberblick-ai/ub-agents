@@ -2,6 +2,7 @@
 
 import threading
 import subprocess
+from copy import deepcopy
 from time import monotonic
 
 from .errors import GitHubError
@@ -50,19 +51,25 @@ class RunPlanning:
         github = loop.github.github
         self.stop = threading.Event()
         if isinstance(github, GitHub):
-            quotas = {resource: dict(headers) for resource, headers in github.resource_quotas.items()}
+            source = github
             runner = github.runner or subprocess.run
             def request(*args, **kwargs):
                 if self.stop.is_set():
                     raise _Cancelled
                 return runner(*args, **kwargs)
             github = GitHub(github.repository, request)
-            github.resource_quotas = quotas
+            github.resource_quotas = deepcopy(source.resource_quotas)
+            github._etag_cache = deepcopy(source._etag_cache)
+            github._comment_cache = deepcopy(source._comment_cache)
+            github._comment_since = source._comment_since
         self.lock = threading.Lock()
         self.started = started
         from .loop import Loop
         self.planner = Loop(loop.config, ObservationReads(github, self.stop),
                             loop.coordinator.actor, output=lambda *_: None)
+        # Retain discovery inputs, not the launcher's client or pass-local state.
+        for name in ("items", "closed_items", "comments_index", "cache"):
+            setattr(self.planner.discovery, name, deepcopy(getattr(loop.discovery, name)))
         self.planner.coordinator.clock = loop.coordinator.clock
         self.planner.usage = loop.usage
         self.planner.maintenance = loop.maintenance
