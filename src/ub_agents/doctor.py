@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-from .config import load_config
+from .config import instruction_text, load_config
 from .approvals import Roles, resolve_policy
 from .errors import AgentError
 from .execution import parse_process_table, repository_checks
@@ -114,14 +114,21 @@ class Doctor:
                      "Run ub-agents init to create the configuration" if missing else
                      "Fix the configuration error in the selected YAML file")
         if config:
+            if config.shared_instructions is not None:
+                try:
+                    instruction_text(config.root, config.shared_instructions, "shared-instructions")
+                    self.add("instructions", "ok", "shared instruction file is readable")
+                except AgentError as exc:
+                    self.add("instructions", "fail", str(exc),
+                             f"Restore a readable shared instruction file at {config.shared_instructions}")
             for agent in config.agents:
                 if agent.instructions is None:
                     self.add("instructions", "skip", "not configured", agent=agent)
                     continue
                 try:
-                    agent.instructions.read_text()
+                    instruction_text(config.root, agent.instructions, f"{agent.name} instructions")
                     self.add("instructions", "ok", "instruction file is readable", agent=agent)
-                except (OSError, UnicodeError):
+                except AgentError:
                     self.add("instructions", "fail", "instruction file is not readable",
                              f"Restore a readable instruction file at {agent.instructions}", agent=agent)
         else:

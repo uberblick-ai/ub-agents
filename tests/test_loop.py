@@ -11,6 +11,7 @@ from ub_agents.cli import main, status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
+from ub_agents.prompts import RETROSPECTIVE_PROMPT
 from ub_agents.records import attempts, body, iso, timestamp
 from ub_agents.report_command import launcher_report_command
 from tests.support import stub_refresh, FakeGitHub, agent, config, edit_lease, issue, pr
@@ -50,10 +51,55 @@ class LoopTests(unittest.TestCase):
         self.assertNotIn("retrospective", plain)
         configured = replace(plan, agent=replace(plan.agent, retrospectives=203))
         prompt = self.loop.prompt_for(configured, lease, context, "Project rules")
-        line = (f"Post a retrospective with {context['report_command']} retrospective --body-file PATH "
-                "only when the run lost something and you can name the change that would have prevented it.\n")
+        line = RETROSPECTIVE_PROMPT.format(report_command=context['report_command'])
         self.assertIn(line, prompt)
+        for rule in ('extra run or review round', 'about fifteen minutes', 'post at most once per item',
+                     'boards are public', 'environment values, local paths, hostnames or log excerpts',
+                     'file-writing tool', 'failed post blocks nothing'):
+            self.assertIn(rule, line)
         self.assertEqual(prompt.replace(line, ""), plain)
+
+    def test_prompt_contract_precedes_shared_policy_and_role_with_no_rules_after_role(self):
+        self.loop.config = replace(self.loop.config, shared_instructions=self.root / 'policy.md')
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        report = '/launcher/python -I /launcher/report_command.py'
+        context = {'earlier_branches': [], 'report_command': report}
+        prompt = self.loop.prompt_for(plan, lease, context, 'Role procedure',
+                                      shared_instructions='Shared merge policy')
+        self.assertLess(prompt.index('Stop reports ('), prompt.index('Shared merge policy'))
+        self.assertLess(prompt.index('Shared merge policy'), prompt.index('Role procedure'))
+        self.assertEqual(prompt.count('Stop reports ('), 1)
+        self.assertTrue(prompt.endswith('Project instructions:\nRole procedure\n'))
+        for rule in (f'Read other issues and PRs only with {report} read N', '--status retry|blocked',
+                     '--handoff PR_NUMBER', 'at most 300 characters', 'recommendation first',
+                     'who can act', 'full supporting reasoning', 'requirement to evaluate',
+                     'Do not touch the operator checkout', 'Never copy credentials',
+                     'change global settings or disable commit signing', 'no $VAR',
+                     '--body-file PATH', 'report as its own final command',
+                     'Issues an agent files get no trigger label'):
+            self.assertIn(rule, prompt)
+
+    def test_coordination_document_quotes_entire_launcher_prompt(self):
+        self.loop.config = replace(self.loop.config, shared_instructions=self.root / 'policy.md')
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        plan = replace(plan, agent=replace(self.agent, retrospectives=203))
+        context = {'earlier_branches': ['previous/branch'],
+                   'report_command': '/launcher/python -I /launcher/report_command.py'}
+        prompt = self.loop.prompt_for(plan, lease, context, 'Role procedure',
+                                      shared_instructions='Shared merge policy')
+        doc = (Path(__file__).resolve().parents[1] / 'docs/coordination.md').read_text()
+        quote = doc.split('<!-- run-prompt:start -->\n```text\n')[1].split('```\n<!-- run-prompt:end -->')[0]
+        values = {'agent': plan.agent.name, 'report_command': context['report_command'],
+                  'outcomes': json.dumps(lease['outcomes'], sort_keys=True),
+                  'labels': json.dumps(sorted(set(self.loop.config.stop_labels) | set(self.agent.triggers))),
+                  'earlier_branches': json.dumps(context['earlier_branches']),
+                  'context': json.dumps(context, indent=2), 'shared_instructions': 'Shared merge policy',
+                  'instructions': 'Role procedure'}
+        for key, value in values.items():
+            quote = quote.replace('{' + key + '}', value)
+        self.assertEqual(prompt, quote)
 
     def test_revision_context_receives_integrator_feedback_on_pr_and_handoff_issue(self):
         for number in (1, 2):
