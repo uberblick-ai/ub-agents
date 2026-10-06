@@ -49,7 +49,7 @@ Stop all of the project's launchers and upgrade them together before mixing acco
 ```sh
 brew install uberblick-ai/tap/ub-agents
 cd your-project
-ub-agents init         # starter ub-agents.yaml, AGENTS.md and .agents/ instructions
+ub-agents init         # starter ub-agents.yaml and .agents/ policy and roles
 ub-agents doctor       # check the machine, GitHub labels/access and runtimes
 ub-agents launch       # run the loop in the foreground; Ctrl-C stops it
 ```
@@ -89,21 +89,28 @@ commands. Noninteractive runs make no GitHub calls beyond repository inference.
 Existing labels are never changed. `doctor` fails for missing trigger or transition
 labels and warns for missing stop labels.
 
-Before launching, create any missing labels, fill in the project checks in
-`AGENTS.md`, and uncomment or customize each agent's starter `runtime-args` to grant
+Before launching, create any missing labels, document build and test commands in
+the project guidance your runtimes load, fill in `.agents/ub_agents.md`, and uncomment
+or customize each agent's starter `runtime-args` to grant
 the [permissions](docs/configuration.md#runtime-permissions) its job needs. These
 examples match `init --runtime` and remain commented out until you enable them.
-`doctor` warns for each runtime agent without arguments. Commit `ub-agents.yaml`,
-`AGENTS.md` and `.agents/`. `init` preserves an existing `AGENTS.md`.
+`doctor` warns for each runtime agent without arguments. Commit `ub-agents.yaml`
+and `.agents/`. `init` leaves `AGENTS.md` and `CLAUDE.md` untouched. It names the
+guidance file each configured runtime loads and warns when there is none. Codex
+loads `AGENTS.md`; Claude loads `CLAUDE.md` or `.claude/CLAUDE.md`, falling back to
+`AGENTS.md` when neither exists.
 
 Customize these parts:
 
 - In `ub-agents.yaml`, set each role's trigger labels, CLI and model, runtime
   permissions, worktree choice, named outcomes and their label transitions, and
   any labels that should pause all work.
-- In `.agents/<role>.md` and shared guidance such as `AGENTS.md`, define each role's
-  task, project checks, successful handoff, and questions that need a
-  person. Humans own priority and human-only decisions.
+- In `.agents/ub_agents.md`, define loop checks, merge authority, who answers
+  decisions and review priorities. `shared-instructions` sends this policy to every
+  role, after the [launcher contract](docs/coordination.md#run-prompt).
+- In `.agents/<role>.md`, define the role's procedure and successful handoff.
+  Keep build commands and conventions in the repository's own runtime guidance.
+  Humans own priority and human-only decisions.
 - In GitHub, create the labels and set branch protection or required reviews that
   match your merge policy.
 
@@ -257,6 +264,7 @@ model from the implementation:
 
 ```yaml
 repository: your-org/your-project
+shared-instructions: .agents/ub_agents.md
 
 agents:
   issue-preparer:
@@ -266,6 +274,7 @@ agents:
       prepared: {add: [ready]}
       needs-human: {add: [needs-human]}
     instructions: .agents/issue-preparer.md
+    worktree: true
 
   implementer:
     runtime: "codex:gpt-6.1-sol:high"
@@ -306,6 +315,8 @@ agents:
   produced the PR's current commit when its accepted report identifies the source.
   Wait for a pending handoff to finish. Otherwise, use only the first configured
   runtime; block if its CLI is unavailable.
+- **`shared-instructions`**: optional top-level project policy file, read for every
+  run before its role instructions. The starter uses `.agents/ub_agents.md`.
 - **`instructions`**: the agent's task, in your words. `init` writes starters for the
   four roles above.
 - **`worktree`**: run in a private checkout of the PR's exact commit, or on a fresh
@@ -336,13 +347,13 @@ An agent can also be a plain command instead of an LLM session.
 These are conventions, not built-ins. Rename them, drop review, or run a single agent
 that only investigates issues.
 
-Your project contains:
+The generated starter files are:
 
 ```text
 your-project/
 ├── ub-agents.yaml
-├── AGENTS.md          # shared guidance; init preserves an existing file
 └── .agents/
+    ├── ub_agents.md   # project loop policy, via shared-instructions
     ├── issue-preparer.md
     ├── implementer.md
     ├── reviewer.md
@@ -360,7 +371,7 @@ see [session publication](docs/configuration.md) for their format and lifecycle.
 
 Before every new agent run, the launcher fetches `origin`, fast-forwards the
 operator's control checkout on the repository's default branch, and rereads that
-role's instruction file and `ub-agents.yaml`. It replans the claim with the refreshed
+role's instruction file, shared policy and `ub-agents.yaml`. It replans the claim with the refreshed
 configuration. Keep that checkout clean and free of local-only commits.
 Unsafe checkout state, Git refresh failures, invalid configuration or invalid
 instructions stop the launcher

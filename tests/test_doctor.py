@@ -555,6 +555,33 @@ agents:
         with patch.object(Path, "read_text", read):
             self.assertEqual(self.one(self.diagnose(), "instructions")["status"], "fail")
 
+    def test_shared_instruction_failures_are_required_and_readable_file_passes(self):
+        base = self.path.read_text()
+        policy = self.root / 'policy.md'
+        policy.write_text('Project policy')
+        for value, content in (('missing.md', b'policy'), ('../outside.md', b'policy'),
+                               ('policy.md', b'\xff'), ('policy.md', b'policy')):
+            with self.subTest(value=value, content=content):
+                self.path.write_text(base + f'shared-instructions: {value}\n')
+                policy.write_bytes(content)
+                result = self.diagnose()
+                valid = value == 'policy.md' and content == b'policy'
+                self.assertEqual(result['ok'], valid)
+                if valid:
+                    self.assertEqual(len(self.checks(result, 'instructions')), 2)
+                else:
+                    self.assertTrue(any(c['required'] and c['status'] == 'fail' for c in result['checks']))
+        original = Path.read_text
+        def denied(path, *args, **kwargs):
+            if path == policy:
+                raise PermissionError('Synthetic unreadable policy')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', denied):
+            result = self.diagnose()
+        self.assertFalse(result['ok'])
+        self.assertTrue(any(c['required'] and c['status'] == 'fail' and
+                            'shared-instructions is unreadable' in c['message'] for c in result['checks']))
+
     def test_repository_root_remote_and_github_mismatches(self):
         config = load_config(self.path)
         for remote in ('https://github.com/org/project', 'git@github.com:org/project.git',

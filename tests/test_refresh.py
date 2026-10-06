@@ -165,6 +165,97 @@ class RefreshTests(unittest.TestCase):
         self.loop.config = load_config(path)
         self.loop.config_path = path
 
+    def enable_shared_policy(self):
+        (self.upstream / 'policy.md').write_text('First shared policy')
+        path = self.upstream / 'ub-agents.yaml'
+        path.write_text(path.read_text() + 'shared-instructions: policy.md\n')
+        self.commit(self.upstream)
+        git(self.upstream, 'push', 'origin', 'main')
+        refresh_checkout(self.loop.config, self.github)
+        self.enable_reload()
+
+    def test_shared_policy_reloads_between_runs_before_role_instructions(self):
+        self.enable_shared_policy()
+        prompts = []
+        self.execute(lambda cwd, prompt: prompts.append(prompt))
+        (self.upstream / 'policy.md').write_text('Second shared policy')
+        self.push_policy()
+        self.execute(lambda cwd, prompt: prompts.append(prompt))
+        for prompt, policy, role in ((prompts[0], 'First shared policy', 'First operator policy'),
+                                     (prompts[1], 'Second shared policy', 'Second operator policy')):
+            self.assertLess(prompt.index('Stop reports ('), prompt.index(policy))
+            self.assertLess(prompt.index(policy), prompt.index(role))
+            self.assertTrue(prompt.endswith(role + '\n\n'))
+        self.assertNotIn('First shared policy', prompts[1])
+
+    def test_invalid_shared_policy_reload_stops_before_claim_like_check(self):
+        for condition in ('missing', 'outside', 'symlink', 'encoding', 'permissions'):
+            with self.subTest(condition=condition):
+                self.setUp()
+                policy = self.upstream / 'policy.md'
+                if condition == 'symlink':
+                    policy.symlink_to('../outside.md')
+                elif condition == 'encoding':
+                    policy.write_bytes(b'\xff')
+                elif condition == 'permissions':
+                    policy.write_text('Synthetic policy')
+                path = self.upstream / 'ub-agents.yaml'
+                value = '../outside.md' if condition == 'outside' else 'policy.md'
+                path.write_text(path.read_text() + f'shared-instructions: {value}\n')
+                self.commit(self.upstream)
+                git(self.upstream, 'push', 'origin', 'main')
+                original = Path.read_text
+                def read(path, *args, **kwargs):
+                    if condition == 'permissions' and path == self.root / 'policy.md':
+                        raise PermissionError('Synthetic unreadable policy')
+                    return original(path, *args, **kwargs)
+                launch_error, check_error = io.StringIO(), io.StringIO()
+                args = ['--config', str(self.root / 'ub-agents.yaml')]
+                with patch.object(Path, 'read_text', read), \
+                        patch('ub_agents.cli.GitHub', return_value=self.github), \
+                        patch('ub_agents.cli.repository_checks', return_value=[]), \
+                        patch('ub_agents.coordination.shutil.which', return_value='installed'), \
+                        patch('ub_agents.loop.supervise') as execution, \
+                        redirect_stderr(launch_error):
+                    self.assertEqual(main(args + ['launch', '--once']), 1)
+                with patch.object(Path, 'read_text', read), redirect_stderr(check_error):
+                    self.assertEqual(main(args + ['check']), 1)
+                self.assertEqual(launch_error.getvalue(), check_error.getvalue())
+                self.assertIn('shared-instructions', launch_error.getvalue())
+                execution.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assertEqual(attempts(self.loop.coordinator.history(1), 'worker', timestamp()), [])
+
+    def test_embedded_refresh_validates_shared_policy_before_fast_forward(self):
+        for condition in ('missing', 'outside', 'encoding', 'permissions'):
+            with self.subTest(condition=condition):
+                self.setUp()
+                self.enable_shared_policy()
+                self.loop.config_path = None
+                policy = self.upstream / 'policy.md'
+                if condition == 'missing':
+                    policy.unlink()
+                    expected = 'does not exist'
+                elif condition == 'outside':
+                    policy.unlink()
+                    policy.symlink_to('../outside.md')
+                    expected = 'inside the project'
+                elif condition == 'encoding':
+                    policy.write_bytes(b'\xff')
+                    expected = 'unreadable'
+                else:
+                    policy.write_text('Second shared policy')
+                    expected = 'unreadable'
+                self.commit(self.upstream)
+                git(self.upstream, 'push', 'origin', 'main')
+                original = Path.read_text
+                def read(path, *args, **kwargs):
+                    if condition == 'permissions' and path == self.root / 'policy.md':
+                        raise PermissionError('Synthetic unreadable policy')
+                    return original(path, *args, **kwargs)
+                with patch.object(Path, 'read_text', read):
+                    self.stopped('shared-instructions.*' + expected)
+
     def test_sigterm_during_fast_forward_finishes_refresh_without_claiming(self):
         for reload in (False, True):
             with self.subTest(reload=reload):
@@ -592,18 +683,24 @@ class RefreshTests(unittest.TestCase):
         self.execute(inspect)
 
     def test_pr_worktree_keeps_exact_candidate_and_fixed_operator_prompt(self):
+        self.enable_shared_policy()
         candidate = git(self.root, "rev-parse", "HEAD")
         git(self.origin, "update-ref", "refs/pull/2/head", candidate)
         self.worker = replace(self.worker, kind="pr", worktree=True)
         self.github = FakeGitHub(pr(head=candidate))
         self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lambda *_: None)
+        self.loop.config = replace(self.loop.config, shared_instructions=self.root / 'policy.md')
+        (self.upstream / 'policy.md').write_text('Current operator shared policy')
         self.push_policy()
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             self.assertEqual(git(cwd, "rev-parse", "HEAD"), candidate)
             self.assertIn("Second operator policy", prompt)
+            self.assertIn('Current operator shared policy', prompt)
             (cwd / "role.md").write_text("Candidate replacement policy")
+            (cwd / 'policy.md').write_text('Candidate replacement shared policy')
             self.assertIn("Second operator policy", prompt)
             self.assertNotIn("Candidate replacement policy", prompt)
+            self.assertNotIn('Candidate replacement shared policy', prompt)
             self.loop.coordinator.report(self.loop.coordinator.history(2)[0], "success", "Checked candidate",
                                          outcome="done")
             return 0

@@ -20,12 +20,27 @@ The launcher pins its repository and input configuration; worktree edits and
 | `approvals` | `on` or `off` (quoted or unquoted); defaults from GitHub visibility each pass: `on` for public, `off` for private and internal repositories. See [approvals](approvals.md). |
 | `trusted-bots` | Optional list of GitHub bot account logins, default `[]`; case-insensitive, ignores `[bot]` suffixes, bots only, trusted for feedback in assignment context and `read`, with no maintainer or launcher authority. See [trusted bots](approvals.md#trusted-bots). |
 | `agents` | The agents, by name. |
+| `shared-instructions` | Optional project policy file, relative to the configuration file and inside the project; read before every role's instructions. |
 | `limits` | Default clocks and retry limits for every agent. |
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `runtime-updates` | Optional daily maintenance policy for configured Claude Code and Codex runtimes. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
+
+`shared-instructions: .agents/ub_agents.md` supplies policy to every run between the
+[launcher contract](coordination.md#run-prompt) and its role instructions. It is
+optional; configurations without it need no changes. Like role instruction files,
+it must exist, remain inside the project (including symlink targets), and be readable
+UTF-8. `check`, `doctor` and the pre-run reload validate it; invalid files stop the
+launcher before a claim or charged attempt. Text comes from the refreshed control
+checkout and stays fixed for the run, even if a candidate edits the policy.
+
+Project build commands and conventions belong in the repository's own `AGENTS.md`
+or `CLAUDE.md`, loaded by each runtime. Loop checks, merge policy, decision authority
+and review focus belong in the shared policy; role procedures belong in role files.
+Stop-report formatting, input trust, reporting and workflow-label ownership come
+from the launcher prompt and need no project copies.
 
 With `approvals: off`, current titles and bodies are input, trigger labels need no
 maintainer start, and PR heads need no approval. Feedback is limited to authors
@@ -507,7 +522,7 @@ revision runs remain blocked.
 
 Before each new agent run, the launcher fetches `origin` and fast-forwards the
 control checkout's default branch, then reloads `ub-agents.yaml` and rereads the
-configured instruction files. It replans the claim with the refreshed agent,
+configured role and shared instruction files. It replans the claim with the refreshed agent,
 triggers, runtime and declared outcomes. If that item no longer plans for that
 agent, it is not claimed.
 Run `launch` from a clean checkout on that branch with no local-only commits.
@@ -620,8 +635,8 @@ request may already have written the transition start marker.
 
 ## Built-in runtimes
 
-The prompt, made of the assignment context and the agent's instructions, arrives on
-stdin:
+The [run prompt](coordination.md#run-prompt), made of the launcher contract, assignment
+context, optional shared policy and role instructions, arrives on stdin:
 
 - `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
@@ -830,7 +845,9 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 
 `init` includes the matching example, commented out, for every starter agent using
 the CLI selected by `--runtime`, without the optional retrospective rule.
-Uncomment or customize it before unattended work.
+Uncomment or customize it before unattended work. The Claude starter includes a
+commented placeholder for project check commands: `--allowedTools` denies commands
+that are not listed.
 The Codex example grants full access, including writes to Git metadata for commits
 and commands for pushing. The Claude example grants file edits and the listed
 Git, GitHub, report, filtered read and retrospective commands without permission prompts, plus access to the run's
@@ -949,10 +966,16 @@ with a help command to run.
 
 - `ub-agents help [COMMAND]` shows the overview or detailed help for that command.
 - `ub-agents init [--repository owner/name] [--runtime cli:model:effort]` writes the
-  starter `ub-agents.yaml`, shared `AGENTS.md` and `.agents/` files next to the selected
-  `--config` file, and adds `.ub-agents/` to `.gitignore`. Fill in the shared guidance's
-  project-check placeholders. An existing `AGENTS.md` is kept unchanged and reported;
-  any existing configuration or role starter file stops init before any file writes.
+  starter `ub-agents.yaml`, `.agents/ub_agents.md` and four role files next to the
+  selected `--config` file, and adds `.ub-agents/` to `.gitignore`. It never creates
+  or edits `AGENTS.md` or `CLAUDE.md`. It names the guidance each configured runtime
+  loads: Codex uses `AGENTS.md`; Claude uses `CLAUDE.md` or `.claude/CLAUDE.md`, else
+  `AGENTS.md`. It warns when a runtime loads none, because agents need project build
+  and test instructions. The shared policy's Checks section points to the discovered
+  guidance, or has placeholders when none exists. Fill in its merge gates, decision
+  authority and review focus. Every starter role uses a private worktree, including
+  issue preparation. Any existing configuration, shared policy or role starter file
+  stops init before any file writes.
   In an interactive terminal, init reads repository labels and explains each missing
   trigger, outcome `add`/`remove`, and stop label. It creates only those labels after
   an explicit `y` or `yes`; the default is no. Declining makes no GitHub writes and

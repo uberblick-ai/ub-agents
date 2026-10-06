@@ -113,6 +113,8 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
             if agent is not None:
                 instruction_text(root, agent.instructions, where)
                 validate_incoming(root, head, agent.instructions, where)
+                instruction_text(root, config.shared_instructions, "shared-instructions")
+                validate_incoming(root, head, config.shared_instructions, "shared-instructions")
             try:
                 # Never inherit autostash or execute checkout-mutating merge hooks.
                 git(root, "-c", "merge.autostash=false", "-c", "core.hooksPath=/dev/null",
@@ -121,6 +123,7 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
                 raise AgentError(f"fast-forward to origin/{default} failed; fix the checkout "
                                  f"before restarting: {exc}") from exc
         if agent is not None:
+            instruction_text(root, config.shared_instructions, "shared-instructions")
             return instruction_text(root, agent.instructions, where)
     except GitHubError:
         # This pre-claim read is discovery: preserve its request and retry metadata.
