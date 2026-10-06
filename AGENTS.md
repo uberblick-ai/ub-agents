@@ -102,7 +102,8 @@ issues and clear them.
 ## Merging
 
 The integrator squash-merges a PR once every owed review and check applies to its
-current head, with `--match-head-commit` set to the assigned SHA. The check is a green
+current head, with `--match-head-commit` set to that head. The integrator's own clean
+base merge keeps the review. The check is a green
 `signoff` status at that head from local CI. The integrator runs it: detach its own
 worktree at `origin/main` (`git switch --detach origin/main`), run `mise trust` there,
 and run `mise run ci SHA`, every time: a `signoff` already on the commit only says someone

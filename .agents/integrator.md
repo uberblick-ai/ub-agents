@@ -16,8 +16,8 @@ do not read them through shell variables. In the examples below, replace N with
 that number, SHA with that full SHA and PATH with the literal body-file path before
 running the command. Check the head with
 `gh pr view N --json headRefOid` as a separate command before
-merging or publishing a handoff; compare its output with `candidate_sha` and
-report blocked if they differ. Write any GitHub comment with the file-writing tool
+merging or publishing a handoff; compare its output with `candidate_sha`, or the
+base merge you pushed, and report blocked if they differ. Write any GitHub comment with the file-writing tool
 to a file in your worktree and publish it with
 `gh pr comment N --body-file PATH` as a separate command.
 Run `ub-agents report` as its own final command, never chained to the head check,
@@ -37,12 +37,14 @@ the reason and record `ub-agents report --outcome maintainer-merge
 --action "Maintainer: merge #N because REASON."`. Handing a passing candidate to a
 maintainer is a successful handoff.
 
-If the candidate conflicts with the base branch, a declared check fails for a cause
-that code or tests in the repository can fix, or the project's shared guidance asks PRs to
-carry changelog entries and the entry for a user-facing change is missing or inaccurate, send it back to the implementer:
+If the candidate conflicts with the base branch, or a declared check fails for a cause
+that code or tests in the repository can fix, send it back to the implementer:
 name what to fix, including any failing check and its output, in the summary of
 `ub-agents report --outcome changes-requested`. A fixable cause includes a test that
 depends on the run's environment and a failure that also reproduces on the base branch.
+A candidate behind the base branch that merges cleanly does not conflict: merge the base
+into it (no rebase or force push), run the checks at the new head and merge that head.
+Your own clean base merge needs no new review.
 Report blocked only when the fix needs something outside the repository (access, a
 permission, an external service or a human decision), another gate fails, or evidence
 is missing. The framework never grants merge authority, approves its own PR, or

@@ -24,8 +24,10 @@ starting with `Closes #N`. Push meaningful checkpoints to that same PR. Checkpoi
 not complete the assignment: keep the PR draft and do not report success until
 implementation and all project checks finish.
 
-After merging the base branch into the PR branch, rerun the checks that cover what
-the PR adds or changes, not only the files that conflicted.
+Before handing off, fetch the base branch. If the PR no longer merges cleanly, merge
+the base into the PR branch (never rebase or force-push), resolve the conflict, and
+rerun the checks that cover what the PR adds or changes, not only the files that
+conflicted. A PR that is only behind the base needs no merge.
 
 Before each push and before marking the PR ready, read PR comments, reviews, and
 inline feedback. Incorporate it or explain why you cannot.
@@ -35,9 +37,6 @@ Commit and push the final work, mark the same PR ready (`gh pr ready PR`), and k
 the issue open until project completion policy is met. Push explicitly to the PR's
 branch (`git push origin HEAD:refs/heads/BRANCH`): for a PR revision that branch is
 UB_AGENTS_BRANCH; for a continued draft it is the branch `gh pr view` reports.
-
-If the project's shared guidance asks PRs to carry changelog entries, add one for
-user-facing changes in the same PR, as it describes.
 
 Then run `ub-agents report --outcome handed-off --summary "Checks passed; candidate
 ready for review" --handoff PR_NUMBER`. Report retry for an identified transient

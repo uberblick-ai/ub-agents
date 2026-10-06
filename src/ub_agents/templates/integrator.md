@@ -26,6 +26,7 @@ carry changelog entries and the entry for a user-facing change is missing or ina
 name what to fix, including any failing check and its output, in the summary of
 `ub-agents report --outcome changes-requested`. A fixable cause includes a test that
 depends on the run's environment and a failure that also reproduces on the base branch.
+A candidate that is behind the base branch but merges cleanly does not conflict: merge it.
 Report blocked only when the fix needs something outside the repository (access, a
 permission, an external service or a human decision), another gate fails, or evidence
 is missing. The framework never grants merge authority, approves its own PR, or

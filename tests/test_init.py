@@ -109,8 +109,9 @@ class InitTests(unittest.TestCase):
         self.assertIn('stop and report', roles['implementer'])
         self.assertIn('--status blocked', roles['implementer'])
         self.assertIn('read PR comments, reviews, and inline feedback', roles['implementer'])
-        self.assertIn('After merging the base branch into the PR branch, rerun the checks that cover what '
-                      'the PR adds or changes, not only the files that conflicted.', roles['implementer'])
+        self.assertIn('If the PR no longer merges cleanly, merge the base into the PR branch', roles['implementer'])
+        self.assertIn('A PR that is only behind the base needs no merge.', roles['implementer'])
+        self.assertIn('behind the base branch but merges cleanly does not conflict: merge it', roles['integrator'])
         self.assertIn("For a revision, address the assignment context's `feedback` as well as its comments, "
                       "reviews and review comments", roles['implementer'])
 
