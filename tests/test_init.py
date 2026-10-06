@@ -267,6 +267,7 @@ class InitTests(unittest.TestCase):
                     self.assertIn(comment, agent_text)
                     if runtime.startswith('claude:'):
                         self.assertIn('Add the project\'s check commands to --allowedTools', agent_text)
+                        self.assertIn('"Bash(<project check command>)"', agent_text)
                 enabled = yaml.safe_load(text.replace('# runtime-args:', 'runtime-args:'))
                 for agent in enabled['agents'].values():
                     self.assertEqual(agent['runtime-args'], expected)

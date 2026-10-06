@@ -157,7 +157,7 @@ def init_project(args):
             "Grants unattended edits and git/gh/report commands")
         targets[config_path] = targets[config_path].replace(
             '    # runtime-args:',
-            '    # Add the project\'s check commands to --allowedTools, for example "Bash(make check)".\n'
+            '    # Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".\n'
             '    # runtime-args:')
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
         targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
