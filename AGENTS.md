@@ -39,14 +39,15 @@ merge to main (`.github/workflows/test.yml`).
 
 ## Uberblick corpus
 
-- Use the `uberblick` MCP server for current Uberblick product and workflow
-  context when it is relevant. Discover documents through the server rather
-  than relying on copied corpus content.
-- The MCP server is optional context for this standalone framework; it is not a
-  runtime dependency. Repository behavior and the assigned issue define the
-  implementation scope.
-- The project MCP configuration pins the shared workspace. The hub endpoint and
-  credentials remain in each machine's local Uberblick configuration.
+- Two MCP servers reach two corpora. Use `uberblick-agents` for this
+  framework's workflow context and `uberblick-product` for current Uberblick
+  product context, when relevant. Discover documents through the servers
+  rather than relying on copied corpus content.
+- The MCP servers are optional context for this standalone framework; they are
+  not a runtime dependency. Repository behavior and the assigned issue define
+  the implementation scope.
+- The project MCP configuration pins each server's workspace and hub.
+  Credentials remain in each machine's local Uberblick configuration.
 
 The process-supervision tests in `tests/test_execution.py` call `ps`. A sandbox that
 blocks `ps` makes them fail with `Operation not permitted: 'ps'`. That failure is

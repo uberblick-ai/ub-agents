@@ -1,12 +1,28 @@
 {
   "mcpServers": {
-    "uberblick": {
+    "uberblick-agents": {
       "type": "stdio",
       "command": "ub",
       "args": [
         "mcp",
         "serve"
-      ]
+      ],
+      "env": {
+        "UB_HUB_URL": "wss://hub.uberblick.ai/ws",
+        "UB_WORKSPACE_ID": "uberblick-agents-b3eea2f9-a8dc-40f2-a3d9-b27742620b1f"
+      }
+    },
+    "uberblick-product": {
+      "type": "stdio",
+      "command": "ub",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "env": {
+        "UB_HUB_URL": "wss://hub.uberblick.ai/ws",
+        "UB_WORKSPACE_ID": "uberblick-722007fa-8921-45ee-a580-e20311030fef"
+      }
     }
   }
 }

@@ -1,5 +1,6 @@
 {
   "enabledMcpjsonServers": [
-    "uberblick"
+    "uberblick-agents",
+    "uberblick-product"
   ]
 }
