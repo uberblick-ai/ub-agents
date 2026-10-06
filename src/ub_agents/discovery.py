@@ -34,7 +34,7 @@ class Discovery:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
             except (KeyError, ValueError, AttributeError, TypeError):
                 continue
-            groups.setdefault(number, []).append(comment)
+            groups.setdefault(number, []).append((comment["id"], comment.get("updated_at")))
         list_changed = {n for n in self.items.keys() | items.keys()
                         if self.items.get(n) != items.get(n)}
         pr_changed = any((self.items.get(n) or items[n]).kind == "pr" for n in list_changed)
@@ -54,7 +54,7 @@ class Discovery:
         self.closed_items.update(self.items.keys() - items.keys())
         self.closed_items.difference_update(items)
         self.items = items
-        self.comments_index = deepcopy(groups)
+        self.comments_index = groups
         return dict(items), comments
 
     def invalidate(self, number):

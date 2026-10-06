@@ -568,6 +568,47 @@ class GitHubTests(unittest.TestCase):
         self.assertIsNone(github._comment_since)
         self.assertEqual(github._comment_cache, {})
 
+    def test_lookback_prunes_old_comments_on_every_scan_but_retains_recent_edits(self):
+        github = GitHub("org/project")
+        boundary = {"id": 1, "updated_at": iso(900)}
+        editable = {"id": 2, "updated_at": iso(901)}
+        recent = {"id": 3, "updated_at": iso(999)}
+        edited = dict(editable, updated_at=iso(1050))
+        with patch("ub_agents.github.timestamp", side_effect=[1000, 1050, 1100]), \
+                patch.object(github, "request", side_effect=[[boundary, editable, recent], [edited], []]):
+            self.assertEqual(github.repository_comments(lookback_seconds=100), [boundary, editable, recent])
+            self.assertEqual(github.repository_comments(lookback_seconds=100), [edited, recent])
+            self.assertEqual(github.repository_comments(lookback_seconds=100), [edited])
+        restarted = GitHub("org/project")
+        with patch("ub_agents.github.timestamp", return_value=1100), \
+                patch.object(restarted, "request", return_value=[edited]):
+            self.assertEqual(restarted.repository_comments(lookback_seconds=100),
+                             list(github._comment_cache.values()))
+
+    def test_scan_without_lookback_keeps_older_cached_and_fetched_comments(self):
+        github = GitHub("org/project")
+        older = {"id": 1, "updated_at": iso(100)}
+        recent = {"id": 2, "updated_at": iso(1050)}
+        with patch("ub_agents.github.timestamp", side_effect=[1000, 1100, 1200]), \
+                patch.object(github, "request", side_effect=[[older], [recent], []]) as request:
+            self.assertEqual(github.repository_comments(), [older])
+            self.assertEqual(github.repository_comments(), [older, recent])
+            self.assertEqual(github.repository_comments(), [older, recent])
+        self.assertNotIn("since", parse_qs(urlsplit(request.call_args_list[0].args[0]).query))
+
+    def test_failed_lookback_scan_does_not_prune_cache_or_advance_cursor(self):
+        github = GitHub("org/project")
+        older = {"id": 1, "updated_at": iso(100)}
+        github._comment_cache = {1: older}
+        github._comment_since = iso(900)
+        first_page = [{"id": i + 2, "updated_at": iso(950 + i)} for i in range(100)]
+        with patch("ub_agents.github.timestamp", return_value=1100), \
+                patch.object(github, "request", side_effect=[first_page, AgentError("network failed")]):
+            with self.assertRaises(AgentError):
+                github.repository_comments(lookback_seconds=100)
+        self.assertEqual(github._comment_cache, {1: older})
+        self.assertEqual(github._comment_since, iso(900))
+
     def test_launcher_and_status_bound_first_scan_independently_of_agent_and_hook_timeouts(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ub-agents.yaml"

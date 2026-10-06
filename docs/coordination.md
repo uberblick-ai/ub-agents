@@ -571,7 +571,9 @@ the full repository comment history. Later discovery scans poll updated comments
 scan. Each page advances `since` to one second before its last update and
 deduplicates by comment id, because page offsets skip rows when comments move. A
 full page within one second cannot be paginated safely and stops visibly. The cache
-and cursor live in memory, and a failed page commits neither. Claiming discovery
+and cursor live in memory, and a failed page commits neither. After each successful
+discovery scan, cached comments updated before the scan's lookback window are
+dropped; full-history scans without a lookback prune nothing. Claiming discovery
 reuses unchanged per-item reads and evaluates only rows it reaches in rank order;
 `status` evaluates every row. Item comments and approval inputs are always reread
 before a claim or approval-parking write, so stale cached records never supply
@@ -588,13 +590,13 @@ authorizes reexecution. On closed issues and closed or merged PRs, that released
 result alone produces no plan. Live or expired unfinished leases, pending durable
 outcomes or transitions, unconfirmed cleanup and unreadable or conflicting
 coordination history retain their existing plans and reasons. Planning changes no
-records, labels or triggers on completed items. After a restart,
+records, labels or triggers on completed items. As records age beyond the lookback,
 older records on closed or untriggered items fall outside discovery and no longer
 appear in `status` or the launcher queue.
 Re-applying a trigger or stop label surfaces an open item again; item evaluation
 reads its full history and can still recover it. The remaining loss case is a crash
 after a started transition removed its triggers but before outcome acceptance,
-with no launcher running for the whole seven days. Re-apply a trigger or stop label
+without recovery within seven days. Re-apply a trigger or stop label
 to recover that outcome. A later accepted success supersedes older crashed
 runs and resets the consecutive failure count. Failed scans stop visibly.
 

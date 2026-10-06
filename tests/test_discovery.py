@@ -9,8 +9,9 @@ from ub_agents.config import Priority, Queue
 from ub_agents.cli import status_rows
 from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError
+from ub_agents.github import GitHub
 from ub_agents.loop import COMMENT_RECOVERY_SECONDS, Loop
-from ub_agents.records import attempts
+from ub_agents.records import attempts, iso
 from tests.test_approvals import at
 from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
 
@@ -72,6 +73,63 @@ class DiscoveryTests(unittest.TestCase):
                         loop.github.reads.clear()
                         list(loop.iter_plans())
                         self.assertEqual(self.item_reads(loop.github), {2})
+
+    def test_aged_out_comment_invalidates_its_item_once_including_the_last_comment(self):
+        for last in (False, True):
+            with self.subTest(last_comment=last):
+                github = GitHub("org/project")
+                discovery = Discovery(github)
+                old = {"id": 1, "body": "Old feedback", "updated_at": iso(900),
+                       "issue_url": "https://api.github.com/repos/org/project/issues/1"}
+                recent = dict(old, id=2, body="Recent feedback", updated_at=iso(950))
+                other = dict(old, id=3, updated_at=iso(960),
+                             issue_url="https://api.github.com/repos/org/project/issues/2")
+                initial = [old, other] if last else [old, recent, other]
+                with patch.object(github, "observe", return_value=[issue(1), issue(2)]), \
+                        patch.object(github, "request", side_effect=[initial, [], []]), \
+                        patch.object(github, "comments", return_value=[]) as read, \
+                        patch("ub_agents.github.timestamp", side_effect=[1000, 1001, 1002]):
+                    discovery.observe(100)
+                    self.assertEqual(discovery.comments_index,
+                                     {1: [(c["id"], c["updated_at"]) for c in initial[:-1]],
+                                      2: [(3, iso(960))]})
+                    for number in (1, 2):
+                        discovery.comments(number)
+                        discovery.cache[("role", ("operator",), number)] = "write"
+                    read.reset_mock()
+
+                    discovery.observe(100)
+                    self.assertNotIn(("role", ("operator",), 1), discovery.cache)
+                    self.assertIn(("role", ("operator",), 2), discovery.cache)
+                    if last:
+                        self.assertNotIn(1, discovery.comments_index)
+                    else:
+                        self.assertEqual(discovery.comments_index[1], [(2, iso(950))])
+                    for number in (1, 2):
+                        discovery.comments(number)
+                    read.assert_called_once_with(1)
+                    read.reset_mock()
+
+                    discovery.observe(100)
+                    for number in (1, 2):
+                        discovery.comments(number)
+                    read.assert_not_called()
+
+    def test_comment_index_tracks_only_ids_and_update_times(self):
+        loop = self.loop([issue(1), issue(2)])
+        comment = loop.github.create_comment(1, "Feedback")
+        list(loop.iter_plans())
+        self.assertEqual(loop.discovery.comments_index,
+                         {1: [(comment["id"], comment["updated_at"])]})
+        loop.github.store[1][0]["body"] = "Same update time"
+        loop.github.store[1][0]["user"]["login"] = "other"
+        loop.github.reads.clear()
+        list(loop.iter_plans())
+        self.assertEqual(self.item_reads(loop.github), set())
+        loop.github.store[1][0]["updated_at"] = at(30)
+        loop.github.reads.clear()
+        list(loop.iter_plans())
+        self.assertEqual(self.item_reads(loop.github), {1})
 
     def test_lower_ranked_approval_gate_waits_until_reached(self):
         loop = self.loop([issue(1), issue(2)])
