@@ -1551,7 +1551,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('other-host', stream.getvalue())
             self.state['latest_pass']['rows'][1]['state'] = 'owned'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.rows[key].agent == 'integrator')
+            # Row data can change before the Tree rebuilds its line positions.
+            await self.ready(app, pilot, lambda: app.rows[key].agent == 'integrator' and
+                             tree.render_line(node._line + 1 - tree.scroll_offset.y).text.rstrip() == '  integrator')
             self.assertEqual(app.selected, key)
             self.assertIs(app.nodes[key], node)
             self.assertIs(tree.cursor_node, node)
@@ -1561,7 +1563,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tree.render_line(node._line + 1 - int(tree.scroll_y)).text.rstrip(), '  integrator')
             self.state['latest_pass']['rows'][1]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: len(app.rows[key].eligible_plans) == 2)
+            await self.ready(app, pilot, lambda: len(app.rows[key].eligible_plans) == 2 and
+                             tree.render_line(app.nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
+                             '  reviewer 1/3 failures, integrator')
             self.assertEqual(app.selected, key)
             self.assertIs(tree.cursor_node, app.nodes[key])
             self.assertEqual(sum(row.item == 12 for row in app.rows.values()), 1)
@@ -1578,7 +1582,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.worker.selected_row.key == attention)
             plans[-1]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.selected == key and attention not in app.rows)
+            await self.ready(app, pilot, lambda: app.selected == key and attention not in app.rows and
+                             tree.render_line(app.nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
+                             '  integrator, reviewer 1/3 failures')
             self.assertIs(tree.cursor_node, app.nodes[key])
             self.assertEqual([plan['agent'] for plan in app.rows[key].eligible_plans], ['integrator', 'reviewer'])
             self.assertNotIn('Needs attention', app.groups)
@@ -1717,7 +1723,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.local_description is not None)
             self.state['latest_pass']['rows'][1]['state'] = 'owned'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
+            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation' and
+                             key not in app.nodes and list(app.groups) == ['Running'])
             self.assertEqual(app.selected, key)
             self.assertNotIn(key, app.nodes)
             self.assertEqual(list(app.groups), ['Running'])
@@ -1729,13 +1736,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['latest_pass']['state'] = 'complete'
             self.state['latest_pass']['rows'] = []
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.session.data['latest_pass']['state'] == 'complete')
+            await self.ready(app, pilot, lambda: app.session.data['latest_pass']['state'] == 'complete' and
+                             key not in app.nodes)
             self.assertNotIn(key, app.nodes)
             self.assertEqual(app.selected, key)
             self.state['latest_pass']['rows'] = [
                 {'item': 12, 'agent': 'reviewer', 'state': 'ready', 'reason': 'Trigger matched'}]
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: key in app.nodes)
+            await self.ready(app, pilot, lambda: key in app.nodes and app.rows[key].state == 'ready')
             self.assertEqual(app.selected, key)
             self.assertEqual(app.rows[key].state, 'ready')
             await pilot.press('q')
