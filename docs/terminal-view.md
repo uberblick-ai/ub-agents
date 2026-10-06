@@ -107,6 +107,10 @@ section's row count. Running always appears first; other empty sections are hidd
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
 | Eligible | At most ten items in claim order, merging ready/recovery plans before retry backoff and paused-runtime plans |
 
+Work sections stay expanded and cannot be collapsed. Their headers and Running's
+idle line cannot be selected or take the cursor; clicking them leaves the cursor
+and selection unchanged.
+
 Eligible's heading counts all eligible items: `Eligible · 7`, or
 `Eligible · 23 · showing 10` when truncated. While stopping it adds
 ` · not claimed while stopping`; the heading shortens with `…` to fit the pane.
@@ -186,8 +190,9 @@ both layouts, exactly one blank row precedes each displayed Needs attention and
 Eligible heading, including after Running's idle line. Hidden sections add no
 separator. There is no gap within an item, after a heading, before Running or
 before Recent activity. The cursor highlights only the item's lines. Arrow keys
-skip blank rows, and either item line can be clicked to select it; blank rows
-have no cursor or hover highlight and clicking them changes no selection or cursor.
+skip headers, the idle line and blank rows, and either item line can be clicked
+to select it; blank rows have no cursor or hover highlight and clicking them
+changes no selection or cursor.
 In the narrow Work list, live and Recent activity rows use only their first line:
 glyph, item reference, title shortened with `…`, and right-aligned waiting time
 for Needs attention or state for other live rows. Detail

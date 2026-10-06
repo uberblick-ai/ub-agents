@@ -130,8 +130,15 @@ class WorkTree(Tree):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.auto_expand = False
         self.claim_times = {}
         self._spacer_lines = set()
+
+    def check_action(self, action, parameters):
+        if action in {'toggle_node', 'toggle_expand_all', 'cursor_parent',
+                      'cursor_parent_next_sibling', 'cursor_previous_sibling', 'cursor_next_sibling'}:
+            return False
+        return super().check_action(action, parameters)
 
     def on_mount(self):
         self.set_interval(1 / SPINNER_FPS, self.refresh)
@@ -172,10 +179,26 @@ class WorkTree(Tree):
         return None if line_no in self._spacer_lines else node
 
     def _get_node(self, line):
-        return None if line == -1 else self.get_node_at_line(line)
+        node = None if line == -1 else self.get_node_at_line(line)
+        return node if node is not None and node.data is not None else None
+
+    def validate_cursor_line(self, value):
+        if value < 0:
+            return -1
+        line = super().validate_cursor_line(value)
+        direction = -1 if value < self.cursor_line else 1
+        # Inherited page/home/end actions also assign cursor_line directly.
+        # Resolve their targets to item rows, including both lines of an item.
+        for step in (direction, -direction):
+            end = self.last_line + 1 if step > 0 else -1
+            for candidate in range(line, end, step):
+                node = self._get_node(candidate)
+                if node is not None:
+                    return node._line
+        return -1
 
     def _get_label_region(self, line):
-        node = self.get_node_at_line(line)
+        node = self._get_node(line)
         if node is None:
             return None
         return Region(0, node._line, self.scrollable_content_region.width,
@@ -209,7 +232,9 @@ class WorkTree(Tree):
         else:
             label_style = theme_style(self.app, SECTION_COLORS.get(node.label.plain.split(' · ')[0], 'view-muted'))
             value = section_rule(node.label.plain, width, label_style)
-        line_style = label_style + Style(meta={'line': line_no, 'node': node.id})
+        # Only item lines carry Textual mouse targets; labels stay inert.
+        line_style = label_style + (Style(meta={'line': line_no, 'node': node.id})
+                                    if row else Style())
         value.stylize_before(line_style)
         if row:
             if line_no == node._line:
@@ -221,29 +246,43 @@ class WorkTree(Tree):
     def move_cursor(self, node, animate=False):
         # Resolve invalidated lines before Textual reads node._line.
         self.get_node_at_line(0)
-        super().move_cursor(node, animate=animate)
+        if node is None or node.data is not None:
+            super().move_cursor(node, animate=animate)
 
     def action_cursor_up(self):
         self.get_node_at_line(0)
         node = self.cursor_node
         line = node._line - 1 if node else self.last_line
-        while line > 0 and self.get_node_at_line(line) is None:
+        while line >= 0 and self._get_node(line) is None:
             line -= 1
-        self.move_cursor(self.get_node_at_line(max(0, line)))
+        if line >= 0:
+            self.move_cursor(self._get_node(line))
 
     def action_cursor_down(self):
         self.get_node_at_line(0)
         recent = self.app.query_one(RecentActivity)
         node = self.cursor_node
-        line = node._line + (self.row_height if node.data is not None else 1) if node else 0
-        while line <= self.last_line and self.get_node_at_line(line) is None:
+        line = node._line + self.row_height if node else 0
+        while line <= self.last_line and self._get_node(line) is None:
             line += 1
         if line > self.last_line and recent.visible_rows:
             recent.cursor = recent.visible_rows[0].key
             self.screen.set_focus(recent, scroll_visible=False)
             recent.refresh()
-        else:
-            self.move_cursor(self.get_node_at_line(min(line, self.last_line)))
+        elif line <= self.last_line:
+            self.move_cursor(self._get_node(line))
+
+    def action_page_up(self):
+        # Clamp before assigning: Tree uses -1 to clear the cursor, which a
+        # page move beyond the first row can otherwise reach accidentally.
+        line = self.cursor_line if self.cursor_node is not None else self.last_line
+        self.cursor_line = max(0, line - self.scrollable_content_region.height + 1)
+        self.scroll_to_line(self.cursor_line, animate=False)
+
+    def action_page_down(self):
+        line = self.cursor_line if self.cursor_node is not None else 0
+        self.cursor_line = max(0, line + self.scrollable_content_region.height - 1)
+        self.scroll_to_line(self.cursor_line, animate=False)
 
 
 class RecentActivity(Static, can_focus=True):
@@ -343,8 +382,9 @@ class RecentActivity(Static, can_focus=True):
         else:
             tree = self.app.query_one(WorkTree)
             tree.get_node_at_line(0)
-            if tree.root.children:
-                tree.move_cursor(tree.get_node_at_line(tree.last_line))
+            node = tree._get_node(tree.last_line)
+            if node is not None:
+                tree.move_cursor(node)
                 self.screen.set_focus(tree, scroll_visible=False)
 
     def action_next(self):
