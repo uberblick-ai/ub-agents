@@ -330,19 +330,22 @@ launcher's pass. Missing filing data leaves out both the row and `filed by`.
 
 Each run shows its outcome time, or claim time until an outcome exists; a green
 `✓` for success, red `✗` for a failed or abandoned run, or a spinner while in
-progress; the agent and a one-line summary shortened with `…`; its host; and its
-named outcome or run status. Acceptance and human blockers remain visible in
-the outcome column. Relative time steps are `just now`, `N min ago`, `N h ago`,
+progress; the agent and summary; its host; and its named outcome or run status,
+followed by any human blockers (`BLOCKED: …`). Unaccepted runs show a red `✗`.
+Every run and filing row occupies exactly one line at any pane width, including
+60 columns; text too long for any cell is shortened with `…`.
+Relative time steps are `just now`, `N min ago`, `N h ago`,
 `yesterday`, `N days ago` within the past week, then `YYYY-MM-DD`. Calendar days
 and dates use the viewer's local timezone.
 
 When an outcome records permission denials, its outcome column also shows
-`N denied`, counting listed entries plus `denials_omitted`. Under that run, each
-listed denial appears as `tool: command`, wrapping when needed. Up to 10 entries
+` · N denied`, counting recorded entries plus `denials_omitted`, for example
+`approved · 4 denied`. Outcome and blocker text shorten first so the count stays
+whole on the same line. Denied commands remain available through
+`ub-agents status --json`; `ub-agents status` also shows the count. Up to 10 entries
 are recorded, with commands truncated to 200 characters. Claude runs supply these
-fields only after a final `result` event; an empty list, missing or malformed
-fields, and Codex runs show no count. Denials are display-only and do not change
-the run's result or acceptance.
+fields only after a final `result` event; a zero count, missing or malformed fields,
+and Codex runs show no count. Denials are display-only and do not change the run's result.
 
 The where column uses up to 14 columns and shrinks in narrow views. This host reads `this machine`;
 other hosts are dim, with their domain removed and long names shortened with
@@ -649,7 +652,8 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    the assignment spinner animates without moving the row, selection or scroll
    position, while elapsed time changes in whole seconds and stopping stays static.
    In Runs, check the filing row, local and foreign hosts, in-progress and completed runs,
-   acceptance, blockers, and summary shortening at the minimum width. Select
+   blockers and denial counts. Confirm every row stays on one line with long text
+   shortened at the minimum width and denial counts kept whole. Select
    another item and confirm its history replaces the prior table without a
    GitHub request; include an item with missing filing data and omitted runs.
    Check the single footer line shows the snapshot's version and activity, including

@@ -108,14 +108,21 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.send(b'3')
                 denied = terminal.checkpoint(lambda value: value['tab'] == 'runs'
                                     and any('2 denied' in line for line in value['visible']))
-                self.assertRegex('\n'.join(denied['visible']), r'Bash:.*\n.*pytest')
-                self.assertRegex('\n'.join(denied['visible']), r'Write:.*\n.*report\.md')
+                self.assertNotIn('Bash:', '\n'.join(denied['visible']))
+                self.assertNotIn('Write:', '\n'.join(denied['visible']))
                 for size in ((110, 32), (60, 32)):
                     value = check_resize(*size)
                     if value['narrow'] and not value['item']:
                         terminal.send(b'\r')
-                    terminal.checkpoint(lambda value: value['tab'] == 'runs'
+                    runs = terminal.checkpoint(lambda value: value['tab'] == 'runs'
                                and any('2 denied' in line for line in value['visible']))
+                    header = next(index for index, line in enumerate(runs['visible']) if 'outcome' in line)
+                    # Filing and both runs occupy the next three lines, even at 60 columns.
+                    history_rows = runs['visible'][header + 1:header + 4]
+                    self.assertIn('filed', history_rows[0])
+                    self.assertIn('2 denied', history_rows[1])
+                    self.assertTrue(any(glyph in history_rows[2] for glyph in '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'))
+                    self.assertNotIn('finalized', '\n'.join(history_rows))
                 check_resize(80, 24)
                 terminal.send(b'1')
                 terminal.checkpoint(lambda value: value['tab'] == 'log')
@@ -603,10 +610,10 @@ sys.exit(app.return_code or 1)
                     cached = terminal.expect(b'Cached description', b'Cached Markdown', b'Second line', b'Third line')
                     self.assertNotIn(b'## Cached Markdown', cached)
                     self.assertNotIn(b'**strong**', cached)
-                    # Give the Runs table room to show complete history fields.
+                    # Give the Runs table room to show the blocker prefix.
                     terminal.resize(150, 32)
                     terminal.send(b'3')
-                    terminal.expect(b'filed by bk-one', b'build-01', b'needs-human')
+                    terminal.expect(b'filed by bk-one', b'build-01', b'BLOCKED:')
                     terminal.resize(110, 32)
                     terminal.send(b'1p')
                     terminal.expect(b'process.log', b'Displayed bytes', b'evicted', b'Rendered limit 400')

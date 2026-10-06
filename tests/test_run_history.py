@@ -11,7 +11,6 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from rich.console import Console
-from rich.text import Text
 
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.observations import MAX_BYTES, MAX_OUTCOMES, MAX_TEXT, Observations
@@ -150,7 +149,7 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(runs[-1]['result'], 'blocked')
         self.assertEqual(runs[-1]['acceptance'], 'unaccepted')
 
-    def test_denials_survive_snapshot_and_display_under_their_run(self):
+    def test_denials_survive_snapshot_and_only_the_count_is_displayed(self):
         entries = [{'tool': 'Bash', 'command': 'python -m tests'},
                    {'tool': 'Write', 'command': '/scratch/report.md'}]
         for count, omitted in ((2, 0), (10, 2)):
@@ -161,16 +160,53 @@ class RunsTests(unittest.TestCase):
                 published = self.memory.snapshots[-1]['histories']['1']['runs']
                 self.assertEqual(published[0]['denials'], denials)
                 self.assertNotIn('denials', published[1])
-                for width in (60, 110):
+                for width in (54, 60, 110):
                     value, view = self.display(width=width)
                     table = list(view.renderables)[1]
-                    self.assertEqual(len(table.rows), count + 2)
+                    self.assertEqual(len(table.rows), 2)
+                    self.assertEqual(len(value.splitlines()), 4)  # Subtitle, header, two runs.
                     self.assertIn(f'{count + omitted} denied', value)
-                    commands = '\n'.join(cell.plain for cell in table.columns[2].cells
-                                         if isinstance(cell, Text))
-                    self.assertIn('Bash: python -m tests', commands)
-                    self.assertIn('Write: /scratch/report.md', commands)
-                    self.assertNotIn('…', commands)
+                    self.assertTrue(value.splitlines()[2].rstrip().endswith(f' · {count + omitted} denied'))
+                    self.assertNotIn('python -m tests', value)
+                    self.assertNotIn('/scratch/report.md', value)
+                    self.assertEqual(published[0].get('denials_omitted', 0), omitted)
+
+    def test_long_outcome_and_blockers_shorten_before_the_denial_count(self):
+        denials = [{'tool': 'Bash', 'command': 'not displayed'}] * 4
+        for label, blockers in (('approved', ()), ('changes-requested', ()),
+                                ('approved', ('needs-human',)), ('審査中' * 20, ())):
+            with self.subTest(outcome=label, blockers=blockers):
+                self.plan(issue(labels=blockers), (outcome(outcome=label, handoff=None, denials=denials),))
+                for width in (54, 60, 110):
+                    value, view = self.display(width=width)
+                    self.assertEqual(len(value.splitlines()), 3)
+                    self.assertTrue(value.splitlines()[-1].rstrip().endswith(' · 4 denied'))
+                    self.assertNotIn('finalized', value)
+                    if label != 'approved' or blockers:
+                        self.assertIn('… · 4 denied', value)
+                    elif width == 110:
+                        self.assertIn('approved · 4 denied', value)
+                cell = list(view.renderables)[1].columns[4]._cells[0]
+                stream = io.StringIO()
+                Console(file=stream, width=200, color_system=None).print(cell)
+                expected = label + (' · BLOCKED: needs-human' if blockers else '') + ' · 4 denied\n'
+                self.assertEqual(stream.getvalue(), expected)
+
+    def test_every_row_stays_on_one_line_in_narrow_views(self):
+        filed = replace(issue(labels=('needs-human',)), author='a-long-filing-login-' * 5)
+        self.plan(filed, (outcome(summary='summary\n' * 30, agent='long-agent-' * 10,
+                                 outcome='long-outcome-' * 20, handoff=None,
+                                 host='a-very-long-foreign-host.example'),
+                          claim('live', self.now.timestamp(), agent='another-long-agent-' * 10,
+                                state='a-long-running-state-' * 10)))
+        for width in (20, 40, 60, 72, 110):
+            with self.subTest(width=width):
+                value, view = self.display(width=width)
+                table = list(view.renderables)[1]
+                self.assertEqual(len(table.rows), 3)  # Filing and two runs.
+                self.assertEqual(len(value.splitlines()), 5)
+                self.assertTrue(all(len(line) <= width for line in value.splitlines()))
+                self.assertIn('…', value)
 
     def test_empty_missing_and_malformed_denials_are_ignored_by_runs(self):
         for fields in ({}, {'denials': []}, {'denials': 'bad'}, {'denials': [None]},
@@ -312,7 +348,7 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(state['latest_pass']['rows'][0]['description']['text'], 'B' * 2000)
         self.assertEqual(state['histories']['20']['runs'][0]['time'], iso(1020))
 
-    def test_result_colors_spinner_summary_shortening_acceptance_and_blockers(self):
+    def test_result_colors_spinner_summary_shortening_and_blockers(self):
         filed = replace(issue(labels=('needs-human',)), author='bk-one')
         stamp = self.now.timestamp()
         self.plan(filed, (outcome(created=stamp - 600, handoff=None),
@@ -320,11 +356,11 @@ class RunsTests(unittest.TestCase):
                           claim('abandoned', stamp - 400, expires=iso(stamp - 1)),
                           claim('live', stamp - 300, summary='x' * 200)))
         value, view = self.display(width=72)
-        self.assertIn('finalized', value)
+        self.assertNotIn('finalized', value)
         self.assertIn('BLOCKED:', value)
-        self.assertIn('needs-human', value)
         self.assertIn('…', value)
         table = list(view.renderables)[1]
+        self.assertIn('needs-human', table.columns[4]._cells[1].value.plain)
         self.assertEqual(table.columns[1]._cells[0].style.color.name, '#7ee2a0')  # Filing.
         self.assertEqual(table.columns[1]._cells[1].style.color.name, '#7ee2a0')
         self.assertEqual(table.columns[1]._cells[2].style.color.name, '#ff8b7f')
@@ -350,8 +386,18 @@ class RunsTests(unittest.TestCase):
 
     def test_rejected_success_and_released_or_withdrawn_claims_are_failures(self):
         for row in ({'result': 'success', 'rejection': 'Changed candidate'},
+                    {'result': 'success', 'acceptance': 'unaccepted'},
                     {'state': 'released'}, {'state': 'withdrawn'}):
             self.assertEqual(run_status(row, self.now)[0], 'failed')
+
+    def test_unaccepted_run_keeps_a_red_result_without_acceptance_text(self):
+        self.plan(history=(outcome(outcome='approved', accepted=False, transition_complete=False),))
+        value, view = self.display()
+        self.assertIn('approved', value)
+        self.assertNotIn('unaccepted', value)
+        glyph = list(view.renderables)[1].columns[1]._cells[0]
+        self.assertEqual(glyph.plain, '✗')
+        self.assertEqual(glyph.style.color.name, '#ff8b7f')
 
 
 if __name__ == '__main__':

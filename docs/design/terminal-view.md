@@ -291,11 +291,11 @@ PR the first row is the issue it closes.
 │  ⌥167 Group the terminal view's work list into sections                                │
 │  closes #159 · filed by bk-one · 3 runs                                                │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
-│  when        result  agent · summary                         where         outcome     │
-│  2 days ago  ✓       filed by bk-one                         GitHub        filed       │
-│  52 min ago  ✓       implementer · sections from snapshot …  bens-macbook… handed-off  │
-│  34 min ago  ✓       reviewer · changelog entry tightened    uberblick     approved    │
-│  20 min ago  ✓       integrator · squash-merged at d41f0a2   this machine  merged      │
+│  when        result  agent · summary              where         outcome                │
+│  2 days ago  ✓       filed by bk-one              GitHub        filed                  │
+│  52 min ago  ✓       implementer · sections fro…  bens-macbook… handed-off             │
+│  34 min ago  ✓       reviewer · changelog entry…  uberblick     approved · 4 denied    │
+│  20 min ago  ✓       integrator · squash-merged…  this machine  merged                 │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -304,6 +304,11 @@ PR the first row is the issue it closes.
   (dim), in a fixed 14-column slot: the domain part is dropped (`build-01.tail9c.ts.net`
   shows as `build-01`) and longer names are shortened with `…`.
 - Result glyphs: `✓` green, `✗` red, spinner for a run in progress.
+- Every run and filing row occupies one line at any pane width, including 60
+  columns. Text too long for any cell is shortened with `…`, never wrapped.
+- The outcome cell shows the outcome or status, then any `BLOCKED: …` human
+  blockers, then ` · N denied` for a positive denial count. Outcome and blocker
+  text shorten first to keep the count whole. Unaccepted runs retain a red `✗`.
 
 ## Footer and states
 
