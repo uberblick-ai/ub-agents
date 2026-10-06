@@ -2378,7 +2378,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             recent = app.query_one(RecentActivity)
-            await self.ready(app, pilot, lambda: len(recent.rows) == 20)
+            # Selection and focus follow the rows in a later refresh.
+            await self.ready(app, pilot, lambda: len(recent.rows) == 20 and app.focused is recent
+                             and app.selected == 'outcome:past-19')
             self.assertEqual(app.selected, 'outcome:past-19')
             self.assertIs(app.focused, recent)
             visible = recent.visible_rows
