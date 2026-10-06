@@ -60,7 +60,7 @@ and skipped checks by area. Labels are counted once per distinct label. Use
 structured results; `--verbose` does not change JSON output.
 
 Interactive launches open a read-only [terminal view](docs/terminal-view.md) of
-their own session; `q` and Ctrl-C interrupt the launcher and clean up owned runs.
+their own session; `q` stops after the current run, while Ctrl-C stops it immediately.
 Use `launch --no-ui` for plain lines. Pipes and services stay plain.
 
 Launch output is flushed immediately to the terminal when the view is closed and appended to
@@ -172,7 +172,7 @@ one release, hidden from help.
 
 | Signal or key | Effect | Exit |
 |---|---|---|
-| `q` in the view | Same as Ctrl-C: interrupt the launcher, clean up owned runs and restore the terminal with the final message visible. | 130 |
+| `q` in the view | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup. A centered shutdown screen stays visible until exit; idle launchers exit promptly. | 0 |
 | `SIGTERM` (`kill -TERM <pid>`) | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup; an in-progress checkout refresh finishes without a claim. When idle it exits promptly. | 0 |
 | `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`, including when idle or during a GitHub request. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
 | `SIGHUP` | Same as Ctrl-C. | 130 |
@@ -186,8 +186,11 @@ error keeps its nonzero exit even during a drain. See the
 and the [coordination contract](docs/coordination.md#execution-boundaries) for
 execution and cleanup boundaries.
 
-The view closes and restores the terminal on launcher exit, including errors. A
-view crash or kill restores the terminal and resumes plain output with one line
+The view closes and restores the terminal on launcher exit, including errors.
+Ctrl-C in the view shows a centered Stopping screen through termination and cleanup,
+including after `q`. Repeated `q` presses do nothing; repeated Ctrl-C presses on
+the Stopping screen do nothing. Either key closes a standalone view immediately.
+A view crash or kill restores the terminal and resumes plain output with one line
 reporting the failure. Launcher and view reap their owned processes.
 
 The launcher does not reload code; restart it after an upgrade or after checkout

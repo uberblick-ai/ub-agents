@@ -27,8 +27,8 @@ from .view_unblock import ActionComment, comment_sections, local_action, needs_a
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_worker import LocalWorker, Request
-from .view_work import ELIGIBLE_LIMIT, RecentActivity, WorkTree
-from .view_theme import VIEW_THEME, log_style, theme_style, variable_defaults
+from .view_work import ELIGIBLE_LIMIT, RecentActivity, WorkTree, assignment_elapsed
+from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
 from .updates import release_age
 
 MAX_RENDER_LINES = 400
@@ -43,7 +43,7 @@ class UpdateBanner(Static):
 
     def set_banner(self, banner):
         banner = mapping(banner)
-        self.display = (not self.app.too_small and bool(banner.get('text'))
+        self.display = (not self.app.too_small and self.app.shutdown is None and bool(banner.get('text'))
                         and isinstance(banner.get('text'), str))
         if self.banner != banner:
             self.banner = banner
@@ -159,8 +159,8 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             + poll_key +
             'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
             '?   Open or close this help; Escape also closes it\n'
-            'q   Quit: interrupt an attached launcher; close a standalone view\n'
-            'Ctrl-C   Same as q')
+            'q   Stop after run; close a standalone view\n'
+            'Ctrl-C   Stop now; close a standalone view')
 
 
 @dataclass
@@ -363,6 +363,7 @@ class View(App):
     #update { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
     #body { height: 1fr; }
     #size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
+    #shutdown { height: 1fr; content-align: center middle; text-align: center; display: none; }
     #work_pane { width: 36; }
     #work_pane, #panes {
         border: round $view-border; border-title-color: $view-border;
@@ -403,8 +404,8 @@ class View(App):
     #status { height: 1; background: $panel; }
     '''
     BINDINGS = [
-        Binding('q', 'quit', 'Quit', priority=True),
-        Binding('ctrl+c', 'quit', 'Quit', priority=True),
+        Binding('q', 'quit', 'Stop after run', priority=True),
+        Binding('ctrl+c', 'stop_now', 'Stop now', priority=True),
         Binding('enter', 'open_item', 'Open item', priority=True),
         Binding('escape', 'back', 'Back', priority=True),
         Binding('f', 'follow', 'Follow/pause', priority=True),
@@ -429,6 +430,7 @@ class View(App):
         self.register_theme(VIEW_THEME)
         self.theme = VIEW_THEME.name
         self.launcher = launcher
+        self.shutdown = None
         self.worker = worker or LocalWorker(root, session_path)
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
@@ -451,6 +453,7 @@ class View(App):
         self.layout_focus = None
 
     def compose(self) -> ComposeResult:
+        yield Static('', id='shutdown', markup=False)
         yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='size_warning')
         yield UpdateBanner()
         with Horizontal(id='body'):
@@ -500,6 +503,12 @@ class View(App):
         pane = self.query_one_optional('#work_pane')
         if pane is None:
             return
+        if self.shutdown is not None:
+            for selector in ('#body', '#status', '#size_warning', '#update'):
+                self.query_one(selector).display = False
+            self.query_one('#shutdown').display = True
+            self.update_shutdown()
+            return
         narrow = size.width < 110 or size.height < 32
         too_small = size.width < 60 or size.height < 16
         output = self.query_one(LogPane)
@@ -535,6 +544,8 @@ class View(App):
         self.update_status()
 
     def check_action(self, action, parameters):
+        if self.shutdown is not None:
+            return action in {'quit', 'stop_now'}
         item_actions = {'follow', 'raw', 'history', 'path', 'load_description',
                         'tab', 'page_up', 'page_down', 'home', 'end'}
         if self.too_small and action in item_actions | {'help', 'open_item', 'back', 'focus_next', 'focus_previous'}:
@@ -580,9 +591,45 @@ class View(App):
             tree.focus(scroll_visible=False)
 
     def action_quit(self):
-        if self.launcher is not None:
-            self.launcher.interrupt()
-        self.exit()
+        if self.launcher is None:
+            self.exit()
+        elif self.shutdown is None:
+            self.begin_shutdown('draining')
+            # Draw even the idle screen before the launcher can close the view.
+            self.call_after_refresh(self.launcher.drain)
+
+    def action_stop_now(self):
+        if self.launcher is None:
+            self.exit()
+        elif self.shutdown != 'stopping':
+            self.begin_shutdown('stopping')
+            self.call_after_refresh(self.launcher.interrupt)
+
+    def begin_shutdown(self, mode):
+        self.shutdown = mode
+        while len(self.screen_stack) > 1:
+            self.pop_screen()
+        self.set_focus(None)
+        self.update_layout(self.size)
+
+    def update_shutdown(self):
+        assignment = mapping(self.session.data.get('assignment')) if self.session else {}
+        key = 'assignment:' + text(assignment.get('run'), 'claiming')
+        row = self.rows.get(key) if assignment else None
+        middle = 'No run in progress.'
+        if row is not None:
+            history = mapping(row.data.get('history'))
+            reference = item_reference(row.item, row.data.get('kind') or history.get('kind'), app=self).plain
+            if self.shutdown == 'draining':
+                elapsed = assignment_elapsed(row, claimed_at=self.query_one(WorkTree).claim_times.get(key))
+                middle = f'Waiting for {reference} ({row.agent}, {elapsed}) to finish.'
+            else:
+                middle = f'Terminating {reference} ({row.agent}) and releasing its claim…'
+        title = 'Shutting down the launcher' if self.shutdown == 'draining' else 'Stopping the launcher'
+        message = title + '\n\n' + middle
+        if self.shutdown == 'draining':
+            message += '\nNo new work will be claimed. Press Ctrl-C to stop now.'
+        self.query_one('#shutdown', Static).update(Text(message, justify='center'))
 
     def action_poll_now(self):
         if self.launcher is not None:
@@ -1020,6 +1067,9 @@ class View(App):
 
     def update_status(self):
         if not self.is_mounted:
+            return
+        if self.shutdown is not None:
+            self.update_shutdown()
             return
         reading = self.reading
         mode = Text('│ ', style=theme_style(self, 'view-muted'))

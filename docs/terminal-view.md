@@ -406,8 +406,19 @@ Claude and Codex Log transcripts are described below.
 | `r` (attached launcher) | Poll GitHub now while idle, or refresh the queue read-only during a run; at most once per 10 seconds |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
 | `?` | Show all keys; `Escape` or `?` closes help |
-| `q` | Interrupt an attached launcher with its normal SIGINT handling (exit 130); close only a standalone view |
-| `Ctrl-C` | Same as `q` |
+| `q` | Stop after the current run or recovery, with no new claims (exit 0); close a standalone view |
+| `Ctrl-C` | Stop now with the launcher's normal SIGINT handling (exit 130); close a standalone view |
+
+On an attached view, either stop key replaces the panes, header, update banner,
+footer and any overlay with a centered full-screen message until the launcher
+exits. After `q`, it reads `Shutting down the launcher`, names the running item,
+agent and updating elapsed assignment time, and says
+`No new work will be claimed. Press Ctrl-C to stop now.` Ctrl-C shows
+`Stopping the launcher` and names the item and agent being terminated and its
+claim being released. Both screens say `No run in progress.` when idle.
+Repeated `q` presses do nothing on either screen, and repeated Ctrl-C presses do
+nothing on the Stopping screen. External SIGTERM keeps the normal panes with
+the existing `■ stopping` row state.
 
 The one-line footer shows the snapshot's launcher version and activity on the
 left: waiting counts down as `next poll Ns`; other activities say `polling`,
@@ -597,8 +608,8 @@ or extra role reads. No reads or retries happen automatically. There is at most 
 in flight: pressing `g` while any read is pending queues nothing. Input and local
 snapshot/log reading continue while it is pending, with a loading notice on the requesting tab.
 Closing the view terminates and reaps its owned request processes. A request
-supervisor also cleans them up if the view is killed. `q` and Ctrl-C interrupt an
-attached launcher; either key closes only a standalone view.
+supervisor also cleans them up if the view is killed. `q` drains an attached
+launcher and Ctrl-C interrupts it; either key closes only a standalone view.
 
 Descriptions show their source and age: snapshot publication time, run context
 file modification time, or GitHub load completion time; missing local timestamps
@@ -640,8 +651,9 @@ limited to 21, matching the session's bounded
 20 recent outcomes plus its current assignment.
 
 Launcher lines written while the view is open continue to append, with the same
-UTC timestamps, to `.ub-agents/launch.log`. Quitting with `q` or Ctrl-C interrupts
-the launcher and cleans up its owned runs. On launcher exit the view closes, the
+UTC timestamps, to `.ub-agents/launch.log`. Stopping with `q` lets the current run
+or recovery finish its report, label transitions and cleanup; Ctrl-C interrupts
+and cleans up owned runs. On launcher exit the view closes, the
 terminal is restored, and the final launcher message is visible. A crashed or
 killed view produces one diagnostic and resumes plain output without replaying
 past lines. SIGTERM drains the launcher normally; SIGHUP interrupts it like Ctrl-C.

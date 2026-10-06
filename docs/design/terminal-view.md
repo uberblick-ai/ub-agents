@@ -6,8 +6,8 @@ describes what the view does today. When an issue lands, update both files.
 
 The view stays read-only. It reads the launcher's local session snapshot and run logs
 and makes no GitHub calls except `g` on the Issue and Unblock tabs. It has no workflow controls,
-so there is no retry key and no filter. `q` quits the view and stops the launch, like
-Ctrl-C (#182).
+so there is no retry key and no filter. `q` stops the launch after the current run;
+Ctrl-C stops it immediately. The view stays open through launcher cleanup (#287).
 
 ## Layout
 
@@ -348,9 +348,34 @@ Update available (themed banner above both panes):
  ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, then restart the launcher   released 2 days ago
  ⬆ This launcher runs code 3 commits behind origin/main · restart the launcher
 
-Stopping:
+External SIGTERM (normal panes remain visible):
  ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
+
+After q (whole screen, centered):
+
+                    Shutting down the launcher
+
+          Waiting for ⌥284 (implementer, 04:12) to finish.
+          No new work will be claimed. Press Ctrl-C to stop now.
+
+After Ctrl-C (whole screen, centered):
+
+                    Stopping the launcher
+
+          Terminating ⌥284 (implementer) and releasing its claim…
 ```
+
+The shutdown screens replace both panes, the item header, update banner, footer
+and any open overlay, including below the minimum terminal size. `#N` identifies
+an issue and `⌥N` a PR. The graceful screen's elapsed assignment time keeps updating
+through the run or recovery. With nothing running, either screen's middle line
+reads `No run in progress.`; an idle graceful stop exits 0 promptly. Ctrl-C from
+anywhere in the view, including the graceful screen, stops immediately (exit 130).
+Repeated `q` presses do nothing on either screen; repeated Ctrl-C presses do
+nothing on the Stopping screen. Only launcher exit closes the view and restores
+the terminal, leaving the final launcher message visible. A standalone view still
+closes immediately on either key. The `?` list describes `q   Stop after run` and
+`Ctrl-C   Stop now`, with each line also saying it closes a standalone view.
 
 `r` is available only with an attached launcher, on every tab and pane, and is
 listed in `?`. It wakes idle polling or the running assignment's read-only queue
