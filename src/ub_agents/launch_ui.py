@@ -19,7 +19,7 @@ def ui_command():
     return [sys.executable, '-P', '-m', 'ub_agents.view']
 
 
-def open_view(root, session, output, stop, *, no_ui=False):
+def open_view(root, session, output, stop, *, no_ui=False, poll=None):
     if no_ui or not sys.stdin.isatty() or not output.stdout.isatty():
         return None
     command = ui_command()
@@ -30,7 +30,7 @@ def open_view(root, session, output, stop, *, no_ui=False):
             raise ValueError(probe.stdout.strip() or 'incompatible UI/base version')
         if session is None:
             raise ValueError('launcher session is missing')
-        view = ViewProcess(command, root, session, output)
+        view = ViewProcess(command, root, session, output, poll=poll)
         view.start(stop)
         return view
     except (OSError, ValueError, termios.error, subprocess.TimeoutExpired) as exc:
@@ -39,7 +39,7 @@ def open_view(root, session, output, stop, *, no_ui=False):
 
 
 class ViewProcess:
-    def __init__(self, command, root, session, output):
+    def __init__(self, command, root, session, output, *, poll=None):
         self.command, self.root, self.session, self.output = command, root, session, output
         self.process = self.channel = None
         self.closing = threading.Event()
@@ -48,6 +48,7 @@ class ViewProcess:
         self.error = None
         self.modes = None
         self.winch_handler = None
+        self.poll = poll
 
     def start(self, stop):
         child = None
@@ -110,6 +111,8 @@ class ViewProcess:
                             self.ready.set()
                         elif message == b'interrupt':
                             os.kill(os.getpid(), signal.SIGINT)
+                        elif message == b'poll' and self.poll is not None:
+                            self.poll()
                         elif message.startswith(b'error '):
                             self.error = message[6:].decode('utf-8', errors='replace')[:300]
                 elif self.process.poll() is not None:

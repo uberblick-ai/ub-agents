@@ -140,9 +140,10 @@ class KeyHelp(RawAccess, inherit_bindings=False):
     BINDINGS = [Binding('escape,question_mark', 'dismiss', 'Close', priority=True)]
     footer_keys = 'Esc/? close q quit'
 
-    def __init__(self, unblock=False):
+    def __init__(self, unblock=False, attached=False):
         unblock_keys = ('4 on Needs attention   Unblock\n'
                         'g on Unblock   Load the action-needed comment or retry a failed read\n') if unblock else ''
+        poll_key = 'r   Poll GitHub now (attached launcher only; 10s cooldown)\n' if attached else ''
         super().__init__(
             'Keys\n\n'
             'Tab / arrows / Enter   Focus a pane and select a work row\n'
@@ -155,6 +156,7 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             'h   Read an older bounded page toward byte zero\n'
             'u   Toggle formatted/raw projection of the same page\n'
             'p   Show the full raw path and log diagnostics; Escape closes it\n'
+            + poll_key +
             'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
             '?   Open or close this help; Escape also closes it\n'
             'q   Quit: interrupt an attached launcher; close a standalone view\n'
@@ -409,6 +411,7 @@ class View(App):
         Binding('u', 'raw', 'Raw', priority=True),
         Binding('h', 'history', 'Older page', priority=True),
         Binding('p', 'path', 'Full raw path', priority=True),
+        Binding('r', 'poll_now', 'Poll now', priority=True),
         Binding('question_mark', 'help', 'Keys', priority=True),
         Binding('g', 'load_description', 'Load/retry description', priority=True),
         Binding('1', "tab('log')", 'Log', priority=True),
@@ -580,6 +583,10 @@ class View(App):
         if self.launcher is not None:
             self.launcher.interrupt()
         self.exit()
+
+    def action_poll_now(self):
+        if self.launcher is not None:
+            self.launcher.poll()
 
     def on_unmount(self):
         if self._window_title is not None and self._driver is not None:
@@ -953,20 +960,48 @@ class View(App):
             elif state in {'stale', 'ended'}:
                 parts.append(state)
             activity = mapping(self.session.data.get('activity'))
+            control = mapping(self.session.data.get('poll_now'))
             value = text(activity.get('state'), '')
+            now = datetime.now(timezone.utc)
+            limited = None
+            if self.launcher is not None:
+                limited = control.get('rate_limit_until')
+                if activity.get('reason') == 'rate-limit reset':
+                    limited = limited or activity.get('until')
+            try:
+                limited = datetime.fromisoformat(limited.replace('Z', '+00:00'))
+                if limited.tzinfo is None or limited <= now:
+                    limited = None
+            except (ValueError, TypeError, AttributeError, OverflowError):
+                limited = None
             if value == 'waiting':
                 try:
                     until = datetime.fromisoformat(activity['until'].replace('Z', '+00:00'))
                     if until.tzinfo is not None:
                         prefix = 'poll' if self.narrow else 'next poll'
-                        value = f'{prefix} {max(0, ceil((until - datetime.now(timezone.utc)).total_seconds()))}s'
+                        value = f'{prefix} {max(0, ceil((until - now).total_seconds()))}s'
                 except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
                     pass
+            if limited is not None:
+                label = f'rate limited until {limited.astimezone():%H:%M} · r unavailable'
+                value = f'{value} · {label}' if value == 'running assignment' else label
             if value:
                 parts.append(value)
+            if self.launcher is not None and limited is None:
+                try:
+                    until = datetime.fromisoformat(control['cooldown_until'].replace('Z', '+00:00'))
+                    remaining = ceil((until - now).total_seconds())
+                    if remaining > 0:
+                        parts.append(f'poll now available in {remaining}s')
+                except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+                    pass
         else:
             parts.append('reading session')
         left = Text(' · '.join(part for part in parts if part), no_wrap=True, overflow='ellipsis')
+        if self.launcher is not None:
+            poll_keys = keys.replace('? keys', 'r poll now ? keys')
+            if not self.narrow or len(poll_keys) + left.cell_len + 1 <= width:
+                keys = poll_keys
         # Shorten paused keys only when they crowd out the version/activity.
         if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('f follow'):
             keys = 'f follow h older u raw PgUp/Dn ? keys q quit'
@@ -1180,7 +1215,7 @@ class View(App):
         if isinstance(self.screen, KeyHelp):
             self.screen.dismiss()
         else:
-            self.push_screen(KeyHelp(self.unblock_visible))
+            self.push_screen(KeyHelp(self.unblock_visible, attached=self.launcher is not None))
 
     def action_page_up(self):
         if isinstance(self.screen, RawAccess):

@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import threading
+from contextlib import nullcontext
 from time import monotonic
 from dataclasses import replace
 
@@ -22,6 +23,7 @@ from .report_command import launcher_report_command
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
 from .polling import idle_interval
+from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
@@ -58,6 +60,7 @@ class Loop:
         self._continuous = False
         self._run_planning = None
         self._planning_workers = []
+        self.poll_now = None
         self.updates = None
         self._last_update = None
         self._update_texts = set()
@@ -108,10 +111,21 @@ class Loop:
                     else:
                         self.output(f"Cannot publish launcher observations: {exc}")
 
+    def enable_poll_now(self):
+        self.poll_now = PollNow(
+            lambda cooldown, limited: self._observe("poll_now", cooldown, limited),
+            lambda: self.coordinator.clock(), clock=lambda: monotonic())
+
+    def request_poll(self):
+        if self.poll_now is not None:
+            self.poll_now.request()
+
     def _wait(self, event, delay, reason):
         if self.observer is not None:
             self._observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
-        if self.updates is None:
+        if self.poll_now is not None and reason == "next poll or runtime pause":
+            self.poll_now.wait(event, delay, self._poll_updates if self.updates is not None else None)
+        elif self.updates is None:
             event.wait(delay)
         else:
             remaining = delay
@@ -143,36 +157,39 @@ class Loop:
         # SIGTERM wakes discovery, but an owned run keeps draining. Only Ctrl-C
         # and SIGHUP wake the in-run wait.
         event = self.interrupt_event if lease is not None else self.stop_event
-        if lease is None:
-            self._wait(event, delay, "rate-limit reset")
+        until, remaining = now + delay, delay
+        # Publish the actual reset once, and reject forced planning polls even
+        # between the ownership checks that split an owned run's wait.
+        with self.poll_now.rate_limit(until) if self.poll_now is not None else nullcontext():
+            if lease is None:
+                self._wait(event, delay, "rate-limit reset")
+                if self.interrupt_event.is_set():
+                    raise KeyboardInterrupt
+                if self.stop_event.is_set():
+                    raise _GracefulStop
+                return
+            while remaining > 0:
+                now = self.coordinator.clock()
+                try:
+                    expiry = self.coordinator.deadline(lease)
+                except LostOwnership as exc:
+                    raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
+                remaining = min(remaining, until - now)
+                if remaining <= 0:
+                    break
+                # Renewal runs independently. Wake at least once a minute so an
+                # extended expiry or known ownership loss changes this wait's bound.
+                wait = min(60, remaining, expiry - now)
+                self._wait(event, wait, "rate-limit reset")
+                remaining -= wait
+                if self.interrupt_event.is_set():
+                    raise KeyboardInterrupt
             if self.interrupt_event.is_set():
                 raise KeyboardInterrupt
-            if self.stop_event.is_set():
-                raise _GracefulStop
-            return
-        until, remaining = now + delay, delay
-        while remaining > 0:
-            now = self.coordinator.clock()
             try:
-                expiry = self.coordinator.deadline(lease)
+                self.coordinator.deadline(lease)
             except LostOwnership as exc:
                 raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
-            remaining = min(remaining, until - now)
-            if remaining <= 0:
-                break
-            # Renewal runs independently. Wake at least once a minute so an
-            # extended expiry or known ownership loss changes this wait's bound.
-            wait = min(60, remaining, expiry - now)
-            self._wait(event, wait, "rate-limit reset")
-            remaining -= wait
-            if self.interrupt_event.is_set():
-                raise KeyboardInterrupt
-        if self.interrupt_event.is_set():
-            raise KeyboardInterrupt
-        try:
-            self.coordinator.deadline(lease)
-        except LostOwnership as exc:
-            raise LostOwnership(f"Lease expired or ownership lost while waiting for GitHub rate limit reset: {exc}") from exc
 
     def stop_gracefully(self):
         self._observe("activity", "stopping")

@@ -444,7 +444,10 @@ def run(args):
         if not stop.is_set():
             from .launch_ui import open_view
             session = loop.observer.state['session'] if loop.observer is not None else None
-            view = open_view(config.root, session, args.launch_output, stop, no_ui=args.no_ui)
+            view = open_view(config.root, session, args.launch_output, stop,
+                             no_ui=args.no_ui, poll=loop.request_poll)
+            if view is not None:
+                loop.enable_poll_now()
         if args.number is not None:
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
         loop.launch(once=args.once)

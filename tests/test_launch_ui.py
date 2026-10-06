@@ -9,6 +9,7 @@ from pathlib import Path
 import pty
 import select
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -21,7 +22,7 @@ from unittest.mock import Mock, patch
 from ub_agents import __version__
 from ub_agents.launch_log import launch_output
 from ub_agents.launch_ui import ViewProcess, open_view
-from ub_agents.view import attach
+from ub_agents.view import LauncherConnection, attach
 from tests.terminal import Terminal
 from tests.test_view_data import fixture
 
@@ -31,6 +32,23 @@ class Tty(io.StringIO):
 
 
 class LaunchSelectionTests(unittest.TestCase):
+    def test_poll_message_uses_existing_channel_without_interrupting_launcher(self):
+        parent, child = socket.socketpair()
+        self.addCleanup(parent.close)
+        connection = LauncherConnection(child.detach())
+        self.addCleanup(connection.channel.close)
+        received = []
+        process = ViewProcess([], Path('.'), 'own', Mock(), poll=lambda: received.append('poll'))
+        process.channel = parent
+        process.process = Mock()
+        process.process.wait.return_value = 0
+        connection.poll()
+        connection.channel.shutdown(socket.SHUT_WR)
+        with patch('ub_agents.launch_ui.os.kill') as kill:
+            process.monitor()
+        self.assertEqual(received, ['poll'])
+        kill.assert_not_called()
+
     def test_terminal_startup_failure_keeps_plain_output(self):
         with tempfile.TemporaryDirectory() as directory:
             terminal = Tty()
@@ -161,7 +179,8 @@ from ub_agents.loop import Loop
 root = pathlib.Path(sys.argv[2])
 mode = sys.argv[3]
 github = FakeGitHub(issue(116))
-cfg = config(root, agent(root, kind='issue', command=(), runtimes=(Runtime('claude', 'synthetic', 'high'),)))
+cfg = replace(config(root, agent(root, kind='issue', command=(),
+                               runtimes=(Runtime('claude', 'synthetic', 'high'),))), poll_seconds=400)
 # One real supervised owned agent replays the sanitized captured Claude fixture.
 source = pathlib.Path(sys.argv[1]) / 'tests/fixtures/runtime_logs/claude.log'
 loop = None
@@ -276,12 +295,18 @@ class LaunchTerminalTests(unittest.TestCase):
                     self.assertIn(b'--session', table.encode())
                     self.assertIn(first_session, next(line for line in table.splitlines() if line.split()[0] == str(view_pid)))
                 if mode == 'q':
+                    assignment = json.loads(paths[0].read_text())['assignment']
+                    terminal.send(b'r')
+                    terminal.wait_for(lambda: json.loads(paths[0].read_text())['latest_pass']['state'] == 'complete')
+                    self.assertEqual(json.loads(paths[0].read_text())['assignment'], assignment)
+                    self.assertIsNone(process.poll())
+                    os.kill(agent_pid, 0)
                     terminal.send(b'f')
                     terminal.expect(b'PAUSED')
                     terminal.send(b'\x1b[5~hu')
                     terminal.expect(b'RAW')
                     terminal.resize(100, 25)
-                    terminal.expect('↑↓ select ⏎ open ? keys q quit'.encode())
+                    terminal.expect('↑↓ select ⏎ open r poll now ? keys q quit'.encode())
                     self.assertNotIn(b'minimum 110', transcript)
                     terminal.resize(110, 32)
                     terminal.expect(lambda out: b'PgUp/PgDn scroll' in out or b'1-3 tabs' in out)

@@ -80,13 +80,27 @@ class RunPlanning:
         self.cancel()
         self.thread.join()
 
+    def _wait(self, delay, rate_until):
+        control = self.loop.poll_now
+        if control is None:
+            return self.stop.wait(delay)
+        deadline = self.clock() + delay
+        if rate_until is not None:
+            limited_delay = min(delay, max(0, rate_until - self.planner.coordinator.clock()))
+            if limited_delay:
+                with control.rate_limit(rate_until):
+                    if self.stop.wait(limited_delay):
+                        return True
+        return control.wait(self.stop, max(0, deadline - self.clock()))
+
     def _run(self):
         elapsed = self.clock() - self.started
         interval, _ = idle_interval(self.loop.github.quota_requests - self.loop._requests_before,
                                     self.planner.config.poll_seconds,
                                     self.loop.github.resource_quotas,
                                     self.planner.coordinator.clock(), elapsed)
-        while not self.stop.wait(max(0, self.started + interval - self.clock())):
+        rate_until = None
+        while not self._wait(max(0, self.started + interval - self.clock()), rate_until):
             with self.lock:
                 if self.stop.is_set():
                     return
@@ -96,6 +110,7 @@ class RunPlanning:
             self.planner.observer = events
             before = self.planner.github.quota_requests
             rate_wait = 0
+            rate_until = None
             try:
                 # Exhaust the ranked queue. No tick, recovery, parking or runtime
                 # maintenance is reachable through this path.
@@ -114,6 +129,7 @@ class RunPlanning:
                     now = self.planner.coordinator.clock()
                     reset = exc.reset_at if exc.reset_at is not None else now + RATE_LIMIT_FALLBACK_SECONDS
                     rate_wait = min(RATE_LIMIT_MAX_SECONDS, max(0, reset - now))
+                    rate_until = now + rate_wait
                 # Observation failure cannot stop or change the owned run.
             elapsed = self.clock() - self.started
             interval, _ = idle_interval(self.planner.github.quota_requests - before,

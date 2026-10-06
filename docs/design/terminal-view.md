@@ -330,12 +330,19 @@ PR the first row is the issue it closes.
 ## Footer and states
 
 ```text
- ub-agents v0.1.11 · next poll 26s     ↑↓ select ⏎ open 1-3 tabs ? keys q quit
+ ub-agents v0.1.11 · next poll 26s     ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
+
+After r:
+ ub-agents v0.1.11 · polling          ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
+
+r within the 10-second cooldown, or during a GitHub rate-limit wait:
+ ub-agents v0.1.11 · next poll 26s · poll now available in 8s
+ ub-agents v0.1.11 · rate limited until 18:02 · r unavailable
 
 Paused log (pill at the bottom right of the log output, above the run status;
 footer keys switch to log keys):
                                                               ⏸ PAUSED · 37 new ↓ · f follow
- ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll ? keys q quit
+ ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll r poll now ? keys q quit
 
 Update available (themed banner above both panes):
  ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, then restart the launcher   released 2 days ago
@@ -344,6 +351,17 @@ Update available (themed banner above both panes):
 Stopping:
  ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
 ```
+
+`r` is available only with an attached launcher, on every tab and pane, and is
+listed in `?`. It wakes idle polling or the running assignment's read-only queue
+planning, with the next scheduled pass counted from that refresh. It does not
+claim or interrupt during a run. In-flight presses are dropped; forced passes
+have a shared 10-second cooldown. Attached views show rate-limit resets in local
+time, alongside `running assignment` when queue planning is rate limited during a
+run. Rate-limit waits and poll-retry backoff cannot be shortened. Countdown text
+remains `Ns`. Narrow footers may omit `r poll now` before shortening existing keys.
+Standalone views omit the key and ignore it, keeping the `next poll Ns` countdown
+during rate-limit waits; `--no-ui` launches are unaffected.
 
 The update banner is one themed row above both panes and the shared item header,
 with the release age at the right when space permits. It truncates to the terminal
