@@ -70,7 +70,6 @@ class DiscoveryTests(unittest.TestCase):
                     for edit in (False, True):
                         if edit:
                             loop.github.update_comment(loop.github.store[2][0]["id"], "Edited feedback")
-                            loop.github.store[2][0]["updated_at"] = at(30)
                         loop.github.reads.clear()
                         list(loop.iter_plans())
                         self.assertEqual(self.item_reads(loop.github), {2})

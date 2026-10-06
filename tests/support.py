@@ -292,11 +292,13 @@ class FakeGitHub:
         return deepcopy(comment)
 
     def update_comment(self, comment_id, body):
+        from ub_agents.records import iso, timestamp
         with self.lock:
             for comments in self.store.values():
                 for comment in comments:
                     if comment["id"] == comment_id:
                         comment["body"] = body
+                        comment["updated_at"] = iso(timestamp())
                         self.writes.append(("update", comment_id))
                         return deepcopy(comment)
         raise AssertionError(f"Unknown comment {comment_id}")
