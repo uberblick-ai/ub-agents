@@ -437,6 +437,7 @@ class CodexReadingTests(unittest.TestCase):
 
     def test_unfinished_oversized_record_resolves_without_leftover_notice_and_keeps_raw(self):
         value = recorded_item('agent_message')
+        value['timestamp'] = NOW.isoformat()
         # Force a raw-fragment boundary inside a UTF-8 character.
         value['item']['text'] = ''
         prefix = encoded(value).index(b'"text": "') + len(b'"text": "')
@@ -453,6 +454,7 @@ class CodexReadingTests(unittest.TestCase):
         finished = self.drain(reader)
         visible = [entry for entry in finished.entries if entry.text]
         self.assertEqual([entry.kind for entry in visible], ['assistant', 'assistant'])
+        self.assertEqual(visible[0].event, NOW.isoformat())
         self.assertFalse(any('omitted' in entry.text for entry in finished.entries))
         self.assertNotIn('\ufffd', ''.join(entry.display(raw=True) for entry in finished.entries))
         self.assertIsNone(reader.codex_json)

@@ -72,7 +72,8 @@ class Entry:
     def display(self, raw=False):
         if self.compact and not raw:
             return self.text
-        timing = (f"producer={self.event}" if self.event else
+        event = None if raw and self.raw_kind else self.event
+        timing = (f"producer={event}" if event else
                   f"capture={self.capture}" if self.capture else "time=unknown (pre-existing bytes)")
         kind = (self.raw_kind or self.kind) if raw else self.kind
         return shorten(f"{timing} | {kind}\n{self.raw if raw else self.text}")
