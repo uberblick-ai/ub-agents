@@ -595,6 +595,10 @@ class GitHub:
             since = iso(boundary)
         # Commit the index and cursor only after the entire scan completes.
         self._comment_cache.update(comments)
+        if lookback_seconds is not None:
+            cutoff = now - lookback_seconds
+            self._comment_cache = {comment_id: comment for comment_id, comment in self._comment_cache.items()
+                                   if seconds(comment["updated_at"]) >= cutoff}
         self._comment_since = cursor
         # Cached comments invalidate discovery reads. Claims and writes reread
         # the item, so a deleted cached record never supplies authority.

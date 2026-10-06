@@ -152,7 +152,7 @@ class RunPlanningTests(unittest.TestCase):
                 self.assertIn('If-None-Match: "v1"', command)
         self.assertEqual(observed[0].state, 'owned')
         self.assertEqual(observed[0].history[0]['id'], lease['id'])
-        self.assertEqual(worker.planner.discovery.comments_index[1][-1]['id'], lease['id'])
+        self.assertEqual(worker.planner.discovery.comments_index[1][-1], (lease['id'], lease['created']))
         self.assertEqual(loop.discovery.cache, source_cache)
         self.assertEqual(github._comment_cache, source_comments)
         self.assertEqual(github._etag_cache, source_etags)
@@ -173,14 +173,14 @@ class RunPlanningTests(unittest.TestCase):
         self.assertIs(copied.github, worker.planner.github)
         source.items.pop(3)
         source.closed_items.add(5)
-        source.comments_index[1][0]['user']['login'] = 'changed'
+        source.comments_index[1][0] = (source.comments_index[1][0][0], 'changed')
         source.cache[('comments', (1,), None)][0]['body'] = 'Changed feedback'
         source.invalidate(2)
         self.assertEqual({name: getattr(copied, name) for name in names}, snapshot)
         snapshot = {name: deepcopy(getattr(source, name)) for name in names}
         copied.items.pop(2)
         copied.closed_items.add(6)
-        copied.comments_index[1][0]['user']['login'] = 'worker'
+        copied.comments_index[1][0] = (copied.comments_index[1][0][0], 'worker')
         copied.cache[('comments', (1,), None)][0]['body'] = 'Worker feedback'
         copied.invalidate(3)
         self.assertEqual({name: getattr(source, name) for name in names}, snapshot)
