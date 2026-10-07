@@ -27,6 +27,43 @@ the agent reports as new labels. Then it picks the next item.
 
 ub-agents is MIT-licensed and early stage. It develops itself with its own loop.
 
+`ub-agents launch` opens a live view of its own work. An example session:
+
+```text
+╭─ Work · pass complete ─────────────────────╮ ╭─ Log ─────────────────────────────────────────────────────────╮
+│                                            │ │                                                               │
+│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Log  2 Issue  3 Runs │ Formatted  Raw                     │
+│  ⠇ #248 Refresh the queue while an… 04:13  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    implementer · this launcher · attempt…  │ │  #248 Refresh the queue while an agent runs                   │
+│                                            │ │  implementer · claude opus high · attempt 1                   │
+│  Needs attention · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│  ? #255 Keep run scratch outside the… 19h  │ │   11:07:31 I'll read how the launcher polls before            │
+│    implementer · needs-human · Decide wh…  │ │            changing anything.                                 │
+│                                            │ │   11:07:51 ▸ Read src/ub_agents/polling.py                    │
+│  Eligible · 2 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:08:30 ▸ Read src/ub_agents/loop.py                       │
+│  ● ⌥252 Drop inherited agent variab… next  │ │   11:09:10 The queue only refreshes between runs. I will      │
+│    reviewer                                │ │            poll read-only while the agent works and claim     │
+│                                            │ │            nothing until it is idle.                          │
+│  ● #191 Shorter ub-agents doctor o… ready  │ │   11:09:30 ▸ Edit src/ub_agents/loop.py +5 -2                 │
+│    implementer · 1/5 failures              │ │   11:10:09 ▸ Edit tests/test_loop.py +3 -1                    │
+│  Recent activity · 4 today ┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:10:49 ▸ Bash python -m tests                             │
+│  ✓ ⌥269 Send fixable check failur… merged  │ │   11:11:29 ▸ Bash git push -u origin ub-agents/248-implem…    │
+│    integrator · 11:04 · Squash-merged af…  │ │                                                               │
+│                                            │ │                                                               │
+│  ✓ ⌥269 Send fixable check fail… approved  │ │                                                               │
+│    reviewer · 10:45 · Approved the curre…  │ │                                                               │
+│                                            │ │                                                               │
+│  ✓ ⌥267 Release 0.1.15             merged  │ │                                                               │
+│    integrator · 10:28 · Squash-merged af…  │ │                                                               │
+│                                            │ │                                                               │
+│  ✓ ⌥264 Open the selected item fr… merged  │ │                                                               │
+│    integrator · 10:11 · Squash-merged af…  │ │                                                               │
+│                                            │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│                                            │ │  ⠧ implementer running · no outcome reported                  │
+╰────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────────────╯
+ub-agents · running assignment                                           ↑↓ select ⏎ open 1-3 tabs ? keys q quit
+```
+
 ## Get started
 
 You need macOS or Linux, `git`, `gh` logged in to an account with write access to
@@ -126,6 +163,24 @@ account with `maintain` or `admin` could let agents start their own work.
 stop the launcher, run `brew upgrade ub-agents`, and start it again. When a release
 says launchers must be upgraded together, stop all of them first.
 
+## Retrospectives (optional)
+
+Agents can tell you what slowed them down. Enable GitHub Discussions, open one
+discussion per agent as its board, and give the agent its number:
+
+```yaml
+implementer:
+  retrospectives: 203   # discussion number in this repository
+```
+
+When a run lost something and the agent can name the change that would have
+prevented it, the agent posts a comment there through the launcher's
+`retrospective` command. The launcher pins the board, and a post never changes
+the run's outcome. Claude agents need `"Bash({report_command} retrospective *)"`
+in `--allowedTools`, and `doctor` checks that the board exists. Read the boards
+from time to time and fix the instructions they point at
+([retrospectives](docs/configuration.md#agents)).
+
 ## Documentation
 
 - [Configuration reference](docs/configuration.md): every key, runtime permissions and all commands
@@ -136,18 +191,19 @@ says launchers must be upgraded together, stop all of them first.
 
 ## Development
 
-From a checkout, with Python 3.11+:
+Development uses [mise](https://mise.jdx.dev), activated in your shell:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -e .
-.venv/bin/python -m tests
+git clone https://github.com/uberblick-ai/ub-agents && cd ub-agents
+mise trust                  # once; entering the checkout now installs it into .venv
+ub-agents --version         # runs this checkout's code, not an installed release
+.venv/bin/python -m tests   # the test suite
+mise run ci <sha>           # maintainers: local CI for a pushed commit, posts signoff
 ```
 
-With [mise](https://mise.jdx.dev), run `mise trust` once and entering the checkout
-sets this up. Tests use fakes for GitHub and never call a model. This repository
-runs its own loop: see [ub-agents.yaml](ub-agents.yaml) and [AGENTS.md](AGENTS.md).
-The roadmap is in the [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
+Tests use fakes for GitHub and never call a model. This repository runs its own
+loop: see [ub-agents.yaml](ub-agents.yaml) and [AGENTS.md](AGENTS.md). The roadmap
+is in the [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
 ## License
 
