@@ -115,9 +115,69 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(len(self.observer.state['action_needed']['150']['text']), MAX_TEXT)
         self.assertGreater(self.observer.state['action_needed']['150']['omitted_characters'], 0)
         snapshot = self.memory.snapshots[-1]
-        self.assertLess(len(snapshot['action_needed']), 128)
+        self.assertEqual(len(snapshot['action_needed']), 128)
+        self.assertTrue(any(notice.get('omitted') for notice in snapshot['action_needed'].values()))
+        self.assertTrue(all('text' not in notice for notice in snapshot['action_needed'].values()
+                            if notice.get('omitted')))
         self.assertEqual(len(snapshot['latest_pass']['rows']), 1)
         self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+
+    def test_size_trimming_preserves_attention_notices_before_previews_and_surplus_history(self):
+        self.observer.begin_pass()
+        plans = [(1, 'parked', 'Needs human'), (2, 'blocked', 'Attempt limit exhausted'),
+                 (3, 'failed', 'Read failed'), (4, 'ready', 'Ready'),
+                 (5, 'parked', 'Waiting for blockers #1'), (6, 'owned', 'Other owner'),
+                 (7, 'parked', 'Needs human'), (8, 'parked', 'Waiting for active milestone #1')]
+        for number, state, reason in plans:
+            history = tuple({'kind': 'lease', 'assignment': number, 'agent': 'worker',
+                             'run': f'run-{number}-{index}', 'created': iso(1000 + index),
+                             'expires': iso(2000 + index), 'state': 'released', 'summary': 'H' * MAX_TEXT}
+                            for index in range(MAX_OUTCOMES)) if number <= 3 else ()
+            self.observer.plan(Plan(replace(issue(number), body='D' * MAX_TEXT), self.cfg.agents[0],
+                                    None, state, reason, 1, history=history))
+        self.observer.state['assignment'] = {'item': 7, 'agent': 'worker', 'run': 'current'}
+        for number in (1, 2, 3, 4, 5, 6, 7, 8, 99):
+            self.observer.action_needed(number, {'id': 1000 + number,
+                'body': ACTION_MARKER + 'run -->\nMaintainer: unblock.\n\n' + 'N' * MAX_TEXT,
+                'user': {'login': 'operator'}, 'created_at': iso(3000)})
+        retained = deepcopy(self.observer.state)
+        self.assertGreater(Observations.byte_size(retained), MAX_BYTES)
+        self.observer.emit()
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(self.observer.state, retained)
+        self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+        attention = {str(row.item) for row in work_rows(Session(Path('session.json'), snapshot), self.root)
+                     if row.group == 'Needs attention'}
+        self.assertEqual(attention, {'1', '2', '3'})
+        for key, notice in snapshot['action_needed'].items():
+            if key in attention:
+                self.assertEqual(notice, retained['action_needed'][key])
+            else:
+                self.assertEqual(notice, {'omitted': True})
+        self.assertTrue(all(len(row['description']['text']) == 256 for row in snapshot['latest_pass']['rows']))
+        self.assertGreater(sum(history['omitted_runs'] for history in snapshot['histories'].values()), 0)
+        for number in ('1', '2', '3'):
+            self.assertTrue(snapshot['histories'][number]['runs'])
+            self.assertEqual(snapshot['histories'][number]['runs'][-1]['time'], iso(1019))
+        self.assertEqual(snapshot['omitted']['plans'], 0)
+
+    def test_attention_notices_are_marked_omitted_before_plans_are_trimmed(self):
+        self.observer.begin_pass()
+        for number in range(1, MAX_PLANS + 1):
+            self.observer.plan(Plan(replace(issue(number), title='T' * MAX_TEXT, body=None),
+                                    self.cfg.agents[0], None, 'blocked', 'Needs human', 1))
+            self.observer.action_needed(number, {'id': number,
+                'body': ACTION_MARKER + 'run -->\nMaintainer: unblock.\n\n' + 'N' * MAX_TEXT,
+                'user': {'login': 'operator'}, 'created_at': iso(3000)})
+        retained = deepcopy(self.observer.state)
+        self.observer.emit()
+        snapshot = self.memory.snapshots[-1]
+        self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+        self.assertEqual(len(snapshot['action_needed']), MAX_PLANS)
+        self.assertTrue(all(notice == {'omitted': True} for notice in snapshot['action_needed'].values()))
+        self.assertGreater(snapshot['omitted']['plans'], 0)
+        self.assertEqual(len(snapshot['latest_pass']['rows']) + snapshot['omitted']['plans'], MAX_PLANS)
+        self.assertEqual(self.observer.state, retained)
 
     def test_author_observations_use_existing_role_reads_and_fail_closed(self):
         github = FakeGitHub(issue())

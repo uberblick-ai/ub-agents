@@ -11,8 +11,9 @@ an agent's private worktree. A launcher passes its exact session ID; it never
 selects another fresh session. A missing, stale (over 30 seconds), ended or
 incompatible snapshot, or a version mismatch after an upgrade under a running
 launcher, produces a one-line error and plain output continues. The view has no
-workflow controls. Only an explicit Issue or Unblock request uses the user's
-existing authenticated `gh` access.
+workflow controls. Pressing `g` on Issue or Unblock, or activating Unblock with
+a missing snapshot notice and no cached load result, uses the user's existing
+authenticated `gh` access.
 
 The target look for upcoming changes is in [design/terminal-view.md](design/terminal-view.md).
 
@@ -295,7 +296,7 @@ item, including an exhausted attempt limit. Its bold header keeps the item
 reference and title. Its dim second line shows the agent and the same state as the
 Work row, then red `waiting …` and `since HH:MM` in local time. Both displays use
 the row's published `waiting_since` and the same minute/hour/day format, counting
-while the view is open. Unknown times are omitted; loading a comment with `g`
+while the view is open. Unknown times are omitted; loading a comment
 does not change this start time.
 The dashed rule follows as on the other tabs. Changing selection or refreshing
 the item out of Needs attention hides Unblock and returns an active Unblock pane
@@ -314,15 +315,29 @@ and press Enter to expand it. The bounded supporting Markdown and SHAs stay inta
 inside. v0.1.13 notices keep their "Reasoning, evidence and resume instructions"
 fold, and earlier prose notices remain readable. The last dim line names the
 action-needed comment, its local creation time, and `snapshot` or
-`GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
+`GitHub · loaded Ns ago`. Opening Unblock with `4` or a tab click loads a missing
+or omitted snapshot notice if no successful or failed result is cached for that
+item. Reopening the tab does not repeat a cached read; `g` retries failures.
+An uncached comment offers `press g to load from GitHub`. A notice omitted for
+size says `Comment left out of the snapshot to save space; loading from GitHub…`
+while its read is pending, or `Comment left out of the snapshot to save space;
+press g to load from GitHub.` otherwise. A cooldown or another pending read
+shows why the load cannot start and queues nothing; a later activation may try
+again while no result is cached. Selecting another item while Unblock stays
+active starts no read.
 
 The session snapshot retains comments this launcher posts or finds in the pass's
 already-read item comments from verified trusted launcher accounts. Claims and resets clear
-them. Text and item counts are bounded; comments can be dropped to keep the
-snapshot within 64 KiB, in which case `g` remains available. GitHub loads accept
+them. Text and item counts are bounded. To fit the 64 KiB snapshot, notices for
+items outside Needs attention (including items without a row) are omitted first,
+then description previews are shortened and surplus history runs trimmed. Needs
+attention notices are omitted next, before plans and outcomes are trimmed. Each
+omitted notice keeps an `omitted` marker without text in the published snapshot;
+the retained launcher state keeps its text. GitHub loads accept
 only comments whose body starts with `<!-- ub-agents:action-needed ` and whose
 author the launcher has already verified for coordination records. No role read
-is added. Unverified authors are excluded with a reason; a load without a trusted
+is added. Unverified snapshot authors are excluded with a reason and do not
+auto-load; `g` remains available. A load without a trusted
 match says so. Existing verification changes also remove a cached comment from
 display. The tab is read-only.
 
@@ -599,13 +614,16 @@ While stopping, selecting the current assignment replaces its Log status with
 their usual process or plan status. The stopping screen uses only the existing
 session snapshot and makes no GitHub reads.
 
-Only `g` on Issue or Unblock starts a GitHub read. Attachment, selection, tabs,
+Pressing `g` on Issue or Unblock starts a GitHub read. Activating Unblock with
+`4` or a tab click also loads a missing or omitted snapshot notice when that
+item has no cached load result. Attachment, selection, other tab activations,
 redraws, resizes and timers make no GitHub calls. Each load makes one
 `gh api graphql` request: Issue reads only the selected issue or PR's title and
 body; Unblock reads its most recent comments (at most 100), with author, creation
 time and body, without paging. There are no history reads, queue scans, prefetch
-or extra role reads. No reads or retries happen automatically. There is at most one read
-in flight: pressing `g` while any read is pending queues nothing. Input and local
+or extra role reads. Automatic loads happen only on Unblock activation and never
+retry a cached failure. There is at most one read in flight: pressing `g` or
+activating Unblock while any read is pending queues nothing. Input and local
 snapshot/log reading continue while it is pending, with a loading notice on the requesting tab.
 Closing the view terminates and reaps its owned request processes. A request
 supervisor also cleans them up if the view is killed. `q` drains an attached
@@ -617,7 +635,8 @@ say age unavailable. Each title/body projection is limited to 2,048 characters
 plus a visible shortening notice. Successful and failed GitHub reads stay only
 in memory, in a 128-item least-recently-used cache shared by Issue and Unblock across rows for the same
 repository/item. Revisiting a cached item never calls GitHub; a failed read needs
-`g` to retry. Evicted items need an explicit load again. There is no session load
+`g` to retry. Evicted items can load again through `g` or Unblock activation.
+There is no session load
 count limit. Each request has a 10-second time limit and a 512 KiB response limit.
 After a rate-limit response, both tabs show a shared cooldown through the reported
 reset or `Retry-After` time. Loads and retries make no call during it. If GitHub

@@ -121,6 +121,19 @@ class UnblockDataTests(unittest.TestCase):
             self.assertEqual(result.body, '')
             self.assertIn(error, result.details())
 
+    def test_omitted_snapshot_notice_distinguishes_pending_and_idle_from_never_seen(self):
+        self.session.data['action_needed']['178'] = {'omitted': True}
+        result = local_action(self.row, self.session)
+        self.assertFalse(result.available)
+        self.assertTrue(result.omitted)
+        self.assertEqual(result.details(),
+                         'Comment left out of the snapshot to save space; press g to load from GitHub.')
+        self.assertEqual(result.details(pending=True),
+                         'Comment left out of the snapshot to save space; loading from GitHub…')
+        self.session.data['action_needed'] = {}
+        self.assertFalse(local_action(self.row, self.session).omitted)
+        self.assertIn('No action-needed comment is cached', local_action(self.row, self.session).details())
+
     def test_waiting_uses_row_start_even_when_github_comment_or_history_differs(self):
         now = stamp('2026-10-05T12:36:00Z')
         result = local_action(self.row, self.session)
@@ -432,7 +445,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
         self.assertTrue(self.transport.closed)
 
-    async def test_github_explicit_read_shared_flight_cache_cooldown_and_trust_revocation(self):
+    async def test_github_activation_read_shared_flight_cache_cooldown_and_trust_revocation(self):
         app = self.app
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
@@ -440,8 +453,8 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('4')
             await pilot.resize_terminal(120, 36)
             await pilot.pause(0.3)
-            self.assertEqual(self.transport.calls, [])
-            self.assertIn('press g', app.query_one('#unblock_note', Static).render().plain)
+            self.assertEqual(len(self.transport.calls), 1)
+            self.assertIn('Loading action-needed comments', app.query_one('#unblock_note', Static).render().plain)
             await pilot.press('g', 'g', '2', 'g')
             self.assertEqual(len(self.transport.calls), 1)
             self.assertEqual(self.transport.calls[0][:3], ('example/repo', 179, 'unblock'))
@@ -467,3 +480,107 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('g', 'q')
         app.worker.thread.join(2)
         self.assertTrue(self.transport.closed)
+
+    async def test_omitted_notice_auto_loads_once_and_selection_with_active_tab_starts_no_reads(self):
+        self.state['action_needed']['178'] = {'omitted': True}
+        publish_snapshot(self.path, self.state)
+        app = self.app
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(pilot, lambda: app.local_description is not None)
+            app.select('plan:178:worker')
+            await pilot.pause(0.3)
+            self.assertEqual(self.transport.calls, [])
+            await pilot.press('4')
+            self.assertEqual(len(self.transport.calls), 1)
+            self.assertEqual(self.transport.calls[0][:3], ('example/repo', 178, 'unblock'))
+            self.assertIn('Comment left out of the snapshot to save space; loading from GitHub…',
+                          app.query_one('#unblock_note', Static).render().plain)
+            self.transport.response = Response(error='Read failed.')
+            await self.ready(pilot, lambda: app.descriptions.pending is None)
+            note = app.query_one('#unblock_note', Static).render().plain
+            self.assertIn('Comment left out of the snapshot to save space; press g to load from GitHub.', note)
+            self.assertIn('Read failed. Press g to retry.', note)
+            await pilot.press('2', '4', '4')
+            await pilot.click(app.query_one(ItemTabs).get_tab('unblock'))
+            self.assertEqual(len(self.transport.calls), 1)
+            await pilot.press('g')
+            self.assertEqual(len(self.transport.calls), 2)
+            self.transport.response = parse_response(comments_reply(comment()), b'', 0, self.now, 'unblock', AUTHORS)
+            await self.ready(pilot, lambda: app.current_action().available)
+            await pilot.press('1', '4')
+            self.assertEqual(len(self.transport.calls), 2)
+            self.assertIn('GitHub · loaded', app.query_one('#unblock_note', Static).render().plain)
+            app.select('plan:179:worker')
+            self.now += 60
+            app.update_unblock()
+            await pilot.resize_terminal(120, 36)
+            await pilot.pause(0.3)
+            self.assertEqual(app.query_one(ItemTabs).active, 'unblock')
+            self.assertEqual(len(self.transport.calls), 2)
+            # An explicit click on the already active tab opens the new item's notice.
+            await pilot.click(app.query_one(ItemTabs).get_tab('unblock'))
+            self.assertEqual(len(self.transport.calls), 3)
+            self.assertEqual(self.transport.calls[-1][:3], ('example/repo', 179, 'unblock'))
+            self.transport.response = parse_response(comments_reply(comment()), b'', 0, self.now, 'unblock', AUTHORS)
+            await self.ready(pilot, lambda: app.descriptions.pending is None)
+            await pilot.press('1', '4')
+            self.assertEqual(len(self.transport.calls), 3)
+            app.descriptions.cache.pop(('example/repo', 179))
+            await pilot.press('4')
+            self.assertEqual(len(self.transport.calls), 4)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertTrue(self.transport.closed)
+
+    async def test_activation_after_pending_read_or_cooldown_can_try_again_without_cached_result(self):
+        self.state['action_needed']['179'] = {'omitted': True}
+        publish_snapshot(self.path, self.state)
+        app = self.app
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(pilot, lambda: app.local_description is not None)
+            app.select('plan:178:worker')
+            await self.ready(pilot, lambda: app.local_description is not None and not app.local_description.available)
+            await pilot.press('2', 'g')
+            self.assertEqual(len(self.transport.calls), 1)
+            app.select('plan:179:worker')
+            await pilot.press('4')
+            self.assertEqual(len(self.transport.calls), 1)
+            note = app.query_one('#unblock_note', Static).render().plain
+            self.assertIn('Another GitHub read is pending; no requests are queued.', note)
+            self.assertIn('Comment left out of the snapshot to save space; press g to load from GitHub.', note)
+            self.transport.response = Response(error='rate limit', reset=self.now + 60)
+            await self.ready(pilot, lambda: app.descriptions.pending is None)
+            await pilot.press('1', '4')
+            self.assertEqual(len(self.transport.calls), 1)
+            self.assertIn('GitHub cooldown until', app.query_one('#unblock_note', Static).render().plain)
+            self.now += 60
+            await pilot.pause(0.3)
+            self.assertEqual(len(self.transport.calls), 1)
+            await pilot.press('4')
+            self.assertEqual(len(self.transport.calls), 2)
+            self.transport.response = Response(error='Read failed.')
+            await self.ready(pilot, lambda: app.descriptions.pending is None)
+            await pilot.press('1', '4')
+            self.assertEqual(len(self.transport.calls), 2)
+            await pilot.press('g')
+            self.assertEqual(len(self.transport.calls), 3)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_untrusted_snapshot_notice_does_not_auto_load_on_key_or_click(self):
+        self.state['action_needed']['178']['author'] = 'reader'
+        publish_snapshot(self.path, self.state)
+        app = self.app
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(pilot, lambda: app.local_description is not None)
+            app.select('plan:178:worker')
+            await pilot.press('4', '2')
+            await pilot.click(app.query_one(ItemTabs).get_tab('unblock'))
+            self.assertEqual(app.query_one(ItemTabs).active, 'unblock')
+            self.assertEqual(self.transport.calls, [])
+            self.assertIn('write or higher', app.query_one('#unblock_note', Static).render().plain)
+            self.assertEqual(app.query_one('#unblock_body', Markdown).source, '')
+            await pilot.press('g')
+            self.assertEqual(len(self.transport.calls), 1)
+            await pilot.press('q')
+        app.worker.thread.join(2)
