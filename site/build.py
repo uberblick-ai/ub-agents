@@ -13,6 +13,8 @@ VERSION = re.search(r'^version = "([^"]+)"', (ROOT.parent / 'pyproject.toml').re
 sys.path.insert(0, str(ROOT))
 import tui  # noqa: E402
 REPO = 'https://github.com/uberblick-ai/ub-agents'
+SITE = 'https://agents.uberblick.ai'
+TAGLINE = 'The loop engineering framework for GitHub. Any agent, no server.'
 SECTIONS = [  # (title, content entry, kind)
     ('Installation', 'installation.md', 'page'),
     ('Configuration', 'configuration', 'dir'),
@@ -196,8 +198,9 @@ HEAD = '''<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="robots" content="noindex">
 <title>{title}</title>
+<meta name="description" content="{description}">
+<link rel="canonical" href="{canonical}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -217,7 +220,10 @@ def doc_page(pages, i):
     here = p['path']
     title = p['title'] + ' · ub-agents'
     section_label = '' if p['section'] in ('Installation', 'Upgrading') else f'<p class="crumb">{p["section"]}</p>'
-    return (HEAD.format(title=html.escape(title), css=rel('assets/site.css', here)) + header(here) + f'''
+    first = re.search(r'<p>(.*?)</p>', p['body'], re.S)
+    description = re.sub(r'<[^>]+>', '', first.group(1)) if first else TAGLINE
+    return (HEAD.format(title=html.escape(title), description=html.escape(html.unescape(description)),
+                        canonical=f'{SITE}/{here}', css=rel('assets/site.css', here)) + header(here) + f'''
 <div class="docs">
   <details class="side"><summary>{html.escape(p["section"])} · {html.escape(p["nav"])}</summary>
     <nav aria-label="Documentation">{sidebar(pages, p)}</nav>
@@ -230,12 +236,25 @@ def doc_page(pages, i):
 </div>
 ''' + FOOTER + MENU_JS + '\n</body>\n</html>\n')
 
+def not_found():
+    """404.html is served at any depth, so its links are root-absolute."""
+    body = (HEAD.format(title='Page not found · ub-agents', description=TAGLINE, canonical=f'{SITE}/',
+                        css='/assets/site.css') + header('index.html') + '''
+<main class="wrap">
+  <section>
+    <h2>Page not found</h2>
+    <p>This page does not exist. Start at the <a href="index.html">home page</a> or the <a href="docs/installation.html">installation guide</a>.</p>
+  </section>
+</main>
+''' + FOOTER + '\n</body>\n</html>\n')
+    body = re.sub(r'<link rel="canonical"[^>]*>\n', '', body)
+    return re.sub(r'href="(?!https?:|/|#)', 'href="/', body)
+
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
     (OUT / 'assets').mkdir(parents=True)
     shutil.copy(ROOT / 'site.css', OUT / 'assets' / 'site.css')
-    shutil.copy(ROOT / '_headers', OUT / '_headers')
     pages = collect()
     for i, p in enumerate(pages):
         dest = OUT / p['path']
@@ -244,13 +263,19 @@ def main():
     landing = (ROOT / 'index.html').read_text()
     landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', FOOTER)
     landing = landing.replace('{{tui}}', tui.render())
-    head = HEAD.format(title='ub-agents', css='assets/site.css')
+    head = HEAD.format(title='ub-agents', description=TAGLINE, canonical=f'{SITE}/', css='assets/site.css')
     if '--artifact' in sys.argv:  # the artifact host adds its own document skeleton
         head = head[head.index('<title>'):head.index('</head>')]
         landing = head + landing
     else:
         landing = head + landing + '\n</body>\n</html>\n'
     (OUT / 'index.html').write_text(fix_links(landing, 'index.html'))
+    (OUT / '404.html').write_text(not_found())
+    urls = [f'{SITE}/'] + [f'{SITE}/{p["path"]}' for p in pages]
+    (OUT / 'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + ''.join(f'  <url><loc>{u}</loc></url>\n' for u in urls) + '</urlset>\n')
+    (OUT / 'robots.txt').write_text(f'User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n')
     print(f'{len(pages)} pages')
 
 if __name__ == '__main__':
