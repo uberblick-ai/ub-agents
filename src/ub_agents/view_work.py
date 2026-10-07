@@ -320,11 +320,13 @@ class RecentActivity(Static, can_focus=True):
         return self.row_height + self.row_spacing
 
     def populate(self, rows, session):
-        self.rows = list(rows)
-        self.today = outcomes_today(session)
-        if self.cursor is None and self.rows:
-            self.cursor = self.rows[0].key
-        self.refresh()
+        rows = list(rows)
+        today = outcomes_today(session)
+        cursor = rows[0].key if self.cursor is None and rows else self.cursor
+        changed = (self.rows, self.cursor, self.today) != (rows, cursor, today)
+        self.rows, self.cursor, self.today = rows, cursor, today
+        if changed:
+            self.refresh()
 
     def render(self):
         width = self.content_size.width
