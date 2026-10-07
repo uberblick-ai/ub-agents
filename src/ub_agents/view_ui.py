@@ -71,6 +71,17 @@ def pane_line(value, width, style=''):
     return line
 
 
+class ItemHeader(Static):
+    @property
+    def link_style(self):
+        # Decorate links without replacing the title and PR marker colors.
+        style = self.styles.link_style
+        # Textual gives the accent marker and number separate hover IDs.
+        if '@click' in self.hover_style.meta:
+            style += self.link_style_hover
+        return style
+
+
 class ItemTabs(TabbedContent):
     """One header below the tab bar, shared even by subsequently added tabs."""
 
@@ -80,10 +91,7 @@ class ItemTabs(TabbedContent):
             if isinstance(widget, Tabs):
                 yield Static('', id='log_mode', markup=False)
                 yield Static('', id='tab_rule', markup=False)
-                header = Static('', id='item_header', markup=False)
-                # Keep the header's original colors and style while click actions remain active.
-                header.auto_links = False
-                yield header
+                yield ItemHeader('', id='item_header', markup=False)
 
 
 def description_parser():
@@ -402,7 +410,13 @@ class View(App):
     #tab_rule { height: 1; color: $view-muted; }
     #panes > ContentSwitcher { height: 1fr; }
     TabPane { height: 1fr; padding: 0; }
-    #item_header { height: 3; padding: 0; overflow: hidden; }
+    #item_header {
+        height: 3; padding: 0; overflow: hidden;
+        link-style: underline;
+        link-color-hover: $view-link;
+        link-background-hover: transparent;
+        link-style-hover: underline;
+    }
     #log_note { height: 1; overflow: hidden; }
     #output { height: 1fr; scrollbar-gutter: stable; overflow-x: hidden; }
     #run_status { height: 2; overflow: hidden; }

@@ -1497,15 +1497,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                           'author': 'operator'} for number in (114, 12)}
         self.state['outcomes'].append({'item': 114, 'run': 'handoff', 'handoff': 1235})
         publish_snapshot(self.path, self.state)
-        for size in ((130, 36), (60, 16)):
-            with self.subTest(size=size):
+        for size, theme in (((130, 36), 'ub-agents'), ((60, 16), 'ub-agents'),
+                            ((130, 36), 'textual-light')):
+            with self.subTest(size=size, theme=theme):
                 transport = RecordingDescriptionTransport()
                 with patch.dict(os.environ):
                     os.environ.pop('NO_COLOR', None)
                     app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                app.theme = theme
                 with patch.object(app, 'open_url') as opened:
                     async with app.run_test(size=size) as pilot:
                         await self.ready(app, pilot, lambda: app.local_description is not None)
+                        link_color = app.theme_variables['view-link'].lower()
+                        self.assertEqual(link_color, '#6cb6ff' if theme == 'ub-agents'
+                                         else app.theme_variables['text-primary'].lower())
+                        if theme == 'textual-light':
+                            self.assertNotEqual(link_color, '#6cb6ff')
                         if app.narrow:
                             await pilot.press('enter')
                             self.assertTrue(app.item_view)
@@ -1535,9 +1542,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                     title_style = next(iter(lines[0].crop(
                                         len(reference) + 1, len(reference) + 2))).style
                                     self.assertTrue(title_style.bold)
+                                    for segment in lines[0].crop(len(reference)):
+                                        self.assertFalse(segment.style.underline)
+                                        self.assertNotIn('@click', segment.style.meta)
                                     for x, style in enumerate(styles):
                                         self.assertTrue(style.bold)
-                                        self.assertFalse(style.underline)
+                                        self.assertTrue(style.underline)
+                                        self.assertFalse(style.reverse)
+                                        self.assertEqual(style.meta['@click'], 'app.open_reference')
                                         self.assertEqual(style.bgcolor, title_style.bgcolor)
                                         color = (app.theme_variables['view-accent'].lower()
                                                  if marker == '⌥' and x == 0 else title_style.color.name)
@@ -1547,7 +1559,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                         await pilot.pause()
                                         hovered = header.render_lines(header.size.region)[0]
                                         self.assertEqual([next(iter(hovered.crop(i, i + 1))).style
-                                                          for i in range(len(reference))], styles)
+                                                          for i in range(len(reference))],
+                                                         [style + theme_style(app, 'view-link') for style in styles])
+                                        self.assertEqual(list(hovered.crop(len(reference))),
+                                                         list(lines[0].crop(len(reference))))
                                         opened.reset_mock()
                                         self.assertTrue(await pilot.click(header, offset=(x, 0)))
                                         opened.assert_called_once_with(
@@ -1579,14 +1594,25 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.busy = True
                 while not app.worker.results.empty():
                     app.worker.results.get_nowait()
-                for invalid in (None, '', 42, 'owner', 'owner/repo/extra', 'owner/..',
-                                'owner/repo?query', 'owner/repo\x1b'):
-                    with self.subTest(repository=invalid):
-                        app.session.data['repository'] = invalid
-                        app.update_status()
-                        self.assertNotIn('@click', header.render().get_style_at_offset(0).meta)
-                        await pilot.click(header, offset=(0, 0))
-                        opened.assert_not_called()
+
+                async def assert_inert_header():
+                    await pilot.pause()
+                    for line in header.render_lines(header.size.region):
+                        for segment in line:
+                            self.assertFalse(segment.style.underline)
+                            self.assertNotIn('@click', segment.style.meta)
+
+                for kind, marker in (('issue', '#'), ('pr', '⌥')):
+                    app.rows[app.selected] = replace(row, data={**row.data, 'kind': kind})
+                    for invalid in (None, '', 42, 'owner', 'owner/repo/extra', 'owner/..',
+                                    'owner/repo?query', 'owner/repo\x1b'):
+                        with self.subTest(kind=kind, repository=invalid):
+                            app.session.data['repository'] = invalid
+                            app.update_status()
+                            self.assertTrue(header.render().plain.startswith(marker + '114'))
+                            await pilot.click(header, offset=(0, 0))
+                            await assert_inert_header()
+                            opened.assert_not_called()
                 app.session.data['repository'] = repository
                 for invalid in (None, '?', '114', 0, -1, True, 1.5):
                     with self.subTest(number=invalid):
@@ -1594,11 +1620,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         app.update_status()
                         self.assertNotIn('@click', header.render().get_style_at_offset(0).meta)
                         await pilot.click(header, offset=(0, 0))
+                        await assert_inert_header()
                         opened.assert_not_called()
                 app.rows[app.selected] = row
                 app.select(None)
                 self.assertEqual(header.render().plain.split('\n')[0], 'No item selected.')
                 await pilot.click(header, offset=(0, 0))
+                await assert_inert_header()
                 opened.assert_not_called()
                 # Restore the loaded session before yielding to the renderer.
                 with patch.object(app, 'session', None):
