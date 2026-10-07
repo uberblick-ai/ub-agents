@@ -416,7 +416,7 @@ agents:
             self.assertNotIn('private', self.capture(result))
             self.assertEqual(self.github.writes, [])
 
-    def test_runtime_permissions_warns_for_each_agent_without_args_only(self):
+    def test_runtime_permissions_groups_agents_without_args_into_one_warning(self):
         self.path.write_text(self.path.read_text().replace('    runtime-args: [--sandbox, danger-full-access]\n', '') + '''  reviewer:
     runtime: [codex:model-a:high, claude:model-b:high]
     trigger: needs-review
@@ -426,16 +426,29 @@ agents:
     command: [git, --version]
     trigger: ready
     outcomes: {done: {}}
+  configured:
+    runtime: claude:model-c:high
+    runtime-args: [--permission-mode, acceptEdits]
+    trigger: ready
+    outcomes: {done: {}}
+    instructions: instructions.md
 ''')
         result = self.diagnose()
         self.assertTrue(result['ok'])
-        warnings = self.checks(result, 'runtime-permissions')
-        self.assertEqual([check['agent'] for check in warnings], ['worker', 'reviewer'])
-        for check in warnings:
-            self.assertEqual((check['status'], check['required']), ('warn', False))
-            self.assertIn('runtime-args', check['message'])
-            self.assertIn('https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions',
-                          check['remedy'])
+        check = self.one(result, 'runtime-permissions')
+        self.assertEqual((check['id'], check['status'], check['required'], check['agent'], check['runtime']),
+                         ('runtime-permissions', 'warn', False, None, None))
+        self.assertIn('Agents without runtime-args: worker, reviewer;', check['message'])
+        self.assertNotIn('command', check['message'])
+        self.assertNotIn('configured', check['message'])
+        url = 'https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions'
+        self.assertIn(url, check['remedy'])
+        code, output = self.cli()
+        self.assertEqual(code, 0)
+        self.assertEqual(output.count('warn runtime-permissions '), 1)
+        self.assertEqual(output.count(url), 1)
+        self.assertIn('0 required failures, 1 warnings', output)
+        self.assertEqual(self.capture(result, verbose=True).count('warn runtime-permissions '), 1)
         self.assertEqual(self.github.writes, [])
 
     def test_missing_only_runtime_is_required_and_names_agent(self):

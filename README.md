@@ -93,13 +93,18 @@ Existing labels are never changed. `doctor` fails for missing trigger or transit
 labels and warns for missing stop labels. `launch` refuses to start when a trigger
 or transition label is missing and points to `ub-agents doctor` for setup commands.
 
+In an interactive terminal, `init` also asks once whether to enable starter
+[permissions](docs/configuration.md#runtime-permissions) for all four agents;
+the default is no. Codex gets full access without the sandbox. Claude gets
+unattended edits plus git, gh and report commands; add your project's check commands
+to `--allowedTools`. Declining, end of input and noninteractive runs leave the
+matching `runtime-args` examples commented out and print the permission setup step.
+
 Before launching, create any missing labels, document build and test commands in
-the project guidance your runtimes load, fill in `.agents/ub_agents.md`, and uncomment
-or customize each agent's starter `runtime-args` to grant
-the [permissions](docs/configuration.md#runtime-permissions) its job needs. These
-examples match `init --runtime` and remain commented out until you enable them.
-`doctor` warns for each runtime agent without arguments. Commit `ub-agents.yaml`
-and `.agents/`. `init` leaves `AGENTS.md` and `CLAUDE.md` untouched. It names the
+the project guidance your runtimes load, fill in `.agents/ub_agents.md`, and enable
+or customize each agent's `runtime-args` to grant the permissions its job needs.
+`doctor` groups runtime agents without arguments into one warning. Commit
+`ub-agents.yaml` and `.agents/`. `init` leaves `AGENTS.md` and `CLAUDE.md` untouched. It names the
 guidance file each configured runtime loads and warns when there is none. Codex
 loads `AGENTS.md`; Claude loads `CLAUDE.md` or `.claude/CLAUDE.md`, falling back to
 `AGENTS.md` when neither exists.
