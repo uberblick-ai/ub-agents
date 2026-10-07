@@ -1,6 +1,6 @@
 # Instructions
 
-Each agent's job is a Markdown file in your repository, in your own words. ub-agents adds the issue or pull request details and runs it. It brings no prompts of its own.
+Each agent's job is a Markdown file in your repository. `init` writes starter files for four roles; rewrite them in your own words. The launcher puts its own short run rules in front, such as how to report and which input to trust, and adds the issue or pull request details.
 
 ```text
 your-project/
