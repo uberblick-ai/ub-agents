@@ -45,6 +45,19 @@ class ObservationTests(unittest.TestCase):
         return Loop(self.cfg, github, "operator", output=lambda *_: None,
                     observer=self.observer if observer else None)
 
+    def test_forced_refresh_survives_control_updates_and_completed_observation_pass(self):
+        self.observer.activity('running assignment')
+        self.observer.poll_refresh(True)
+        self.observer.poll_now(1010, 1020)
+        self.observer.observation_pass(1000, [])
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(snapshot['activity']['state'], 'running assignment')
+        self.assertEqual(snapshot['poll_now'], {'refreshing': True,
+                                               'cooldown_until': iso(1010),
+                                               'rate_limit_until': iso(1020)})
+        self.observer.poll_refresh(False)
+        self.assertEqual(self.memory.snapshots[-1]['poll_now'], snapshot['poll_now'] | {'refreshing': False})
+
     def test_action_notice_post_deduplication_and_claim_clear_snapshot(self):
         github = FakeGitHub(issue())
         co = self.loop(github).coordinator

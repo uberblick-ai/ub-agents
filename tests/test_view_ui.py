@@ -327,6 +327,118 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_running_poll_feedback_is_immediate_and_replaced_by_next_snapshot(self):
+        now = datetime.now(timezone.utc)
+        self.state['base_version'] = '9.8.7'
+        for size in ((180, 45), (109, 31)):
+            with self.subTest(size=size):
+                self.state['activity'] = {'state': 'running assignment'}
+                self.state['poll_now'] = {'cooldown_until': None, 'rate_limit_until': None}
+                publish_snapshot(self.path, self.state)
+                app = View(self.root, self.path, launcher=Mock())
+                with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                    clock.now.return_value = now
+                    async with app.run_test(size=size) as pilot:
+                        await self.ready(app, pilot)
+                        status = app.query_one('#status', Static)
+                        prefix = 'ub-agents ' if size[0] >= 110 else ''
+                        label = prefix + 'v9.8.7 · running assignment · polling'
+                        app.action_poll_now()
+                        self.assertIn(label, status.render().plain)
+                        app.action_poll_now()  # A repeated press while refreshing keeps the label.
+                        self.assertIn(label, status.render().plain)
+                        await pilot.pause(0.2)  # Re-reading the same snapshot is not a new snapshot.
+                        self.assertIn(label, status.render().plain)
+                        self.state['poll_now']['refreshing'] = True
+                        publish_snapshot(self.path, self.state)
+                        await self.ready(app, pilot, lambda: not app.poll_feedback)
+                        self.assertIn(label, status.render().plain)
+                        clock.now.return_value = now + timedelta(seconds=3)
+                        self.state['poll_now']['refreshing'] = False
+                        publish_snapshot(self.path, self.state)
+                        await self.ready(app, pilot, lambda: '· polling' not in status.render().plain)
+                        app.action_poll_now()  # The last press still supplies the local cooldown.
+                        self.assertIn('running assignment · poll now available in 7s', status.render().plain)
+                        self.assertNotIn('· polling', status.render().plain)
+                        self.state['poll_now']['cooldown_until'] = (now + timedelta(seconds=9)).isoformat()
+                        publish_snapshot(self.path, self.state)
+                        await self.ready(app, pilot, lambda: not app.poll_feedback)
+                        self.assertIn('poll now available in 6s', status.render().plain)
+                        clock.now.return_value = now + timedelta(seconds=11)
+                        app.action_poll_now()
+                        self.assertIn(label, status.render().plain)
+                        self.assertEqual(app.launcher.poll.call_count, 4)
+                        app.exit()
+                app.worker.thread.join(2)
+
+    async def test_reopened_view_shows_running_refresh_until_snapshot_clears_it(self):
+        for attached in (False, True):
+            with self.subTest(attached=attached):
+                self.state['activity'] = {'state': 'running assignment'}
+                self.state['poll_now'] = {'refreshing': True}
+                publish_snapshot(self.path, self.state)
+                app = View(self.root, self.path, launcher=Mock() if attached else None)
+                async with app.run_test(size=(180, 45)) as pilot:
+                    await self.ready(app, pilot)
+                    status = app.query_one('#status', Static)
+                    self.assertIn('running assignment · polling', status.render().plain)
+                    await pilot.press('r')
+                    self.assertIn('running assignment · polling', status.render().plain)
+                    self.state['poll_now']['refreshing'] = False
+                    publish_snapshot(self.path, self.state)
+                    await self.ready(app, pilot, lambda: '· polling' not in status.render().plain)
+                    self.assertIn('running assignment', status.render().plain)
+                    app.exit()
+                app.worker.thread.join(2)
+
+    async def test_poll_press_before_assignment_retains_local_cooldown(self):
+        now = datetime.now(timezone.utc)
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=30)).isoformat(),
+                                  'reason': 'next poll or runtime pause'}
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path, launcher=Mock())
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            async with app.run_test(size=(180, 45)) as pilot:
+                await self.ready(app, pilot)
+                status = app.query_one('#status', Static)
+                await pilot.press('r')
+                self.assertIn('next poll 30s', status.render().plain)
+                self.assertNotIn('· polling', status.render().plain)
+                clock.now.return_value = now + timedelta(seconds=2)
+                self.state['activity'] = {'state': 'running assignment'}
+                publish_snapshot(self.path, self.state)
+                await self.ready(app, pilot, lambda: 'running assignment' in status.render().plain)
+                app.action_poll_now()
+                self.assertIn('running assignment · poll now available in 8s', status.render().plain)
+                self.assertNotIn('· polling', status.render().plain)
+                app.exit()
+        app.worker.thread.join(2)
+
+    async def test_running_poll_press_respects_snapshot_cooldown_and_rate_limit(self):
+        now = datetime.now(timezone.utc)
+        until = now + timedelta(seconds=8)
+        for limited in (False, True):
+            with self.subTest(limited=limited):
+                self.state['activity'] = {'state': 'running assignment'}
+                self.state['poll_now'] = {'cooldown_until': until.isoformat(),
+                                          'rate_limit_until': until.isoformat() if limited else None}
+                publish_snapshot(self.path, self.state)
+                app = View(self.root, self.path, launcher=Mock())
+                with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                    clock.now.return_value = now
+                    async with app.run_test(size=(180, 45)) as pilot:
+                        await self.ready(app, pilot)
+                        status = app.query_one('#status', Static)
+                        await pilot.press('r')
+                        label = (f'rate limited until {until.astimezone():%H:%M} · r unavailable' if limited else
+                                 'poll now available in 8s')
+                        self.assertIn('running assignment · ' + label, status.render().plain)
+                        self.assertNotIn('· polling', status.render().plain)
+                        app.launcher.poll.assert_called_once_with()
+                        app.exit()
+                app.worker.thread.join(2)
+
     async def test_rate_limit_footer_keeps_standalone_countdown(self):
         now = datetime.now(timezone.utc)
         reset = now + timedelta(seconds=400)

@@ -63,6 +63,7 @@ class RunPlanning:
             github._comment_cache = deepcopy(source._comment_cache)
             github._comment_since = source._comment_since
         self.lock = threading.Lock()
+        self.refreshing = False
         self.started = started
         from .loop import Loop
         self.planner = Loop(loop.config, ObservationReads(github, self.stop),
@@ -81,11 +82,25 @@ class RunPlanning:
     def cancel(self):
         with self.lock:
             self.stop.set()
+            self._finish_refresh()
             return self.started
 
     def close(self):
         self.cancel()
         self.thread.join()
+
+    def _requested(self):
+        with self.lock:
+            if not self.stop.is_set():
+                self.refreshing = True
+                self.loop._observe("poll_refresh", True)
+
+    def _finish_refresh(self):
+        # Called under the worker lock, including cancellation while a read is
+        # still blocked. Its eventual return must not clear a newer poll's state.
+        if self.refreshing:
+            self.refreshing = False
+            self.loop._observe("poll_refresh", False)
 
     def _wait(self, delay, rate_until):
         control = self.loop.poll_now
@@ -98,7 +113,7 @@ class RunPlanning:
                 with control.rate_limit(rate_until):
                     if self.stop.wait(limited_delay):
                         return True
-        return control.wait(self.stop, max(0, deadline - self.clock()))
+        return control.wait(self.stop, max(0, deadline - self.clock()), on_request=self._requested)
 
     def _run(self):
         elapsed = self.clock() - self.started
@@ -138,6 +153,9 @@ class RunPlanning:
                     rate_wait = min(RATE_LIMIT_MAX_SECONDS, max(0, reset - now))
                     rate_until = now + rate_wait
                 # Observation failure cannot stop or change the owned run.
+            finally:
+                with self.lock:
+                    self._finish_refresh()
             elapsed = self.clock() - self.started
             interval, _ = idle_interval(self.planner.github.quota_requests - before,
                                         self.planner.config.poll_seconds,

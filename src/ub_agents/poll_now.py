@@ -36,7 +36,7 @@ class PollNow:
             self._status()
             wake.set()
 
-    def wait(self, stop, delay, update=None):
+    def wait(self, stop, delay, update=None, on_request=None):
         """Wake for one request or shutdown; retain no requests outside this wait."""
         if delay <= 0 or stop.is_set():
             return stop.is_set()
@@ -56,6 +56,8 @@ class PollNow:
                 if update is not None and self.clock() >= next_update:
                     update()
                     next_update = self.clock() + 1
+            if wake.is_set() and not stop.is_set() and on_request is not None:
+                on_request()
             return stop.is_set()
         finally:
             with self.lock:

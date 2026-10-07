@@ -402,7 +402,12 @@ closes immediately on either key. The `?` list describes `q   Stop after run` an
 listed in `?`. It wakes idle polling or the running assignment's read-only queue
 planning, with the next scheduled pass counted from that refresh. It does not
 claim or interrupt during a run. In-flight presses are dropped; forced passes
-have a shared 10-second cooldown. Attached views show rate-limit resets in local
+show `running assignment · polling` until they complete, fail or are cancelled.
+The view shows this immediately unless a cooldown or rate limit applies; the next
+snapshot replaces local feedback. Reopened views show the active forced refresh,
+and repeated presses keep its label. Scheduled in-run refreshes keep
+`running assignment`. Forced passes have a shared 10-second cooldown.
+Attached views show rate-limit resets in local
 time, alongside `running assignment` when queue planning is rate limited during a
 run. Rate-limit waits and poll-retry backoff cannot be shortened. Countdown text
 remains `Ns`. Narrow footers may omit `r poll now` before shortening existing keys.

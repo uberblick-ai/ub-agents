@@ -460,16 +460,25 @@ left: waiting counts down as `next poll Ns`; other activities say `polling`,
 labelled there, including the malformed error, without a snapshot-age counter.
 In an attached view, `r` starts the next poll immediately or requests a read-only
 queue refresh during a run, without claiming or changing the running assignment.
+During that forced refresh, the footer shows `running assignment · polling`,
+including in a view reopened while it runs. The view shows `· polling` immediately
+on `r` unless a cooldown or rate limit applies, and the next launcher snapshot
+replaces that local feedback. The label clears when the refresh completes, fails
+or is cancelled. Scheduled refreshes during a run keep `running assignment`.
 The next regular poll or planning refresh is counted from that forced pass.
-Presses during a pass are dropped. Pressing again within 10 seconds shows
+Presses during a pass are dropped; a repeated press during a forced refresh keeps
+`· polling`. After the refresh ends, pressing again within 10 seconds of the
+accepted request shows
 `poll now available in Ns`; rate-limit waits show
 `rate limited until HH:MM · r unavailable`, in local time, alongside
 `running assignment` when queue planning is rate limited during a run. The key
 never shortens rate-limit waits or poll-retry backoff, and does not change attempt
 limits or the regular poll interval. Standalone views do not offer or act on `r`,
 and keep the `next poll Ns` countdown during rate-limit waits.
-In the narrow layout, the prefix is omitted and `next poll Ns` becomes `poll Ns`,
-for example `v0.1.11 · poll 26s`. Other activity and diagnostic labels keep their
+In the narrow layout, the `ub-agents` prefix is omitted and `next poll Ns` becomes
+`poll Ns`,
+for example `v0.1.11 · poll 26s` or `v0.1.11 · running assignment · polling`.
+Other activity and diagnostic labels keep their
 text. The list's right side reads `↑↓ select ⏎ open ? keys q quit`; the item view
 reads `Esc back 1-3 tabs ? keys q quit`. On Log, the footer adds `g reload`,
 dropping it at narrow widths when it does not fit. Reloading before the log exists
