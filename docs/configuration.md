@@ -607,8 +607,12 @@ agent's trigger. Adding a stop label is allowed as a human gate.
 An agent reports `ub-agents report --outcome NAME --summary TEXT [--handoff PR] [--action TEXT] [--option TEXT]`.
 Here and in project instructions, replace `ub-agents` with the launcher's literal
 `report_command` from the assignment context (also supplied as `UB_AGENTS_REPORT`).
-It runs the launcher's own installation regardless of PATH, the working directory
-or `PYTHONPATH`, for both console-script and `python -m ub_agents` launchers.
+It runs a copy of the launcher's code taken at startup, using the launcher's
+interpreter, regardless of PATH, the working directory or `PYTHONPATH`, for both
+console-script and `python -m ub_agents` launchers. The copy lives in the launcher's
+user state directory outside the checkout; refreshes and package upgrades do not
+change in-run commands or Python helpers. Shared locks retain it while users run;
+unused copies are removed on exit or on a later launcher start after a killed user.
 The prompt writes this command literally; agents need no shell-variable expansion
 and must not report through their worktree's development copy.
 This reports success; an unknown name is rejected. The prompt lists the declarations
@@ -997,7 +1001,7 @@ and configured command receives the same environment variables:
 | Variable | Value |
 |---|---|
 | `UB_AGENTS_CONTEXT` | Path to a JSON file describing the assignment |
-| `UB_AGENTS_REPORT` | Absolute, shell-quoted command for the launcher's own installation; also in context as `report_command`; append `report`, `read` or `retrospective` and its arguments |
+| `UB_AGENTS_REPORT` | Absolute, shell-quoted command for the launcher's startup code copy and interpreter; also in context as `report_command`; append `report`, `read` or `retrospective` and its arguments |
 | `UB_AGENTS_RUN_CONFIG` | Absolute path to `.ub-agents/runs/<run>/run.json` in the control checkout, pinning the run context and policy for `read`, `retrospective` and `report` |
 | `UB_AGENTS_REPOSITORY` | `owner/name` |
 | `UB_AGENTS_ASSIGNMENT` | Issue or PR number |

@@ -34,7 +34,7 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 
 ## Report command
 
-`{report_command}` becomes the launcher's own `ub-agents` command. A rule like `Bash(ub-agents *)` would not match it, because Claude matches the command text including its path. Agents with a [retrospectives](/docs/best-practices/retrospectives.html) board also need the `retrospective` rule.
+`{report_command}` becomes an absolute command running the launcher's startup code copy with its interpreter. A rule like `Bash(ub-agents *)` would not match it, because Claude matches the command text including its path. Agents with a [retrospectives](/docs/best-practices/retrospectives.html) board also need the `retrospective` rule.
 
 ```yaml
 "Bash({report_command} report *)"

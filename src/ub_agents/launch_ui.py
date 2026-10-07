@@ -10,13 +10,14 @@ import termios
 import threading
 
 from . import __version__
+from .launcher_code import descriptors, helper_command
 
 RESTORE = ('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l'
            '\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m')
 
 
 def ui_command():
-    return [sys.executable, '-P', '-m', 'ub_agents.view']
+    return helper_command('ub_agents.view')
 
 
 def open_view(root, session, output, stop, *, no_ui=False, poll=None):
@@ -25,7 +26,8 @@ def open_view(root, session, output, stop, *, no_ui=False, poll=None):
     command = ui_command()
     try:
         probe = subprocess.run([*command, '--probe', '--base-version', __version__],
-                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3)
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3,
+                               pass_fds=descriptors())
         if probe.returncode:
             raise ValueError(probe.stdout.strip() or 'incompatible UI/base version')
         if session is None:
@@ -59,7 +61,7 @@ class ViewProcess:
             self.process = subprocess.Popen(
                 [*self.command, str(self.root), '--session', self.session,
                  '--base-version', __version__, '--launcher-fd', str(child.fileno())],
-                pass_fds=(child.fileno(),), stdin=sys.stdin, stdout=self.output.stdout.terminal,
+                pass_fds=(child.fileno(), *descriptors()), stdin=sys.stdin, stdout=self.output.stdout.terminal,
                 stderr=subprocess.DEVNULL, start_new_session=True)
             def resize(*_):
                 if self.process.poll() is None:

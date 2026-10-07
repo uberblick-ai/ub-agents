@@ -156,6 +156,10 @@ it has checked the agent's report on GitHub. The
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again.
 
+In-run commands and Python helpers use a copy of the launcher's code taken at
+startup, so checkout refreshes and package upgrades leave active runs on the same
+code. Restart the launcher to use an update.
+
 When an agent needs a decision, the item stops with an **Action needed** comment
 that lists the options and how to resume. Launcher output is also appended to
 `.ub-agents/launch.log`.

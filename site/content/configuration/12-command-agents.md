@@ -38,7 +38,7 @@ Commands and agent CLIs get the same variables.
 | Variable | Value |
 |---|---|
 | `UB_AGENTS_CONTEXT` | Path to a JSON file describing the assignment |
-| `UB_AGENTS_REPORT` | The launcher's own report command |
+| `UB_AGENTS_REPORT` | Report command using the launcher's startup code copy and interpreter |
 | `UB_AGENTS_REPOSITORY` | `owner/name` |
 | `UB_AGENTS_ASSIGNMENT` | Issue or pull request number |
 | `UB_AGENTS_RUN` | Run id |

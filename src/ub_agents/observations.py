@@ -5,7 +5,6 @@ import json
 import os
 import socket
 import subprocess
-import sys
 import threading
 import uuid
 
@@ -18,6 +17,7 @@ from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from .run_config import run_directory
 from .view_data import omitted_plan, plan_group
 from . import __version__
+from .launcher_code import descriptors, helper_command
 
 VERSION = 1
 MAX_PLANS = 100
@@ -62,10 +62,10 @@ class Publisher:
             self.receiver.setblocking(False)
             life_read, self.life_write = os.pipe()
             error_read, error_write = os.pipe()
-            argv = command or [sys.executable, "-P", "-m", "ub_agents.observation_worker"]
+            argv = command or helper_command("ub_agents.observation_worker")
             self.process = subprocess.Popen(
                 [*argv, str(root), str(self.receiver.fileno()), str(life_read), str(error_write), str(self.sender.fileno())],
-                pass_fds=(self.receiver.fileno(), life_read, error_write, self.sender.fileno()),
+                pass_fds=(self.receiver.fileno(), life_read, error_write, self.sender.fileno(), *descriptors()),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
 

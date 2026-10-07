@@ -2,7 +2,6 @@
 
 from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass
-import fcntl
 import hashlib
 import json
 import math
@@ -14,7 +13,7 @@ import time
 
 from .execution import stop_group
 from .runtime_installations import claude_updates_disabled, installation, updater
-from .state import user_state_directory
+from .state import lock, user_state_directory
 
 COOLDOWN_SECONDS = 24 * 60 * 60
 
@@ -51,27 +50,6 @@ class RunReservation:
 
 def state_directory():
     return user_state_directory() / "runtime-updates"
-
-
-@contextmanager
-def lock(path, shared=False, create=True):
-    """Kernel-owned locks have no stale PID markers or PID-reuse ambiguity."""
-    if not create and not path.exists():
-        yield None
-        return
-    stream = path.open("a+b" if create else "rb")
-    try:
-        try:
-            fcntl.flock(stream, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
-        except BlockingIOError:
-            stream.close()
-            stream = None
-        yield stream
-    finally:
-        if stream is not None:
-            # Close instead of LOCK_UN: an inherited run descriptor must retain
-            # the lock if the launcher dies before its child finishes.
-            stream.close()
 
 
 class RuntimeMaintenance:

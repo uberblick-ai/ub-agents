@@ -9,10 +9,10 @@ import os
 import re
 import signal
 import subprocess
-import sys
 import time
 
 from .view_data import Description, mapping
+from .launcher_code import descriptors, helper_command
 from .view_unblock import ACTION_MARKER, ActionComment, comment_body, stamp, trust_reason
 
 REQUEST_SECONDS = 10
@@ -136,8 +136,8 @@ class GhTransport:
         read, self.life = os.pipe()
         try:
             self.process = subprocess.Popen(
-                [sys.executable, '-P', '-m', 'ub_agents.view_request', str(read), *command],
-                pass_fds=(read,), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                [*helper_command('ub_agents.view_request'), str(read), *command],
+                pass_fds=(read, *descriptors()), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, start_new_session=True, env=env)
         except BaseException:
             os.close(self.life)
