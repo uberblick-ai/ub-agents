@@ -458,11 +458,35 @@ class ReadingTests(unittest.TestCase):
     def test_missing_file_created_after_attach_is_live(self):
         self.path.unlink()
         reader = self.reader()
-        self.assertIsNotNone(reader.update().error)
+        for _ in range(3):
+            snapshot = reader.update()
+            self.assertIsNone(snapshot.error)
+            self.assertEqual(snapshot.entries, ())
+            self.assertNotIn("Read error:", snapshot.notice())
         self.path.write_bytes(b"new live\n")
         snapshot = reader.update()
         self.assertIsNone(snapshot.error)
+        self.assertEqual(snapshot.entries[-1].text, "new live")
         self.assertEqual(snapshot.entries[-1].capture, NOW.isoformat())
+        self.append(b"still live\n")
+        self.assertEqual(reader.update().entries[-1].text, "still live")
+
+    def test_file_disappearing_after_read_is_reported(self):
+        self.path.write_bytes(b"existing\n")
+        reader = self.reader()
+        before = reader.update()
+        self.path.unlink()
+        for _ in range(3):
+            snapshot = reader.update()
+            self.assertIsNotNone(snapshot.error)
+            self.assertIn("Read error:", snapshot.notice())
+            self.assertEqual(snapshot.entries, before.entries)
+
+    def test_non_regular_file_before_first_read_is_reported(self):
+        self.path.unlink()
+        reader = self.reader()
+        self.path.mkdir()
+        self.assertIsNotNone(reader.update().error)
 
     def test_reading_leaves_bytes_size_and_mtime_unchanged(self):
         self.path.write_bytes(FIXTURE.read_bytes())
@@ -510,6 +534,7 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(self.drain(reader).entries[-1].text, "concurrent append")
 
     def test_read_errors_are_inert_and_reader_recovers(self):
+        self.path.unlink()
         reader = self.reader()
         with patch("ub_agents.log_reader.os.open", side_effect=PermissionError("denied\x1b[2J")):
             snapshot = reader.update()

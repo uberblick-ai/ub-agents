@@ -283,7 +283,10 @@ can still be blocked. Until you select a row, the view selects the launcher's ow
 run whenever one starts. Selection, focus and paused log positions survive refreshes,
 including when a row moves between sections. A selected claiming assignment stays
 selected when its run ID appears; Log picks up and follows its output as soon as
-the local `process.log` exists. A selected row that disappears
+the local `process.log` exists. Until that file first exists, Log shows
+`No log output yet.` without a read error. Other read failures, including a log
+that disappears after being read, still show `Read error`.
+A selected row that disappears
 remains an earlier local observation in the right pane. A previous assignment or
 a plan now claimed by another launcher or parked for dependencies or a milestone
 is omitted from the live work sections.
