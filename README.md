@@ -149,6 +149,9 @@ it has checked the agent's report on GitHub. The
 | `ub-agents cleanup [--apply]` | Preview or remove worktrees left by crashed runs |
 | `ub-agents help COMMAND` | Show a command's options and examples |
 
+In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
+`y` copies the current selection again.
+
 When an agent needs a decision, the item stops with an **Action needed** comment
 that lists the options and how to resume. Launcher output is also appended to
 `.ub-agents/launch.log`.
