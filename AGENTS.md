@@ -86,8 +86,8 @@ the issue or PR number.
 
 ## Changes
 
-- Keep `README.md` and the docs under `docs/` accurate for any behavior you change,
-  and change tests with the code.
+- Keep `README.md`, the docs under `docs/` and the website pages under `site/content/`
+  accurate for any behavior you change, and change tests with the code.
 - Match the surrounding code: small modules, the standard library plus PyYAML, `gh`
   as the GitHub client, `unittest` with the recording fakes in `tests/support.py`.
 - Add no runtime dependencies without maintainer agreement.
