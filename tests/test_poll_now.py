@@ -89,6 +89,54 @@ class PollNowTests(unittest.TestCase):
                     patch.object(wake, 'wait', side_effect=wait):
                 self.loop._wait(self.loop.stop_event, 1, 'next poll or runtime pause')
 
+    def test_waiter_status_clears_after_request_deadline_cancellation_and_failure(self):
+        event = threading.Event
+        for ending in ('request', 'deadline', 'cancel', 'failure'):
+            with self.subTest(ending=ending):
+                self.setUp()
+                wake = event()
+
+                def wait(delay):
+                    self.assertTrue(self.memory.snapshots[-1]['poll_now']['waiting'])
+                    if ending == 'request':
+                        self.loop.request_poll()
+                        self.assertTrue(wake.is_set())
+                    elif ending == 'deadline':
+                        self.now += 30
+                    elif ending == 'cancel':
+                        self.loop.stop_event.set()
+                    else:
+                        raise RuntimeError('Wait failed')
+                    return wake.is_set()
+
+                with patch('ub_agents.poll_now.threading.Event', return_value=wake), \
+                        patch.object(wake, 'wait', side_effect=wait):
+                    if ending == 'failure':
+                        with self.assertRaisesRegex(RuntimeError, 'Wait failed'):
+                            self.loop.poll_now.wait(self.loop.stop_event, 30)
+                    else:
+                        self.assertEqual(self.loop.poll_now.wait(self.loop.stop_event, 30), ending == 'cancel')
+                self.assertFalse(self.memory.snapshots[-1]['poll_now']['waiting'])
+                self.assertIsNone(self.loop.poll_now.waiter)
+
+    def test_ending_waiter_does_not_clear_replacement_waiter_status(self):
+        wake = threading.Event()
+        replacement = (threading.Event(), threading.Event())
+
+        def wait(delay):
+            self.loop.poll_now.waiter = replacement
+            self.loop.poll_now._status()
+            self.loop.stop_event.set()
+            return False
+
+        with patch('ub_agents.poll_now.threading.Event', return_value=wake), \
+                patch.object(wake, 'wait', side_effect=wait):
+            self.assertTrue(self.loop.poll_now.wait(self.loop.stop_event, 30))
+        self.assertIs(self.loop.poll_now.waiter, replacement)
+        self.assertTrue(self.memory.snapshots[-1]['poll_now']['waiting'])
+        self.loop.request_poll()
+        self.assertTrue(replacement[1].is_set())
+
     def test_rate_limit_and_poll_retry_do_not_wake_or_queue_requests(self):
         for reason in ('rate-limit reset', 'poll retry or runtime pause'):
             with self.subTest(reason=reason):

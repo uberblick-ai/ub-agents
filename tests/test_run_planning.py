@@ -307,6 +307,29 @@ class RunPlanningTests(unittest.TestCase):
                           wait(stop, delay, self.loop.request_poll, on_request)):
             self.running_assignment(forced=True)
 
+    def test_once_and_single_item_runs_drop_poll_requests_without_planning(self):
+        for launch in ({'once': True}, {'number': 1}):
+            with self.subTest(launch=launch):
+                self.setUp()
+                self.loop.enable_poll_now()
+
+                def finish(*args, **kwargs):
+                    self.assertIsNone(self.loop._run_planning)
+                    self.assertIsNone(self.loop.poll_now.waiter)
+                    snapshot = deepcopy(self.memory.snapshots[-1])
+                    self.assertEqual(snapshot['activity']['state'], 'running assignment')
+                    self.assertFalse(snapshot.get('poll_now', {}).get('waiting'))
+                    self.loop.request_poll()
+                    self.assertEqual(self.loop.poll_now.next_allowed, 0)
+                    self.assertEqual(self.memory.snapshots[-1], snapshot)
+                    self.loop.coordinator.report(self.loop.github.lease, 'success', 'Finished', outcome='done')
+                    return 0
+
+                with patch('ub_agents.loop.supervise', side_effect=finish):
+                    self.loop.launch(**launch)
+                self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
+                self.assertEqual(self.loop._planning_workers, [])
+
     def test_planning_rate_limit_wait_rejects_poll_but_regular_wait_can_be_forced(self):
         self.loop.enable_poll_now()
         worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
@@ -354,6 +377,7 @@ class RunPlanningTests(unittest.TestCase):
         def refresh():
             starts.append(self.now)
             self.assertEqual(self.memory.snapshots[-1]['activity']['state'], 'running assignment')
+            self.assertFalse(self.memory.snapshots[-1]['poll_now']['waiting'])
             self.assertEqual(self.memory.snapshots[-1]['poll_now']['refreshing'], len(starts) == 1)
             self.loop.request_poll()  # A pass already in progress is not queued again.
             self.assertEqual(self.memory.snapshots[-1]['poll_now']['refreshing'], len(starts) == 1)
@@ -368,6 +392,7 @@ class RunPlanningTests(unittest.TestCase):
             wake = event()
 
             def wakeup(_):
+                self.assertTrue(self.memory.snapshots[-1]['poll_now']['waiting'])
                 if len(delays) == 1:
                     self.now += 2
                     self.loop.request_poll()

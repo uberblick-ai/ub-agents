@@ -17,7 +17,8 @@ class PollNow:
         self.limits = {}
 
     def _status(self):
-        self.status(self.cooldown_until, max(self.limits.values(), default=None))
+        self.status(self.cooldown_until, max(self.limits.values(), default=None),
+                    self.waiter is not None)
 
     def request(self):
         with self.lock:
@@ -46,6 +47,7 @@ class PollNow:
             if stop.is_set():
                 return True
             self.waiter = waiter
+            self._status()
         try:
             deadline = self.clock() + delay
             next_update = self.clock() + 1
@@ -63,6 +65,7 @@ class PollNow:
             with self.lock:
                 if self.waiter is waiter:
                     self.waiter = None
+                    self._status()
 
     @contextmanager
     def rate_limit(self, until):

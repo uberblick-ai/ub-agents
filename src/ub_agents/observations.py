@@ -347,10 +347,11 @@ class Observations:
         self.state["activity"] = {"state": state, "until": until, "reason": reason}
         self.emit()
 
-    def poll_now(self, cooldown_until, rate_limit_until):
+    def poll_now(self, cooldown_until, rate_limit_until, waiting=False):
         self.state.setdefault("poll_now", {}).update({
             "cooldown_until": iso(cooldown_until) if cooldown_until is not None else None,
             "rate_limit_until": iso(rate_limit_until) if rate_limit_until is not None else None,
+            "waiting": waiting,
         })
         self.emit()
 

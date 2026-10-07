@@ -703,11 +703,12 @@ class View(App):
                 if self.poll_next_allowed is not None and self.poll_next_allowed > now:
                     cooldown = max(cooldown or now, self.poll_next_allowed)
                 if poll_deadline(control.get('rate_limit_until'), now) is None:
+                    feedback = {}
                     if control.get('refreshing') is True:
                         feedback = {'refreshing': True, 'cooldown_until': None}
                     elif cooldown is not None:
                         feedback = {'refreshing': False, 'cooldown_until': cooldown.isoformat()}
-                    else:
+                    elif control.get('waiting') is True or activity['state'] == 'waiting':
                         self.poll_next_allowed = now + timedelta(seconds=COOLDOWN_SECONDS)
                         feedback = {'refreshing': True, 'cooldown_until': None}
                     if activity['state'] == 'running assignment':

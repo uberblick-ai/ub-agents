@@ -399,14 +399,18 @@ closes immediately on either key. The `?` list describes `q   Stop after run` an
 `Ctrl-C   Stop now`, with each line also saying it closes a standalone view.
 
 `r` is available only with an attached launcher, on every tab and pane, and is
-listed in `?`. It wakes idle polling or the running assignment's read-only queue
-planning, with the next scheduled pass counted from that refresh. It does not
-claim or interrupt during a run. In-flight presses are dropped; forced passes
-show `running assignment · polling` until they complete, fail or are cancelled.
-The view shows this immediately unless a cooldown or rate limit applies; the next
-snapshot replaces local feedback. Reopened views show the active forced refresh,
-and repeated presses keep its label. Scheduled in-run refreshes keep
+listed in `?`. It wakes idle polling or a continuous launch's read-only queue
+planning during an assignment, with the next scheduled pass counted from that
+refresh. It does not claim or interrupt during a run. In-flight presses are
+dropped; forced passes show `running assignment · polling` until they complete,
+fail or are cancelled.
+The view shows this immediately when the snapshot confirms a polling waiter and
+no cooldown or rate limit applies; the next snapshot replaces local feedback.
+Reopened views show the active forced refresh, and repeated presses keep its
+label. Scheduled in-run refreshes keep
 `running assignment`. Forced passes have a shared 10-second cooldown.
+`launch --once` and `launch N` have no in-run queue planning; presses during their
+assignments are dropped without local polling feedback.
 Attached views show rate-limit resets in local
 time, alongside `running assignment` when queue planning is rate limited during a
 run. Rate-limit waits and poll-retry backoff cannot be shortened. Countdown text

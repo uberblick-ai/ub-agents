@@ -287,6 +287,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press('r', 'escape', '1', 'p', 'r', 'escape')
                     presses += 2
                     await pilot.resize_terminal(60, 16)
+                    await self.ready(app, pilot, lambda: app.narrow and 'r poll now' not in status.render().plain)
                     self.assertNotIn('r poll now', status.render().plain)
                     await pilot.press('r', 'enter', 'r')
                     presses += 2
@@ -333,7 +334,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         for size in ((180, 45), (109, 31)):
             with self.subTest(size=size):
                 self.state['activity'] = {'state': 'running assignment'}
-                self.state['poll_now'] = {'cooldown_until': None, 'rate_limit_until': None}
+                self.state['poll_now'] = {'cooldown_until': None, 'rate_limit_until': None, 'waiting': True}
                 publish_snapshot(self.path, self.state)
                 app = View(self.root, self.path, launcher=Mock())
                 with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
@@ -350,11 +351,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await pilot.pause(0.2)  # Re-reading the same snapshot is not a new snapshot.
                         self.assertIn(label, status.render().plain)
                         self.state['poll_now']['refreshing'] = True
+                        self.state['poll_now']['waiting'] = False
                         publish_snapshot(self.path, self.state)
                         await self.ready(app, pilot, lambda: not app.poll_feedback)
                         self.assertIn(label, status.render().plain)
                         clock.now.return_value = now + timedelta(seconds=3)
                         self.state['poll_now']['refreshing'] = False
+                        self.state['poll_now']['waiting'] = True
                         publish_snapshot(self.path, self.state)
                         await self.ready(app, pilot, lambda: '· polling' not in status.render().plain)
                         app.action_poll_now()  # The last press still supplies the local cooldown.
@@ -369,6 +372,33 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         self.assertIn(label, status.render().plain)
                         self.assertEqual(app.launcher.poll.call_count, 4)
                         app.exit()
+                app.worker.thread.join(2)
+
+    async def test_dropped_running_poll_press_without_waiter_has_no_feedback_or_cooldown(self):
+        for control in (None, {}, {'waiting': False, 'refreshing': False}):
+            with self.subTest(control=control):
+                self.state['activity'] = {'state': 'running assignment'}
+                self.state['poll_now'] = control
+                publish_snapshot(self.path, self.state)
+                app = View(self.root, self.path, launcher=Mock())
+                async with app.run_test(size=(180, 45)) as pilot:
+                    await self.ready(app, pilot)
+                    status = app.query_one('#status', Static)
+                    await pilot.press('r', 'r')
+                    self.assertIn('running assignment', status.render().plain)
+                    self.assertNotIn('· polling', status.render().plain)
+                    self.assertNotIn('poll now available', status.render().plain)
+                    self.assertEqual(app.poll_feedback, {})
+                    self.assertIsNone(app.poll_next_allowed)
+                    self.assertEqual(app.launcher.poll.call_count, 2)
+                    # No dropped press should prevent immediate feedback when
+                    # queue planning next installs a waiter.
+                    self.state['poll_now'] = {'waiting': True}
+                    publish_snapshot(self.path, self.state)
+                    await self.ready(app, pilot, lambda: app.session.data.get('poll_now') == {'waiting': True})
+                    app.action_poll_now()
+                    self.assertIn('running assignment · polling', status.render().plain)
+                    app.exit()
                 app.worker.thread.join(2)
 
     async def test_reopened_view_shows_running_refresh_until_snapshot_clears_it(self):
