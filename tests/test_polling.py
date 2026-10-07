@@ -33,21 +33,24 @@ class PollingTests(unittest.TestCase):
         self.lines = []
         self.loop = Loop(self.config, self.github, "operator", output=self.lines.append)
 
-    def request_error(self, response):
+    def request_error(self, response, *, method="GET", endpoint="repos/org/project/issues/comments?per_page=100"):
         """Use the real gh adapter's classification, driven by the recording fake."""
         runner = RecordingRunner(self.root)
-        endpoint = "repos/org/project/issues/comments?per_page=100"
-        command = ("gh", "api", "--hostname", "github.com", "--method", "GET", "-H",
+        command = ("gh", "api", "--hostname", "github.com", "--method", method, "-H",
                    "Accept: application/vnd.github+json", "--include", endpoint)
         runner.responses[command] = response
         with self.assertRaises(GitHubError) as raised:
-            GitHub("org/project", runner).request(endpoint, array=True)
+            GitHub("org/project", runner).request(endpoint, method=method, array=True)
         self.assertEqual(len(runner.calls), 1)
         return raised.exception
 
     def http_error(self, status=504, headers="", detail="Gateway timeout"):
         return self.request_error(subprocess.CompletedProcess(
             [], 1, f"HTTP/2.0 {status} Error\n{headers}\n{{}}", f"gh: {detail} (HTTP {status})"))
+
+    def claim_error(self):
+        return self.request_error(subprocess.CompletedProcess([], 1, "", "unexpected end of JSON input"),
+                                  method="POST", endpoint="repos/org/project/issues/1/comments")
 
     def finish(self, *args, **kwargs):
         lease = self.loop.coordinator.history(1)[0]
@@ -508,14 +511,169 @@ class PollingTests(unittest.TestCase):
                 self.assertEqual(len(self.lines), 1)
                 self.assertTrue(self.lines[0].startswith("Skipped"))
 
-    def test_claim_write_and_post_write_reads_keep_first_failure_handling(self):
-        for stage in ("lease write", "election read", "after withdrawn claim"):
+    def test_retryable_claim_post_without_comment_skips_then_claims(self):
+        failure = self.claim_error()
+        create = self.github.create_comment
+        calls = []
+
+        def post(number, body):
+            calls.append(number)
+            if len(calls) == 1:
+                raise failure
+            return create(number, body)
+
+        def wait(delay):
+            self.assertEqual(delay, POLL_RETRY_BASE_SECONDS)
+            self.assertEqual(self.github.writes, [])
+            self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
+
+        with patch.object(self.github, "create_comment", side_effect=post), \
+                patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
+                patch("ub_agents.loop.supervise", side_effect=self.finish) as execute, \
+                self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        execute.assert_called_once()
+        waits.assert_called_once()
+        lease = self.loop.coordinator.history(1)[0]
+        self.assertEqual(lease["attempt"], 1)
+        self.assertIsNone(self.loop.coordinator.lost_claim)
+        self.assertIn(f"Skipped GitHub poll: {failure}; retrying in 5s", self.lines)
+
+    def test_lost_claim_response_with_comment_withdraws_before_planning(self):
+        self.loop.config = replace(self.config, agents=(replace(self.config.agents[0], max_attempts=1,
+                                   backoff_seconds=60, max_backoff_seconds=60),))
+        create = self.github.create_comment
+        calls = []
+
+        def post(number, body):
+            comment = create(number, body)
+            calls.append(number)
+            if len(calls) == 1:
+                raise self.claim_error()
+            return comment
+
+        observe = self.github.observe
+        passes = []
+
+        def discover(*args, **kwargs):
+            passes.append(len(passes))
+            if len(passes) == 2:
+                history = self.loop.coordinator.history(1)
+                self.assertEqual(len(history), 1)
+                self.assertEqual(history[0]["state"], "withdrawn")
+                self.assertEqual(history[0]["summary"], "Claim response was lost; withdrawn")
+                self.assertFalse(history[0]["started"])
+                self.assertEqual(history[0]["attempt_effect"], "unchanged")
+                self.assertEqual(attempts(history, "worker", timestamp()), [])
+            return observe(*args, **kwargs)
+
+        def execute(*args, **kwargs):
+            lease = self.loop.coordinator.history(1)[-1]
+            self.assertEqual(lease["attempt"], 1)
+            self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
+            self.loop.stop_event.set()
+            return 0
+
+        with patch.object(self.github, "create_comment", side_effect=post), \
+                patch.object(self.github, "observe", side_effect=discover), \
+                patch.object(self.loop.stop_event, "wait") as waits, \
+                patch("ub_agents.loop.supervise", side_effect=execute) as supervise, \
+                self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        supervise.assert_called_once()
+        waits.assert_called_once_with(POLL_RETRY_BASE_SECONDS)
+        self.assertEqual(len(passes), 2)
+        leases = [r for r in self.loop.coordinator.history(1) if r["kind"] == "lease"]
+        self.assertEqual([r["attempt"] for r in leases], [1, 1])
+        self.assertNotEqual(leases[0]["run"], leases[1]["run"])
+        self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), 1)
+
+    def test_lost_claim_withdrawal_failures_retry_without_new_claims(self):
+        for stage in ("history read", "withdrawal write", "withdrawal response"):
+            with self.subTest(stage=stage):
+                self.setUp()
+                create, update = self.github.create_comment, self.github.update_comment
+                posts, withdrawals, delays = [], [], []
+
+                def post(number, body):
+                    comment = create(number, body)
+                    posts.append(number)
+                    if len(posts) == 1:
+                        raise self.claim_error()
+                    return comment
+
+                def withdraw(comment_id, body):
+                    if "Claim response was lost; withdrawn" in body:
+                        withdrawals.append(comment_id)
+                        if len(withdrawals) == 1:
+                            if stage == "withdrawal response":
+                                update(comment_id, body)
+                            if stage != "history read":
+                                raise self.request_error(subprocess.CompletedProcess(
+                                    [], 1, "", "unexpected end of JSON input"), method="PATCH",
+                                    endpoint=f"repos/org/project/issues/comments/{comment_id}")
+                    return update(comment_id, body)
+
+                def wait(delay):
+                    delays.append(delay)
+                    self.assertEqual(posts, [1])
+                    if len(delays) == 1 and stage == "history read":
+                        self.github.read_results["comments"] = [self.http_error()]
+
+                def execute(*args, **kwargs):
+                    history = self.loop.coordinator.history(1)
+                    self.assertEqual(history[0]["state"], "withdrawn")
+                    self.assertEqual(history[-1]["attempt"], 1)
+                    self.loop.coordinator.report(history[-1], "success", "Completed", outcome="done")
+                    self.loop.stop_event.set()
+                    return 0
+
+                with patch.object(self.github, "create_comment", side_effect=post), \
+                        patch.object(self.github, "update_comment", side_effect=withdraw), \
+                        patch.object(self.loop.stop_event, "wait", side_effect=wait), \
+                        patch("ub_agents.loop.supervise", side_effect=execute) as supervise, \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.loop.launch()
+                supervise.assert_called_once()
+                self.assertEqual(delays, [5, 10])
+                self.assertEqual(len(withdrawals), 2 if stage == "withdrawal write" else 1)
+                self.assertIsNone(self.loop.coordinator.lost_claim)
+
+    def test_retryable_claim_failures_exhaust_existing_poll_limit(self):
+        failure = self.claim_error()
+        with patch.object(self.github, "create_comment", side_effect=failure) as posts, \
+                patch.object(self.loop.stop_event, "wait") as waits, \
+                patch("ub_agents.loop.supervise") as execute, self.assertRaises(AgentError) as raised:
+            self.loop.launch()
+        self.assertEqual(posts.call_count, POLL_FAILURE_LIMIT)
+        self.assertEqual([call.args[0] for call in waits.call_args_list], [5, 10, 20, 40, 60])
+        self.assertIn("POST repos/org/project/issues/1/comments", str(raised.exception))
+        self.assertIn("retries exhausted after 6 consecutive failed polls", str(raised.exception))
+        self.assertIn("Fix the cause and restart ub-agents launch", str(raised.exception))
+        self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), POLL_FAILURE_LIMIT - 1)
+        self.assertEqual(self.github.writes, [])
+        execute.assert_not_called()
+
+    def test_once_and_nonretryable_claim_writes_fail_on_first_error(self):
+        for once, failure in ((True, self.claim_error()),
+                              (False, GitHubError("POST", "repos/org/project/issues/1/comments", "permission denied"))):
+            with self.subTest(once=once):
+                self.setUp()
+                with patch.object(self.github, "create_comment", side_effect=failure) as post, \
+                        patch.object(self.loop.stop_event, "wait") as waits, \
+                        self.assertRaises(GitHubError) as raised:
+                    self.loop.launch(once=once)
+                self.assertIs(raised.exception, failure)
+                post.assert_called_once()
+                waits.assert_not_called()
+                self.assertFalse(any(line.startswith("Skipped") for line in self.lines))
+
+    def test_post_write_reads_keep_first_failure_handling(self):
+        for stage in ("election read", "after withdrawn claim"):
             with self.subTest(stage=stage):
                 self.setUp()
                 failure = self.http_error()
-                if stage == "lease write":
-                    failure_patch = patch.object(self.github, "create_comment", side_effect=failure)
-                elif stage == "election read":
+                if stage == "election read":
                     self.github.read_results["comments"] = [None, None, None, failure]
                     failure_patch = patch("ub_agents.loop.supervise")
                 else:

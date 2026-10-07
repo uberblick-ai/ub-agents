@@ -60,6 +60,9 @@ class Coordinator:
         self._lease_lock = threading.RLock()
         self._lease_revision = 0
         self._lost = {}
+        # A failed POST may have created this record without returning its ID.
+        # Keep only this launcher's uncertain claim; restarts use normal expiry.
+        self.lost_claim = None
 
     def observed(self, record):
         if self.on_record is not None:
@@ -375,7 +378,13 @@ class Coordinator:
                        "recovered_run": outcome["run"]}
         if before_write is not None:
             before_write()
-        created = records([self.github.create_comment(current.number, body(record))], self.actor)[0]
+        try:
+            comment = self.github.create_comment(current.number, body(record))
+        except GitHubError as exc:
+            if exc.retryable:
+                self.lost_claim = record
+            raise
+        created = records([comment], self.actor)[0]
         self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
@@ -399,6 +408,23 @@ class Coordinator:
             raise LostOwnership("Lease expired during claiming")
         self.notices.resumed(current.number)
         return created
+
+    def withdraw_lost_claim(self):
+        """Resolve an uncertain claim POST before any new assignment planning."""
+        if self.lost_claim is None:
+            return None
+        record = self.lost_claim
+        history = self.history(record["assignment"])
+        lease = next((r for r in history if r["kind"] == "lease" and same_run(r, record)), None)
+        if lease is not None and lease["state"] != "withdrawn":
+            if lease["state"] != "claiming" or lease.get("started"):
+                raise LostOwnership("Lost-response claim changed before withdrawal")
+            self.update(lease, state="withdrawn", attempt_effect="unchanged",
+                        summary="Claim response was lost; withdrawn")
+        # Retain the record if either the read or withdrawal failed. A lost PATCH
+        # response is resolved by reading the same comment on the next pass.
+        self.lost_claim = None
+        return record["assignment"]
 
     def update(self, lease, **changes):
         with self._lease_lock:

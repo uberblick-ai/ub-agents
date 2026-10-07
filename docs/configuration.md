@@ -229,9 +229,11 @@ repositories, and add busy discovery, execution/write costs and agents' calls.
 GraphQL has a separate point budget; graph-list query cost depends on its
 connections. Long runs reduce discovery frequency.
 
-Continuous `ub-agents launch` retries failed discovery polls for request timeouts,
-connection failures and HTTP 5xx responses. The fixed backoff starts at **5 seconds**,
-doubles after each consecutive failure and caps at **60 seconds**. The launcher stops
+Continuous `ub-agents launch` retries failed discovery polls and claim POSTs for
+request timeouts, connection failures, empty or truncated responses reported by
+`gh` as `unexpected end of JSON input`, and HTTP 5xx responses. The fixed backoff
+starts at **5 seconds**, doubles after each consecutive failure and caps at
+**60 seconds**. The launcher stops
 on the **sixth consecutive failed poll**; a completed poll resets the count, including
 one that finds no work. These values are not configuration keys and are independent
 of agent execution retries under `limits`.
@@ -248,20 +250,27 @@ Time spent waiting for a rate limit counts toward the `poll-seconds` or empty-pa
 budget gap between discovery-pass starts. A completed pass waits only for any gap
 still left; if the wait or run already used that time, the next pass starts immediately.
 
-Rate limits do not count toward the poll failure limit or an item's attempts.
+Rate-limited reads do not count toward the poll failure limit or an item's attempts.
 Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)`
 and makes no GitHub writes while waiting. Authentication, permission, missing
-repository, malformed response and unclassified failures still stop immediately.
+repository, other malformed responses and unclassified failures still stop immediately.
 The error names the request and tells the operator to fix the cause and restart
 `ub-agents launch`.
 
-Each skipped poll for another transient error prints its error and next delay,
-makes no GitHub writes and does not report an empty queue. Discovery includes
-initial authentication and fresh reads immediately before a claim, including the
-default-branch read for instruction refresh. See
+Each skipped poll for another transient error prints its error and next delay
+and does not report an empty queue. Failed discovery reads make no GitHub writes.
+Discovery includes initial authentication and fresh reads immediately before a
+claim, including the default-branch read for instruction refresh. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signals during
-discovery waits. `launch --once` and `status` still fail on their first discovery
-error.
+discovery waits. `launch --once` and `status` still fail on their first error.
+
+A retryable claim POST failure ends the pass with the same skipped-poll message
+and counts toward the same failure limit. Before planning on the next pass, the
+launcher checks whether that claim was created. If present, it withdraws the claim
+with `state: withdrawn` and summary `Claim response was lost; withdrawn`.
+This spends no attempt and adds no item backoff, so the item can be claimed again
+on that pass. If the launcher restarts first, the claim expires normally.
+Failures after a confirmed claim retain their existing handling.
 
 From claim election through release, including completion recovery, rate-limited
 reads wait and retry under the active lease, even when the reset is beyond its
@@ -269,8 +278,8 @@ current expiry. Renewal continues during the wait. If the last confirmed expiry
 actually passes, the launcher takes the lost-ownership path and leaves expiry recovery
 to finish durable completion. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signals during
-owned-run waits. Rate-limited writes retain their existing handling and are not
-replayed by this retry mechanism.
+owned-run waits. Rate-limited writes other than claim POSTs retain their existing
+handling and are not replayed by this retry mechanism.
 
 ## Launcher accounts
 

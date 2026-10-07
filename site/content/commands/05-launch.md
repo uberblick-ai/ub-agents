@@ -11,6 +11,15 @@ Rate-limit waits show `rate limited until HH:MM · r unavailable`.
 `launch --once` and `launch N` do not refresh the queue during an assignment;
 pressing `r` then leaves the footer at `running assignment`.
 
+Continuous launch retries transient discovery and claim POST failures, including
+empty or truncated responses reported by `gh` as `unexpected end of JSON input`.
+It waits 5 seconds initially, doubles the delay up to 60 seconds, and stops after
+six consecutive failures. If a failed claim POST created a comment, the next pass
+withdraws it before planning, without spending an attempt or adding item backoff.
+If the launcher restarts first, the claim expires normally. `launch --once` fails
+on the first error. See [polling and retry limits](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#top-level)
+for details.
+
 ```text
 {{help launch}}
 ```

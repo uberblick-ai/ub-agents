@@ -241,11 +241,15 @@ class GitHubTests(unittest.TestCase):
                  (PermissionError('gh cannot execute'), False)]
         for message in ('dial tcp: lookup api.github.com: no such host', 'connect: connection refused',
                         'read: connection reset by peer', 'i/o timeout', 'TLS handshake timeout',
-                        'context deadline exceeded', 'unexpected EOF',
+                        'context deadline exceeded', 'unexpected EOF', 'unexpected end of JSON input',
                         'net/http: request canceled (Client.Timeout exceeded while awaiting headers)',
                         'net/http: timeout awaiting response headers', 'connect: operation timed out'):
             cases.append((subprocess.CompletedProcess([], 1, '', message), True))
         cases.extend([(subprocess.CompletedProcess([], 1, 'HTTP/2.0 200 OK\n\n[]', 'unexpected EOF'), True),
+                      (subprocess.CompletedProcess([], 1, 'HTTP/2.0 201 Created\n\n',
+                                                   'unexpected end of JSON input'), True),
+                      (subprocess.CompletedProcess([], 1, 'HTTP/2.0 403 Error\n\n{}',
+                                                   'unexpected end of JSON input'), False),
                       (subprocess.CompletedProcess([], 1, 'HTTP/2.0 401 Error\n\n{}', 'i/o timeout'), False),
                       (subprocess.CompletedProcess([], 1, '', 'certificate signed by unknown authority'), False),
                       (subprocess.CompletedProcess([], 1, '', 'unknown failure'), False)])
