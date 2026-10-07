@@ -734,7 +734,7 @@ class View(App):
         recent = self.query_one(RecentActivity)
         recent.populate(pane.recent, self.session)
         cursor = tree.cursor_node
-        previous_selection = self.selected
+        cursor_row = self.rows.get(cursor.data) if cursor else None
         if pane.selected != self.selected:
             replacement = (related_assignment(pane.rows, self.rows.get(self.selected)) or
                            related_plan(pane.rows, self.rows.get(self.selected)))
@@ -814,10 +814,17 @@ class View(App):
                 recent.cursor = self.selected
                 recent.focus()
         elif cursor:
-            cursor_key = self.selected if cursor.data == previous_selection else cursor.data
-            target = self.nodes.get(cursor_key)
-            if target is not None and target is not cursor:
-                tree.move_cursor(target)
+            target = self.nodes.get(cursor.data)
+            if target is None:
+                replacement = (related_assignment(pane.rows, cursor_row) or
+                               related_plan(pane.rows, cursor_row))
+                target = self.nodes.get(replacement.key) if replacement else None
+            target = target or self.nodes.get(self.selected)
+            if target is not None:
+                # Even a reused node can now occupy a different cursor line.
+                tree.get_node_at_line(0)
+                if target is not tree.cursor_node:
+                    tree.move_cursor(target)
 
     def move_cursor(self, node):
         self.query_one('#work', Tree).move_cursor(node)
