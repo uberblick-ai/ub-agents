@@ -2081,6 +2081,36 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_runs_activation_replaces_same_shape_history_before_first_layout(self):
+        self.state['histories']['12']['runs'][0]['result'] = 'success'
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(160, 45)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                clock.now.return_value = now
+                app.select('plan:12')
+                runs = app.query_one('#runs_text', Static)
+                self.assertEqual(runs.content_size.width, 0)
+                app.session.data['histories']['12']['runs'][0]['summary'] = 'ZZZ'
+                app.update_runs()
+                # Activation happens before layout. A frozen clock prevents the
+                # next one-second bucket from masking a stale content write.
+                await pilot.press('3')
+                table = list(runs.content.renderables)[1]
+                self.assertEqual(table.columns[2]._cells[0].plain, 'reviewer · ZZZ')
+                await pilot.pause(0.5)
+                self.assertIn('reviewer · ZZZ', '\n'.join(
+                    runs.render_line(y).text for y in range(runs.size.height)))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_runs_and_log_spinners_advance_each_tenth_with_static_status_text(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:

@@ -1240,6 +1240,9 @@ class View(App):
         if self.is_mounted:
             if event.pane.id == 'runs':
                 self.last_runs = None
+                # Before its first layout a hidden table has no width, so
+                # rendered-cell comparisons can hide changed history.
+                self._static_values.pop(self.query_one('#runs_text', Static), None)
                 self.update_runs()
             self.update_status()
 
