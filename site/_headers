@@ -1,3 +1,0 @@
-# Cloudflare Pages response headers. Remove the X-Robots-Tag rule at the public launch.
-/*
-  X-Robots-Tag: noindex
