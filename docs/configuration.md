@@ -40,9 +40,14 @@ UTF-8. `check`, `doctor` and the pre-run reload validate it; invalid files stop 
 launcher before a claim or charged attempt. Text comes from the refreshed control
 checkout and stays fixed for the run, even if a candidate edits the policy.
 
-Project build commands and conventions belong in the repository's own `AGENTS.md`
-or `CLAUDE.md`, loaded by each runtime. Loop checks, merge policy, decision authority
-and review focus belong in the shared policy; role procedures belong in role files.
+Project build commands and conventions belong in the repository's own `AGENTS.md`,
+`CLAUDE.md` or `.claude/CLAUDE.md`. The starter policy's Checks section points to
+an existing file, preferring one the configured runtime loads; placeholders appear
+only when none exists. Codex loads `AGENTS.md`. Claude prefers `CLAUDE.md`, then
+`.claude/CLAUDE.md`, then `AGENTS.md`. If only Claude guidance exists for Codex,
+`init` suggests an `AGENTS.md` containing `Read CLAUDE.md` or `Read .claude/CLAUDE.md`.
+Loop checks, merge policy, decision authority and review focus belong in the shared
+policy; role procedures belong in role files.
 Stop-report formatting, input trust, reporting and workflow-label ownership come
 from the launcher prompt and need no project copies.
 

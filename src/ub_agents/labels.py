@@ -26,7 +26,7 @@ class Label:
 
     @property
     def description(self):
-        return f"ub-agents: {self.uses[0].meaning}"[:100]
+        return f"ub-agents: {self.explanation}"[:100]
 
     @property
     def color(self):
@@ -38,28 +38,28 @@ class Label:
 
 
 def configured_labels(config):
-    """Deduplicate names case-insensitively while retaining every consumer."""
+    """Deduplicate names and retain every consumer, with effects before transitions."""
     labels = {}
 
-    def add(name, use):
+    def add(name, use, *, effect=False):
         key = name.casefold()
         if key not in labels:
-            labels[key] = (name, [])
-        labels[key][1].append(use)
+            labels[key] = (name, [], [])
+        _, effects, transitions = labels[key]
+        (effects if effect else transitions).append(use)
 
     for agent in config.agents:
         kind = {"issue": "an issue", "pr": "a PR", "either": "an issue or PR"}[agent.kind]
         for name in agent.triggers:
-            add(name, LabelUse(agent.name, f"starts {agent.name} on {kind}"))
+            add(name, LabelUse(agent.name, f"starts {agent.name} on {kind}"), effect=True)
         for outcome, transition in agent.outcomes.items():
             for action in ("add", "remove"):
                 for name in transition[action]:
-                    meaning = (f"{'added to the destination' if action == 'add' else 'removed from the assignment'} "
-                               f"by {agent.name} outcome {outcome}")
+                    meaning = f"{'added' if action == 'add' else 'removed'} when {agent.name} reports {outcome}"
                     add(name, LabelUse(agent.name, meaning))
     for name in config.stop_labels:
-        add(name, LabelUse(None, "parks an issue or PR until a person decides", required=False))
-    return [Label(name, tuple(uses)) for name, uses in labels.values()]
+        add(name, LabelUse(None, "parks an issue or PR until a person decides", required=False), effect=True)
+    return [Label(name, tuple(effects + transitions)) for name, effects, transitions in labels.values()]
 
 
 def print_commands(labels, repository, reason):

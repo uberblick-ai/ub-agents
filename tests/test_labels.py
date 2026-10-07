@@ -25,10 +25,13 @@ class LabelTests(unittest.TestCase):
         labels = configured_labels(self.config)
         self.assertEqual([label.name for label in labels],
                          ['custom-start', 'custom-destination', 'legacy-state', 'custom-stop'])
-        self.assertEqual([use.agent for use in labels[1].uses], ['worker', 'reviewer'])
-        self.assertIn('starts reviewer on a PR', labels[1].uses[1].meaning)
-        self.assertIn('removed from the assignment by worker outcome done', labels[2].uses[0].meaning)
-        self.assertEqual([use.required for use in labels[3].uses], [True, False])
+        self.assertEqual([use.agent for use in labels[1].uses], ['reviewer', 'worker'])
+        self.assertEqual(labels[1].explanation, 'starts reviewer on a PR; added when worker reports done')
+        self.assertEqual(labels[1].description, 'ub-agents: starts reviewer on a PR; added when worker reports done')
+        self.assertEqual(labels[2].explanation, 'removed when worker reports done')
+        self.assertEqual([use.required for use in labels[3].uses], [False, True])
+        self.assertEqual(labels[3].explanation,
+                         'parks an issue or PR until a person decides; added when worker reports parked')
 
     def test_confirmed_provisioning_follows_the_configuration(self):
         with patch.dict('os.environ', {'CI': ''}), \
@@ -38,7 +41,7 @@ class LabelTests(unittest.TestCase):
                 provision_labels(self.config, self.github)
         self.assertEqual([write[1] for write in self.github.writes],
                          ['custom-destination', 'legacy-state', 'custom-stop'])
-        self.assertIn('outcome done', output.getvalue())
+        self.assertIn('reports done', output.getvalue())
         self.assertIn('parks an issue or PR', output.getvalue())
 
     def test_eof_declines_creation(self):

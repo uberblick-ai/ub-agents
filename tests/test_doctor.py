@@ -423,9 +423,11 @@ agents:
         self.assertEqual([(check['status'], check['agent']) for check in missing],
                          [('fail', None)])
         self.assertEqual(missing[0]['uses'], [
-            {'agent': 'worker', 'meaning': 'added to the destination by worker outcome needs-human', 'required': True},
             {'agent': None, 'meaning': 'parks an issue or PR until a person decides', 'required': False},
+            {'agent': 'worker', 'meaning': 'added when worker reports needs-human', 'required': True},
         ])
+        self.assertIn('parks an issue or PR until a person decides; added when worker reports needs-human',
+                      missing[0]['message'])
         self.assertIn('1 required failure, 0 warnings', self.capture(result))
 
     def test_shared_missing_label_has_one_line_remedy_and_json_result_for_all_uses(self):
@@ -442,8 +444,8 @@ agents:
         self.assertIsNone(labels[0]['agent'])
         self.assertEqual(labels[0]['uses'], [
             {'agent': 'worker', 'meaning': 'starts worker on an issue or PR', 'required': True},
-            {'agent': 'worker', 'meaning': 'removed from the assignment by worker outcome done', 'required': True},
             {'agent': 'reviewer', 'meaning': 'starts reviewer on an issue or PR', 'required': True},
+            {'agent': 'worker', 'meaning': 'removed when worker reports done', 'required': True},
         ])
         self.assertEqual(labels[1]['uses'], [
             {'agent': None, 'meaning': 'parks an issue or PR until a person decides', 'required': False},

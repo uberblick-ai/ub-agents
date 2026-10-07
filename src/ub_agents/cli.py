@@ -165,8 +165,8 @@ def init_project(args):
             '    # runtime-args:')
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
         targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
-    guidance = runtime_guidance(root, runtime_cli)
-    checks = (f"Run the project checks documented in `{guidance.relative_to(root)}` before handoff."
+    guidance = runtime_guidance(root, runtime_cli, fallback=True)
+    checks = (f"Project checks are documented in `{guidance.relative_to(root)}`."
               if guidance else
               "Replace these placeholders with the project's required commands before launch:\n\n"
               "- Build: `<project build command>`\n"
@@ -201,25 +201,37 @@ def init_project(args):
             stream.write("\n# Disposable ub-agents execution artifacts\n.ub-agents/\n")
     # Validate even the generated configuration; errors are actionable before launch.
     config = load_config(config_path)
-    print(f"Created {config_path} and .agents instructions; loop policy is in .agents/ub_agents.md. "
-          "Customize and commit them before launch.")
+    print(f"config: {config_path.name}")
+    print("policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)")
+    print("roles: .agents/ (issue-preparer, implementer, reviewer, integrator)")
+    steps = ["fill in the checks and policy in .agents/ub_agents.md"]
     if not permissions_enabled:
-        print(f"Next step: uncomment or customize each agent's runtime-args in {config_path.name} "
-              "to grant the permissions its job needs before launch.")
+        steps.append(f"grant agent permissions: uncomment or customize runtime-args in {config_path.name}")
     if runtime_cli == "claude":
-        print(f"Next step: add the project's check commands to --allowedTools in {config_path.name}.")
+        steps.append(f"add check commands to --allowedTools in {config_path.name}")
+    steps.extend(["run ub-agents check", "commit and push the starter files", "run ub-agents doctor"])
+    print(f"next: {'; '.join(steps)}.")
     for cli in sorted({runtime.cli for agent in config.agents for runtime in agent.runtimes}):
         guidance = runtime_guidance(root, cli)
         if guidance:
             print(f"{cli} loads project guidance from {guidance.relative_to(root)}; kept unchanged.")
         else:
-            choices = "AGENTS.md" if cli == "codex" else "CLAUDE.md, .claude/CLAUDE.md or AGENTS.md"
-            print(f"Warning: {cli} loads no project guidance; add {choices} so agents know how to build and test.")
+            existing_guidance = runtime_guidance(root, cli, fallback=True)
+            if existing_guidance:
+                name = existing_guidance.relative_to(root)
+                print(f'Warning: {cli} loads no project guidance; checks are documented in {name}. '
+                      f'Add a one-line AGENTS.md: "Read {name}".')
+            else:
+                choices = "AGENTS.md" if cli == "codex" else "CLAUDE.md, .claude/CLAUDE.md or AGENTS.md"
+                print(f"Warning: {cli} loads no project guidance; add {choices} so agents know how to build and test.")
     provision_labels(config, GitHub(config.repository))
 
 
-def runtime_guidance(root, cli):
+def runtime_guidance(root, cli, *, fallback=False):
+    """Prefer guidance the runtime loads; optionally find another checks source."""
     names = ("AGENTS.md",) if cli == "codex" else ("CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md")
+    if fallback and cli == "codex":
+        names += ("CLAUDE.md", ".claude/CLAUDE.md")
     return next((root / name for name in names if (root / name).is_file()), None)
 
 

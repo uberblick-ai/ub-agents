@@ -88,7 +88,10 @@ for the waits and failure limit. `launch --once` and `status` fail on the first
 error.
 
 In an interactive terminal, `init` and `doctor` explain the missing workflow labels
-and offer to create them; the default is no. They write labels only after a confirmed
+with the effect first (such as starting an implementer), followed by the reports
+that add or remove them. GitHub label descriptions use the same wording, up to
+GitHub's 100-character limit. Both commands offer to create missing labels; the
+default is no. They write labels only after a confirmed
 `y` or `yes` and never change existing labels. `doctor` offers after its report,
 then reads the labels again so its final counts and exit status reflect that read.
 Declining, end of input, CI, pipes and `doctor --json` leave runnable `gh label create`
@@ -108,11 +111,16 @@ matching `runtime-args` examples commented out and print the permission setup st
 Before launching, create any missing labels, document build and test commands in
 the project guidance your runtimes load, fill in `.agents/ub_agents.md`, and enable
 or customize each agent's `runtime-args` to grant the permissions its job needs.
-`doctor` groups runtime agents without arguments into one warning. Commit
-`ub-agents.yaml` and `.agents/`. `init` leaves `AGENTS.md` and `CLAUDE.md` untouched. It names the
+`doctor` groups runtime agents without arguments into one warning. Run `ub-agents check`,
+commit and push the starter files, then run `ub-agents doctor`. `init` prints relative
+paths for the configuration, policy and roles, followed by a `next:` setup line.
+It leaves existing guidance files untouched. It names the
 guidance file each configured runtime loads and warns when there is none. Codex
 loads `AGENTS.md`; Claude loads `CLAUDE.md` or `.claude/CLAUDE.md`, falling back to
-`AGENTS.md` when neither exists.
+`AGENTS.md` when neither exists. The starter policy points to existing checks in
+any of these files, preferring one the runtime loads. If Codex loads none, `init`
+names the existing Claude guidance and suggests a one-line `AGENTS.md`, such as
+`Read .claude/CLAUDE.md`. Checks placeholders appear only when no guidance file exists.
 
 Customize these parts:
 
