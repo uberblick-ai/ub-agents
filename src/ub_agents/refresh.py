@@ -172,8 +172,9 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
             instruction_text(root, config.shared_instructions, "shared-instructions")
             return instruction_text(root, agent.instructions, where)
         return previous
-    except GitHubError:
+    except (GitHubError, CheckoutRefreshError):
         # This pre-claim read is discovery: preserve its request and retry metadata.
+        # Setup baseline failures already name their own recovery step.
         raise
     except (AgentError, OSError, UnicodeError) as exc:
         # Git may append several paragraphs of advice; keep the actual error.

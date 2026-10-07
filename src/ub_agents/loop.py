@@ -11,7 +11,7 @@ from dataclasses import replace
 from . import approvals as input_approvals
 from .approvals import ApprovalCheck, resolve_policy
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
-from .checkout_setup import run_setup
+from .checkout_setup import discard_unused_baseline, preserve_baseline, run_setup
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .denials import collect_denials
@@ -700,14 +700,17 @@ class Loop:
         previous = None
         try:
             options = {"on_fetch": self.updates.fetched} if self.updates is not None else {}
+            if self.config_path is not None or self.config.checkout_setup is not None:
+                def fetched(default, before, head):
+                    nonlocal previous
+                    previous = before
+                    # The refreshed configuration may introduce setup alongside
+                    # a lockfile change. Persist before merge, stop or reload.
+                    preserve_baseline(self.config.root, before, head)
+                    if self.updates is not None:
+                        self.updates.fetched(default, before, head)
+                options["on_fetch"] = fetched
             if self.config_path is None:
-                if self.config.checkout_setup is not None:
-                    def fetched(default, before, head):
-                        nonlocal previous
-                        previous = before
-                        if self.updates is not None:
-                            self.updates.fetched(default, before, head)
-                    options["on_fetch"] = fetched
                 instructions = refresh_instructions(self.config, plan.agent, self.github, **options)
                 shared = instruction_text(self.config.root, self.config.shared_instructions, "shared-instructions")
             else:
@@ -743,6 +746,8 @@ class Loop:
                                                {login.casefold() for login in config.launchers})
         self._refreshing_checkout = True
         try:
+            if self.config_path is not None and self.config.checkout_setup is None:
+                discard_unused_baseline(self.config.root)
             run_setup(self.config, self.interrupt_event, self.output,
                       lambda state: self._observe("activity", state), previous)
         finally:

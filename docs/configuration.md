@@ -331,6 +331,8 @@ and cannot exceed 3600. Unknown keys are errors.
 Before each new run, after fetching, fast-forwarding and reloading configuration,
 the launcher compares these files with the last commit where setup succeeded.
 Until the first successful setup, it uses the HEAD before the fast-forward.
+That baseline is saved before the fast-forward, so stopping launch or failing
+configuration reload cannot lose a watched-file change before setup runs.
 If any watched file differs, the command runs once before claiming a role.
 An unrelated change or a refresh with nothing to pull skips setup, unless a
 previous setup failed. A commit can add this setting and a lockfile change together.

@@ -1,6 +1,7 @@
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import threading
@@ -10,9 +11,9 @@ from unittest.mock import patch
 from ub_agents.checkout_setup import read_record, run_setup, setup_directory
 from ub_agents.cli import main
 from ub_agents.config import CheckoutSetup, load_config
-from ub_agents.errors import CheckoutRefreshError, CleanupError
+from ub_agents.errors import AgentError, CheckoutRefreshError, CleanupError
 from ub_agents.execution import git, supervise
-from ub_agents.loop import Loop
+from ub_agents.loop import Loop, _GracefulStop, _InvalidReload
 from ub_agents.records import attempts, timestamp
 from tests.support import issue
 from tests import test_refresh
@@ -89,6 +90,114 @@ class CheckoutSetupTests(unittest.TestCase):
             self.execute()
         setup.assert_not_called()
         self.assertFalse(any(line.startswith("checkout setup") for line in self.lines))
+
+    def assert_setup_survives_refresh_stop(self, request_stop, exception):
+        self.push_setup()
+        before = git(self.root, "rev-parse", "HEAD")
+
+        def refreshed(*args, **kwargs):
+            previous = test_refresh.refresh_checkout(*args, **kwargs)
+            request_stop()
+            return previous
+
+        with patch("ub_agents.loop.refresh_checkout", side_effect=refreshed), \
+                patch("ub_agents.checkout_setup.supervise") as setup, \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                self.assertRaises(exception):
+            self.loop.tick()
+        setup.assert_not_called()
+        self.assertNotEqual(git(self.root, "rev-parse", "HEAD"), before)
+        self.assertEqual(self.record(), {"baseline": before, "succeeded": False, "pending": None})
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
+        self.new_loop()
+        with patch("ub_agents.checkout_setup.supervise", wraps=supervise) as setup:
+            self.execute()
+            self.execute()
+        self.assertEqual(setup.call_count, 1)
+        self.assertTrue(self.record()["succeeded"])
+
+    def test_graceful_stop_after_refresh_preserves_first_setup_baseline(self):
+        self.assert_setup_survives_refresh_stop(lambda: self.loop.stop_gracefully(), _GracefulStop)
+
+    def test_interrupt_after_refresh_preserves_first_setup_baseline(self):
+        self.assert_setup_survives_refresh_stop(lambda: self.loop.interrupt_event.set(), KeyboardInterrupt)
+
+    def test_invalid_reload_preserves_first_setup_baseline(self):
+        self.push_setup()
+        before = git(self.root, "rev-parse", "HEAD")
+        with patch("ub_agents.loop.load_config", side_effect=AgentError("invalid refreshed configuration")), \
+                patch("ub_agents.checkout_setup.supervise") as setup, \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                self.assertRaisesRegex(_InvalidReload, "invalid refreshed configuration"):
+            self.loop.tick()
+        setup.assert_not_called()
+        self.assertNotEqual(git(self.root, "rev-parse", "HEAD"), before)
+        self.assertEqual(self.record(), {"baseline": before, "succeeded": False, "pending": None})
+        self.assertEqual(self.github.writes, [])
+        # Another pull must not replace the unevaluated baseline with the commit
+        # that already contains the lockfile change.
+        self.push_policy("Configuration repaired\n")
+        self.new_loop()
+        with patch("ub_agents.checkout_setup.supervise", wraps=supervise) as setup:
+            self.execute()
+        self.assertEqual(setup.call_count, 1)
+        self.assertTrue(self.record()["succeeded"])
+
+    def test_first_setup_baseline_is_persisted_before_fast_forward(self):
+        self.push_setup()
+        before = git(self.root, "rev-parse", "HEAD")
+
+        def checked(root, *args, **kwargs):
+            if "merge" in args:
+                self.assertEqual(git(root, "rev-parse", "HEAD"), before)
+                self.assertEqual(self.record(), {"baseline": before, "succeeded": False, "pending": None})
+            return git(root, *args, **kwargs)
+
+        with patch("ub_agents.refresh.git", side_effect=checked):
+            self.execute()
+        self.assertTrue(self.record()["succeeded"])
+
+    def test_baseline_write_failure_stops_before_fast_forward_or_claim(self):
+        self.push_setup()
+        before = git(self.root, "rev-parse", "HEAD")
+        with patch("ub_agents.checkout_setup.write_record", side_effect=OSError("cannot save baseline")), \
+                patch("ub_agents.checkout_setup.supervise") as setup, \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                self.assertRaisesRegex(CheckoutRefreshError, "cannot save baseline.*Repair the setup state"):
+            self.loop.tick()
+        setup.assert_not_called()
+        self.assertEqual(git(self.root, "rev-parse", "HEAD"), before)
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
+
+    def test_refresh_without_setup_discards_baseline_before_setting_is_added(self):
+        (self.upstream / "pnpm-lock.yaml").write_text("lock version 1\n")
+        self.push_policy()
+        self.new_loop()
+        self.execute()
+        self.assertIsNone(self.record())
+        self.setup_setting()
+        self.push_policy("Enable setup without another lockfile change\n")
+        self.new_loop()
+        self.github.items[5] = issue(5)
+        with patch("ub_agents.checkout_setup.supervise") as setup:
+            self.execute()
+        setup.assert_not_called()
+        self.assertEqual(self.record()["baseline"], git(self.root, "rev-parse", "HEAD"))
+
+    def test_setup_environment_excludes_agent_context(self):
+        self.push_setup()
+
+        def install(command, root, env, *args, **kwargs):
+            self.assertFalse(any(key.startswith("UB_AGENTS_") for key in env))
+            self.assertEqual(env["PROJECT_SETUP_TEST"], "inherited")
+            return supervise(command, root, env, *args, **kwargs)
+
+        with patch.dict(os.environ, {"UB_AGENTS_ASSIGNMENT": "999", "UB_AGENTS_CUSTOM": "context",
+                                     "PROJECT_SETUP_TEST": "inherited"}), \
+                patch("ub_agents.checkout_setup.supervise", side_effect=install):
+            self.execute()
 
     def failed_launch(self, expected=1):
         errors, output = io.StringIO(), io.StringIO()

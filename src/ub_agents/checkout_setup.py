@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import uuid
+from contextlib import contextmanager
 
 from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted, CleanupError,
                      RetryableExecutionError)
@@ -47,6 +48,39 @@ def write_record(directory, record):
         temporary.replace(directory / "setup.json")
     finally:
         temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def baseline_record(root):
+    directory = None
+    try:
+        directory = setup_directory(root)
+        directory.mkdir(parents=True, exist_ok=True)
+        with lock(directory / "setup.lock") as guard:
+            if guard is None:
+                raise AgentError("another checkout setup is still running; wait for it to finish")
+            yield directory, read_record(directory)
+    except (AgentError, OSError, ValueError) as exc:
+        raise CheckoutRefreshError(f"checkout setup baseline failed: {exc} (state: {directory}). "
+                                   "Repair the setup state and launch again.") from exc
+
+
+def preserve_baseline(root, previous, head):
+    """Save the first baseline before a merge can advance HEAD or reload can fail."""
+    if previous == head:
+        return
+    with baseline_record(root) as (directory, record):
+        if record is None:
+            write_record(directory, {"baseline": previous, "succeeded": False, "pending": None})
+
+
+def discard_unused_baseline(root):
+    """A valid reload without setup consumes an unevaluated refresh baseline."""
+    if not (setup_directory(root) / "setup.json").exists():
+        return
+    with baseline_record(root) as (directory, record):
+        if record is not None and not record["succeeded"] and record["pending"] is None:
+            (directory / "setup.json").unlink()
 
 
 def confirm_stopped(directory):
@@ -109,7 +143,9 @@ def run_setup(config, interrupt, output, activity, previous=None):
             activity(f"checkout setup running: {trigger} changed")
             confirmed = False
             try:
-                code = supervise(list(setting.command), root, os.environ.copy(), attempt,
+                env = {key: value for key, value in os.environ.items()
+                       if not key.startswith("UB_AGENTS_")}
+                code = supervise(list(setting.command), root, env, attempt,
                                  setting.timeout_seconds, interrupt, pass_fds=(guard.fileno(),))
                 confirmed = True
                 if code:
