@@ -70,6 +70,9 @@ the log is never truncated or rotated. Follow it from another terminal with
 `tail -f .ub-agents/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
+When no open issue or PR has a configured trigger label, both `launch` and
+`launch --once` name the labels to add. Continuous launch shows the next poll
+delay rounded to whole seconds below a minute or whole minutes otherwise.
 Empty polls back off according to their REST quota cost, excluding unchanged
 reads confirmed by HTTP 304 and reserving half the common account quota for busy
 work when ten idle launchers share it. Low quota
@@ -87,7 +90,8 @@ In an interactive terminal, `init` explains the missing workflow labels and offe
 to create them; the default is no. Otherwise it prints runnable `gh label create`
 commands. Noninteractive runs make no GitHub calls beyond repository inference.
 Existing labels are never changed. `doctor` fails for missing trigger or transition
-labels and warns for missing stop labels.
+labels and warns for missing stop labels. `launch` refuses to start when a trigger
+or transition label is missing and points to `ub-agents doctor` for setup commands.
 
 Before launching, create any missing labels, document build and test commands in
 the project guidance your runtimes load, fill in `.agents/ub_agents.md`, and uncomment
@@ -163,7 +167,9 @@ or launcher authority.
 | `<report_command> retrospective --body-file PATH` | Post to the supervised agent's configured retrospective board and print the comment URL |
 
 `--config PATH` works before or after every configuration command; giving it in
-both positions is a usage error. Without `--agent`, `retry` prints and uses the
+both positions is a usage error. Commands requiring configuration name `ub-agents init`
+when the selected file is missing; `launch` creates no log or local artifacts then.
+Without `--agent`, `retry` prints and uses the
 first configured agent whose kind applies to the item. Use an explicit agent when
 resetting its attempts. The deprecated `--number N` alias remains available for
 one release, hidden from help.
@@ -371,6 +377,10 @@ contain already observed issue text;
 see [session publication](docs/configuration.md) for their format and lifecycle.
 
 ## When things go wrong
+
+Before its first pass, `launch` requires a clean control checkout on the default
+branch with no commits outside the local `origin` ref. `doctor` warns about the
+same checkout conditions during setup; it does not fetch or fast-forward.
 
 Before every new agent run, the launcher fetches `origin`, fast-forwards the
 operator's control checkout on the repository's default branch, and rereads that

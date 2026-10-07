@@ -39,6 +39,7 @@ class SignalTests(unittest.TestCase):
             return self.loop
 
         with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.launch_checks"), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.Loop", side_effect=loop), \

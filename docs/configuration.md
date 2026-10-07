@@ -4,6 +4,10 @@
 errors; `ub-agents check` validates the file. Commands use this file by default;
 `--config PATH` selects another configuration file before or after the command.
 `init` writes the selected file or `ub-agents.yaml` by default.
+If the selected file is missing, `check`, `status`, `launch`, `cleanup`, `retry`,
+`approve` and unsupervised `read` exit 1 with a message naming `ub-agents init`.
+An explicit `--config PATH` is named in the message. `launch` creates no
+`.ub-agents/` or `launch.log` without configuration; `doctor` keeps its diagnostic report.
 
 `ub-agents read N` prints an open or closed issue or PR as filtered JSON under
 these input policies; see [reading other items](approvals.md#reading-other-issues-and-prs).
@@ -122,6 +126,12 @@ next pass starts immediately. See
 [Stopping and restarting](../README.md#stopping-and-restarting) for signals during
 waits. Failed-poll retry delays below are independent of this interval, and
 `launch --once` never waits after its pass.
+
+When no open issue or PR has a configured trigger label, `launch` and
+`launch --once` list the trigger labels and say to add one to start. Continuous
+launch's idle message rounds its next poll delay to whole seconds below a minute
+or whole minutes otherwise, such as `next poll in 56s` or `next poll in 2 min`.
+Work already carrying a trigger retains its eligibility diagnostics.
 
 Empty passes back off under a fixed budget rule, not a configuration key: **ten
 idle launchers** sharing one account together get at most half the common **5,000
@@ -525,6 +535,15 @@ from an eligible assigned head in the base repository. Every changed fork head
 needs explicit maintainer approval. Outside edits or feedback after approval suspend
 outside PRs again. Fork PRs can be reviewed, but agents cannot revise them and
 revision runs remain blocked.
+
+Before its first pass, `launch` checks that the control checkout is clean, on the
+repository's default branch (not detached), and has no commits outside the local
+`origin` ref for that branch. Missing origin refs require `git fetch origin`.
+`doctor` uses the same read-only check but reports checkout problems as warnings,
+so setup on a branch does not fail; it never fetches or fast-forwards.
+`launch` also refuses startup when a configured trigger or transition label is
+missing on GitHub, pointing to `ub-agents doctor` for label creation commands.
+Stop-only labels remain optional at startup.
 
 Before each new agent run, the launcher fetches `origin` and fast-forwards the
 control checkout's default branch, then reloads `ub-agents.yaml` and rereads the

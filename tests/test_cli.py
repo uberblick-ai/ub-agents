@@ -19,6 +19,7 @@ class ArgumentTests(unittest.TestCase):
         self.root = Path(temp.name).resolve()
         self.path = self.root / "nested" / "project.yaml"
         self.path.parent.mkdir()
+        self.path.touch()
         self.load = self.enterContext(patch("ub_agents.cli.load_config"))
         self.run = self.enterContext(patch("ub_agents.cli.run"))
         self.stdout = self.enterContext(redirect_stdout(io.StringIO()))
@@ -127,3 +128,28 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(main(report), 0)
         self.assertEqual(main(["--config", str(self.path), *report]), 0)
         self.usage_error([*report, "--config", str(self.path)], "unrecognized arguments: --config")
+
+
+class MissingConfigTests(unittest.TestCase):
+    commands = (("check",), ("status",), ("launch",), ("launch", "--once"),
+                ("cleanup",), ("retry", "42", "--reason", "Fixed"), ("approve", "42"), ("read", "42"))
+
+    def test_missing_config_names_init_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            selected = root / "custom.yaml"
+            for command in self.commands:
+                for selection in ([], ["--config", str(selected)]):
+                    positions = ([*selection, *command], [*command, *selection]) if selection else (list(command),)
+                    for argv in positions:
+                        with self.subTest(argv=argv), patch("ub_agents.config.Path.cwd", return_value=root), \
+                                patch("ub_agents.cli.os.environ", {}), \
+                                patch("ub_agents.cli.run") as run, \
+                                redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
+                            self.assertEqual(main(argv), 1)
+                        name = str(selected) if selection else "ub-agents.yaml"
+                        self.assertEqual(stderr.getvalue(),
+                                         f"ub-agents: No {name} here; run ub-agents init to set up a project\n")
+                        self.assertEqual(stdout.getvalue(), "")
+                        run.assert_not_called()
+                        self.assertEqual(list(root.iterdir()), [])

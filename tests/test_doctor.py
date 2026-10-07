@@ -139,7 +139,7 @@ agents:
         self.assertTrue(all(c["status"] == "ok" for c in result["checks"]))
         self.assertEqual(len(self.checks(result, "github-label")), 9)
         expected = ("ok machine: 7 checks passed\n"
-                    "ok configuration: 8 checks passed\n"
+                    "ok configuration: 11 checks passed\n"
                     "ok GitHub: 5 checks passed, 3 labels present\n"
                     "ok runtimes: 20 checks passed\n"
                     "0 required failures, 0 warnings\n")
@@ -178,7 +178,7 @@ agents:
         output = self.capture(result)
         self.assertIn("fail gh - gh is not on PATH\n  remedy: Install GitHub CLI", output)
         self.assertIn("skip GitHub: 5 skipped\n", output)
-        self.assertIn("ok configuration: 4 checks passed, 1 skipped\n", output)
+        self.assertIn("ok configuration: 4 checks passed, 2 skipped\n", output)
         self.assertNotIn("skip github-auth", output)
         self.assertEqual(self.cli()[0], self.cli(verbose=True)[0])
         self.assertEqual(output.splitlines()[-1], self.capture(result, verbose=True).splitlines()[-1])
@@ -192,7 +192,7 @@ agents:
 ''')
         self.missing.add("codex")
         output = self.capture(self.diagnose())
-        self.assertIn("ok configuration: 5 checks passed, 1 skipped\n", output)
+        self.assertIn("ok configuration: 8 checks passed, 1 skipped\n", output)
         self.assertIn("ok runtimes: 4 checks passed, 1 skipped\n", output)
         self.assertNotIn("skip instructions", output)
         self.assertNotIn("skip runtime-auth", output)
@@ -675,6 +675,9 @@ agents:
         self.assertEqual(before, sorted(p.relative_to(self.root) for p in self.root.rglob("*")))
         self.assertFalse((self.root / ".ub-agents").exists())
         allowed = {("rev-parse", "--show-toplevel"), ("remote", "get-url", "origin"),
+                   ("rev-parse", "--abbrev-ref", "HEAD"),
+                   ("--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"),
+                   ("rev-list", "--left-right", "--count", "HEAD...refs/remotes/origin/main"),
                    ("check-ignore", "-q", ".ub-agents/")}
         for command, kwargs in self.runner.calls:
             self.assertLessEqual(kwargs["timeout"], 20)
@@ -709,6 +712,8 @@ agents:
             self.assertEqual(root, self.root)
             return str(root) if args[0] == "rev-parse" else "git@github.com:org/project.git"
         with patch("ub_agents.execution.git", side_effect=read_git) as git, \
+                patch("ub_agents.refresh.git", side_effect=lambda root, *args:
+                      self.runner(["git", "-C", str(root), *args]).stdout.strip()), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.Loop") as loop, \
                 patch("ub_agents.doctor.Doctor.probe", side_effect=AssertionError("launch must not probe")):

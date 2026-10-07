@@ -8,6 +8,47 @@ from .errors import AgentError, GitHubError
 from .execution import git
 
 
+def control_checkout_checks(config, default, read_git=None):
+    """Read-only launch prerequisites, also reported as warnings by doctor.
+
+    Compare with the local origin ref; fetching and fast-forwarding remain at
+    the execution boundary. Consume all results to diagnose every condition.
+    """
+    read_git = read_git or git
+    root = config.root
+    try:
+        branch = read_git(root, "rev-parse", "--abbrev-ref", "HEAD")
+        if branch == "HEAD":
+            raise AgentError(f"control checkout has detached HEAD; launch runs only from {default}; "
+                             f"switch to {default}")
+        if branch != default:
+            raise AgentError(f"control checkout is on {branch}; launch runs only from {default}; "
+                             f"switch to {default}")
+        yield "control-checkout-branch", None
+    except AgentError as exc:
+        yield "control-checkout-branch", exc
+    try:
+        if read_git(root, "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"):
+            raise AgentError("control checkout is dirty (staged, modified or untracked files); "
+                             "commit or remove those changes before launch")
+        yield "control-checkout-dirty", None
+    except AgentError as exc:
+        yield "control-checkout-dirty", exc
+    try:
+        ahead, behind = map(int, read_git(root, "rev-list", "--left-right", "--count",
+                                         f"HEAD...refs/remotes/origin/{default}").split())
+    except AgentError:
+        yield "control-checkout-origin", AgentError(
+            f"cannot compare control checkout with origin/{default}; run git fetch origin and retry")
+    else:
+        error = None
+        if ahead:
+            condition = ("control checkout has diverged" if behind else
+                         "control checkout has local commits not on origin")
+            error = AgentError(f"{condition}; reconcile {default} with origin/{default} before launch")
+        yield "control-checkout-origin", error
+
+
 def instruction_blob(root, oid, where):
     try:
         return git(root, "cat-file", "blob", oid, strip=False)

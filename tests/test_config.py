@@ -34,7 +34,7 @@ class ConfigTests(unittest.TestCase):
                           "    trigger: ready\n    outcomes: {done: {}}\n")
         with chdir(self.root), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as error:
             self.assertEqual(main(["check"]), 1)
-            self.assertIn("Cannot read configuration", error.getvalue())
+            self.assertIn("No ub-agents.yaml here; run ub-agents init", error.getvalue())
             self.assertEqual(main(["--config", str(custom), "check"]), 0)
             custom.rename(self.path)
             self.assertEqual(main(["check"]), 0)

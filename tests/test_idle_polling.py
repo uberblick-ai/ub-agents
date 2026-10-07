@@ -24,6 +24,7 @@ def quota(remaining=999, reset=4600, limit=5000):
 class IdlePollingTests(unittest.TestCase):
     def setUp(self):
         isolate_observations(self)
+        self.enterContext(patch("ub_agents.cli.launch_checks"))
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
@@ -86,6 +87,17 @@ class IdlePollingTests(unittest.TestCase):
                 self.assertEqual(starts, [1000, 1000 + gap])
                 self.assertEqual(waits, [gap - duration] if gap > duration else [])
                 self.assertIn(f"({requests} requests last poll)", self.lines[0])
+
+    def test_idle_output_rounds_seconds_under_a_minute_and_minutes_otherwise(self):
+        for delay, expected in ((0.4, "0s"), (55.625, "56s"), (59.6, "60s"),
+                                (60, "1 min"), (72, "1 min"), (90, "2 min"), (120.4, "2 min")):
+            with self.subTest(delay=delay):
+                self.config = replace(self.config, poll_seconds=delay)
+                self.loop.config = self.config
+                self.lines.clear()
+                self.loop.stop_event.clear()
+                self.run_passes(lambda: False)
+                self.assertIn(f"next poll in {expected} (0 requests last poll)", self.lines[0])
 
     def test_pages_writes_and_graphql_use_real_adapter(self):
         self.response("rows?per_page=100&page=1", [{}] * 100)
@@ -205,8 +217,8 @@ class IdlePollingTests(unittest.TestCase):
         starts, waits = self.run_passes(tick, count=4)
         self.assertEqual(waits, [100, 72, 72])
         self.assertEqual(self.lines, [
-            "No eligible work; next poll in 1.66667 min (5 requests last poll)",
-            "No eligible work; next poll in 1.2 min (5 requests last poll)"])
+            "No eligible work; next poll in 2 min (5 requests last poll)",
+            "No eligible work; next poll in 1 min (5 requests last poll)"])
 
     def test_low_quota_wait_is_bounded_by_reset_from_pass_start(self):
         self.response("user", headers={"X-RateLimit-Resource": "core"} | quota(reset=1100))
@@ -220,7 +232,7 @@ class IdlePollingTests(unittest.TestCase):
         starts, waits = self.run_passes(tick)
         self.assertEqual(starts, [1000, 1100])
         self.assertEqual(waits, [90])
-        self.assertIn("next poll in 1.5 min", self.lines[0])
+        self.assertIn("next poll in 2 min", self.lines[0])
 
     def test_idle_logging_changes_only_with_work_or_low_resource_state(self):
         states = iter([(False, 2000), (False, 2000), (False, 999), (False, 999),
@@ -236,10 +248,10 @@ class IdlePollingTests(unittest.TestCase):
         starts, waits = self.run_passes(tick, count=9)
         self.assertEqual(waits, [72, 72, 144, 144, 72, 30, 144, 144])
         self.assertEqual(self.lines, [
-            "No eligible work; next poll in 1.2 min (5 requests last poll)",
-            "No eligible work; next poll in 2.4 min (5 requests last poll)",
-            "No eligible work; next poll in 1.2 min (5 requests last poll)",
-            "No eligible work; next poll in 2.4 min (5 requests last poll)"])
+            "No eligible work; next poll in 1 min (5 requests last poll)",
+            "No eligible work; next poll in 2 min (5 requests last poll)",
+            "No eligible work; next poll in 1 min (5 requests last poll)",
+            "No eligible work; next poll in 2 min (5 requests last poll)"])
 
     def test_once_empty_poll_never_waits_or_logs_idle(self):
         self.github.quota_requests = 500

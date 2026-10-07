@@ -22,7 +22,8 @@ from .github import GitHub
 from .help import HelpParser
 from .loop import Loop, _GracefulStop
 from .launch_log import launch_output
-from .labels import provision_labels
+from .labels import configured_labels, provision_labels
+from .refresh import control_checkout_checks
 from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
                       record_version, records, same_run, timestamp)
 from .run_config import supervised_run
@@ -284,6 +285,18 @@ def retry_next_step(item, agent, stop_labels):
             "a running launcher picks it up on its next poll. `ub-agents status` shows its progress.")
 
 
+def launch_checks(config, github):
+    for _, error in control_checkout_checks(config, github.default_branch()):
+        if error is not None:
+            raise error
+    existing = {name.casefold() for name in github.labels()}
+    missing = [label.name for label in configured_labels(config)
+               if any(use.required for use in label.uses) and label.name.casefold() not in existing]
+    if missing:
+        raise AgentError(f"Missing GitHub workflow labels ({', '.join(missing)}); "
+                         "run ub-agents doctor for setup commands")
+
+
 def run(args):
     if args.command == "init":
         init_project(args)
@@ -419,6 +432,7 @@ def run(args):
     publisher = None
     view = None
     try:
+        launch_checks(config, github)
         from .updates import Updates
         loop.updates = Updates(config.root)
         if loop.updates is not None:
@@ -487,9 +501,16 @@ def main(argv=None):
                     command_parser.error("launch --agent requires an item number")
                 if args.number is not None and args.number < 1:
                     command_parser.error("launch requires a positive item number")
-                args.launch_output = stack.enter_context(launch_output(Path(args.config or DEFAULT_CONFIG).resolve().parent))
             args.config = (Path(args.config or DEFAULT_CONFIG).resolve()
                            if args.command in {"init", "report", "retrospective"} else resolve_config_path(args.config))
+            needs_config = args.command in {"check", "status", "launch", "cleanup", "retry", "approve", "read"}
+            if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
+                needs_config = False  # Supervised reads use the launcher's pinned input policy.
+            if needs_config and not args.config.exists():
+                name = DEFAULT_CONFIG if args.default_config else str(args.config)
+                raise AgentError(f"No {name} here; run ub-agents init to set up a project")
+            if args.command == "launch":
+                args.launch_output = stack.enter_context(launch_output(args.config.parent))
             return run(args) or 0
         except KeyboardInterrupt:
             print("Stopped; supervised execution terminated", file=sys.stderr)

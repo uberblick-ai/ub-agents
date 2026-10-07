@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, patch
 
@@ -29,6 +30,8 @@ class LaunchTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        (self.root / "ub-agents.yaml").touch()
+        self.enterContext(patch("ub_agents.cli.launch_checks"))
         self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
         self.log = self.root / ".ub-agents" / "launch.log"
         self.config = config(self.root)
@@ -57,6 +60,72 @@ class LaunchTests(unittest.TestCase):
             factory.reset_mock()
             self.assertEqual(main(self.argv[:-1] + ["status"]), 0)
             factory.assert_not_called()
+
+    def test_once_explains_empty_or_unlabeled_open_work_before_exiting(self):
+        for items in ((), (issue(labels=()),), (pr(labels=()),),
+                      (issue(labels=("unrelated",)), pr(2, labels=())),
+                      (replace(issue(), state="closed"), replace(pr(2), state="closed"))):
+            with self.subTest(items=items):
+                github = FakeGitHub(*items)
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch("ub_agents.cli.load_config", return_value=self.config), \
+                        patch("ub_agents.cli.GitHub", return_value=github), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch.object(Loop, "_wait") as wait, \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(main(self.argv + ["--once"]), 0)
+                self.assertEqual(stdout.getvalue(),
+                                 "No open issue or PR has a trigger label (ready, needs-changes); add one to start\n")
+                self.assertEqual(stderr.getvalue(), "")
+                self.assertEqual(self.log_lines()[-1], stdout.getvalue().strip())
+                wait.assert_not_called()
+                self.assertEqual(github.writes, [])
+
+    def test_idle_message_names_all_triggers_once_in_configuration_order(self):
+        self.config = config(self.root,
+                             agent(self.root, name="preparer", triggers=("needs-preparation",), kind="issue"),
+                             agent(self.root, name="worker", triggers=("ready", "needs-changes")),
+                             agent(self.root, name="reviewer", triggers=("needs-review", "needs-changes"), kind="pr"),
+                             agent(self.root, name="integrator", triggers=("ready-to-merge",), kind="pr"))
+        with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(main(self.argv + ["--once"]), 0)
+        self.assertEqual(stdout.getvalue(), "No open issue or PR has a trigger label "
+                         "(needs-preparation, ready, needs-changes, needs-review, ready-to-merge); add one to start\n")
+
+    def test_triggered_but_parked_work_does_not_suggest_adding_a_trigger(self):
+        for item in (issue(labels=("ready", "needs-human")), pr(labels=("ready", "needs-human"))):
+            with self.subTest(kind=item.kind):
+                with patch("ub_agents.cli.load_config", return_value=self.config), \
+                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub(item)), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), redirect_stdout(io.StringIO()) as stdout:
+                    self.assertEqual(main(self.argv + ["--once"]), 0)
+                self.assertIn("parked", stdout.getvalue())
+                self.assertNotIn("add one to start", stdout.getvalue())
+
+    def test_continuous_idle_message_updates_when_trigger_presence_changes(self):
+        github = FakeGitHub(issue(labels=("ready", "needs-human")))
+        lines = []
+        loop = Loop(self.config, github, "operator", output=lines.append)
+        loop.interrupt_event = threading.Event()
+        waits = []
+        def wait(delay):
+            waits.append(delay)
+            if len(waits) == 1:
+                github.change(1, labels=frozenset({"needs-human"}))
+            elif len(waits) == 2:
+                github.change(1, labels=frozenset({"needs-human", "ready"}))
+            else:
+                loop.stop_event.set()
+        with patch("ub_agents.loop.monotonic", return_value=0), \
+                patch.object(loop.stop_event, "wait", side_effect=wait):
+            loop.launch()
+        self.assertEqual([line for line in lines if "next poll" in line], [
+            "No eligible work; next poll in 1s (0 requests last poll)",
+            "No open issue or PR has a trigger label (ready, needs-changes); add one to start; "
+            "next poll in 1s (0 requests last poll)",
+            "No eligible work; next poll in 1s (0 requests last poll)"])
 
     def test_signals_during_publisher_startup_keep_launcher_interrupt_semantics(self):
         for sig, result in ((signal.SIGTERM, 0), (signal.SIGINT, 130), (signal.SIGHUP, 130)):
@@ -110,7 +179,8 @@ class LaunchTests(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
 
         def wait(_):
-            self.assertEqual(self.log_lines(), ["No eligible work; next poll in 0.0166667 min (0 requests last poll)"])
+            self.assertEqual(self.log_lines(), ["No open issue or PR has a trigger label (ready, needs-changes); "
+                                               "add one to start; next poll in 1s (0 requests last poll)"])
             signal.raise_signal(signal.SIGINT)
 
         with patch("ub_agents.cli.load_config", return_value=self.config), \
@@ -120,9 +190,11 @@ class LaunchTests(unittest.TestCase):
                 patch("ub_agents.loop.monotonic", return_value=0), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
-        self.assertEqual(stdout.getvalue(), "No eligible work; next poll in 0.0166667 min (0 requests last poll)\n")
+        self.assertEqual(stdout.getvalue(), "No open issue or PR has a trigger label (ready, needs-changes); "
+                                           "add one to start; next poll in 1s (0 requests last poll)\n")
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
-        self.assertEqual(self.log_lines(), ["No eligible work; next poll in 0.0166667 min (0 requests last poll)",
+        self.assertEqual(self.log_lines(), ["No open issue or PR has a trigger label (ready, needs-changes); "
+                                           "add one to start; next poll in 1s (0 requests last poll)",
                                            "Stopped; supervised execution terminated"])
 
     def test_runtime_pause_start_and_changed_end_are_logged(self):
@@ -257,6 +329,8 @@ class TargetedLaunchTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
+        (self.root / "ub-agents.yaml").touch()
+        self.enterContext(patch("ub_agents.cli.launch_checks"))
         self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
         self.config = config(self.root)
         self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))

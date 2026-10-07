@@ -770,6 +770,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         from contextlib import redirect_stdout, redirect_stderr
         import io
         from ub_agents.cli import main
+        (self.root / "ub-agents.yaml").touch()
         self.executable(self.bin / "codex")
         for sig, expected in ((signal.SIGTERM, 0), (signal.SIGINT, 130)):
             with self.subTest(signal=sig):
@@ -787,6 +788,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                     loop.coordinator.runtime_available = manager.available
                     return loop
                 with patch("ub_agents.cli.load_config", return_value=settings), \
+                        patch("ub_agents.cli.launch_checks"), \
                         patch("ub_agents.cli.GitHub", return_value=github), \
                         patch("ub_agents.cli.Loop", side_effect=create_loop), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \

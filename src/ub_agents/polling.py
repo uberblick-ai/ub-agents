@@ -9,6 +9,12 @@ IDLE_MAX_SECONDS = 3600
 LOW_QUOTA_FRACTION = 0.2
 
 
+def poll_delay(seconds):
+    if seconds < 60:
+        return f"{round(seconds)}s"
+    return f"{round(seconds / 60)} min"
+
+
 def idle_interval(requests, minimum, quotas, now, elapsed):
     """Return a pass-start gap and low resources, using only observed headers.
 

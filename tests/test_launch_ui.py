@@ -194,6 +194,7 @@ from ub_agents.execution import supervise
 from ub_agents.errors import AgentError
 from ub_agents.loop import Loop
 root = pathlib.Path(sys.argv[2])
+(root / 'ub-agents.yaml').touch()
 mode = sys.argv[3]
 github = FakeGitHub() if mode == 'q-idle' else FakeGitHub(issue(116))
 cfg = replace(config(root, agent(root, kind='issue', command=(),
@@ -236,7 +237,7 @@ while not (root / 'finish').exists():
     return code
 with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop.load_config', return_value=cfg), \\
      patch('ub_agents.cli.GitHub', return_value=github), patch('ub_agents.cli.Loop', side_effect=create), \\
-     patch.object(Loop, 'launch', launch), \\
+     patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch_checks'), \\
      patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
      patch('ub_agents.loop.supervise', side_effect=run):
     result = main(['--config', str(root / 'ub-agents.yaml'), 'launch', *sys.argv[4:]])
