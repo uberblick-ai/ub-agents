@@ -270,9 +270,10 @@ Notice deduplication considers all trusted authors. Simultaneous posters elect
 the lowest comment ID; each loser removes only its own newly posted advisory
 duplicate, preserving every coordination record. Duplicate removal is advisory too.
 
-Within one `ub-agents launch` session, an unchanged blocked or parked item is
-printed once. A change to its state or reason prints it again. Stop-label outcomes
-remain visible as parked even when their transition consumed every trigger.
+Within one `ub-agents launch` session, an unchanged blocked, parked, waiting,
+owned or backoff item is printed once per item and agent. A change to its state
+or reason prints it again. Stop-label outcomes remain visible as parked even
+when their transition consumed every trigger.
 
 ## Distinct clocks
 
@@ -360,7 +361,7 @@ Waits use real response headers and the [rate-limit rules](configuration.md#top-
 A reset beyond the current expiry still starts a wait, while renewal continues.
 The wait ends as lost ownership only when the last confirmed expiry actually passes
 or another claim owns the item: no further coordination writes, followed by expiry recovery.
-See [Stopping and restarting](../README.md#stopping-and-restarting) for signals
+See [Stopping and restarting](operations.md#stopping-and-restarting) for signals
 during these waits. Rate-limited writes keep their existing handling.
 
 ## Draft checkpoints
@@ -787,7 +788,7 @@ draft checkpoints still fetch and check out their exact heads; refresh never
 rebases them. Coordination between two launchers sharing a checkout, or a concurrent
 manual cleanup, is outside this serial execution boundary.
 
-See [Stopping and restarting](../README.md#stopping-and-restarting) for signal
+See [Stopping and restarting](operations.md#stopping-and-restarting) for signal
 handling during execution, recovery and checkout refresh, and for restarting after
 code updates. The SIGTERM refresh rule prevents a fast-forward from being killed
 partway through updating the control checkout.

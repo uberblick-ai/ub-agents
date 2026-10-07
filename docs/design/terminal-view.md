@@ -5,7 +5,8 @@ guides the polish issues (#159–#166). [terminal-view.md](../terminal-view.md)
 describes what the view does today. When an issue lands, update both files.
 
 The view stays read-only. It reads the launcher's local session snapshot and run logs
-and makes no GitHub calls except `g` on the Issue and Unblock tabs. It has no workflow controls,
+and makes no GitHub calls except `g` on the Issue and Unblock tabs or activating
+Unblock with a missing snapshot notice and no cached load result. It has no workflow controls,
 so there is no retry key and no filter. `q` stops the launch after the current run;
 Ctrl-C stops it immediately. The view stays open through launcher cleanup (#287).
 
@@ -159,8 +160,11 @@ pane's two-column inset; labels sit one column right of the shared header.
 The pane's rounded border is titled `Log`, `Issue` or `Runs`.
 Unblock appears only for Needs attention rows. Each tab
 starts with the same item header: `#N title` (issue) or `⌥N title` (PR) in bold,
-then agent · runtime · attempt · PR in dim text and a dashed rule. Missing values
-are omitted. The running assignment shows `attempt N`; planned work shows
+then agent · runtime · attempt · PR in dim text and a dashed rule. The header's
+number, including `#` or `⌥`, is an underlined link that opens the item on GitHub.
+It keeps the title color (with `⌥` in accent) at rest and turns link blue on hover;
+the rest of the title stays unchanged. Without a GitHub URL, it has no link styling.
+Missing values are omitted. The running assignment shows `attempt N`; planned work shows
 `F/M failures`. A session outcome's linked PR shows as `⌥N` (#162).
 
 ### Log
@@ -275,9 +279,26 @@ title. New notices keep Claim/Outcome links with the folded evidence; earlier
 formats omit their standalone links line. The header gives the agent, the state
 and how long it has waited. For an
 item whose trusted notice the launcher already observed, the text comes from the
-snapshot; `g` loads a missing comment from GitHub. Its `waiting … · since HH:MM`
+snapshot. Activating Unblock with `4` or a tab click loads a missing or omitted
+snapshot notice from GitHub when no result is cached; `g` loads or retries it.
+Successful and failed results share the existing in-memory cache, so reopening
+Unblock does not repeat the read. A cooldown or another pending read queues
+nothing; a later activation can try again if no result was cached. Snapshot
+notices excluded by trust checks do not auto-load. Selection changes, redraws
+and timers start no reads, including when Unblock stays active.
+Its `waiting … · since HH:MM`
 uses the same published start time and minute/hour/day format as the Work row,
 even after a GitHub load. Unknown times are omitted.
+
+To fit the 64 KiB snapshot, notices outside Needs attention are omitted first,
+then description previews are shortened and surplus history runs trimmed, then
+Needs attention notices are omitted, and finally plans and outcomes are trimmed.
+Omitted notices retain an `omitted` marker without text in the published copy;
+the launcher's retained state is unchanged. Their status reads "Comment left out
+of the snapshot to save space; loading from GitHub…" while their read is pending,
+or "Comment left out of the snapshot to save space; press g to load from GitHub."
+when no read is pending. Loads share the single read slot, cooldown and launcher
+author verification checks used by `g`.
 
 New notices show the reason first: the first action without options, or the
 summary's first sentence with options, normalized to one line and cut at 300
@@ -345,7 +366,7 @@ footer keys switch to log keys):
  ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll r poll now ? keys q quit
 
 Update available (themed banner above both panes):
- ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, then restart the launcher   released 2 days ago
+ ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew update && brew upgrade ub-agents, then restart the launcher   released 2 days ago
  ⬆ This launcher runs code 3 commits behind origin/main · restart the launcher
 
 External SIGTERM (normal panes remain visible):
@@ -420,6 +441,7 @@ Colors, as Textual theme variables with these dark-theme values:
   background #0d1016 · panel/footer #161a22 · text #d4d9e1 · dim #6b7484
   assistant text (view-assistant, italic without dimming) #c8cdd6
   accent (focus border, pane titles, launcher lines, ⌥) #b79cff · selection row #1b2030
+  link hover (view-link, underlined header number) #6cb6ff
   Running #6cb6ff · Needs attention #ff8b7f · Eligible #7ee2a0
   diff + #7ee2a0 · diff - #ff8b7f
 Focused pane: accent border with its title in the border ("Work", "Log", "Issue"); unfocused: #2a303b border.

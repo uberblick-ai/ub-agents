@@ -10,11 +10,9 @@ from textual.strip import Strip
 from textual.widgets import Static, Tree
 
 from .view_data import item_handoff, mapping, outcomes_today, rows, text
-from .view_spinner import SPINNER_FPS, spinner_frame
+from .view_spinner import spinner_frame
 from .attention import attention_state, waiting_time
 from .view_theme import SECTION_COLORS, item_reference, theme_style
-
-ELIGIBLE_LIMIT = 10
 
 
 def section_rule(label, width, style):
@@ -140,8 +138,18 @@ class WorkTree(Tree):
             return False
         return super().check_action(action, parameters)
 
-    def on_mount(self):
-        self.set_interval(1 / SPINNER_FPS, self.refresh)
+    def refresh_spinners(self):
+        if (self.app.session is None
+                or mapping(self.app.session.data.get('activity')).get('state') == 'stopping'):
+            return
+        for key, node in self.app.nodes.items():
+            row = self.app.rows[key]
+            if key.startswith('assignment:') and row.state != 'earlier observation':
+                # _refresh_node also sees inert spacer copies of the node in our
+                # line cache. Invalidate only the item's one or two actual lines.
+                if node._line >= 0:
+                    for line in range(node._line, node._line + self.row_height):
+                        self._refresh_line(line)
 
     def remember_claims(self, work):
         self.claim_times = {key: stamp for key, stamp in self.claim_times.items() if key in work}
@@ -218,10 +226,8 @@ class WorkTree(Tree):
             label_style += self.get_component_rich_style('tree--cursor', partial=False)
         row = self.app.rows.get(node.data)
         if row:
-            eligible = next((value.key for value in self.app.rows.values()
-                             if value.group == 'Eligible' and value.state in {'ready', 'recover'}), None)
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
-            value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
+            value = work_lines(row, width, next_row=row.key == self.app.pane.next, stopping=stopping,
                                now=(datetime.fromtimestamp(self.app.descriptions.clock(), timezone.utc)
                                     if row.group == 'Needs attention' else None),
                                claimed_at=self.claim_times.get(row.key), app=self.app)[line_no != node._line]
@@ -314,12 +320,13 @@ class RecentActivity(Static, can_focus=True):
         return self.row_height + self.row_spacing
 
     def populate(self, rows, session):
-        self.rows = [row for row in rows if row.group == 'Recent activity'
-                     and row.state != 'earlier observation'][:20]
-        self.today = outcomes_today(session)
-        if self.cursor is None and self.rows:
-            self.cursor = self.rows[0].key
-        self.refresh()
+        rows = list(rows)
+        today = outcomes_today(session)
+        cursor = rows[0].key if self.cursor is None and rows else self.cursor
+        changed = (self.rows, self.cursor, self.today) != (rows, cursor, today)
+        self.rows, self.cursor, self.today = rows, cursor, today
+        if changed:
+            self.refresh()
 
     def render(self):
         width = self.content_size.width

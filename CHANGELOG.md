@@ -6,6 +6,37 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.15 — 2026-10-07
+
+**Upgrading:** let running agents finish, or stop the launcher, before updating an
+installation: in-flight runs can no longer `read`, `report` or post a retrospective
+through a replaced installation, and the removed run-context files and environment
+variables have no compatibility path (#314). Commit and push the starter files on
+the default branch and create required trigger and transition labels before
+launching; `launch` checks these prerequisites and `ub-agents doctor` lists the fixes
+(#319). Consumers of `doctor --json` must accept version 2: each label is one
+`github-label:NAME` result with `agent: null` and a `uses` list containing each
+consumer's `agent`, `meaning` and `required` (#322).
+
+### Added
+
+- Attached terminal views let `r` poll GitHub immediately, including read-only queue refreshes during assignments, with cooldown and rate-limit protection (#296).
+- Interactive `init` offers runtime permissions for all starter agents, and `doctor` groups agents missing permission arguments into one warning (#321).
+- `doctor` offers to create missing workflow labels after confirmation and reports each label once with all its uses (#322).
+
+### Changed
+
+- Pressing `q` stops new claims and lets running work finish reporting and cleanup; the terminal view shows shutdown progress (#311).
+- In-run `read`, `report` and retrospectives validate a shared pinned context before contacting GitHub, preserving the launcher's trusted-input policy (#314).
+- `launch` checks committed and pushed starter files and required labels, explains idle queues, and points missing configuration to `init` (#319).
+- Starter setup adapts to existing project guidance, uses project-neutral review priorities and decision authority, and lists the remaining setup steps (#324).
+- CLI help groups operator and in-run commands, shows compact command usage and errors, and provides `-v` as a version alias (#327).
+
+### Fixed
+
+- Continuous runs reuse cached GitHub inputs to reduce reads, while repository comment caches retain only the configured lookback window (#312, #313).
+- Terminal view refreshes stop during screen teardown, preventing widget errors when closing attached or standalone views (#319).
+
 ## 0.1.14 — 2026-10-06
 
 **Upgrading:** stop all of this repository's launchers and restart them together

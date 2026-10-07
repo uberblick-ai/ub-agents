@@ -1,12 +1,12 @@
 """One expendable daemon reads local files; slow storage never blocks the UI."""
 
 from collections import OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Full, Queue
 import threading
 
-from .view_data import context_text, local_description, load_session, mapping, plan_group, related_plan, rows, work_rows
+from .view_data import Pane, context_text, local_description, load_session, mapping, rows, work_pane
 from .view_logs import ViewReader
 
 
@@ -16,12 +16,15 @@ class Request:
     token: int
     older_end: int | None = None
     generation: int = 0
+    chosen: bool = False
+    previous: Pane | None = None
+    reload: bool = False
 
 
 @dataclass(frozen=True)
 class Result:
     session: object
-    rows: tuple
+    pane: Pane
     key: str | None
     token: int
     context: str
@@ -31,6 +34,7 @@ class Result:
     error: str | None = None
     runtime: str = 'unknown'
     description: object = None
+    chosen: bool = False
 
 
 class LocalWorker:
@@ -40,7 +44,6 @@ class LocalWorker:
         self.stopping = threading.Event()
         self.readers = OrderedDict()
         self.contexts = OrderedDict()
-        self.selected_row = None
         self.thread = threading.Thread(target=self.run, name='local-view-reader', daemon=True)
 
     def start(self):
@@ -58,24 +61,8 @@ class LocalWorker:
 
     def read(self, request):
         session = load_session(self.session_path)
-        work = work_rows(session, self.root)
-        selected = next((r for r in work if r.key == request.key), None)
-        if not request.key and work:
-            selected = work[0]
-        if selected is None and self.selected_row and self.selected_row.key == request.key:
-            selected = related_plan(work, self.selected_row)
-        if selected is None and self.selected_row and self.selected_row.key == request.key:
-            selected = self.selected_row
-            omitted = any((row.get('state') == 'owned' or plan_group(row) is None) and
-                          (row.get('item'), row.get('agent')) == (selected.item, selected.agent)
-                          for row in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
-            if selected.group == 'Needs attention' or selected.key.startswith('plan:') and omitted:
-                selected = replace(selected, hidden=True)
-            if selected.state != 'earlier observation':
-                selected = replace(selected, state='earlier observation',
-                                   reason=f'Last observed state: {selected.state}. {selected.reason}')
-            work.append(selected)
-        self.selected_row = selected
+        pane = work_pane(session, self.root, request.previous, request.key, request.chosen)
+        selected = next((row for row in pane.rows if row.key == pane.selected), None)
         # Preserve the selected own run while a sparse snapshot or new pass arrives.
         # Its log and cached context remain a local snapshot of the prior selection.
         source = next((row for row in rows(mapping(session.data.get('latest_pass')).get('rows'), 100)
@@ -97,7 +84,7 @@ class LocalWorker:
         if selected and selected.log:
             identity = str(selected.log)
             reader = self.readers.get(identity)
-            if reader is None:
+            if reader is None or request.reload:
                 reader = self.readers[identity] = ViewReader(selected.log, selected.runtime)
             self.readers.move_to_end(identity)
             runtime = reader.runtime
@@ -109,8 +96,8 @@ class LocalWorker:
                     history = reader.older(request.older_end, request.generation)
                 except (OSError, ValueError) as exc:
                     error = str(exc)
-        return Result(session, tuple(work), selected.key if selected else request.key, request.token,
-                      context_text(selected, context), log, page, history, error, runtime, context)
+        return Result(session, pane, pane.selected, request.token,
+                      context_text(selected, context), log, page, history, error, runtime, context, request.chosen)
 
     def run(self):
         while not self.stopping.is_set():
@@ -122,8 +109,10 @@ class LocalWorker:
                 result = self.read(request)
             except Exception as exc:
                 from .view_data import Session
-                result = Result(Session(self.session_path, {}, str(exc)), (), request.key, request.token,
-                                'Local read failed: ' + str(exc), error=str(exc))
+                session = Session(self.session_path, {}, str(exc))
+                pane = work_pane(session, self.root, request.previous, request.key, request.chosen)
+                result = Result(session, pane, pane.selected, request.token,
+                                'Local read failed: ' + str(exc), error=str(exc), chosen=request.chosen)
             if self.stopping.is_set():
                 return
             try:

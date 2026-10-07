@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from ub_agents.cli import main, status_rows
 from ub_agents.config import Priority, Queue, Runtime
+from ub_agents.coordination import Plan
 from ub_agents.errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.prompts import RETROSPECTIVE_PROMPT
@@ -278,6 +279,103 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(plan.state, "parked")
         self.assertIn("unreadable", plan.reason)
         self.assertEqual(self.github.writes, [])
+
+
+class LaunchOutputTests(unittest.TestCase):
+    def setUp(self):
+        stub_refresh(self)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.agent = agent(self.root, kind="issue", backoff_seconds=60, max_backoff_seconds=60)
+        self.github = FakeGitHub(issue())
+        self.lines = []
+        self.loop = Loop(config(self.root, self.agent), self.github, "operator", output=self.lines.append)
+        self.now = 1000
+        self.loop.coordinator.clock = lambda: self.now
+
+    def poll(self):
+        for _ in range(3):
+            self.assertFalse(self.loop.tick())
+
+    def test_owned_prints_once_and_prints_again_after_claiming(self):
+        co = self.loop.coordinator
+        lease = co.claim(self.loop.plans()[0])
+        writes = list(self.github.writes)
+        self.poll()
+        line = "#1 worker: owned — An unexpired assignment owns this work item"
+        self.assertEqual(self.lines, [line])
+        self.assertEqual(self.github.writes, writes)
+
+        co.release(lease, "retry", "Interrupted", attempt_effect="unchanged")
+        with patch("ub_agents.loop.supervise", return_value=1):
+            self.assertTrue(self.loop.tick())
+        self.assertTrue(any(text.startswith("#1 worker: claimed ") for text in self.lines))
+        self.now += 60
+        co.claim(self.loop.plans()[0])
+        self.poll()
+        self.assertEqual(self.lines.count(line), 2)
+
+    def test_backoff_prints_once_and_prints_again_after_retrying(self):
+        co = self.loop.coordinator
+        lease = co.claim(self.loop.plans()[0])
+        co.release(lease, "retry", "Transient failure", backoff=60)
+        writes = list(self.github.writes)
+        self.poll()
+        line = "#1 worker: backoff — Durable retry backoff has not elapsed"
+        self.assertEqual(self.lines, [line])
+        self.assertEqual(self.github.writes, writes)
+
+        self.now += 60
+        with patch("ub_agents.loop.supervise", return_value=1):
+            self.assertTrue(self.loop.tick())
+        self.assertTrue(any(text.startswith("#1 worker: claimed ") for text in self.lines))
+        self.poll()
+        self.assertEqual(self.lines.count(line), 2)
+
+    def test_non_claiming_output_tracks_each_item_agent_state_and_reason(self):
+        for state, reason, changed in (
+                ("owned", "A live run on #2 owns this item's branch", "A live run on #3 owns this item's branch"),
+                ("backoff", "Durable retry backoff has not elapsed",
+                 "Expired run has no outcome; durable retry backoff has not elapsed")):
+            with self.subTest(state=state):
+                self.lines.clear()
+                loop = Loop(config(self.root, self.agent), self.github, "operator", output=self.lines.append)
+                plans = [Plan(issue(number), role, None, state, reason, 1)
+                         for number in (1, 2)
+                         for role in (self.agent, replace(self.agent, name="other"))]
+                with patch.object(loop, "iter_plans", side_effect=lambda: iter(plans)):
+                    for _ in range(3):
+                        self.assertFalse(loop.tick())
+                    self.assertEqual(self.lines, [
+                        f"#{plan.item.number} {plan.agent.name}: {state} — {reason}" for plan in plans])
+
+                    plans[0] = replace(plans[0], reason=changed)
+                    loop.tick()
+                    loop.tick()
+                    self.assertEqual(len(self.lines), 5)
+                    self.assertEqual(self.lines[-1], f"#1 worker: {state} — {changed}")
+
+                    plans[0] = replace(plans[0], state="waiting")
+                    loop.tick()
+                    loop.tick()
+                    self.assertEqual(len(self.lines), 6)
+                    self.assertEqual(self.lines[-1], f"#1 worker: waiting — {changed}")
+
+                    plans[0] = replace(plans[0], state=state)
+                    loop.tick()
+                    loop.tick()
+                    self.assertEqual(len(self.lines), 7)
+                    self.assertEqual(self.lines[-1], f"#1 worker: {state} — {changed}")
+
+                    absent = plans.pop(0)
+                    loop.tick()
+                    plans.insert(0, absent)
+                    loop.tick()
+                    loop.tick()
+                    self.assertEqual(len(self.lines), 8)
+                    self.assertEqual(self.lines[-1], f"#1 worker: {state} — {changed}")
+
 
 class QueueTests(unittest.TestCase):
     def setUp(self):

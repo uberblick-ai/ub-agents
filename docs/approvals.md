@@ -174,7 +174,7 @@ including readable permissions, are cached per item between polls. Each discover
 pass and `status` invocation shares fresh permission reads for repeated accounts
 across items; this shared memo ends with the pass. Both claim-time approval checks
 (before the first write and after election) read permissions independently of it.
-Bot feedback trust grants no maintainer or launcher authority. Give every launcher the same
+Bot feedback trust grants no maintainer or launcher authority. Give launchers a dedicated
 GitHub account with `write`. `doctor` warns when that account has `maintain` or `admin`,
 because agents could start and approve their own work. An unreadable launcher role
 also produces a warning.

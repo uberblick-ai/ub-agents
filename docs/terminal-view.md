@@ -11,8 +11,9 @@ an agent's private worktree. A launcher passes its exact session ID; it never
 selects another fresh session. A missing, stale (over 30 seconds), ended or
 incompatible snapshot, or a version mismatch after an upgrade under a running
 launcher, produces a one-line error and plain output continues. The view has no
-workflow controls. Only an explicit Issue or Unblock request uses the user's
-existing authenticated `gh` access.
+workflow controls. Pressing `g` on Issue or Unblock, or activating Unblock with
+a missing snapshot notice and no cached load result, uses the user's existing
+authenticated `gh` access.
 
 The target look for upcoming changes is in [design/terminal-view.md](design/terminal-view.md).
 
@@ -65,7 +66,7 @@ The view writes it when it changes and clears it on exit.
 When newer ub-agents code is available, a themed, one-line banner appears at the
 top, above both panes and the shared item header. It takes no focus and truncates
 to the terminal width. Installed releases say
-`⬆ ub-agents X is available · you run Y · brew upgrade ub-agents,
+`⬆ ub-agents X is available · you run Y · brew update && brew upgrade ub-agents,
 then restart the launcher`, or name `pip install -U ub-agents` for pip installs;
 the release age appears at the right when space permits. The launcher makes one
 GitHub REST request at startup and at most one per day while running.
@@ -193,6 +194,11 @@ before Recent activity. The cursor highlights only the item's lines. Arrow keys
 skip headers, the idle line and blank rows, and either item line can be clicked
 to select it; blank rows have no cursor or hover highlight and clicking them
 changes no selection or cursor.
+Polls keep the highlight on its item when rows are added, removed or reordered,
+including when the item moves sections or changes to a related row. If the
+highlighted item leaves the Work list, the highlight returns to the item shown
+in the right pane when that item is still in the list. The right pane keeps its
+item, active tab, focus and log reading position while that item remains available.
 In the narrow Work list, live and Recent activity rows use only their first line:
 glyph, item reference, title shortened with `…`, and right-aligned waiting time
 for Needs attention or state for other live rows. Detail
@@ -200,10 +206,10 @@ information remains on the item's tabs, and consecutive single-line items have
 no blank row between them. Sections, counts, the idle line, stopping
 state and the fixed upper/lower split behave the same in both layouts.
 The assignment spinner advances through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` one frame every
-0.1 seconds, like Runs and the log status line. Stopping and other row glyphs
-remain static. Elapsed time stays in whole seconds, uses the item's cached run
-history and updates while the view is open; the view retains an observed claim
-time when a report updates the history.
+0.1 seconds, like the visible Runs tab and the log status line. Stopping and other
+row glyphs remain static. Elapsed time stays in whole seconds, uses the item's
+cached run history and updates at least once a second while the view is open;
+the view retains an observed claim time when a report updates the history.
 If that claim time is unavailable, the row shows `claiming`.
 Rendering these rows requires no extra GitHub reads.
 
@@ -251,9 +257,11 @@ theme's green success color for `✓` and red error color for `✗`, retaining r
 dimming and cursor highlighting. Neutral `○` outcomes keep the row style.
 `NO_COLOR=1` keeps these cues monochrome.
 The lower half does not scroll or collapse, and its header cannot be selected.
-The live sections fill the upper half and scroll independently. Arrow keys move
-between the two halves; `Enter` selects an outcome with the same local log access
-as other own runs. With no live rows, the newest outcome is selected first.
+The live sections fill the upper half and scroll vertically, with no horizontal
+scrollbar. Unchanged worker results leave Work and Recent activity untouched;
+the running spinner and elapsed times continue to update on the view's clock.
+Arrow keys move between the two halves; `Enter` selects an outcome with the same
+local log access as other own runs. With no live rows, the newest outcome is selected first.
 A selected outcome pushed out of view remains selected in the right pane.
 
 Recent activity uses `#N` for issues and `⌥N` for PRs, from the cached outcome or
@@ -270,7 +278,9 @@ issue descriptions and log lines keep their verbatim text and existing styles.
 Outcome completion and a human blocker are shown separately: a completed step
 can still be blocked. Until you select a row, the view selects the launcher's own
 run whenever one starts. Selection, focus and paused log positions survive refreshes,
-including when a row moves between sections. A selected row that disappears
+including when a row moves between sections. A selected claiming assignment stays
+selected when its run ID appears; Log picks up and follows its output as soon as
+the local `process.log` exists. A selected row that disappears
 remains an earlier local observation in the right pane. A previous assignment or
 a plan now claimed by another launcher or parked for dependencies or a milestone
 is omitted from the live work sections.
@@ -295,7 +305,7 @@ item, including an exhausted attempt limit. Its bold header keeps the item
 reference and title. Its dim second line shows the agent and the same state as the
 Work row, then red `waiting …` and `since HH:MM` in local time. Both displays use
 the row's published `waiting_since` and the same minute/hour/day format, counting
-while the view is open. Unknown times are omitted; loading a comment with `g`
+while the view is open. Unknown times are omitted; loading a comment
 does not change this start time.
 The dashed rule follows as on the other tabs. Changing selection or refreshing
 the item out of Needs attention hides Unblock and returns an active Unblock pane
@@ -314,15 +324,29 @@ and press Enter to expand it. The bounded supporting Markdown and SHAs stay inta
 inside. v0.1.13 notices keep their "Reasoning, evidence and resume instructions"
 fold, and earlier prose notices remain readable. The last dim line names the
 action-needed comment, its local creation time, and `snapshot` or
-`GitHub · loaded Ns ago`. An uncached comment offers `press g to load from GitHub`.
+`GitHub · loaded Ns ago`. Opening Unblock with `4` or a tab click loads a missing
+or omitted snapshot notice if no successful or failed result is cached for that
+item. Reopening the tab does not repeat a cached read; `g` retries failures.
+An uncached comment offers `press g to load from GitHub`. A notice omitted for
+size says `Comment left out of the snapshot to save space; loading from GitHub…`
+while its read is pending, or `Comment left out of the snapshot to save space;
+press g to load from GitHub.` otherwise. A cooldown or another pending read
+shows why the load cannot start and queues nothing; a later activation may try
+again while no result is cached. Selecting another item while Unblock stays
+active starts no read.
 
 The session snapshot retains comments this launcher posts or finds in the pass's
 already-read item comments from verified trusted launcher accounts. Claims and resets clear
-them. Text and item counts are bounded; comments can be dropped to keep the
-snapshot within 64 KiB, in which case `g` remains available. GitHub loads accept
+them. Text and item counts are bounded. To fit the 64 KiB snapshot, notices for
+items outside Needs attention (including items without a row) are omitted first,
+then description previews are shortened and surplus history runs trimmed. Needs
+attention notices are omitted next, before plans and outcomes are trimmed. Each
+omitted notice keeps an `omitted` marker without text in the published snapshot;
+the retained launcher state keeps its text. GitHub loads accept
 only comments whose body starts with `<!-- ub-agents:action-needed ` and whose
 author the launcher has already verified for coordination records. No role read
-is added. Unverified authors are excluded with a reason; a load without a trusted
+is added. Unverified snapshot authors are excluded with a reason and do not
+auto-load; `g` remains available. A load without a trusted
 match says so. Existing verification changes also remove a cached comment from
 display. The tab is read-only.
 
@@ -378,12 +402,14 @@ An item with no filing or run data shows `No item history cached.` Recent activi
 rows each show their item's history.
 
 Issue renders only the description body as Markdown, including headings, lists,
-emphasis, inline code and code blocks. Line breaks, including CRLF and lone CR,
-display as real line breaks; tabs are retained. Other control characters stay
-visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
-images and raw HTML display as text; links cannot be opened with the mouse or
-keyboard, and nothing is fetched. The item header stays literal text with only
-its reference clickable; source/age and all notices remain inert literal text.
+emphasis, strikethrough, inline code, code blocks and GitHub tables. Wide tables
+shrink their columns and wrap cell text within the pane. Line breaks, including
+CRLF and lone CR, display as real line breaks; tabs are retained. Other control
+characters stay visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
+images, raw HTML and entities display as source text, including in table cells;
+links cannot be opened with the mouse or keyboard, and nothing is fetched.
+The item header stays literal text with only its reference clickable;
+source/age and all notices remain inert literal text.
 Issue does not repeat the item reference or title in its
 content. Shortening notices sit outside the Markdown body, including
 when a description is cut inside a code fence. Runs and the raw log projection
@@ -397,6 +423,7 @@ Claude and Codex Log transcripts are described below.
 | `Esc` in the narrow item view | Return to Work; close help or raw access first |
 | `1`, `2`, `3` | Log, Issue, Runs |
 | `4` on Needs attention | Unblock; ignored for other rows |
+| `g` on Log | Reload the selected row's log from the latest local snapshot, attach at the end and follow; no GitHub request |
 | `g` on Issue | Load the selected item's missing title/body, or retry a failed description read |
 | `g` on Unblock | Load the latest trusted action-needed comment, or retry a failed comment read |
 | `f` | Toggle follow/pause; resuming loads the latest generation |
@@ -405,9 +432,22 @@ Claude and Codex Log transcripts are described below.
 | `p` | Show the full raw file path, byte ranges and retention diagnostics; `Escape` closes it |
 | `r` (attached launcher) | Poll GitHub now while idle, or refresh the queue read-only during a run; at most once per 10 seconds |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
+| Mouse drag and release | Copy the selected text to the clipboard through OSC 52, including in the `p` and `?` overlays |
+| `y` | Copy the current selection again; do nothing without a selection |
 | `?` | Show all keys; `Escape` or `?` closes help |
 | `q` | Stop after the current run or recovery, with no new claims (exit 0); close a standalone view |
 | `Ctrl-C` | Stop now with the launcher's normal SIGINT handling (exit 130); close a standalone view |
+
+Each copy briefly shows `copied N characters` in the footer. Plain clicks and
+empty selections copy nothing. OSC 52 works over ssh and inside herdr when the
+terminal accepts it. In iTerm2, enable **Applications in terminal may access
+clipboard** for OSC 52. Terminal.app does not support OSC 52.
+
+On macOS, the view also uses `pbcopy` when it is on PATH and neither
+`SSH_CONNECTION` nor `SSH_TTY` is set. This covers local terminals that do not
+accept OSC 52. A failed or slow `pbcopy` does not delay the view or prevent the
+OSC 52 copy. Use **Option-drag** for the terminal's own selection. Ctrl-C remains
+the stop key.
 
 On an attached view, either stop key replaces the panes, header, update banner,
 footer and any overlay with a centered full-screen message until the launcher
@@ -437,7 +477,9 @@ and keep the `next poll Ns` countdown during rate-limit waits.
 In the narrow layout, the prefix is omitted and `next poll Ns` becomes `poll Ns`,
 for example `v0.1.11 · poll 26s`. Other activity and diagnostic labels keep their
 text. The list's right side reads `↑↓ select ⏎ open ? keys q quit`; the item view
-reads `Esc back 1-3 tabs ? keys q quit`. A paused item uses the existing log keys,
+reads `Esc back 1-3 tabs ? keys q quit`. On Log, the footer adds `g reload`,
+dropping it at narrow widths when it does not fit. Reloading before the log exists
+keeps the existing empty-log notice. A paused item uses the existing log keys,
 including on Issue and Runs, shortened only when they do not fit. Needs attention
 uses `1-4 tabs`; on Unblock the footer also includes `g load`, including when the
 log is paused. `?` includes `4` and `g on Unblock` only for Needs attention rows,
@@ -599,13 +641,16 @@ While stopping, selecting the current assignment replaces its Log status with
 their usual process or plan status. The stopping screen uses only the existing
 session snapshot and makes no GitHub reads.
 
-Only `g` on Issue or Unblock starts a GitHub read. Attachment, selection, tabs,
+Pressing `g` on Issue or Unblock starts a GitHub read. Activating Unblock with
+`4` or a tab click also loads a missing or omitted snapshot notice when that
+item has no cached load result. Attachment, selection, other tab activations,
 redraws, resizes and timers make no GitHub calls. Each load makes one
 `gh api graphql` request: Issue reads only the selected issue or PR's title and
 body; Unblock reads its most recent comments (at most 100), with author, creation
 time and body, without paging. There are no history reads, queue scans, prefetch
-or extra role reads. No reads or retries happen automatically. There is at most one read
-in flight: pressing `g` while any read is pending queues nothing. Input and local
+or extra role reads. Automatic loads happen only on Unblock activation and never
+retry a cached failure. There is at most one read in flight: pressing `g` or
+activating Unblock while any read is pending queues nothing. Input and local
 snapshot/log reading continue while it is pending, with a loading notice on the requesting tab.
 Closing the view terminates and reaps its owned request processes. A request
 supervisor also cleans them up if the view is killed. `q` drains an attached
@@ -617,7 +662,8 @@ say age unavailable. Each title/body projection is limited to 2,048 characters
 plus a visible shortening notice. Successful and failed GitHub reads stay only
 in memory, in a 128-item least-recently-used cache shared by Issue and Unblock across rows for the same
 repository/item. Revisiting a cached item never calls GitHub; a failed read needs
-`g` to retry. Evicted items need an explicit load again. There is no session load
+`g` to retry. Evicted items can load again through `g` or Unblock activation.
+There is no session load
 count limit. Each request has a 10-second time limit and a 512 KiB response limit.
 After a rate-limit response, both tabs show a shared cooldown through the reported
 reset or `Retry-After` time. Loads and retries make no call during it. If GitHub

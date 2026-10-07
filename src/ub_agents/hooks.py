@@ -15,11 +15,13 @@ def diagnostic(config, run, event, **details):
     directory = run_directory(config.root, run)
     # Never follow a redirected run-log directory when doing maintenance.
     if directory.resolve() != directory:
-        raise CleanupError("Run diagnostics path redirects; preserve artifacts")
+        raise CleanupError(f"Run diagnostics path {directory} redirects",
+                           next_step="restore the run diagnostics path without redirects")
     directory.mkdir(parents=True, exist_ok=True)
     events = directory / "events.jsonl"
     if events.resolve() != events:
-        raise CleanupError("Run diagnostics file redirects; preserve artifacts")
+        raise CleanupError(f"Run diagnostics file {events} redirects",
+                           next_step="restore the run diagnostics file without redirects")
     with events.open("a") as stream:
         stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
 
@@ -50,9 +52,11 @@ def confirm_hook_groups_stopped(config, run):
             if group < 1:
                 raise ValueError("invalid hook process group")
             if group_members(group):
-                raise CleanupError(f"Cleanup hook process group {group} is still present")
+                raise CleanupError(f"Cleanup hook process group {group} is still present",
+                                   next_step=f"confirm process group {group} has exited")
     except (OSError, ValueError) as exc:
-        raise CleanupError(f"Cleanup hook process check cannot be confirmed: {exc}") from exc
+        raise CleanupError(f"Cleanup hook process check cannot be confirmed: {exc}",
+                           next_step=f"confirm the hook has exited and repair its process records in {parent}") from exc
 
 
 def run_hook(config, lease, worktree, outcome=None, expires=None):
@@ -62,7 +66,8 @@ def run_hook(config, lease, worktree, outcome=None, expires=None):
     confirm_hook_groups_stopped(config, lease["run"])
     directory = run_directory(config.root, lease["run"]) / "cleanup" / uuid.uuid4().hex
     if directory.resolve() != directory:
-        raise CleanupError("Hook diagnostics path redirects; preserve artifacts")
+        raise CleanupError(f"Hook diagnostics path {directory} redirects",
+                           next_step="restore the hook diagnostics path without redirects")
     directory.mkdir(parents=True, exist_ok=True)
     context = {
         "repository": config.repository, "run": lease["run"], "agent": lease["agent"],

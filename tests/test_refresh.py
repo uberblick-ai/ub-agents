@@ -97,23 +97,35 @@ class RefreshTests(unittest.TestCase):
                 git(self.root, "rev-parse", "HEAD"),
                 (self.root / ".git" / "index").read_bytes(), files)
 
-    def stopped(self, condition, once=True):
+    def stopped(self, condition, next_step="restore readable, valid instruction files and launch again", once=True):
         before, writes = self.snapshot(), list(self.github.writes)
+        stderr = io.StringIO()
         with patch("ub_agents.loop.supervise") as execution, \
                 patch("ub_agents.loop.Workspace.prepare") as prepare, \
                 patch.object(self.loop.stop_event, "wait") as wait, \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                self.assertRaisesRegex(AgentError, condition) as error:
-            self.loop.launch(once=once)
+                patch("ub_agents.cli.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch_checks"), \
+                patch("ub_agents.cli.Loop", return_value=self.loop), \
+                redirect_stderr(stderr), redirect_stdout(io.StringIO()):
+            argv = ["--config", str(self.root / "ub-agents.yaml"), "launch", "--no-ui"]
+            self.assertEqual(main(argv + (["--once"] if once else [])), 1)
         execution.assert_not_called()
         prepare.assert_not_called()
         wait.assert_not_called()
-        self.assertIn("Fix the operator checkout", str(error.exception))
-        self.assertIn("no assignment attempt was charged", str(error.exception))
+        message = stderr.getvalue()
+        self.assertRegex(message, condition)
+        self.assertTrue(message.startswith(f"ub-agents: {self.root}: "), message)
+        self.assertTrue(message.endswith(f"; {next_step}\n"), message)
+        self.assertEqual(len(message.splitlines()), 1)
+        self.assertNotIn("Fix the operator checkout", message)
+        self.assertNotIn("no assignment attempt was charged", message)
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.github.writes, writes)
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
-        return str(error.exception)
+        return message
 
     def execute(self, callback=None):
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
@@ -220,7 +232,9 @@ class RefreshTests(unittest.TestCase):
                     self.assertEqual(main(args + ['launch', '--once']), 1)
                 with patch.object(Path, 'read_text', read), redirect_stderr(check_error):
                     self.assertEqual(main(args + ['check']), 1)
-                self.assertEqual(launch_error.getvalue(), check_error.getvalue())
+                self.assertEqual(launch_error.getvalue(),
+                                 f"ub-agents: {self.root}: " + check_error.getvalue().removeprefix("ub-agents: ").strip() +
+                                 "; restore readable, valid instruction files and launch again\n")
                 self.assertIn('shared-instructions', launch_error.getvalue())
                 execution.assert_not_called()
                 self.assertEqual(self.github.writes, [])
@@ -429,6 +443,26 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
 
+    def test_unreadable_reloaded_role_instructions_name_checkout_and_next_step(self):
+        self.push_policy()
+        (self.upstream / "role.md").write_bytes(b"\xff")
+        self.commit(self.upstream)
+        git(self.upstream, "push", "origin", "main")
+        stderr = io.StringIO()
+        with patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch_checks"), \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                patch("ub_agents.loop.supervise") as execution, redirect_stderr(stderr):
+            self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
+        message = stderr.getvalue()
+        self.assertTrue(message.startswith(f"ub-agents: {self.root}: worker instructions is unreadable:"), message)
+        self.assertTrue(message.endswith("; restore readable, valid instruction files and launch again\n"), message)
+        self.assertEqual(len(message.splitlines()), 1)
+        execution.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
+
     def test_ignored_local_instructions_remain_valid_after_refresh(self):
         local = self.root / ".ub-agents" / "local-role.md"
         local.parent.mkdir()
@@ -457,11 +491,11 @@ class RefreshTests(unittest.TestCase):
 
     def test_modified_checkout_stops(self):
         (self.root / "role.md").write_text("Local edits")
-        self.stopped("dirty")
+        self.stopped("local changes", "commit or remove local changes and launch again")
 
     def test_continuous_launch_does_not_retry_local_refresh_failure(self):
         (self.root / "role.md").write_text("Local edits")
-        self.stopped("dirty", once=False)
+        self.stopped("local changes", "commit or remove local changes and launch again", once=False)
 
     def test_default_branch_read_retries_then_refreshes_before_claiming(self):
         errors = [GitHubError("GET", "repos/org/project", "HTTP 504", retryable=True),
@@ -536,41 +570,65 @@ class RefreshTests(unittest.TestCase):
     def test_staged_checkout_stops(self):
         (self.root / "role.md").write_text("Staged edits")
         git(self.root, "add", "role.md")
-        self.stopped("dirty")
+        self.stopped("local changes", "commit or remove local changes and launch again")
 
     def test_untracked_checkout_stops(self):
         (self.root / "untracked").write_text("Local file")
-        self.stopped("untracked")
+        self.stopped("untracked", "commit or remove local changes and launch again")
 
     def test_wrong_branch_stops(self):
         git(self.root, "switch", "-c", "feature")
-        self.stopped("on feature; switch to the default branch main")
+        self.stopped("on feature", "switch to the default branch main and launch again")
 
     def test_detached_head_stops(self):
         git(self.root, "checkout", "--detach")
-        self.stopped("detached HEAD; switch to the default branch main")
+        self.stopped("detached HEAD", "switch to the default branch main and launch again")
 
     def test_local_commits_stop(self):
         (self.root / "role.md").write_text("Unpushed policy")
         self.commit(self.root)
-        self.stopped("local commits not on origin")
+        self.stopped("local commits not on origin", "reconcile main with origin/main and launch again")
 
     def test_diverged_checkout_stops(self):
         (self.root / "role.md").write_text("Unpushed policy")
         self.commit(self.root)
         self.push_policy()
-        self.stopped("diverged")
+        self.stopped("diverged", "reconcile main with origin/main and launch again")
 
     def test_fetch_failure_stops(self):
         git(self.root, "remote", "set-url", "origin", str(self.origin / "missing"))
-        self.stopped("fetch of origin/main failed; fix origin access")
+        self.stopped("fetch of origin/main failed", "fix origin access and launch again")
+
+    def test_fetch_error_keeps_reason_and_omits_multiline_git_advice(self):
+        def fail_fetch(root, *args, **kwargs):
+            if "fetch" in args:
+                raise AgentError("Git operation failed: authentication denied\n\nLong Git advice\nMore Git advice")
+            return git(root, *args, **kwargs)
+
+        with patch("ub_agents.refresh.git", side_effect=fail_fetch):
+            message = self.stopped("fetch of origin/main failed", "fix origin access and launch again")
+        self.assertEqual(message, f"ub-agents: {self.root}: fetch of origin/main failed: "
+                         "Git operation failed: authentication denied; fix origin access and launch again\n")
 
     def test_fast_forward_failure_stops_without_mutation(self):
         self.push_policy()
         lock = self.root / ".git" / "index.lock"
         lock.write_text("Existing synthetic lock")
-        self.stopped("fast-forward to origin/main failed; fix the checkout")
+        self.stopped("fast-forward to origin/main failed", "resolve the checkout's merge error and launch again")
         self.assertEqual(lock.read_text(), "Existing synthetic lock")
+
+    def test_fast_forward_error_omits_multiline_git_advice(self):
+        self.push_policy()
+
+        def fail_merge(root, *args, **kwargs):
+            if "merge" in args:
+                raise AgentError("Git operation failed: synthetic lock\n\nLong Git advice\nMore Git advice")
+            return git(root, *args, **kwargs)
+
+        with patch("ub_agents.refresh.git", side_effect=fail_merge):
+            message = self.stopped("fast-forward to origin/main failed", "resolve the checkout's merge error and launch again")
+        self.assertEqual(message, f"ub-agents: {self.root}: fast-forward to origin/main failed: "
+                         "Git operation failed: synthetic lock; resolve the checkout's merge error and launch again\n")
 
     def test_fast_forward_refuses_to_overwrite_ignored_local_files(self):
         (self.root / "ignored").write_text("Operator local data")
@@ -578,7 +636,7 @@ class RefreshTests(unittest.TestCase):
         git(self.upstream, "add", "-f", "ignored")
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
-        self.stopped("fast-forward.*failed")
+        self.stopped("fast-forward.*failed", "resolve the checkout's merge error and launch again")
 
     def test_autostash_and_merge_hooks_are_not_used(self):
         git(self.root, "config", "merge.autostash", "true")

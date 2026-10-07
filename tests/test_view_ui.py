@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import io
 import json
 import os
@@ -9,7 +10,7 @@ import tempfile
 import threading
 import unittest
 from xml.etree import ElementTree
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 from rich.console import Console
 from rich.text import Text
@@ -26,10 +27,125 @@ from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs,
 from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
+from ub_agents.view_data import Session, work_pane
 from ub_agents.view_theme import theme_style
+from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_mouse_release_and_y_copy_exact_selection_in_panes_and_overlays(self):
+        launcher = Mock()
+        app = View(self.root, self.path, launcher=launcher)
+        value = '  café α\nsecond line  '
+        selected = 'café α\nsecond line'
+        sequence = '\x1b]52;c;' + base64.b64encode(selected.encode('utf-8')).decode('ascii') + '\a'
+        with (patch('ub_agents.view_ui.local_pbcopy', return_value=None),
+              patch.object(app, 'raw_details', return_value=value)):
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                await app.query_one('#issue VerticalScroll').mount(
+                    Static(Text(value), id='copy_sample'), before=app.query_one('#issue_text'))
+                for key, selector in (('2', '#copy_sample'), ('p', '#raw_details'), ('?', '#raw_details')):
+                    with self.subTest(surface=key):
+                        await pilot.press(key)
+                        widget = app.screen.query_one(selector, Static)
+                        widget.update(Text(value))
+                        await pilot.pause()
+                        footer = app.screen.query_one('#raw_status' if key != '2' else '#status', Static)
+                        with patch.object(app._driver, 'write') as write:
+                            def clipboard_writes():
+                                return [call.args[0] for call in write.call_args_list
+                                        if call.args[0].startswith('\x1b]52;')]
+
+                            await pilot.mouse_down(widget, offset=(2, 0))
+                            await pilot.hover(widget, offset=(10, 1))
+                            self.assertEqual(clipboard_writes(), [])
+                            await pilot.mouse_up(widget, offset=(10, 1))
+                            self.assertEqual(app.screen.get_selected_text(), selected)
+                            self.assertEqual(app.clipboard, selected)
+                            self.assertEqual(clipboard_writes(), [sequence])
+                            self.assertEqual(footer.render().plain.strip(), f'copied {len(selected)} characters')
+                            self.assertEqual(footer.render().cell_length, footer.size.width)
+                            self.assertFalse(app._exit)
+                            self.assertIsNone(app.shutdown)
+                            if key == '2':
+                                await self.ready(app, pilot, lambda: 'copied' not in footer.render().plain)
+                                self.assertIn('q quit', footer.render().plain)
+                            await pilot.press('y')
+                            self.assertEqual(clipboard_writes(), [sequence, sequence])
+                            self.assertEqual(footer.render().plain.strip(), f'copied {len(selected)} characters')
+                        if key != '2':
+                            await pilot.press('escape')
+                launcher.drain.assert_not_called()
+                launcher.interrupt.assert_not_called()
+                with patch.object(app, 'copy_to_clipboard') as copy:
+                    await pilot.press('ctrl+c')
+                    copy.assert_not_called()
+                launcher.interrupt.assert_called_once_with()
+                self.assertFalse(app._exit)
+                app.exit()
+        app.worker.thread.join(2)
+
+    async def test_click_empty_selection_and_y_without_selection_copy_nothing(self):
+        app = View(self.root, self.path)
+        with (patch.object(app, 'copy_to_clipboard') as copy,
+              patch('ub_agents.view_ui.local_pbcopy') as pbcopy):
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                for key in ('2', 'p', '?'):
+                    await pilot.press(key)
+                    selector = '#issue_text' if key == '2' else '#raw_details'
+                    widget = app.screen.query_one(selector, Static)
+                    await pilot.click(widget)
+                    await pilot.press('y')
+                    # A drag across blank text yields an empty string rather than None.
+                    with patch.object(app.screen, 'get_selected_text', return_value=''):
+                        app.action_copy_selection()
+                    copy.assert_not_called()
+                    pbcopy.assert_not_called()
+                    self.assertEqual(app.copy_notice, '')
+                    self.assertFalse(app._exit)
+                    if key != '2':
+                        await pilot.press('escape')
+                await pilot.press('ctrl+c')
+            self.assertTrue(app._exit)
+            copy.assert_not_called()
+        app.worker.thread.join(2)
+
+    async def test_pbcopy_worker_does_not_delay_osc52_keyboard_or_stop(self):
+        launcher = Mock()
+        app = View(self.root, self.path, launcher=launcher)
+        process = Mock(returncode=None, wait=AsyncMock())
+        started = asyncio.Event()
+
+        async def communicate(value):
+            started.set()
+            await asyncio.Event().wait()
+
+        process.communicate = AsyncMock(side_effect=communicate)
+        with (patch('ub_agents.view_ui.local_pbcopy', return_value='/usr/bin/pbcopy'),
+              patch('ub_agents.view_clipboard.asyncio.create_subprocess_exec',
+                    new=AsyncMock(return_value=process))):
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                with (patch.object(app.screen, 'get_selected_text', return_value='selected text'),
+                      patch.object(app, 'copy_to_clipboard') as copy):
+                    await pilot.press('y')
+                    copy.assert_called_once_with('selected text')
+                    await asyncio.wait_for(started.wait(), timeout=1)
+                    self.assertIn('copied 13 characters', app.query_one('#status', Static).render().plain)
+                    self.assertFalse(app._exit)
+                    await pilot.press('2')
+                    self.assertEqual(app.query_one(TabbedContent).active, 'issue')
+                    await pilot.press('ctrl+c')
+                    launcher.interrupt.assert_called_once_with()
+                    self.assertFalse(app._exit)
+                    copy.assert_called_once_with('selected text')
+                    app.exit()
+            process.kill.assert_called_once_with()
+            process.wait.assert_awaited_once_with()
+        app.worker.thread.join(2)
+
     async def test_shutdown_replaces_every_surface_keeps_elapsed_time_and_allows_interrupt(self):
         now = datetime.now(timezone.utc)
         self.state['histories']['114']['kind'] = 'pr'
@@ -583,9 +699,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
                 self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open ? keys q quit'))
                 await pilot.press('enter')
-                self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs g reload ? keys q quit'))
                 await pilot.press('f')
-                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'))
                 await pilot.resize_terminal(60, 16)
                 await pilot.pause()
                 self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
@@ -706,8 +822,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('f', '2')
             selected, focus, page = app.selected, app.focused, app.reading.page
             for value in (
-                    {'text': '⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, '
-                             'then restart the launcher',
+                    {'text': '⬆ ub-agents 0.1.12 is available · you run 0.1.11 · '
+                             'brew update && brew upgrade ub-agents, then restart the launcher',
                      'released_at': (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()},
                     {'text': '⬆ This launcher runs code 2 commits behind origin/main · restart the launcher'},
                     {'text': '[bold]inert[/bold]\nnext\x1b[31m'}):
@@ -1042,7 +1158,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
-                keys = '↑↓ select ⏎ open 1-3 tabs ? keys q quit'
+                keys = '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'
                 self.assertIn('ub-agents v9.8.7 · next poll 30s', footer.render().plain)
                 self.assertTrue(footer.render().plain.endswith(keys))
                 self.assertEqual(footer.size.height, 1)
@@ -1093,7 +1209,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('f follow', pill.render().plain)
             self.assertNotIn('0 new', pill.render().plain)
             self.assertNotIn('0B lag', pill.render().plain)
-            self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
+            self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'))
             self.assertEqual(footer.render().cell_length, 110)
             await pilot.press('u')
             self.assertIn('RAW', pill.render().plain)
@@ -1112,11 +1228,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             for tab in ('2', '3'):
                 await pilot.press(tab)
                 self.assertIn('f follow h older', footer.render().plain)
+                self.assertNotIn('g reload', footer.render().plain)
                 self.assertNotIn('PAUSED', footer.render().plain)
             await pilot.press('1', 'f')
             await self.ready(app, pilot, lambda: not pill.display)
             self.assertTrue(app.reading.raw)
-            self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+            self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
             # Ingestion can lag while following; it must be visible without a
             # persistent FOLLOW or RAW badge when caught up.
             app.reading.log = replace(app.reading.log, unread_bytes=8192)
@@ -1289,6 +1406,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn(key, help_text)
                 self.assertIn('q   Stop after run; close a standalone view', help_text)
                 self.assertIn('Ctrl-C   Stop now; close a standalone view', help_text)
+                self.assertIn('Mouse drag   Copy selected text on release (OSC 52)', help_text)
+                self.assertIn('y   Copy the current selection again', help_text)
+                self.assertIn('Applications in terminal may access clipboard', help_text)
+                self.assertIn("Option-drag selects with the terminal's own selection", help_text)
                 await pilot.press('f', 'h', 'u', 'g', 'p', '2', 'pageup', 'pagedown', 'home', 'end')
                 self.assertIsInstance(app.screen, KeyHelp)
                 await pilot.press(close)
@@ -1370,17 +1491,28 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': number, 'kind': kind, 'agent': 'worker', 'state': 'blocked',
              'reason': 'Needs a decision', 'title': 'Long title ' + '界' * 200}
             for number, kind in ((114, 'issue'), (12, 'pr'))]}
+        self.state['coordination_authors'] = {'operator': {'trusted': True}}
+        self.state['action_needed'] = {
+            str(number): {'text': ACTION_MARKER + 'run -->\n**Action needed**\n\nMaintainer: decide.',
+                          'author': 'operator'} for number in (114, 12)}
         self.state['outcomes'].append({'item': 114, 'run': 'handoff', 'handoff': 1235})
         publish_snapshot(self.path, self.state)
-        for size in ((130, 36), (60, 16)):
-            with self.subTest(size=size):
+        for size, theme in (((130, 36), 'ub-agents'), ((60, 16), 'ub-agents'),
+                            ((130, 36), 'textual-light')):
+            with self.subTest(size=size, theme=theme):
                 transport = RecordingDescriptionTransport()
                 with patch.dict(os.environ):
                     os.environ.pop('NO_COLOR', None)
                     app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                app.theme = theme
                 with patch.object(app, 'open_url') as opened:
                     async with app.run_test(size=size) as pilot:
                         await self.ready(app, pilot, lambda: app.local_description is not None)
+                        link_color = app.theme_variables['view-link'].lower()
+                        self.assertEqual(link_color, '#6cb6ff' if theme == 'ub-agents'
+                                         else app.theme_variables['text-primary'].lower())
+                        if theme == 'textual-light':
+                            self.assertNotEqual(link_color, '#6cb6ff')
                         if app.narrow:
                             await pilot.press('enter')
                             self.assertTrue(app.item_view)
@@ -1410,9 +1542,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                     title_style = next(iter(lines[0].crop(
                                         len(reference) + 1, len(reference) + 2))).style
                                     self.assertTrue(title_style.bold)
+                                    for segment in lines[0].crop(len(reference)):
+                                        self.assertFalse(segment.style.underline)
+                                        self.assertNotIn('@click', segment.style.meta)
                                     for x, style in enumerate(styles):
                                         self.assertTrue(style.bold)
-                                        self.assertFalse(style.underline)
+                                        self.assertTrue(style.underline)
+                                        self.assertFalse(style.reverse)
+                                        self.assertEqual(style.meta['@click'], 'app.open_reference')
                                         self.assertEqual(style.bgcolor, title_style.bgcolor)
                                         color = (app.theme_variables['view-accent'].lower()
                                                  if marker == '⌥' and x == 0 else title_style.color.name)
@@ -1422,7 +1559,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                         await pilot.pause()
                                         hovered = header.render_lines(header.size.region)[0]
                                         self.assertEqual([next(iter(hovered.crop(i, i + 1))).style
-                                                          for i in range(len(reference))], styles)
+                                                          for i in range(len(reference))],
+                                                         [style + theme_style(app, 'view-link') for style in styles])
+                                        self.assertEqual(list(hovered.crop(len(reference))),
+                                                         list(lines[0].crop(len(reference))))
                                         opened.reset_mock()
                                         self.assertTrue(await pilot.click(header, offset=(x, 0)))
                                         opened.assert_called_once_with(
@@ -1454,14 +1594,25 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.busy = True
                 while not app.worker.results.empty():
                     app.worker.results.get_nowait()
-                for invalid in (None, '', 42, 'owner', 'owner/repo/extra', 'owner/..',
-                                'owner/repo?query', 'owner/repo\x1b'):
-                    with self.subTest(repository=invalid):
-                        app.session.data['repository'] = invalid
-                        app.update_status()
-                        self.assertNotIn('@click', header.render().get_style_at_offset(0).meta)
-                        await pilot.click(header, offset=(0, 0))
-                        opened.assert_not_called()
+
+                async def assert_inert_header():
+                    await pilot.pause()
+                    for line in header.render_lines(header.size.region):
+                        for segment in line:
+                            self.assertFalse(segment.style.underline)
+                            self.assertNotIn('@click', segment.style.meta)
+
+                for kind, marker in (('issue', '#'), ('pr', '⌥')):
+                    app.rows[app.selected] = replace(row, data={**row.data, 'kind': kind})
+                    for invalid in (None, '', 42, 'owner', 'owner/repo/extra', 'owner/..',
+                                    'owner/repo?query', 'owner/repo\x1b'):
+                        with self.subTest(kind=kind, repository=invalid):
+                            app.session.data['repository'] = invalid
+                            app.update_status()
+                            self.assertTrue(header.render().plain.startswith(marker + '114'))
+                            await pilot.click(header, offset=(0, 0))
+                            await assert_inert_header()
+                            opened.assert_not_called()
                 app.session.data['repository'] = repository
                 for invalid in (None, '?', '114', 0, -1, True, 1.5):
                     with self.subTest(number=invalid):
@@ -1469,15 +1620,18 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         app.update_status()
                         self.assertNotIn('@click', header.render().get_style_at_offset(0).meta)
                         await pilot.click(header, offset=(0, 0))
+                        await assert_inert_header()
                         opened.assert_not_called()
                 app.rows[app.selected] = row
                 app.select(None)
                 self.assertEqual(header.render().plain.split('\n')[0], 'No item selected.')
                 await pilot.click(header, offset=(0, 0))
+                await assert_inert_header()
                 opened.assert_not_called()
-                app.session = None
-                app.action_open_reference()
-                opened.assert_not_called()
+                # Restore the loaded session before yielding to the renderer.
+                with patch.object(app, 'session', None):
+                    app.action_open_reference()
+                    opened.assert_not_called()
                 await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
@@ -1722,44 +1876,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press('q')
                 app.worker.thread.join(2)
 
-    async def test_sections_counts_hidden_empty_sections_and_dim_partial_marker(self):
-        self.state['latest_pass']['rows'].extend([
-            {'item': 20, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'},
-            {'item': 21, 'agent': 'worker', 'state': 'blocked', 'reason': 'Cleanup unconfirmed'},
-            {'item': 22, 'agent': 'worker', 'state': 'waiting', 'reason': 'Runtime paused'},
-            {'item': 23, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'},
-            {'item': 24, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
-            {'item': 25, 'agent': 'worker', 'state': 'backoff', 'reason': 'Retry backoff'},
-        ])
-        publish_snapshot(self.path, self.state)
-        app = View(self.root, self.path)
-        async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot)
-            tree = app.query_one('#work', Tree)
-            self.assertEqual([node.label.plain for node in tree.root.children],
-                             ['Running · 1', 'Needs attention · 1', 'Eligible · 4'])
-            self.assertEqual([node.data for node in app.groups['Eligible'].children],
-                             ['plan:12', 'plan:20', 'plan:22', 'plan:25'])
-            for item in (23, 24):
-                self.assertNotIn(f'plan:{item}', app.rows)
-                self.assertNotIn(f'plan:{item}', app.nodes)
-            self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
-            self.assertNotIn('plan:13:reviewer', app.rows)
-            self.assertEqual(app.query_one('#work_pane').border_title, 'Work · pass partial')
-            self.assertFalse(tree.show_root)
-            self.assertIn('Recent activity', app.query_one(RecentActivity).render().plain)
-            self.state['latest_pass'] = {'state': 'complete', 'rows': []}
-            self.state['outcomes'] = []
-            publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and
-                             app.groups['Running'].label.plain == 'Running · 1' and
-                             app.session.data.get('latest_pass', {}).get('state') == 'complete')
-            self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
-            self.assertEqual(app.query_one('#work_pane').border_title, 'Work · pass complete')
-            self.assertTrue(app.query_one(RecentActivity).render().plain.startswith('Recent activity · 0 today'))
-            await pilot.press('q')
-        app.worker.thread.join(2)
-
     async def test_eligible_item_merges_agents_count_lines_and_retains_selection(self):
         description = {'available': True, 'text': 'Shared item description'}
         self.state['latest_pass']['rows'][1].update(failures=1, max_attempts=3, description=description)
@@ -1823,7 +1939,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: attention in app.nodes)
             app.select(attention)
             tree.move_cursor(app.nodes[attention])
-            await self.ready(app, pilot, lambda: app.worker.selected_row.key == attention)
+            await self.ready(app, pilot, lambda: app.pane.selected == attention)
             plans[-1]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.selected == key and attention not in app.rows and
@@ -1835,48 +1951,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
-
-    async def test_delayed_eligible_rows_follow_ready_work_and_never_show_next(self):
-        self.state['assignment'] = None
-        self.state['outcomes'] = []
-        self.state['latest_pass'] = {'state': 'complete', 'rows': [
-            {'item': 20, 'agent': 'worker', 'state': 'backoff', 'reason': 'Retry backoff'},
-            {'item': 21, 'agent': 'worker', 'state': 'waiting', 'reason': 'Runtime paused'},
-        ]}
-        publish_snapshot(self.path, self.state)
-        app = View(self.root, self.path)
-        async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: 'plan:21' in app.nodes)
-            tree = app.query_one('#work', Tree)
-            self.assertEqual([node.label.plain for node in tree.root.children],
-                             ['Running · 0', 'Eligible · 2'])
-            tree.get_node_at_line(0)
-            for item, state in ((20, 'backoff'), (21, 'waiting')):
-                node = app.nodes[f'plan:{item}']
-                line = tree.render_line(node._line - tree.scroll_offset.y).text
-                self.assertTrue(line.startswith(f'◷ #{item}'), line)
-                self.assertTrue(line.endswith(state), line)
-                self.assertNotIn('next', line)
-            self.state['latest_pass']['rows'].append(
-                {'item': 22, 'agent': 'worker', 'state': 'recover', 'reason': 'Pending outcome'})
-            publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: 'plan:22' in app.nodes)
-            self.assertEqual([node.data for node in app.groups['Eligible'].children],
-                             ['plan:22', 'plan:20', 'plan:21'])
-            tree.get_node_at_line(0)
-            node = app.nodes['plan:22']
-            line = tree.render_line(node._line - tree.scroll_offset.y).text
-            self.assertTrue(line.startswith('● #22'), line)
-            self.assertTrue(line.endswith('next'), line)
-            self.state['latest_pass']['rows'] = [
-                {'item': 20, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'},
-                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
-            ]
-            publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not app.nodes)
-            self.assertEqual(tree.root.children[0].label.plain, 'Running · 0')
-            await pilot.press('q')
-        app.worker.thread.join(2)
 
     async def test_idle_placeholder_is_one_dim_inert_line_and_running_stays_first(self):
         assignment = self.state['assignment']
@@ -1911,7 +1985,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.rows, {})
             self.assertEqual(app.nodes, {})
             self.assertIsNone(app.reading.page)
-            self.assertIsNone(app.worker.selected_row)
+            self.assertIsNone(app.pane.selected)
             self.assertIn('○ Idle · waiting for the next poll', app.query_one('#run_status', Static).render().plain)
             await pilot.press('2', '3', '1')
             self.assertEqual(transport.calls, [])
@@ -1958,6 +2032,102 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.reading.page, page)
             await pilot.press('q')
         app.worker.thread.join(2)
+
+    async def test_claiming_selection_picks_up_the_named_run_and_late_log_without_keys(self):
+        for chosen in (False, True):
+            for log_first in (False, True):
+                with self.subTest(chosen=chosen, log_first=log_first):
+                    self.log.unlink(missing_ok=True)
+                    self.state['assignment'].pop('run', None)
+                    publish_snapshot(self.path, self.state)
+                    transport = RecordingDescriptionTransport()
+                    app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                    async with app.run_test(size=(110, 32)) as pilot:
+                        await self.ready(app, pilot, lambda: app.selected == 'assignment:claiming')
+                        if chosen:
+                            app.select(app.selected)
+                        output = app.query_one(LogPane)
+                        output.focus()
+                        reading = app.reading
+                        self.assertEqual(reading.empty_message, 'No local log cached for this row.')
+                        if log_first:
+                            self.log.write_bytes(event(1, 20))
+                        self.state['assignment']['run'] = 'owned-run'
+                        publish_snapshot(self.path, self.state)
+                        await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run'
+                                         and app.reading.page is not None)
+                        if not log_first:
+                            self.assertEqual(app.reading.page.refs, ())
+                            self.assertEqual(app.reading.empty_message, 'No log output yet.')
+                            self.log.write_bytes(event(1, 20))
+                        await self.ready(app, pilot, lambda: any('event 00001' in line.text for line in output.lines))
+                        self.assertIs(app.reading, reading)
+                        self.assertEqual(app.chosen, chosen)
+                        self.assertNotIn('assignment:claiming', app.rows)
+                        self.assertEqual(app.rows[app.selected].state, 'running')
+                        self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
+                        self.assertIs(app.focused, output)
+                        self.assertTrue(app.reading.follow)
+                        with self.log.open('ab') as stream:
+                            stream.write(event(2, 20))
+                        await self.ready(app, pilot, lambda: any('event 00002' in line.text for line in output.lines))
+                        self.assertEqual(transport.calls, [])
+                        await pilot.press('q')
+                    app.worker.thread.join(2)
+                    self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_log_g_retries_missing_file_then_reattaches_and_follows_without_github(self):
+        self.log.unlink()
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        entered, release = threading.Event(), threading.Event()
+        try:
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                output = app.query_one(LogPane)
+                reader = app.worker.readers[str(self.log)]
+                await pilot.press('g')
+                await self.ready(app, pilot, lambda: app.worker.readers[str(self.log)] is not reader
+                                 and app.reading.log.error is not None)
+                self.assertEqual(app.reading.empty_message, 'No log output yet.')
+                self.assertEqual(app.reading.page.refs, ())
+                await pilot.press('f', 'u')
+                reader = app.worker.readers[str(self.log)]
+                original = app.worker.read
+
+                def delayed(request):
+                    result = original(request)
+                    if not entered.is_set():
+                        entered.set()
+                        release.wait(5)
+                    return result
+
+                with patch.object(app.worker, 'read', side_effect=delayed):
+                    await self.ready(app, pilot, entered.is_set)
+                    self.log.write_bytes(b''.join(event(i, 20) for i in range(1000)))
+                    await pilot.press('g')
+                    release.set()
+                    await self.ready(app, pilot, lambda: any('event 00999' in line.text for line in output.lines))
+                    self.assertIsNot(app.worker.readers[str(self.log)], reader)
+                    self.assertTrue(app.reading.follow)
+                    self.assertTrue(app.reading.raw)
+                    self.assertGreater(app.reading.page.start, 0)
+                    self.assertEqual(app.reading.page.end, self.log.stat().st_size)
+                    await self.settled(app, output)
+                    self.assertEqual(output.scroll_y, output.max_scroll_y)
+                    with self.log.open('ab') as stream:
+                        stream.write(event(1000, 20))
+                    await self.ready(app, pilot, lambda: any('event 01000' in line.text for line in output.lines))
+                self.assertIn('g reload', app.query_one('#status', Static).render().plain)
+                await pilot.press('?')
+                self.assertIn('g on Log', app.screen.query_one('#raw_details', Static).render().plain)
+                await pilot.press('g', 'escape')
+                self.assertEqual(transport.calls, [])
+                await pilot.press('q')
+        finally:
+            release.set()
+            app.worker.thread.join(6)
+        self.assertFalse(app.worker.thread.is_alive())
 
     async def test_selected_plan_claimed_elsewhere_leaves_work_but_keeps_item_history(self):
         app = View(self.root, self.path)
@@ -2032,10 +2202,167 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_quiet_ticks_do_not_update_static_content_even_across_seconds(self):
+        self.state['assignment'] = None
+        self.state['activity'] = {'state': 'idle'}
+        self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][1]]
+        self.state['histories']['12']['runs'][0]['result'] = 'success'
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.selected == 'plan:12')
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            # The help footer is also fixed-height; raw_details retains its own behavior.
+            await pilot.press('?')
+            widgets = [app.query_one(selector, Static) for selector in (
+                '#log_mode', '#tab_rule', '#status', '#log_state', '#item_header',
+                '#log_note', '#run_status', '#unblock_note', '#runs_text')]
+            widgets.append(app.screen.query_one('#raw_status', Static))
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                clock.now.return_value = now
+                app._static_values.clear()
+                app.last_runs = None
+                with patch.object(Static, 'update', autospec=True) as update:
+                    app.tick()
+                    self.assertEqual([call.args[0] for call in update.call_args_list],
+                                     [widgets[7], widgets[8], *widgets[:3], widgets[9], *widgets[3:7]])
+                    for call in update.call_args_list:
+                        self.assertEqual(call.kwargs['layout'], call.args[0] in widgets[7:9])
+                    update.reset_mock()
+                    for tick in range(1, 31):
+                        clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                        app.tick()
+                    update.assert_not_called()
+            await pilot.press('?', '3')
+            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                clock.now.return_value = now
+                app.tick()
+                with patch.object(Static, 'update', autospec=True) as update:
+                    for tick in range(1, 31):
+                        clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                        app.tick()
+                    update.assert_not_called()
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_countdown_and_loaded_comment_update_only_when_seconds_change(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        self.state['assignment'] = None
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=60)).isoformat()}
+        self.state['latest_pass']['rows'] = []
+        self.state['outcomes'] = []
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.session is not None)
+            comment = ActionComment(available=True, source='GitHub', observed_at=now.timestamp())
+            status, note = app.query_one('#status', Static), app.query_one('#unblock_note', Static)
+            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
+                  patch.object(app.descriptions, 'clock') as loaded_clock,
+                  patch.object(app, 'current_action', return_value=comment),
+                  patch.object(status, 'update', wraps=status.update) as status_update,
+                  patch.object(note, 'update', wraps=note.update) as note_update):
+                clock.now.return_value = now
+                loaded_clock.return_value = now.timestamp()
+                app.update_status()
+                app.update_unblock()
+                status_update.reset_mock()
+                note_update.reset_mock()
+                for tick in range(1, 20):
+                    clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                    loaded_clock.return_value = clock.now.return_value.timestamp()
+                    app.update_status()
+                    app.update_unblock()
+                self.assertEqual(status_update.call_count, 1)
+                self.assertEqual(note_update.call_count, 2)
+                self.assertFalse(status_update.call_args.kwargs['layout'])
+                self.assertTrue(note_update.call_args.kwargs['layout'])
+                self.assertIn('next poll 59s', status.render().plain)
+                self.assertIn('loaded 2s ago', note.render().plain)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_clock_is_tenths_only_on_active_tab_and_activation_renders_immediately(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            from ub_agents.view_runs import runs_view
+            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
+                  patch('ub_agents.view_ui.runs_view', wraps=runs_view) as render):
+                app.last_runs = None
+                for tick in range(20):
+                    clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                    app.update_runs()
+                self.assertEqual(render.call_count, 2)
+                # Activation must render even if no clock bucket has changed.
+                await pilot.press('3')
+                self.assertGreater(render.call_count, 2)
+                render.reset_mock()
+                app.last_runs = None
+                for tick in range(10):
+                    clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                    app.update_runs()
+                self.assertEqual(render.call_count, 10)
+                # A cached history change still renders immediately on a hidden tab.
+                await pilot.press('1')
+                app.update_runs()
+                render.reset_mock()
+                app.session.data['histories']['114']['runs'].append({'agent': 'reviewer', 'result': 'success'})
+                runs = app.query_one('#runs_text', Static)
+                with patch.object(runs, 'update', wraps=runs.update) as update:
+                    app.update_runs()
+                    render.assert_called_once()
+                    update.assert_called_once()
+                    self.assertTrue(update.call_args.kwargs['layout'])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_activation_replaces_same_shape_history_before_first_layout(self):
+        self.state['histories']['12']['runs'][0]['result'] = 'success'
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(160, 45)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                clock.now.return_value = now
+                app.select('plan:12')
+                runs = app.query_one('#runs_text', Static)
+                self.assertEqual(runs.content_size.width, 0)
+                app.session.data['histories']['12']['runs'][0]['summary'] = 'ZZZ'
+                app.update_runs()
+                # Activation happens before layout. A frozen clock prevents the
+                # next one-second bucket from masking a stale content write.
+                await pilot.press('3')
+                table = list(runs.content.renderables)[1]
+                self.assertEqual(table.columns[2]._cells[0].plain, 'reviewer · ZZZ')
+                await pilot.pause(0.5)
+                self.assertIn('reviewer · ZZZ', '\n'.join(
+                    runs.render_line(y).text for y in range(runs.size.height)))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_runs_and_log_spinners_advance_each_tenth_with_static_status_text(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
+            await pilot.press('3')
             app.worker.close()
             app.worker.thread.join(2)
             app.busy = True
@@ -2063,6 +2390,111 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def poll_keeps_cursor(self, before, after):
+        for size in ((110, 32), (80, 24)):
+            with self.subTest(size=size):
+                self.state['latest_pass'] = {'state': 'complete', 'rows': [
+                    {'item': item, 'agent': 'worker', 'state': 'ready'} for item in before]}
+                publish_snapshot(self.path, self.state)
+                with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+                    app = View(self.root, self.path)
+                    async with app.run_test(size=size) as pilot:
+                        await self.ready(app, pilot)
+                        key = 'plan:21'
+                        app.select(key)
+                        tree = app.query_one('#work', Tree)
+                        node = app.nodes[key]
+                        tree.move_cursor(node)
+                        await self.ready(app, pilot, lambda: app.pane.selected == key)
+                        app.worker.close()
+                        app.worker.thread.join(2)
+                        tick.side_effect = None
+                        await self.settled(app, tree)
+                        line = node._line
+                        reading = app.reading
+                        reading.follow, reading.raw = False, True
+                        tabs = app.query_one(TabbedContent)
+                        focus, tab = app.focused, tabs.active
+                        output = app.query_one(LogPane)
+                        anchor = output.anchor()
+                        self.state['latest_pass']['rows'] = [
+                            {'item': item, 'agent': 'worker', 'state': 'ready'} for item in after]
+                        app.session = Session(self.path, self.state)
+                        pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                        app.populate(pane)
+                        # Check before yielding to Textual, then after its refresh.
+                        for refreshed in (False, True):
+                            if refreshed:
+                                await self.settled(app, tree)
+                            self.assertIs(tree.cursor_node, app.nodes[key])
+                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.nodes[key])
+                            self.assertEqual(app.selected, key)
+                            self.assertIs(app.reading, reading)
+                            self.assertFalse(reading.follow)
+                            self.assertTrue(reading.raw)
+                            self.assertEqual(output.anchor(), anchor)
+                            self.assertIs(app.focused, focus)
+                            self.assertEqual(tabs.active, tab)
+                        self.assertIs(app.nodes[key], node)
+                        self.assertNotEqual(node._line, line)
+                        await pilot.press('q')
+                    app.worker.thread.join(2)
+                    self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_poll_adds_row_above_highlight_without_changing_right_pane(self):
+        await self.poll_keeps_cursor([20, 21, 22], [19, 20, 21, 22])
+
+    async def test_poll_removes_row_above_highlight_without_changing_right_pane(self):
+        await self.poll_keeps_cursor([20, 21, 22], [21, 22])
+
+    async def test_poll_keeps_independent_highlight_and_falls_back_when_it_disappears(self):
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': item, 'agent': 'worker', 'state': 'ready'} for item in (20, 21, 22)]}
+        publish_snapshot(self.path, self.state)
+        with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+            app = View(self.root, self.path)
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                selected = app.selected
+                app.select(selected)
+                await pilot.press('f', 'home', 'pagedown', '3')
+                app.worker.close()
+                app.worker.thread.join(2)
+                tick.side_effect = None
+                tree = app.query_one('#work', Tree)
+                output = app.query_one(LogPane)
+                await self.settled(app, output)
+                reading, page, anchor = app.reading, app.reading.page, output.anchor()
+                focus, tab = app.focused, app.query_one(TabbedContent).active
+                tree.move_cursor(app.nodes['plan:21'])
+                cases = [
+                    ([(22, 'ready'), (21, 'ready'), (20, 'ready')], 'plan:21'),
+                    ([(21, 'blocked'), (20, 'ready'), (22, 'ready')], 'plan:21:worker'),
+                    ([(20, 'ready'), (22, 'ready')], selected),
+                ]
+                for rows, highlighted in cases:
+                    with self.subTest(highlighted=highlighted):
+                        self.state['latest_pass']['rows'] = [
+                            {'item': item, 'agent': 'worker', 'state': state} for item, state in rows]
+                        app.session = Session(self.path, self.state)
+                        pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                        app.populate(pane)
+                        for refreshed in (False, True):
+                            if refreshed:
+                                await self.settled(app, tree)
+                            self.assertIs(tree.cursor_node, app.nodes[highlighted])
+                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.nodes[highlighted])
+                            self.assertEqual(app.selected, selected)
+                            self.assertIs(app.reading, reading)
+                            self.assertEqual(reading.page, page)
+                            self.assertFalse(reading.follow)
+                            self.assertEqual(output.anchor(), anchor)
+                            self.assertIs(app.focused, focus)
+                            self.assertEqual(app.query_one(TabbedContent).active, tab)
+                await pilot.press('q')
+            app.worker.thread.join(2)
+            self.assertFalse(app.worker.thread.is_alive())
+
     async def test_cursor_follows_row_when_tree_changes_before_a_render(self):
         self.state['latest_pass']['rows'].append(
             {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'})
@@ -2075,78 +2507,21 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree = app.query_one('#work', Tree)
             tree.move_cursor(app.nodes[key])
             old_node = tree.cursor_node
-            changed = [replace(row, group='Needs attention', state='parked', reason='Approval required')
-                       if row.key == key else row for row in app.rows.values()]
-            app.populate(changed)
+            reading = app.reading
+            reading.follow, reading.raw = False, True
+            changed = dict(self.state, latest_pass={'state': 'complete', 'rows': [
+                {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required'}]})
+            pane = work_pane(Session(self.path, changed), self.root, app.pane, app.selected, app.chosen)
+            app.populate(pane)
             # Assert before yielding to Textual's next layout or idle callback.
+            key = 'plan:21:worker'
             self.assertIsNot(old_node, app.nodes[key])
             self.assertIs(tree.cursor_node, app.nodes[key])
+            self.assertIs(app.reading, reading)
+            self.assertFalse(app.reading.follow)
+            self.assertTrue(app.reading.raw)
             await pilot.press('q')
         app.worker.thread.join(2)
-
-    async def test_view_follows_a_run_that_starts_after_it_opens_until_a_row_is_picked(self):
-        assignment = self.state['assignment']
-        self.state['assignment'] = None
-        self.state['latest_pass']['rows'][0]['state'] = 'ready'
-        publish_snapshot(self.path, self.state)
-        app = View(self.root, self.path)
-        async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: app.rows)
-            self.assertTrue(app.selected.startswith('plan:'))
-            self.state['assignment'] = assignment
-            publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run')
-            self.assertNotIn('plan:114', app.rows)
-            app.select('plan:12')
-            self.state['assignment'] = dict(assignment, run='next-run')
-            publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: 'assignment:next-run' in app.rows)
-            self.assertEqual(app.selected, 'plan:12')
-            await pilot.press('q')
-        app.worker.thread.join(2)
-
-    async def test_selected_removed_attention_row_keeps_details_without_list_or_count(self):
-        description = {'available': True, 'text': 'Completed candidate'}
-        self.state['latest_pass'] = {'state': 'complete', 'rows': [
-            {'item': 21, 'kind': 'pr', 'agent': 'worker', 'state': 'blocked',
-             'reason': 'Last run retry; restore a trigger', 'description': description},
-            {'item': 22, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'}]}
-        self.state['histories']['21'] = {'item': 21, 'kind': 'pr', 'runs': [
-            {'agent': 'worker', 'result': 'retry', 'summary': 'Interrupted run'}]}
-        publish_snapshot(self.path, self.state)
-        app = View(self.root, self.path)
-        async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot)
-            key = 'plan:21:worker'
-            app.select(key)
-            markdown = app.query_one('#issue_body', Markdown)
-            await self.ready(app, pilot, lambda: markdown.source == description['text'])
-            self.assertEqual(app.groups['Needs attention'].label.plain, 'Needs attention · 2')
-            outcomes = list(self.state['outcomes'])
-            self.state['latest_pass']['rows'].pop(0)
-            publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
-            self.assertEqual(app.selected, key)
-            self.assertNotIn(key, app.nodes)
-            self.assertEqual(app.groups['Needs attention'].label.plain, 'Needs attention · 1')
-            self.assertTrue(app.rows[key].hidden)
-            self.assertFalse(app.unblock_visible)
-            self.assertEqual(markdown.source, description['text'])
-            await pilot.press('3')
-            stream = io.StringIO()
-            Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
-            self.assertIn('Interrupted run', stream.getvalue())
-            self.assertEqual(app.session.data['outcomes'], outcomes)
-            self.assertFalse(any(row.item == 21 for row in app.query_one(RecentActivity).rows))
-            self.state['latest_pass']['rows'] = []
-            publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: 'Needs attention' not in app.groups)
-            self.assertEqual(app.selected, key)
-            app.select('assignment:owned-run')
-            await self.ready(app, pilot, lambda: key not in app.rows)
-            await pilot.press('q')
-        app.worker.thread.join(2)
-        self.assertFalse(app.worker.thread.is_alive())
 
     async def test_selected_plan_survives_section_order_change_and_disappearance(self):
         description = {'available': True, 'text': '# Planned work\n\n**Cached body**'}
@@ -2928,7 +3303,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(tree.virtual_size.height, height)
                     # Repeated snapshot refreshes rebuild from logical nodes, not prior spacers.
                     for _ in range(2):
-                        app.populate(list(app.rows.values()))
+                        app.populate(app.pane)
                         await pilot.pause()
                         tree.get_node_at_line(0)
                         self.assertEqual(tree.virtual_size.height, height)
@@ -2973,6 +3348,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             # Building the rows queues scrollbar layout; wait for that refresh
             # before checking geometry, including under the parallel suite.
             await self.settled(app, tree)
+            self.assertTrue(tree.show_vertical_scrollbar)
+            self.assertEqual(tree.styles.overflow_x, 'hidden')
             # A busy runner can need more than one layout pass to drop the scrollbar.
             await self.ready(app, pilot, lambda: not tree.show_horizontal_scrollbar)
             self.assertFalse(tree.show_horizontal_scrollbar)
@@ -3026,6 +3403,220 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_populate_identical_result_leaves_work_and_recent_untouched(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one(Tree)
+            await self.settled(app, tree)
+            work, recent = app.query_one('#work_pane'), app.query_one(RecentActivity)
+            lines = tree._tree_lines_cached
+            updates = {key: node._updates for key, node in app.nodes.items()}
+            with (patch.object(tree, 'refresh', wraps=tree.refresh) as refresh,
+                  patch.object(tree, '_build', wraps=tree._build) as build,
+                  patch.object(tree, '_invalidate', wraps=tree._invalidate) as invalidate,
+                  patch.object(tree, '_clear_line_cache', wraps=tree._clear_line_cache) as clear,
+                  patch.object(tree, 'call_later', wraps=tree.call_later) as later,
+                  patch.object(work, 'refresh', wraps=work.refresh) as work_refresh,
+                  patch.object(recent, 'refresh', wraps=recent.refresh) as recent_refresh):
+                for _ in range(10):
+                    # Each worker result has fresh objects, even if its data is identical.
+                    app.session = Session(self.path, json.loads(json.dumps(app.session.data)))
+                    pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                    app.populate(pane)
+                for call in (refresh, build, invalidate, clear, later, work_refresh, recent_refresh):
+                    call.assert_not_called()
+                self.assertIs(tree._tree_lines_cached, lines)
+                self.assertEqual({key: node._updates for key, node in app.nodes.items()}, updates)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_populate_repaints_changed_row_content_and_next_without_tick(self):
+        now = datetime.now(timezone.utc)
+        self.state['assignment']['attempt'] = 1
+        self.state['latest_pass']['rows'].extend([
+            {'item': 20, 'agent': 'worker', 'state': 'ready', 'title': 'Work', 'priority': 'low'},
+            {'item': 21, 'agent': 'worker', 'state': 'blocked', 'attention_reason': 'Old reason',
+             'waiting_since': (now - timedelta(minutes=5)).isoformat()},
+        ])
+        publish_snapshot(self.path, self.state)
+        with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+            app = View(self.root, self.path)
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                app.worker.close()
+                app.worker.thread.join(2)
+                tick.side_effect = None  # Only populate may request the following repaints.
+                tree = app.query_one(Tree)
+                await self.settled(app, tree)
+                cases = [
+                    ('assignment:owned-run', self.state['assignment'], {'title': 'New title'}, 0, 'New title'),
+                    ('assignment:owned-run', self.state['assignment'], {'attempt': 2}, 1, 'attempt 2'),
+                    ('plan:20', self.state['latest_pass']['rows'][-2], {'priority': 'urgent'}, 1, 'urgent'),
+                    ('plan:20', self.state['latest_pass']['rows'][-2],
+                     {'failures': 1, 'max_attempts': 3}, 1, '1/3 failures'),
+                    ('plan:21:worker', self.state['latest_pass']['rows'][-1],
+                     {'attention_reason': 'New reason'}, 1, 'New reason'),
+                    ('plan:21:worker', self.state['latest_pass']['rows'][-1],
+                     {'waiting_since': (now - timedelta(minutes=10)).isoformat()}, 0, '10m'),
+                ]
+                for key, data, changes, offset, expected in cases:
+                    with self.subTest(changes=changes):
+                        node = app.nodes[key]
+                        data.update(changes)
+                        app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                        pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                        with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
+                            app.populate(pane)
+                            await self.settled(app, tree)
+                            self.assertIs(app.nodes[key], node)
+                            self.assertEqual([call.args[0] for call in refresh.call_args_list], [node])
+                        self.assertIn(expected, tree.render_line(node._line + offset - tree.scroll_offset.y).text)
+                # A changed diagnostic that is absent from work_lines stays inert.
+                self.state['assignment']['process_reason'] = 'Another supervisor observation'
+                app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
+                    app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                    await self.settled(app, tree)
+                    refresh.assert_not_called()
+                node = app.nodes['plan:20']
+                old_row = app.rows['plan:20']
+                self.state['latest_pass']['rows'] = [
+                    row for row in self.state['latest_pass']['rows'] if row['item'] != 12]
+                app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
+                    app.populate(pane)
+                    await self.settled(app, tree)
+                    self.assertIs(app.nodes['plan:20'], node)
+                    self.assertEqual(app.rows['plan:20'], old_row)
+                    self.assertIn(node, [call.args[0] for call in refresh.call_args_list])
+                self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('next'))
+                self.state['activity'] = {'state': 'stopping'}
+                app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                await self.settled(app, tree)
+                self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('held'))
+                own = app.nodes['assignment:owned-run']
+                self.assertTrue(tree.render_line(own._line - tree.scroll_offset.y).text.endswith('stopping'))
+                self.assertIn('finishing run', tree.render_line(own._line + 1 - tree.scroll_offset.y).text)
+                await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_populate_recent_display_rows_and_today_count_without_work_repaint(self):
+        with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+            app = View(self.root, self.path)
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                app.worker.close()
+                app.worker.thread.join(2)
+                tick.side_effect = None
+                tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
+                await self.settled(app, tree)
+                outcome = self.state['outcomes'][0]
+                cases = [({'title': 'New outcome'}, 'New outcome'),
+                         ({'summary': 'New summary'}, 'New summary'),
+                         ({'result': 'blocked'}, 'blocked'),
+                         ({'handoff': 42}, 'opened ⌥42'),
+                         ({'time': datetime.now(timezone.utc).isoformat()}, '1 today')]
+                with patch.object(tree, 'refresh', wraps=tree.refresh) as work_refresh:
+                    for changes, expected in cases:
+                        with self.subTest(changes=changes):
+                            outcome.update(changes)
+                            app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                            with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
+                                app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                                refresh.assert_called_once_with()
+                                await self.settled(app, recent)
+                            self.assertIn(expected, recent.render().plain)
+                    # Count changes independently of the bounded recent rows.
+                    pane = app.pane
+                    app.session.data['outcomes'].append(dict(outcome, run='another-run'))
+                    with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
+                        app.populate(pane)
+                        refresh.assert_called_once_with()
+                        await self.settled(app, recent)
+                    self.assertIn('2 today', recent.render().plain)
+                    work_refresh.assert_not_called()
+                await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_tick_refreshes_only_spinner_nodes_between_whole_tree_seconds(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            tree = app.query_one('#work', Tree)
+            own = app.nodes['assignment:owned-run']
+            app._tree_second = None
+            with (patch.object(tree, '_refresh_line', wraps=tree._refresh_line) as line_refresh,
+                  patch.object(tree, 'refresh', wraps=tree.refresh) as refresh,
+                  patch('ub_agents.view_ui.time.monotonic') as clock):
+                for tick in range(11):
+                    clock.return_value = 1000 + tick / 10
+                    app.tick()
+                self.assertEqual(line_refresh.call_count, 18)
+                self.assertEqual([call.args[0] for call in line_refresh.call_args_list],
+                                 [own._line, own._line + 1] * 9)
+                full_refreshes = [call for call in refresh.call_args_list if not call.args]
+                self.assertEqual(len(full_refreshes), 2)
+                regions = [call.args[0] for call in refresh.call_args_list if call.args]
+                self.assertEqual(len(regions), 18)  # Both lines of the own-run node.
+                self.assertEqual({region.y for region in regions},
+                                 {own._line - tree.scroll_offset.y, own._line + 1 - tree.scroll_offset.y})
+                self.assertTrue(all(not call.kwargs.get('layout') for call in refresh.call_args_list))
+                app.session.data['activity']['state'] = 'stopping'
+                clock.return_value = 1001.1
+                refresh.reset_mock()
+                line_refresh.reset_mock()
+                app.tick()
+                refresh.assert_not_called()
+                line_refresh.assert_not_called()
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_whole_tree_tick_updates_attention_waiting_time_without_a_snapshot(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        self.state['assignment'] = None
+        self.state['activity'] = {'state': 'idle'}
+        self.state['latest_pass']['rows'] = [
+            {'item': 20, 'agent': 'worker', 'state': 'blocked',
+             'waiting_since': (now - timedelta(seconds=59)).isoformat()}]
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: 'plan:20:worker' in app.nodes)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            tree = app.query_one('#work', Tree)
+            node = app.nodes['plan:20:worker']
+            nodes = tuple(app.nodes.items())
+            def displayed():
+                strips = app.screen._compositor.render_strips()
+                y = tree.region.y + node._line - tree.scroll_offset.y
+                return strips[y].crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
+            # Keep the real Textual clock running while controlling only synchronous ticks.
+            with patch.object(app.descriptions, 'clock', return_value=now.timestamp()) as waiting_clock:
+                with patch('ub_agents.view_ui.time.monotonic', return_value=1000):
+                    app.tick()
+                await pilot.pause(0.1)
+                self.assertTrue(displayed().endswith('0m'), displayed())
+                waiting_clock.return_value = (now + timedelta(seconds=1)).timestamp()
+                with patch('ub_agents.view_ui.time.monotonic', return_value=1001):
+                    app.tick()
+                await pilot.pause(0.1)
+                self.assertTrue(displayed().endswith('1m'), displayed())
+                self.assertEqual(tuple(app.nodes.items()), nodes)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_assignment_spinner_and_timer_refresh_without_rebuilding_or_moving_rows(self):
         self.state['latest_pass']['rows'].extend(
             {'item': item, 'agent': 'worker', 'state': 'ready'} for item in range(20, 40))
@@ -3074,7 +3665,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 static = (displayed(other), displayed(other, detail=True))
                 self.assertTrue(first.startswith('⠋'))
                 clock.now.return_value = now + timedelta(milliseconds=100)
-                # Only the mounted refresh timer drives the next frame.
+                # Only View.tick drives the next frame; WorkTree has no timer.
                 await pilot.pause(0.15)
                 self.assertEqual(displayed(), '⠙' + first[1:])
                 self.assertEqual(displayed(detail=True), detail)
@@ -3097,6 +3688,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause(0.1)
                 self.assertTrue(displayed().endswith('04:13'), displayed())
                 app.session.data['activity']['state'] = 'stopping'
+                tree.refresh()  # Stand in for the new snapshot's populate.
                 await pilot.pause(0.15)
                 stopped = displayed()
                 self.assertTrue(stopped.startswith('■'))
@@ -3433,6 +4025,104 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.screen.__class__.__name__, 'RawAccess')
             await pilot.press('q')
         app.worker.thread.join(2)
+
+    async def test_row_picked_during_read_is_retained_from_the_last_drawn_pane(self):
+        app = View(self.root, self.path)
+        entered, release = threading.Event(), threading.Event()
+        try:
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                output = app.query_one(LogPane)
+                output.focus()
+                key = 'plan:12'
+                original = app.worker.read
+
+                def slow_read(request):
+                    entered.set()
+                    release.wait(5)
+                    return original(request)
+
+                with patch.object(app.worker, 'read', side_effect=slow_read):
+                    await self.ready(app, pilot, entered.is_set)
+                    self.assertIn(key, [row.key for row in app.pane.rows])
+                    app.select(key)
+                    self.state['latest_pass']['rows'] = []
+                    publish_snapshot(self.path, self.state)
+                    release.set()
+                    await self.ready(app, pilot, lambda: key in app.rows and
+                                     app.rows[key].state == 'earlier observation')
+                    self.assertEqual(app.selected, key)
+                    self.assertEqual(app.pane.selected, key)
+                    self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 1')
+                    self.assertIs(app.focused, output)
+                    self.assertIsNone(app.reading.page)
+                await pilot.press('q')
+        finally:
+            release.set()
+            app.worker.thread.join(6)
+        self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_picking_the_selected_run_supersedes_an_in_flight_follow(self):
+        app = View(self.root, self.path)
+        entered, release = threading.Event(), threading.Event()
+        try:
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                key = app.selected
+                original = app.worker.read
+
+                def slow_read(request):
+                    entered.set()
+                    release.wait(5)
+                    return original(request)
+
+                with patch.object(app.worker, 'read', side_effect=slow_read):
+                    await self.ready(app, pilot, entered.is_set)
+                    self.assertEqual(app.selected, key)
+                    app.select(key)
+                    self.state['assignment']['run'] = 'next-run'
+                    publish_snapshot(self.path, self.state)
+                    release.set()
+                    await self.ready(app, pilot, lambda: 'assignment:next-run' in app.nodes)
+                    self.assertEqual(app.selected, key)
+                    self.assertEqual(app.pane.selected, key)
+                    self.assertEqual(app.rows[key].state, 'earlier observation')
+                    self.assertNotIn(key, app.nodes)
+                await pilot.press('q')
+        finally:
+            release.set()
+            app.worker.thread.join(6)
+        self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_picking_selected_run_during_history_read_keeps_the_requested_page(self):
+        app = View(self.root, self.path)
+        entered, release = threading.Event(), threading.Event()
+        try:
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                selected, old_start = app.selected, app.reading.page.start
+                original = app.worker.read
+
+                def slow_history(request):
+                    result = original(request)
+                    if request.older_end is not None:
+                        entered.set()
+                        release.wait(5)
+                    return result
+
+                with patch.object(app.worker, 'read', side_effect=slow_history):
+                    await pilot.press('h')
+                    await self.ready(app, pilot, entered.is_set)
+                    app.select(selected)
+                    release.set()
+                    await self.ready(app, pilot, lambda: app.reading.page.start < old_start)
+                    self.assertEqual(app.selected, selected)
+                    self.assertFalse(app.reading.follow)
+                await pilot.press('q')
+        finally:
+            release.set()
+            app.worker.thread.join(6)
+        self.assertFalse(app.worker.thread.is_alive())
 
     async def test_slow_reads_do_not_block_keys_and_focus_and_snapshot_replacement_stay_stable(self):
         app = View(self.root, self.path)

@@ -152,13 +152,15 @@ class Workspace:
         try:
             git(self.root, "worktree", "remove", "--force", str(self.private))
         except AgentError as exc:
-            raise CleanupError(f"Cannot remove owned private worktree; preserve artifacts: {exc}") from exc
+            raise CleanupError(f"Cannot remove owned private worktree {self.private}: {exc}",
+                               next_step="resolve the worktree removal error") from exc
         self.created = False
         # Retain branches: an interrupted commit can be recovered by a human.
 
     def check_private_boundary(self):
         if self.private.resolve() != self.private:
-            raise CleanupError("Private worktree path redirects outside its owned directory; preserve artifacts")
+            raise CleanupError(f"Private worktree path {self.private} redirects outside its owned directory",
+                               next_step="restore the owned worktree path without redirects")
 
 
 def group_members(group):
@@ -166,9 +168,11 @@ def group_members(group):
         result = subprocess.run(["ps", "-axo", "pid=,pgid=,stat="], text=True,
                                 capture_output=True, timeout=5, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise CleanupError(f"Cannot inspect owned process group: {exc}") from exc
+        raise CleanupError(f"Cannot inspect owned process group {group}: {exc}",
+                           next_step="make ps usable") from exc
     if result.returncode:
-        raise CleanupError(f"Cannot inspect owned process group: {result.stderr.strip()}")
+        raise CleanupError(f"Cannot inspect owned process group {group}: {result.stderr.strip()}",
+                           next_step="make ps usable")
     return [pid for pid, pgid, state in parse_process_table(result.stdout)
             if pgid == group and not state.startswith("Z")]
 
@@ -179,11 +183,11 @@ def parse_process_table(output):
     for line in output.splitlines():
         fields = line.split()
         if len(fields) != 3:
-            raise CleanupError("Unreadable process table")
+            raise CleanupError("Unreadable process table", next_step="make ps output readable")
         try:
             rows.append((int(fields[0]), int(fields[1]), fields[2]))
         except ValueError as exc:
-            raise CleanupError("Unreadable process ids") from exc
+            raise CleanupError("Unreadable process ids", next_step="make ps output readable") from exc
     return rows
 
 
@@ -215,7 +219,8 @@ def _stop_group(process, grace):
         except ProcessLookupError:
             pass
         except PermissionError as exc:
-            raise CleanupError(f"Cannot signal owned process group {process.pid}") from exc
+            raise CleanupError(f"Cannot signal owned process group {process.pid}",
+                               next_step=f"confirm process group {process.pid} has exited") from exc
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
             process.poll()
@@ -223,7 +228,8 @@ def _stop_group(process, grace):
                 process.wait(timeout=5)
                 return
             time.sleep(0.05)
-    raise CleanupError(f"Process group {process.pid} survived termination; preserve artifacts")
+    raise CleanupError(f"Process group {process.pid} survived termination",
+                       next_step=f"confirm process group {process.pid} has exited")
 
 
 def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expires=None,

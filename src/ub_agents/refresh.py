@@ -4,7 +4,7 @@ from collections import deque
 from pathlib import Path
 
 from .config import instruction_text
-from .errors import AgentError, GitHubError
+from .errors import AgentError, CheckoutRefreshError, GitHubError
 from .execution import git
 
 
@@ -123,21 +123,25 @@ def validate_incoming(root, head, path, where, links=0):
 def refresh_checkout(config, github, agent=None, *, on_fetch=None):
     root = config.root
     where = f"{agent.name} instructions" if agent else None
+    next_step = "repair the checkout's Git metadata and launch again"
     try:
         default = github.default_branch()
         branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
         if branch == "HEAD":
-            raise AgentError(f"checkout has detached HEAD; switch to the default branch {default}")
+            next_step = f"switch to the default branch {default} and launch again"
+            raise AgentError("checkout has detached HEAD")
         if branch != default:
-            raise AgentError(f"checkout is on {branch}; switch to the default branch {default}")
+            next_step = f"switch to the default branch {default} and launch again"
+            raise AgentError(f"checkout is on {branch}")
         if git(root, "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"):
-            raise AgentError("checkout is dirty (staged, modified or untracked files); "
-                             "commit or remove those changes before restarting")
+            next_step = "commit or remove local changes and launch again"
+            raise AgentError("checkout has local changes (staged, modified or untracked files)")
         remote = f"refs/remotes/origin/{default}"
         try:
             git(root, "fetch", "origin", f"+refs/heads/{default}:{remote}")
         except AgentError as exc:
-            raise AgentError(f"fetch of origin/{default} failed; fix origin access and retry: {exc}") from exc
+            next_step = "fix origin access and launch again"
+            raise AgentError(f"fetch of origin/{default} failed: {exc}") from exc
         if on_fetch is None:
             head = git(root, "rev-parse", remote)
         else:
@@ -147,32 +151,35 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
                                     f"HEAD...{head}").split())
         if ahead:
             condition = "checkout has diverged" if behind else "checkout has local commits not on origin"
-            raise AgentError(f"{condition}; reconcile {default} with origin/{default} before restarting")
+            next_step = f"reconcile {default} with origin/{default} and launch again"
+            raise AgentError(condition)
         if behind:
             # Check filesystem readability before a merge too. Git's object
             # database alone cannot diagnose permissions on the control checkout.
             if agent is not None:
+                next_step = "restore readable, valid instruction files and launch again"
                 instruction_text(root, agent.instructions, where)
                 validate_incoming(root, head, agent.instructions, where)
                 instruction_text(root, config.shared_instructions, "shared-instructions")
                 validate_incoming(root, head, config.shared_instructions, "shared-instructions")
+            next_step = "resolve the checkout's merge error and launch again"
             try:
                 # Never inherit autostash or execute checkout-mutating merge hooks.
                 git(root, "-c", "merge.autostash=false", "-c", "core.hooksPath=/dev/null",
                     "merge", "--ff-only", "--no-edit", "--no-stat", "--no-overwrite-ignore", head)
             except AgentError as exc:
-                raise AgentError(f"fast-forward to origin/{default} failed; fix the checkout "
-                                 f"before restarting: {exc}") from exc
+                raise AgentError(f"fast-forward to origin/{default} failed: {exc}") from exc
         if agent is not None:
+            next_step = "restore readable, valid instruction files and launch again"
             instruction_text(root, config.shared_instructions, "shared-instructions")
             return instruction_text(root, agent.instructions, where)
     except GitHubError:
         # This pre-claim read is discovery: preserve its request and retry metadata.
         raise
     except (AgentError, OSError, UnicodeError) as exc:
-        raise AgentError(f"Control checkout refresh stopped at {root}: {exc}. "
-                         "Fix the operator checkout or instruction file and restart ub-agents launch; "
-                         "no assignment attempt was charged") from exc
+        # Git may append several paragraphs of advice; keep the actual error.
+        detail = " ".join(str(exc).splitlines()[0].split())
+        raise CheckoutRefreshError(f"{root}: {detail}; {next_step}") from exc
 
 
 def refresh_instructions(config, agent, github, *, on_fetch=None):

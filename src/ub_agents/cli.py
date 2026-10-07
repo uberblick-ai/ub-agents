@@ -2,6 +2,7 @@
 
 import argparse
 from contextlib import ExitStack
+from dataclasses import replace
 from importlib.resources import files
 import json
 import os
@@ -16,7 +17,7 @@ from . import __version__
 from .config import DEFAULT_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
 from .denials import denial_count
-from .errors import AgentError
+from .errors import AgentError, CheckoutRefreshError, CleanupError, GitHubError, InstructionError
 from .execution import repository_checks
 from .github import GitHub
 from .help import HelpParser
@@ -38,7 +39,7 @@ def parser():
     result.add_argument("--config", metavar="PATH", help="project configuration (default: ub-agents.yaml)")
     next(action for action in result._actions if action.dest == "help").help = (
         "show this help; after a command, that command's help")
-    commands = result.add_subparsers(dest="command")
+    commands = result.add_subparsers(dest="command", prog="ub-agents")
     init = commands.add_parser("init", help="set up this repository: starter configuration, agent instructions and workflow labels",
                                description="Create starter configuration and agent instructions for a project. "
                                "Use when adopting ub-agents; existing starter files are never overwritten.",
@@ -72,8 +73,10 @@ def parser():
     status = commands.add_parser("status", help="matching work, owners, attempts and why items wait",
                                  overview_options=("--json",),
                                  description="Read matching assignments, leases, attempts and reported outcomes. "
+                                 "With a number, explain only that issue or PR, even without a matching trigger. "
                                  "Use to inspect queue progress or why an item is waiting without changing it.",
-                                 examples=("ub-agents status", "ub-agents status --json"))
+                                 examples=("ub-agents status", "ub-agents status 143", "ub-agents status 143 --json"))
+    status.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="inspect only this item (optional)")
     status.add_argument("--json", action="store_true", help="emit structured status")
     cleanup = commands.add_parser("cleanup", help="preview or remove stale worktrees and branches",
                                   overview_options=("--apply",),
@@ -270,12 +273,14 @@ def report_run(args):
     print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
 
 
-def status_rows(loop, now=None):
+def status_rows(loop, now=None, *, plans=None):
     now = timestamp() if now is None else now
     host = socket.gethostname()
     processes = {}
     rows = []
-    for plan in loop.plans():
+    if plans is None:
+        plans = loop.plans()
+    for plan in plans:
         history = plan.history
         active = live_leases(history, now)
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
@@ -431,9 +436,23 @@ def run(args):
                 default_config=args.default_config, interrupt_event=interrupt)
     if args.command == "status":
         now = timestamp()
-        rows = status_rows(loop, now)
+        explanation = None
+        if args.number is None:
+            rows = status_rows(loop, now)
+        else:
+            item, plans = loop.item_plans(args.number)
+            scoped = (replace(plan, priority=config.queue.priority.effective(item.labels),
+                              milestone=item.milestone) for plan in plans)
+            rows = status_rows(loop, now, plans=scoped)
+            if not rows:
+                explanation = loop.item_explanation(item)
         if args.json:
-            print(json.dumps({"assignments": rows}, indent=2))
+            result = {"assignments": rows}
+            if explanation is not None:
+                result["explanation"] = explanation
+            print(json.dumps(result, indent=2))
+        elif explanation is not None:
+            print(f"#{args.number}: {explanation}")
         elif not rows:
             print("No configured triggers match open GitHub work")
         else:
@@ -520,8 +539,35 @@ def run(args):
             signal.signal(sig, handler)
 
 
+def launch_error_message(exc, root):
+    # Request reads and continuous polling can wrap the original failure.
+    # A failed fallback signal can also mask CleanupError with an OSError.
+    errors = []
+    error = exc
+    while error is not None and error not in errors:
+        errors.append(error)
+        error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
+    refresh = next((error for error in errors if isinstance(error, CheckoutRefreshError)), None)
+    cleanup = next((error for error in errors if isinstance(error, CleanupError)), None)
+    if refresh is not None:
+        detail = str(refresh)
+    elif cleanup is not None:
+        detail = f"{cleanup}; {cleanup.next_step}, then launch again"
+    elif any(isinstance(error, GitHubError) for error in errors):
+        detail = str(exc)
+        advice = "Fix the cause and restart ub-agents launch."
+        if not detail.endswith(advice):
+            detail = f"{detail}; {advice}"
+    elif any(isinstance(error, InstructionError) for error in errors):
+        detail = f"{root}: {exc}; restore readable, valid instruction files and launch again"
+    else:
+        return str(exc)
+    return " ".join(detail.split())
+
+
 def main(argv=None):
     with ExitStack() as stack:
+        args = None
         try:
             command_line = parser()
             args = command_line.parse_args(argv)
@@ -546,6 +592,8 @@ def main(argv=None):
             args.default_config = args.config is None
             if args.command == "read" and args.number < 1:
                 command_parser.error("read requires a positive item number")
+            if args.command == "status" and args.number is not None and args.number < 1:
+                command_parser.error("status requires a positive item number")
             if args.command == "launch":
                 if args.agent is not None and args.number is None:
                     command_parser.error("launch --agent requires an item number")
@@ -566,5 +614,8 @@ def main(argv=None):
             print("Stopped; supervised execution terminated", file=sys.stderr)
             return 130
         except (AgentError, OSError) as exc:
-            print(f"ub-agents: {exc}", file=sys.stderr)
+            detail = str(exc)
+            if args is not None and args.command == "launch" and isinstance(args.config, Path):
+                detail = launch_error_message(exc, args.config.parent)
+            print(f"ub-agents: {detail}", file=sys.stderr)
             return 1

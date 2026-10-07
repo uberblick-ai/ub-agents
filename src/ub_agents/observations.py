@@ -16,6 +16,7 @@ from .github import closing_issues
 from .eligibility import AgentMatches
 from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from .run_config import run_directory
+from .view_data import omitted_plan, plan_group
 from . import __version__
 
 VERSION = 1
@@ -225,13 +226,16 @@ class Observations:
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
-            # Advisory text can always be loaded explicitly; preserve work and
-            # histories before it. This only changes this publication's copy.
-            for key in tuple(state["action_needed"]):
-                if excess <= 0:
-                    break
-                excess -= self.byte_size(state["action_needed"].pop(key)) + len(key) + 4
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+            assignment = state["assignment"] or {}
+            attention = {str(row["item"]) for row in rows
+                         if not omitted_plan(row) and plan_group(row) == "Needs attention"
+                         and (row.get("item"), row.get("agent")) !=
+                         (assignment.get("item"), assignment.get("agent"))}
+            # Preserve notices for visible attention rows before previews and
+            # surplus history. Only this publication's copy loses text.
+            notices = state["action_needed"]
+            excess = self.omit_notices(notices, (key for key in notices if key not in attention), excess)
             # Prefer a shorter, still-available description over losing history.
             # Work on this publication's copy, never the retained launcher state.
             previews = [row["description"] for row in rows if row.get("description", {}).get("available")
@@ -259,6 +263,7 @@ class Observations:
                 row = history["runs"].pop(0)
                 excess -= self.byte_size(row) + 1
                 history["omitted_runs"] += 1
+            excess = self.omit_notices(notices, (key for key in notices if key in attention), excess)
             # If even one run per item cannot fit, omit later plans and older
             # session outcomes together with histories no longer referenced.
             for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
@@ -274,6 +279,17 @@ class Observations:
     @staticmethod
     def byte_size(value):
         return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+    @classmethod
+    def omit_notices(cls, notices, keys, excess):
+        for key in keys:
+            if excess <= 0:
+                break
+            if "text" in notices[key]:
+                marker = {"omitted": True}
+                excess -= cls.byte_size(notices[key]) - cls.byte_size(marker)
+                notices[key] = marker
+        return excess
 
     def warning(self, detail):
         self.publisher.warning(detail)

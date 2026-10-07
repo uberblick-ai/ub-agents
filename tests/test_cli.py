@@ -9,7 +9,7 @@ from ub_agents.cli import main
 
 
 class ArgumentTests(unittest.TestCase):
-    commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",),
+    commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",), ("status", "42"),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"),
                 ("approve", "42"), ("read", "42"))
 
@@ -79,6 +79,23 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual([line.split(" ", 1)[1] for line in log.read_text().splitlines()],
                          ["Launching", "Launching"])
 
+    def test_config_resolution_failure_reports_error_without_running(self):
+        commands = (("launch", "--no-ui"), ("launch", "--once", "--no-ui"),
+                    ("launch", "42", "--no-ui"), ("status",), ("cleanup",), ("doctor",))
+        for command in commands:
+            for argv in ([*command], ["--config", str(self.path), *command],
+                         [*command, "--config", str(self.path)]):
+                failure = FileNotFoundError(2, "No such file or directory")
+                with self.subTest(argv=argv), \
+                        patch("ub_agents.cli.resolve_config_path", side_effect=failure):
+                    self.stderr.seek(0)
+                    self.stderr.truncate()
+                    self.assertEqual(main(argv), 1)
+                    self.assertEqual(self.stderr.getvalue(), f"ub-agents: {failure}\n")
+        self.run.assert_not_called()
+        self.load.assert_not_called()
+        self.assertFalse((self.path.parent / ".ub-agents").exists())
+
     def test_positional_number_and_hidden_alias(self):
         self.run.return_value = 0
         for name in ("approve", "retry"):
@@ -115,6 +132,17 @@ class ArgumentTests(unittest.TestCase):
         for number in ("0", "-1"):
             self.usage_error(["launch", number], "launch requires a positive item number")
 
+    def test_status_item_is_optional_and_requires_a_positive_number(self):
+        self.run.return_value = 0
+        for number, expected in (([], None), (["42"], 42)):
+            with self.subTest(number=number):
+                self.assertEqual(main(["status", *number, "--config", str(self.path)]), 0)
+                self.assertEqual(self.run.call_args.args[0].number, expected)
+        for number in ("0", "-1"):
+            self.usage_error(["status", number], "status requires a positive item number")
+        self.usage_error(["status", "invalid"], "invalid int value")
+        self.usage_error(["status", "42", "43"], "unrecognized arguments: 43")
+
     def test_recover_remains_removed(self):
         with self.assertRaises(SystemExit) as caught:
             main(["--help"])
@@ -131,12 +159,13 @@ class ArgumentTests(unittest.TestCase):
 
 
 class MissingConfigTests(unittest.TestCase):
-    commands = (("check",), ("status",), ("launch",), ("launch", "--once"),
+    commands = (("check",), ("status",), ("status", "42"), ("launch",), ("launch", "--once"),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"), ("approve", "42"), ("read", "42"))
 
     def test_missing_config_names_init_and_creates_nothing(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            # Resolve like config paths are: macOS temporary paths live under /private/var.
+            root = Path(directory).resolve()
             selected = root / "custom.yaml"
             for command in self.commands:
                 for selection in ([], ["--config", str(selected)]):

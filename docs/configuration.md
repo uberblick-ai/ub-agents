@@ -64,7 +64,7 @@ configured value or that it comes from visibility, without contacting GitHub.
 ISO 8601 timestamp; terminal text stays unchanged. Each line is flushed immediately
 to both destinations, including the final stop or error message. The log is never
 truncated or rotated. Use `tail -f .ub-agents/launch.log` to follow the loop from
-another terminal. See [Stopping and restarting](../README.md#stopping-and-restarting)
+another terminal. See [Stopping and restarting](operations.md#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
 Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
@@ -128,7 +128,7 @@ immediately; after a pass that ran or recovered work, the launcher waits for the
 part of that interval still remaining since the latest pass started. If that
 pass already took the interval, the
 next pass starts immediately. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 waits. Failed-poll retry delays below are independent of this interval, and
 `launch --once` never waits after its pass.
 
@@ -170,7 +170,7 @@ When the launcher becomes idle, and again when the set of low-quota resources
 changes, it prints `No eligible work; next poll in <n> min (<k> requests last poll)`.
 The request count measures REST quota usage, excluding HTTP 304 confirmations.
 It does not repeat the message on every empty pass. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 this idle wait.
 
 Claiming discovery evaluates candidates in rank order and stops once it claims
@@ -258,7 +258,7 @@ Each skipped poll for another transient error prints its error and next delay,
 makes no GitHub writes and does not report an empty queue. Discovery includes
 initial authentication and fresh reads immediately before a claim, including the
 default-branch read for instruction refresh. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 discovery waits. `launch --once` and `status` still fail on their first discovery
 error.
 
@@ -267,7 +267,7 @@ reads wait and retry under the active lease, even when the reset is beyond its
 current expiry. Renewal continues during the wait. If the last confirmed expiry
 actually passes, the launcher takes the lost-ownership path and leaves expiry recovery
 to finish durable completion. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 owned-run waits. Rate-limited writes retain their existing handling and are not
 replayed by this retry mechanism.
 
@@ -565,7 +565,7 @@ An invalid reloaded configuration stops with a nonzero exit and the same error a
 `ub-agents check`, without charging an assignment attempt.
 
 The launcher does not reload code. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signal handling
+[Stopping and restarting](operations.md#stopping-and-restarting) for signal handling
 and the upgrade recipe.
 See [execution boundaries](coordination.md#execution-boundaries) for the full rules.
 
@@ -726,6 +726,8 @@ CLI and its UTC end time, for example:
 The line is also written to `.ub-agents/launch.log`.
 
 `status --json` returns an object with `assignments` (the assignment rows).
+With `status NUMBER --json`, it contains only that item's rows. If no rows apply,
+it also has an `explanation` string containing the plain output's text after `#NUMBER: `.
 
 ### Daily runtime maintenance
 
@@ -1011,7 +1013,8 @@ commands:
   doctor [--json]        check the machine, GitHub access, labels and agent
                          runtimes
   launch [NUMBER]        run the queue in the foreground, or handle one item
-  status [--json]        matching work, owners, attempts and why items wait
+  status [NUMBER] [--json]
+                         matching work, owners, attempts and why items wait
   cleanup [--apply]      preview or remove stale worktrees and branches
   retry NUMBER           let stopped work run again, with a recorded reason
   approve NUMBER         record approval of an issue's or PR's current input
@@ -1056,7 +1059,7 @@ access, and create no files. Square brackets mean optional: `launch [NUMBER]` ac
 an optional item number, while `retry NUMBER` and `approve NUMBER` require one.
 `retry` also requires `--reason REASON`, as shown in its command help.
 
-`ub-agents -v` and `ub-agents --version` print `ub-agents 0.1.14` and exit 0.
+`ub-agents -v` and `ub-agents --version` print `ub-agents 0.1.15` and exit 0.
 An unknown command, including `ub-agents help NAME`, prints
 `ub-agents: unknown command "NAME"`, a blank line and the overview on stderr, then
 exits 2. Other usage errors exit 2 and print the command's usage line and error on
@@ -1150,7 +1153,16 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   signal handling and execution exit codes as `launch --once`.
 - `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
-- `ub-agents status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+- `ub-agents status [NUMBER] [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+  Without a number, it lists the queue as usual. With a number, it evaluates only
+  that open or closed issue or PR under the same gates as `launch NUMBER`, showing
+  each evaluated agent's row: `ready` when launch would run it, or `recover` when
+  launch would recover its pending completion. Priority and milestone use the
+  item's own values, without inheritance or milestone ordering. When no rows
+  apply, it prints launch's one-line explanation, including trigger labels to add
+  or the item's closed state. It makes no GitHub writes and starts no runtime
+  maintenance. It exits 0 when it can report, even for parked, blocked or
+  untriggered work; unreadable work exits 1, and invalid numbers exit 2.
   A live lease's summary names its actor, host, claim time, runtime and lease end,
   including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
   the current UTC day. Only leases on this host have their recorded process group
