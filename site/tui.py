@@ -103,4 +103,3 @@ def render():
     rgt = '↑↓ select ⏎ open 1-3 tabs ? keys q quit'
     out.append(f'<span class="dim">{esc(lft)}{" " * (total - len(lft) - len(rgt))}{esc(rgt)}</span>')
     return '\n'.join(out)
-

@@ -1,6 +1,6 @@
 # Cleanup hook
 
-An optional program that runs before ub-agents removes a private worktree. Use it to stop things a run started, such as test services.
+After every run, the launcher removes the run's private worktree by itself; local branches stay. The cleanup hook is an optional program that runs just before that removal. Use it to stop things a run started, such as test services.
 
 ```yaml
 cleanup:
@@ -40,7 +40,7 @@ Exit zero to let the worktree be removed. Any other exit keeps the worktree and 
 
 ## Leftovers
 
-Preview and remove worktrees and branches left by crashed runs on this machine.
+Normal runs need nothing more. [`ub-agents cleanup`](/docs/commands/cleanup.html) previews and removes what crashed runs left on this machine, plus retained branches.
 
 ```sh
 ub-agents cleanup

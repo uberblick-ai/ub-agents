@@ -28,6 +28,10 @@ By default every account with write access or higher can run a launcher. To allo
 launchers: [ub-bot, alice]
 ```
 
+## Several launchers on one machine
+
+Each run gets its own worktree and scratch directory, and nothing else is checked. Runs from two launchers on one machine, in this project or another, can collide on shared resources: a Docker database, a fixed port, a shared cache. Give each run its own, for example by naming them after the worktree, and stop them in the [cleanup hook](/docs/configuration/cleanup.html). If that's not possible, run one launcher per machine.
+
 ## Keep versions together
 
 When a release note says launchers must be upgraded together, stop every launcher for the project before upgrading any. See [Upgrading](/docs/upgrading.html).

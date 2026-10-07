@@ -7,6 +7,10 @@ ub-agents status
 ub-agents status 214
 ```
 
+## In the terminal view
+
+Stopped items are listed under **Needs attention** in `ub-agents launch`. Select one and press `4` for the Unblock tab: it shows the item's **Action needed** comment, with each decision, the options and how to resume.
+
 ## Needs a person
 
 The item has a [stop label](/docs/configuration/stop-labels.html) such as `needs-human` and an **Action needed** comment that lists the options and how to resume. Decide, remove the stop label, and add the workflow label you want.
@@ -30,7 +34,7 @@ ub-agents launch 219 --agent reviewer
 
 ## Leftover worktrees
 
-A crashed run can leave its private worktree behind. Preview, then remove what is safe to remove with [`cleanup`](/docs/commands/cleanup.html).
+The launcher removes each run's worktree when the run ends. A crashed run can leave it behind. Preview, then remove what is safe to remove with [`cleanup`](/docs/commands/cleanup.html).
 
 ```sh
 ub-agents cleanup
