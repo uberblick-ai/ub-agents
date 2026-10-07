@@ -360,7 +360,7 @@ Waits use real response headers and the [rate-limit rules](configuration.md#top-
 A reset beyond the current expiry still starts a wait, while renewal continues.
 The wait ends as lost ownership only when the last confirmed expiry actually passes
 or another claim owns the item: no further coordination writes, followed by expiry recovery.
-See [Stopping and restarting](../README.md#stopping-and-restarting) for signals
+See [Stopping and restarting](operations.md#stopping-and-restarting) for signals
 during these waits. Rate-limited writes keep their existing handling.
 
 ## Draft checkpoints
@@ -766,7 +766,7 @@ draft checkpoints still fetch and check out their exact heads; refresh never
 rebases them. Coordination between two launchers sharing a checkout, or a concurrent
 manual cleanup, is outside this serial execution boundary.
 
-See [Stopping and restarting](../README.md#stopping-and-restarting) for signal
+See [Stopping and restarting](operations.md#stopping-and-restarting) for signal
 handling during execution, recovery and checkout refresh, and for restarting after
 code updates. The SIGTERM refresh rule prevents a fast-forward from being killed
 partway through updating the control checkout.

@@ -64,7 +64,7 @@ configured value or that it comes from visibility, without contacting GitHub.
 ISO 8601 timestamp; terminal text stays unchanged. Each line is flushed immediately
 to both destinations, including the final stop or error message. The log is never
 truncated or rotated. Use `tail -f .ub-agents/launch.log` to follow the loop from
-another terminal. See [Stopping and restarting](../README.md#stopping-and-restarting)
+another terminal. See [Stopping and restarting](operations.md#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
 Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
@@ -128,7 +128,7 @@ immediately; after a pass that ran or recovered work, the launcher waits for the
 part of that interval still remaining since the latest pass started. If that
 pass already took the interval, the
 next pass starts immediately. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 waits. Failed-poll retry delays below are independent of this interval, and
 `launch --once` never waits after its pass.
 
@@ -170,7 +170,7 @@ When the launcher becomes idle, and again when the set of low-quota resources
 changes, it prints `No eligible work; next poll in <n> min (<k> requests last poll)`.
 The request count measures REST quota usage, excluding HTTP 304 confirmations.
 It does not repeat the message on every empty pass. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 this idle wait.
 
 Claiming discovery evaluates candidates in rank order and stops once it claims
@@ -258,7 +258,7 @@ Each skipped poll for another transient error prints its error and next delay,
 makes no GitHub writes and does not report an empty queue. Discovery includes
 initial authentication and fresh reads immediately before a claim, including the
 default-branch read for instruction refresh. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 discovery waits. `launch --once` and `status` still fail on their first discovery
 error.
 
@@ -267,7 +267,7 @@ reads wait and retry under the active lease, even when the reset is beyond its
 current expiry. Renewal continues during the wait. If the last confirmed expiry
 actually passes, the launcher takes the lost-ownership path and leaves expiry recovery
 to finish durable completion. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signals during
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 owned-run waits. Rate-limited writes retain their existing handling and are not
 replayed by this retry mechanism.
 
@@ -565,7 +565,7 @@ An invalid reloaded configuration stops with a nonzero exit and the same error a
 `ub-agents check`, without charging an assignment attempt.
 
 The launcher does not reload code. See
-[Stopping and restarting](../README.md#stopping-and-restarting) for signal handling
+[Stopping and restarting](operations.md#stopping-and-restarting) for signal handling
 and the upgrade recipe.
 See [execution boundaries](coordination.md#execution-boundaries) for the full rules.
 
