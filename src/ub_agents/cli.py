@@ -150,7 +150,8 @@ def init_project(args):
     templates = files("ub_agents").joinpath("templates")
     targets = {config_path: templates.joinpath("ub-agents.yaml").read_text()
                .replace("your-org/your-project", repository).replace("codex:gpt-6.1-sol:high", args.runtime)}
-    if args.runtime.split(":", 1)[0] == "claude":
+    runtime_cli = args.runtime.split(":", 1)[0]
+    if runtime_cli == "claude":
         targets[config_path] = targets[config_path].replace(
             "[--sandbox, danger-full-access]",
             '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
@@ -163,7 +164,7 @@ def init_project(args):
             '    # runtime-args:')
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
         targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
-    guidance = runtime_guidance(root, args.runtime.split(":", 1)[0])
+    guidance = runtime_guidance(root, runtime_cli)
     checks = (f"Run the project checks documented in `{guidance.relative_to(root)}` before handoff."
               if guidance else
               "Replace these placeholders with the project's required commands before launch:\n\n"
@@ -175,6 +176,20 @@ def init_project(args):
     existing = [str(p) for p in targets if p.exists()]
     if existing:
         raise AgentError(f"Starter files already exist; nothing overwritten: {', '.join(existing)}")
+    permissions_enabled = False
+    if not os.environ.get("CI") and sys.stdin.isatty() and sys.stdout.isatty():
+        if runtime_cli == "claude":
+            print("Claude starter permissions grant unattended edits plus git, gh and report commands; "
+                  "the project's check commands must still be added to --allowedTools.")
+        else:
+            print("Codex starter permissions grant full access without the sandbox.")
+        try:
+            answer = input("Enable starter permissions for all four agents? [y/N] ")
+        except EOFError:
+            answer = ""
+        permissions_enabled = answer.strip().casefold() in {"y", "yes"}
+    if permissions_enabled:
+        targets[config_path] = targets[config_path].replace("    # runtime-args:", "    runtime-args:")
     for target, content in targets.items():
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("x") as stream:
@@ -187,6 +202,11 @@ def init_project(args):
     config = load_config(config_path)
     print(f"Created {config_path} and .agents instructions; loop policy is in .agents/ub_agents.md. "
           "Customize and commit them before launch.")
+    if not permissions_enabled:
+        print(f"Next step: uncomment or customize each agent's runtime-args in {config_path.name} "
+              "to grant the permissions its job needs before launch.")
+    if runtime_cli == "claude":
+        print(f"Next step: add the project's check commands to --allowedTools in {config_path.name}.")
     for cli in sorted({runtime.cli for agent in config.agents for runtime in agent.runtimes}):
         guidance = runtime_guidance(root, cli)
         if guidance:

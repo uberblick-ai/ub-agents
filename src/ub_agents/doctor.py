@@ -332,6 +332,11 @@ class Doctor:
 
     def agents(self, config):
         usable = {}
+        without_permissions = [agent.name for agent in config.agents if agent.runtimes and not agent.runtime_args]
+        if without_permissions:
+            self.add("runtime-permissions", "warn",
+                     f"Agents without runtime-args: {', '.join(without_permissions)}; unattended edits, commits or pushes may fail",
+                     f"Configure these agents' runtime-args: {PERMISSIONS_URL}", required=False)
         for agent in config.agents:
             if agent.command:
                 executable = agent.command[0]
@@ -341,9 +346,6 @@ class Doctor:
                          None if installed else f"Install {executable} or correct agent {agent.name}'s command",
                          agent=agent)
                 continue
-            if not agent.runtime_args:
-                self.add("runtime-permissions", "warn", f"Agent {agent.name} has no runtime-args; unattended edits, commits or pushes may fail",
-                         f"Configure this agent's runtime-args: {PERMISSIONS_URL}", required=False, agent=agent)
             alternatives = []
             for runtime in agent.runtimes:
                 installed = self.which(runtime.cli)
