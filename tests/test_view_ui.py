@@ -708,8 +708,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('f', '2')
             selected, focus, page = app.selected, app.focused, app.reading.page
             for value in (
-                    {'text': '⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, '
-                             'then restart the launcher',
+                    {'text': '⬆ ub-agents 0.1.12 is available · you run 0.1.11 · '
+                             'brew update && brew upgrade ub-agents, then restart the launcher',
                      'released_at': (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()},
                     {'text': '⬆ This launcher runs code 2 commits behind origin/main · restart the launcher'},
                     {'text': '[bold]inert[/bold]\nnext\x1b[31m'}):

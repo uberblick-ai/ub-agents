@@ -59,7 +59,8 @@ def release_banner(data, method, running=__version__):
         raise ValueError('Release timestamp has no timezone')
     if latest <= version(running):
         return None
-    command = 'brew upgrade ub-agents' if method == 'brew' else 'pip install -U ub-agents'
+    command = ('brew update && brew upgrade ub-agents' if method == 'brew'
+               else 'pip install -U ub-agents')
     return {'text': f'⬆ ub-agents {".".join(map(str, latest))} is available · you run {running} · '
                     f'{command}, then restart the launcher',
             'released_at': stamp.astimezone(timezone.utc).isoformat()}

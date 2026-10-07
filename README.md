@@ -160,8 +160,8 @@ A dedicated launcher account with `write` access is safest: `doctor` warns when 
 account with `maintain` or `admin` could let agents start their own work.
 
 **Upgrading.** Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases),
-stop the launcher, run `brew upgrade ub-agents`, and start it again. When a release
-says launchers must be upgraded together, stop all of them first.
+stop the launcher, run `brew update && brew upgrade ub-agents`, and start it again.
+When a release says launchers must be upgraded together, stop all of them first.
 
 ## Retrospectives (optional)
 
