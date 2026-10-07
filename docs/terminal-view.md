@@ -434,7 +434,7 @@ Claude and Codex Log transcripts are described below.
 | `u` | Toggle formatted/raw projection of the same page |
 | `p` | Show the full raw file path, byte ranges and retention diagnostics; `Escape` closes it |
 | `r` (attached launcher) | Poll GitHub now while idle, or refresh the queue read-only during a continuous launch's run; at most once per 10 seconds |
-| `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
+| `Page Up`, `Page Down`, `Home`, `End` | Scroll the active tab or overlay; scrolling up in Log pauses follow |
 | Mouse drag and release | Copy the selected text to the clipboard through OSC 52, including in the `p` and `?` overlays |
 | `y` | Copy the current selection again; do nothing without a selection |
 | `?` | Show all keys; `Escape` or `?` closes help |
