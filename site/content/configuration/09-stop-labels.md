@@ -1,19 +1,32 @@
 # Stop labels
 
-A stop label pauses all work on an issue or pull request until a person removes it. Defaults to `needs-human`.
+A stop label pauses all work on an issue or pull request until a person removes it. You list them in `ub-agents.yaml`; agents never set labels themselves. Defaults to `needs-human`.
 
 ```yaml
 stop-labels: [needs-human]
 ```
 
-## Asking a person
+## How an agent stops
 
-Agents park an item by reporting an outcome that adds a stop label. The comment lists each decision separately.
+Give the role an [outcome](/docs/configuration/outcomes.html) that adds the stop label, and say in its instructions when to use it.
 
 ```yaml
-outcomes:
-  needs-human: {add: [needs-human]}
+implementer:
+  outcomes:
+    handed-off: {add: [needs-review]}
+    needs-human: {add: [needs-human]}
 ```
+
+The agent reports that outcome with at least one ask. The launcher adds the label and posts an **Action needed** comment that lists each ask.
+
+```sh
+ub-agents report --outcome needs-human --summary "Storage policy unclear" \
+  --action "Owner: choose local or cloud storage; recommend local."
+```
+
+## Blocked runs
+
+`--status blocked` also needs an ask but adds no label. The item waits for `ub-agents retry`, or for a new commit on a pull request.
 
 ## Approvals
 
