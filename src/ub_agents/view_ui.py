@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from pathlib import Path
 from queue import Empty
@@ -34,9 +34,18 @@ from .view_worker import LocalWorker, Request
 from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
 from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
 from .updates import release_age
+from .poll_now import COOLDOWN_SECONDS
 
 MAX_RENDER_LINES = 400
 SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
+
+
+def poll_deadline(value, now):
+    try:
+        until = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return until if until.tzinfo is not None and until > now else None
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        return None
 
 
 class UpdateBanner(Static):
@@ -485,6 +494,8 @@ class View(App):
         self.layout_focus = None
         self.copy_notice = ''
         self.copy_notice_until = 0
+        self.poll_feedback = {}
+        self.poll_next_allowed = None
 
     def compose(self) -> ComposeResult:
         yield Static('', id='shutdown', markup=False)
@@ -683,7 +694,27 @@ class View(App):
 
     def action_poll_now(self):
         if self.launcher is not None:
+            activity = mapping(self.session.data.get('activity')) if self.session else {}
+            if (activity.get('state') in {'running assignment', 'waiting'} and
+                    activity.get('reason') in {None, 'next poll or runtime pause'}):
+                control = mapping(self.session.data.get('poll_now')) | self.poll_feedback
+                now = datetime.now(timezone.utc)
+                cooldown = poll_deadline(control.get('cooldown_until'), now)
+                if self.poll_next_allowed is not None and self.poll_next_allowed > now:
+                    cooldown = max(cooldown or now, self.poll_next_allowed)
+                if poll_deadline(control.get('rate_limit_until'), now) is None:
+                    feedback = {}
+                    if control.get('refreshing') is True:
+                        feedback = {'refreshing': True, 'cooldown_until': None}
+                    elif cooldown is not None:
+                        feedback = {'refreshing': False, 'cooldown_until': cooldown.isoformat()}
+                    elif control.get('waiting') is True or activity['state'] == 'waiting':
+                        self.poll_next_allowed = now + timedelta(seconds=COOLDOWN_SECONDS)
+                        feedback = {'refreshing': True, 'cooldown_until': None}
+                    if activity['state'] == 'running assignment':
+                        self.poll_feedback = feedback
             self.launcher.poll()
+            self.update_status()
 
     def on_unmount(self):
         if self._window_title is not None and self._driver is not None:
@@ -710,6 +741,8 @@ class View(App):
             result = None
         if result:
             self.busy = False
+            if self.session is None or result.session.data != self.session.data:
+                self.poll_feedback = {}
             self.session = result.session
             self.title = 'ub-agents launch — ' + text(self.session.data.get('repository'), 'unknown')
             # App.title only updates Header widgets in the pinned Textual.
@@ -1112,7 +1145,7 @@ class View(App):
             elif state in {'stale', 'ended'}:
                 parts.append(state)
             activity = mapping(self.session.data.get('activity'))
-            control = mapping(self.session.data.get('poll_now'))
+            control = mapping(self.session.data.get('poll_now')) | self.poll_feedback
             value = text(activity.get('state'), '')
             now = datetime.now(timezone.utc)
             limited = None
@@ -1120,12 +1153,7 @@ class View(App):
                 limited = control.get('rate_limit_until')
                 if activity.get('reason') == 'rate-limit reset':
                     limited = limited or activity.get('until')
-            try:
-                limited = datetime.fromisoformat(limited.replace('Z', '+00:00'))
-                if limited.tzinfo is None or limited <= now:
-                    limited = None
-            except (ValueError, TypeError, AttributeError, OverflowError):
-                limited = None
+            limited = poll_deadline(limited, now)
             if value == 'waiting':
                 try:
                     until = datetime.fromisoformat(activity['until'].replace('Z', '+00:00'))
@@ -1139,14 +1167,13 @@ class View(App):
                 value = f'{value} · {label}' if value == 'running assignment' else label
             if value:
                 parts.append(value)
-            if self.launcher is not None and limited is None:
-                try:
-                    until = datetime.fromisoformat(control['cooldown_until'].replace('Z', '+00:00'))
-                    remaining = ceil((until - now).total_seconds())
-                    if remaining > 0:
-                        parts.append(f'poll now available in {remaining}s')
-                except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
-                    pass
+            if limited is None:
+                if value == 'running assignment' and control.get('refreshing') is True:
+                    parts.append('polling')
+                elif self.launcher is not None:
+                    until = poll_deadline(control.get('cooldown_until'), now)
+                    if until is not None:
+                        parts.append(f'poll now available in {ceil((until - now).total_seconds())}s')
         else:
             parts.append('reading session')
         left = Text(' · '.join(part for part in parts if part), no_wrap=True, overflow='ellipsis')

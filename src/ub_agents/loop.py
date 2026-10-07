@@ -117,7 +117,7 @@ class Loop:
 
     def enable_poll_now(self):
         self.poll_now = PollNow(
-            lambda cooldown, limited: self._observe("poll_now", cooldown, limited),
+            lambda cooldown, limited, waiting: self._observe("poll_now", cooldown, limited, waiting),
             lambda: self.coordinator.clock(), clock=lambda: monotonic())
 
     def request_poll(self):

@@ -15,7 +15,7 @@ from ub_agents.github import GitHub
 from ub_agents.loop import COMMENT_RECOVERY_SECONDS, Loop
 from ub_agents.observations import Observations
 from ub_agents.records import iso, records, seconds
-from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning
+from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning, _Cancelled
 from tests.support import DiscoveryCostRunner, MemoryPublisher, PollGitHub, config, issue, pr, stub_refresh
 
 
@@ -76,6 +76,7 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
         self.assertEqual(self.lines, [])
         self.assertIsNot(worker.planner.discovery, self.loop.discovery)
+        self.assertFalse(any(s.get('poll_now', {}).get('refreshing') for s in self.memory.snapshots))
 
     def test_claimed_worker_first_pass_uses_cursor_discovery_and_etags(self):
         transport = DiscoveryCostRunner()
@@ -302,8 +303,32 @@ class RunPlanningTests(unittest.TestCase):
         wait = self.loop.poll_now.wait
         # Send r once the worker is waiting, long before its regular 30s poll.
         with patch.object(self.loop.poll_now, 'wait',
-                          side_effect=lambda stop, delay, update=None: wait(stop, delay, self.loop.request_poll)):
+                          side_effect=lambda stop, delay, update=None, on_request=None:
+                          wait(stop, delay, self.loop.request_poll, on_request)):
             self.running_assignment(forced=True)
+
+    def test_once_and_single_item_runs_drop_poll_requests_without_planning(self):
+        for launch in ({'once': True}, {'number': 1}):
+            with self.subTest(launch=launch):
+                self.setUp()
+                self.loop.enable_poll_now()
+
+                def finish(*args, **kwargs):
+                    self.assertIsNone(self.loop._run_planning)
+                    self.assertIsNone(self.loop.poll_now.waiter)
+                    snapshot = deepcopy(self.memory.snapshots[-1])
+                    self.assertEqual(snapshot['activity']['state'], 'running assignment')
+                    self.assertFalse(snapshot.get('poll_now', {}).get('waiting'))
+                    self.loop.request_poll()
+                    self.assertEqual(self.loop.poll_now.next_allowed, 0)
+                    self.assertEqual(self.memory.snapshots[-1], snapshot)
+                    self.loop.coordinator.report(self.loop.github.lease, 'success', 'Finished', outcome='done')
+                    return 0
+
+                with patch('ub_agents.loop.supervise', side_effect=finish):
+                    self.loop.launch(**launch)
+                self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
+                self.assertEqual(self.loop._planning_workers, [])
 
     def test_planning_rate_limit_wait_rejects_poll_but_regular_wait_can_be_forced(self):
         self.loop.enable_poll_now()
@@ -322,7 +347,7 @@ class RunPlanningTests(unittest.TestCase):
                 patch.object(self.loop.poll_now, 'wait', return_value=True) as regular:
             self.assertTrue(worker._wait(30, 1008))
         self.assertEqual(waits, [8])
-        regular.assert_called_once_with(worker.stop, 22)
+        regular.assert_called_once_with(worker.stop, 22, on_request=worker._requested)
         self.assertIsNone(self.memory.snapshots[-1]['poll_now']['rate_limit_until'])
         self.assertEqual(self.github.writes, [])
 
@@ -337,11 +362,12 @@ class RunPlanningTests(unittest.TestCase):
         with patch.object(worker.stop, 'wait', side_effect=late_wakeup), \
                 patch.object(self.loop.poll_now, 'wait', return_value=True) as regular:
             self.assertTrue(worker._wait(30, 1008))
-        regular.assert_called_once_with(worker.stop, 17)
+        regular.assert_called_once_with(worker.stop, 17, on_request=worker._requested)
 
     def test_forced_planning_refresh_resets_regular_schedule_and_drops_inflight_press(self):
         self.loop.enable_poll_now()
         self.loop.poll_now.clock = lambda: self.now
+        self.observer.activity('running assignment')
         worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
         wait = self.loop.poll_now.wait
         event = threading.Event
@@ -350,24 +376,38 @@ class RunPlanningTests(unittest.TestCase):
 
         def refresh():
             starts.append(self.now)
+            self.assertEqual(self.memory.snapshots[-1]['activity']['state'], 'running assignment')
+            self.assertFalse(self.memory.snapshots[-1]['poll_now']['waiting'])
+            self.assertEqual(self.memory.snapshots[-1]['poll_now']['refreshing'], len(starts) == 1)
             self.loop.request_poll()  # A pass already in progress is not queued again.
+            self.assertEqual(self.memory.snapshots[-1]['poll_now']['refreshing'], len(starts) == 1)
             yield from plans()
 
-        def waiting(stop, delay):
+        def waiting(stop, delay, on_request=None):
             delays.append(delay)
+            if len(delays) > 1:
+                self.assertFalse(self.memory.snapshots[-1]['poll_now']['refreshing'])
             if len(delays) == 3:
                 return True
             wake = event()
 
             def wakeup(_):
-                self.now += 2 if len(delays) == 1 else delay
+                self.assertTrue(self.memory.snapshots[-1]['poll_now']['waiting'])
                 if len(delays) == 1:
+                    self.now += 2
                     self.loop.request_poll()
+                else:
+                    self.now += 1
+                    self.loop.request_poll()
+                    self.assertFalse(wake.is_set())
+                    self.assertEqual(self.memory.snapshots[-1]['poll_now']['cooldown_until'], iso(1012))
+                    self.assertFalse(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                    self.now += delay - 1
                 return wake.is_set()
 
             with patch('ub_agents.poll_now.threading.Event', return_value=wake), \
                     patch.object(wake, 'wait', side_effect=wakeup):
-                return wait(stop, delay)
+                return wait(stop, delay, on_request=on_request)
 
         with patch.object(self.loop.poll_now, 'wait', side_effect=waiting), \
                 patch.object(worker.planner, 'iter_plans', side_effect=refresh):
@@ -375,6 +415,77 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual(starts, [1002, 1032])
         self.assertEqual(delays, [30, 30, 30])
         self.assertEqual(self.github.writes, [])
+
+    def test_forced_refresh_label_clears_on_failure_interruption_and_cancellation(self):
+        for failure in (GitHubError('GET', 'items', 'temporary', retryable=True),
+                        GitHubError('GET', 'items', 'rate limit', rate_limited=True, reset_at=1130),
+                        KeyboardInterrupt(), _Cancelled(), None):
+            with self.subTest(failure=failure):
+                self.setUp()
+                self.loop.enable_poll_now()
+                self.loop.poll_now.clock = lambda: self.now
+                self.observer.activity('running assignment')
+                worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+                wait = self.loop.poll_now.wait
+                wake = threading.Event()
+                started = False
+
+                def waiting(stop, delay, on_request=None):
+                    if started:
+                        self.assertFalse(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                        return True
+                    with patch('ub_agents.poll_now.threading.Event', return_value=wake), \
+                            patch.object(wake, 'wait', side_effect=lambda _: self.loop.request_poll() or wake.is_set()):
+                        return wait(stop, delay, on_request=on_request)
+
+                def refresh():
+                    nonlocal started
+                    started = True
+                    self.assertTrue(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                    if failure is not None:
+                        raise failure
+                    worker.cancel()
+                    self.assertFalse(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                    return iter(())
+
+                with patch.object(self.loop.poll_now, 'wait', side_effect=waiting), \
+                        patch.object(worker.stop, 'wait', return_value=True), \
+                        patch.object(worker.planner, 'iter_plans', side_effect=refresh):
+                    worker._run()
+                self.assertTrue(started)
+                self.assertFalse(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                self.assertEqual(self.memory.snapshots[-1]['activity']['state'], 'running assignment')
+
+    def test_cancelled_refresh_cannot_clear_newer_refresh_when_blocked_read_returns(self):
+        self.loop.enable_poll_now()
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+        entered, release = threading.Event(), threading.Event()
+        wait = self.loop.poll_now.wait
+
+        def refresh():
+            entered.set()
+            release.wait(3)
+            return iter(())
+
+        with patch.object(self.loop.poll_now, 'wait', side_effect=lambda stop, delay, on_request=None:
+                          wait(stop, delay, self.loop.request_poll, on_request)), \
+                patch.object(worker.planner, 'iter_plans', side_effect=refresh):
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertTrue(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                worker.cancel()
+                self.assertFalse(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                self.assertTrue(worker.thread.is_alive())
+                newer = RunPlanning(self.loop, self.now)
+                newer._requested()
+                release.set()
+                worker.close()
+                self.assertTrue(self.memory.snapshots[-1]['poll_now']['refreshing'])
+                newer.cancel()
+            finally:
+                release.set()
+                worker.close()
 
     def test_transient_observation_failure_does_not_change_successful_run(self):
         self.running_assignment(GitHubError('GET', 'items', 'temporary', retryable=True))
