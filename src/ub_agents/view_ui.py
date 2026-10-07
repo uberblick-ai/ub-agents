@@ -672,7 +672,7 @@ class View(App):
             self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
             # A person may pick a row while this read is in flight. Retain that
             # selection from the pane we last drew, using the returned snapshot.
-            pane = (result.pane if result.token == self.token else
+            pane = (result.pane if result.token == self.token and result.chosen == self.chosen else
                     work_pane(self.session, self.root, self.pane, self.selected, self.chosen))
             self.populate(pane)
             if result.token == self.token and result.key == self.selected:
@@ -761,12 +761,8 @@ class View(App):
             self.select(event.node.data)
 
     def select(self, key, chosen=True):
-        previously_chosen = self.chosen
         self.chosen = self.chosen or chosen
         if key == self.selected:
-            if self.chosen != previously_chosen:
-                # Picking the followed run also supersedes an in-flight read.
-                self.token += 1
             return
         self.selected = key
         self.query_one(RecentActivity).refresh()

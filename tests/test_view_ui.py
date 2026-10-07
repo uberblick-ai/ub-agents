@@ -3366,6 +3366,36 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.worker.thread.join(6)
         self.assertFalse(app.worker.thread.is_alive())
 
+    async def test_picking_selected_run_during_history_read_keeps_the_requested_page(self):
+        app = View(self.root, self.path)
+        entered, release = threading.Event(), threading.Event()
+        try:
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                selected, old_start = app.selected, app.reading.page.start
+                original = app.worker.read
+
+                def slow_history(request):
+                    result = original(request)
+                    if request.older_end is not None:
+                        entered.set()
+                        release.wait(5)
+                    return result
+
+                with patch.object(app.worker, 'read', side_effect=slow_history):
+                    await pilot.press('h')
+                    await self.ready(app, pilot, entered.is_set)
+                    app.select(selected)
+                    release.set()
+                    await self.ready(app, pilot, lambda: app.reading.page.start < old_start)
+                    self.assertEqual(app.selected, selected)
+                    self.assertFalse(app.reading.follow)
+                await pilot.press('q')
+        finally:
+            release.set()
+            app.worker.thread.join(6)
+        self.assertFalse(app.worker.thread.is_alive())
+
     async def test_slow_reads_do_not_block_keys_and_focus_and_snapshot_replacement_stay_stable(self):
         app = View(self.root, self.path)
         entered, release = threading.Event(), threading.Event()

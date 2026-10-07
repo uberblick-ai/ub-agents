@@ -33,6 +33,7 @@ class Result:
     error: str | None = None
     runtime: str = 'unknown'
     description: object = None
+    chosen: bool = False
 
 
 class LocalWorker:
@@ -95,7 +96,7 @@ class LocalWorker:
                 except (OSError, ValueError) as exc:
                     error = str(exc)
         return Result(session, pane, pane.selected, request.token,
-                      context_text(selected, context), log, page, history, error, runtime, context)
+                      context_text(selected, context), log, page, history, error, runtime, context, request.chosen)
 
     def run(self):
         while not self.stopping.is_set():
@@ -110,7 +111,7 @@ class LocalWorker:
                 session = Session(self.session_path, {}, str(exc))
                 pane = work_pane(session, self.root, request.previous, request.key, request.chosen)
                 result = Result(session, pane, pane.selected, request.token,
-                                'Local read failed: ' + str(exc), error=str(exc))
+                                'Local read failed: ' + str(exc), error=str(exc), chosen=request.chosen)
             if self.stopping.is_set():
                 return
             try:

@@ -14,6 +14,7 @@ from ub_agents.view import main
 from ub_agents.view_data import (Description, Session, choose_session, item_context, load_session,
                                  item_header, outcome_text, outcomes_today, read_json, run_status, text, work_pane, work_rows)
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
+from ub_agents.view_worker import LocalWorker, Request
 from ub_agents.config import Queue
 from ub_agents.eligibility import AgentMatches, check_start
 from tests.support import agent, issue
@@ -303,6 +304,22 @@ class ViewDataTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path, self.log, self.state = fixture(self.root)
+
+    def test_worker_retains_from_the_requested_pane_instead_of_its_last_result(self):
+        worker = LocalWorker(self.root, self.path)
+        drawn = worker.read(Request('plan:12', 1, chosen=True)).pane
+        self.state['latest_pass']['rows'] = []
+        publish_snapshot(self.path, self.state)
+        other = worker.read(Request('assignment:owned-run', 2, chosen=True, previous=drawn))
+        self.assertNotIn('plan:12', [row.key for row in other.pane.rows])
+        result = worker.read(Request('plan:12', 3, chosen=True, previous=drawn))
+        self.assertEqual(result.key, 'plan:12')
+        self.assertEqual(result.pane.selected, result.key)
+        self.assertEqual(result.pane.sections[-1].label, 'Eligible · 1')
+        self.assertEqual(result.pane.rows[-1].state, 'earlier observation')
+        # Without the last drawn pane, a separate request has no retained row.
+        unrelated = worker.read(Request('plan:12', 4, chosen=True))
+        self.assertNotIn('plan:12', [row.key for row in unrelated.pane.rows])
 
     def test_header_assignment_plan_pr_and_missing_fields(self):
         self.state['assignment'].update(kind='issue', title='Assignment title', attempt=3)
