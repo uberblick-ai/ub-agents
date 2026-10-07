@@ -433,6 +433,10 @@ An agent can also be a plain command instead of an LLM session.
 | `ready-to-merge` | PR | Run final checks and merge under the project's policy. |
 | `needs-human` | Either | Parked until a person decides. |
 
+Before handoff, the implementer fetches the PR's base and fixes any merge conflicts.
+If the reviewed PR is behind its base but merges cleanly, the integrator merges
+the base into it, keeps the review and runs final checks at the new head.
+
 These are conventions, not built-ins. Rename them, drop review, or run a single agent
 that only investigates issues.
 
