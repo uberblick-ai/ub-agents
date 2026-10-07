@@ -15,6 +15,52 @@ from ub_agents import __version__
 from ub_agents.cli import main, parser
 
 
+OVERVIEW = """ub-agents — project-owned engineering loops on GitHub
+
+usage: ub-agents <command> [options]
+
+commands:
+  init                   set up this repository: starter configuration, agent
+                         instructions and workflow labels
+  check                  validate the configuration and instruction files
+  doctor [--json]        check the machine, GitHub access, labels and agent
+                         runtimes
+  launch [NUMBER]        run the queue in the foreground, or handle one item
+  status [--json]        matching work, owners, attempts and why items wait
+  cleanup [--apply]      preview or remove stale worktrees and branches
+  retry NUMBER           let stopped work run again, with a recorded reason
+  approve NUMBER         record approval of an issue's or PR's current input
+
+inside a run, through the launcher's report_command:
+  report                 record the run's outcome
+  retrospective          post to the agent's retrospective board
+  read NUMBER            read an issue or PR as filtered JSON
+
+options:
+  -h, --help             show this help; after a command, that command's help
+  -v, --version          print the version
+  --config PATH          project configuration (default: ub-agents.yaml)
+"""
+
+LAUNCH_HELP = """usage: ub-agents launch [NUMBER] [options]
+
+Run the queue in the foreground under the configured gates. Without a number,
+watch the queue; with a number, handle only that issue or PR, then exit.
+
+options:
+  --agent NAME           evaluate only this configured agent (needs NUMBER)
+  --once                 observe once, run at most one assignment, then exit
+  --no-ui                plain lines instead of the terminal view
+  --config PATH          project configuration (default: ub-agents.yaml)
+  -h, --help             show this help
+
+examples:
+  ub-agents launch
+  ub-agents launch --once
+  ub-agents launch 143 --agent implementer
+"""
+
+
 class HelpTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -46,34 +92,38 @@ class HelpTests(unittest.TestCase):
 
     def test_overview_forms_are_identical_on_stdout(self):
         expected = self.invoke([])
-        self.assertEqual((expected[0], expected[2]), (0, ""))
-        for argv in (["help"], ["--help"], ["--config", "missing.yaml"],
+        self.assertEqual(expected, (0, OVERVIEW, ""))
+        for argv in (["help"], ["-h"], ["--help"], ["--config", "missing.yaml"],
                      ["--config", "missing.yaml", "help"], ["--config", "missing.yaml", "--help"]):
             with self.subTest(argv=argv):
                 self.assertEqual(self.invoke(argv), expected)
-        self.assertIn("--config", expected[1])
-        self.assertIn("--version", expected[1])
-        self.assertIn("ub-agents help COMMAND", expected[1])
+
+    def test_launch_help_matches_requested_layout(self):
+        for argv in (["launch", "-h"], ["launch", "--help"], ["help", "launch"]):
+            with self.subTest(argv=argv):
+                self.assertEqual(self.invoke(argv), (0, LAUNCH_HELP, ""))
 
     def test_every_registered_command_has_one_aligned_overview_row(self):
         overview = self.invoke([])[1]
-        rows = [line for line in overview.splitlines() if " # " in line]
-        names = [line.split()[1] for line in rows]
-        self.assertEqual(names, list(self.command_line.commands()))
-        self.assertEqual(len({line.index("#") for line in rows}), 1)
-        self.assertTrue(all(line.split(" # ")[1].strip() for line in rows))
+        rows = [line for line in overview.splitlines() if re.match(r"^  [a-z]", line)]
+        expected = [name for run_command in (False, True)
+                    for name, command in self.command_line.commands().items()
+                    if command.run_command == run_command and not command.overview_hidden]
+        self.assertEqual([line.split()[0] for line in rows], expected)
+        self.assertTrue(all(line[25:].strip() for line in rows))
+        self.assertNotIn(" # ", overview)
 
-    def test_overview_fits_within_100_columns(self):
+    def test_overview_fits_within_80_columns(self):
         for line in self.invoke([])[1].splitlines():
             with self.subTest(line=line):
-                self.assertLessEqual(len(line), 100)
+                self.assertLessEqual(len(line), 80)
 
     def test_doctor_help_describes_summary_verbose_and_json(self):
         code, output, errors = self.invoke(["doctor", "--help"])
         self.assertEqual((code, errors), (0, ""))
         self.assertIn("summary per area by default", output)
         self.assertIn("--verbose", output)
-        self.assertIn("Show the full per-check list", output)
+        self.assertIn("show the full per-check list", output)
         self.assertIn("does not change --json", output)
         self.assertIn("confirmed interactive prompt", output)
 
@@ -82,7 +132,6 @@ class HelpTests(unittest.TestCase):
         for variable in ("FORCE_COLOR", "PYTHON_COLORS", "NO_COLOR"):
             env.pop(variable, None)
         for variable in ("FORCE_COLOR", "PYTHON_COLORS"):
-            expected = None
             for argv in ([], ["help"], ["--help"]):
                 with self.subTest(variable=variable, argv=argv):
                     result = subprocess.run([sys.executable, "-m", "ub_agents", *argv], cwd=self.root,
@@ -90,20 +139,12 @@ class HelpTests(unittest.TestCase):
                                             text=True, timeout=10)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stderr, "")
-                    rows = [line for line in result.stdout.splitlines() if " # " in line]
-                    self.assertTrue(all("\x1b" not in line for line in rows), rows)
-                    self.assertEqual([line.split()[1] for line in rows], list(self.command_line.commands()))
-                    self.assertEqual(len({line.index("#") for line in rows}), 1)
-                    visible = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
-                    self.assertTrue(all(len(line) <= 100 for line in visible.splitlines()), visible)
-                    if expected is None:
-                        expected = result.stdout
-                    self.assertEqual(result.stdout, expected)
+                    self.assertEqual(result.stdout, OVERVIEW)
 
     def test_compact_report_row_preserves_detailed_choices_and_parsing(self):
-        rows = {line.split()[1]: line.split(" # ")[0].strip()
-                for line in self.command_line.format_help().splitlines() if " # " in line}
-        self.assertEqual(rows["report"], "ub-agents report --outcome OUTCOME --summary SUMMARY")
+        rows = {line.split()[0]: line[2:25].strip()
+                for line in self.command_line.format_help().splitlines() if re.match(r"^  [a-z]", line)}
+        self.assertEqual(rows["report"], "report")
         details = self.command_line.commands()["report"].format_help()
         self.assertIn("--status {retry,blocked}", details)
         self.assertIn("--outcome OUTCOME", details)
@@ -117,19 +158,19 @@ class HelpTests(unittest.TestCase):
                 self.assertEqual(getattr(args, option.removeprefix("--")), value)
 
     def test_number_is_optional_only_for_launch(self):
-        rows = {line.split()[1]: line.split(" # ")[0].strip()
-                for line in self.invoke([])[1].splitlines() if " # " in line}
-        self.assertEqual(rows["launch"], "ub-agents launch [NUMBER]")
-        self.assertEqual(rows["retry"], "ub-agents retry --reason REASON NUMBER")
-        self.assertEqual(rows["approve"], "ub-agents approve NUMBER")
+        rows = {line.split()[0]: line[2:25].strip()
+                for line in self.invoke([])[1].splitlines() if re.match(r"^  [a-z]", line)}
+        self.assertEqual(rows["launch"], "launch [NUMBER]")
+        self.assertEqual(rows["retry"], "retry NUMBER")
+        self.assertEqual(rows["approve"], "approve NUMBER")
         for name in ("retry", "approve"):
             self.assertNotIn("[", rows[name])
             details = self.invoke(["help", name])[1]
             self.assertNotIn("[NUMBER]", details)
             self.assertNotIn("--number", details)
-            self.assertIn("Issue or PR number (required)", details)
+            self.assertIn(f"usage: ub-agents {name} NUMBER", details)
         self.assertNotIn("--agent", rows["retry"])
-        self.assertIn("[--agent AGENT]", self.invoke(["help", "retry"])[1])
+        self.assertIn("--agent NAME", self.invoke(["help", "retry"])[1])
         self.assertIn("default: first matching item kind", self.invoke(["help", "retry"])[1])
 
     def test_rendering_required_number_preserves_positional_and_legacy_parsing(self):
@@ -155,6 +196,7 @@ class HelpTests(unittest.TestCase):
             with self.subTest(command=name):
                 detailed = self.invoke([name, "--help"])
                 self.assertEqual((detailed[0], detailed[2]), (0, ""))
+                self.assertEqual(self.invoke([name, "-h"]), detailed)
                 self.assertEqual(self.invoke(["help", name]), detailed)
                 self.assertEqual(self.invoke(["--config", "missing.yaml", "help", name]), detailed)
                 self.assertEqual(self.invoke(["--config", "missing.yaml", name, "--help"]), detailed)
@@ -162,7 +204,7 @@ class HelpTests(unittest.TestCase):
                     self.assertEqual(self.invoke([name, "--config", "missing.yaml", "--help"]), detailed)
                 self.assertIn(f"usage: ub-agents {name}", detailed[1])
                 self.assertIn("options:", detailed[1])
-                self.assertIn("Examples:", detailed[1])
+                self.assertIn("examples:", detailed[1])
                 self.assertTrue(command.description)
                 self.assertIn("".join(command.description.split()), "".join(detailed[1].split()))
                 self.assertIn(len(command.examples), (2, 3))
@@ -172,47 +214,75 @@ class HelpTests(unittest.TestCase):
                     self.assertEqual(words[0], "ub-agents")
                     self.assertEqual(self.command_line.parse_args(words[1:]).command, name)
 
-    def test_required_arguments_and_options_are_marked_in_detailed_help(self):
+    def test_command_usage_has_positionals_required_options_and_compact_optional_options(self):
+        expected = {"init": "[options]", "check": "[options]", "doctor": "[options]",
+                    "launch": "[NUMBER] [options]", "status": "[options]", "cleanup": "[options]",
+                    "report": "(--outcome OUTCOME | --status {retry,blocked}) --summary SUMMARY [options]",
+                    "retrospective": "--body-file PATH [options]",
+                    "retry": "NUMBER --reason REASON [options]", "approve": "NUMBER [options]",
+                    "read": "NUMBER [options]", "help": "[COMMAND] [options]"}
         for name, command in self.command_line.commands().items():
             with self.subTest(command=name):
                 details = self.invoke(["help", name])[1]
+                self.assertEqual(details.splitlines()[0], f"usage: ub-agents {name} {expected[name]}")
                 for action in command._actions:
-                    if (action.required or getattr(action, "required_for_help", False)) and action.help != argparse.SUPPRESS:
+                    if action.option_strings and action.required and action.help != argparse.SUPPRESS:
                         self.assertIn(f"{action.help} (required)", " ".join(details.split()))
-        self.assertIn("NUMBER", self.invoke(["help", "launch"])[1])
-        self.assertIn("(optional)", self.invoke(["help", "launch"])[1])
+                self.assertIn("  -h, --help             show this help\n", details)
+                self.assertNotIn("show this help message and exit", details)
+                # Descriptions and option rows wrap within 80 columns; existing
+                # example commands remain literal, including long report forms.
+                for line in details.split("\n\n", 1)[1].split("\nexamples:")[0].splitlines():
+                    self.assertLessEqual(len(line), 80, line)
         self.assertIn("choose --status or --outcome (required)",
                       " ".join(self.invoke(["help", "report"])[1].split()))
 
     def test_new_parser_registration_appears_without_an_overview_list(self):
         subparsers = next(action for action in self.command_line._actions
                           if isinstance(action, argparse._SubParsersAction))
-        extra = subparsers.add_parser("extra", help="Inspect an extra item",
+        extra = subparsers.add_parser("extra", help="inspect an extra item",
                                       description="Inspect an extra item when diagnosing it.",
                                       examples=("ub-agents extra 1", "ub-agents extra 2"))
-        extra.add_argument("number", metavar="NUMBER", type=int, help="Item number")
-        self.assertIn("ub-agents extra NUMBER", self.command_line.format_help())
-        self.assertIn("Examples:", extra.format_help())
-        self.assertIn("Item number (required)", extra.format_help())
+        extra.add_argument("number", metavar="NUMBER", type=int, help="item number")
+        self.assertIn("  extra NUMBER           inspect an extra item", self.command_line.format_help())
+        self.assertIn("examples:", extra.format_help())
+        self.assertIn("usage: ub-agents extra NUMBER [options]", extra.format_help())
 
-    def test_unknown_commands_and_missing_required_arguments_are_errors(self):
-        for argv, hint in ((["nope"], "ub-agents help"), (["help", "nope"], "ub-agents help"),
-                           (["retry"], "ub-agents help retry"),
-                           (["retry", "143"], "ub-agents help retry"),
-                           (["retry", "--agent", "implementer", "--reason", "Resolved"], "ub-agents help retry"),
-                           (["recover"], "ub-agents help"), (["help", "recover"], "ub-agents help"),
-                           (["approve"], "ub-agents help approve"),
-                           (["approve", "0"], "ub-agents help approve"),
-                           (["approve", "143", "--number", "143"], "ub-agents help approve"),
-                           (["--config", "x.yaml", "check", "--config", "x.yaml"], "ub-agents help check"),
-                           (["report"], "ub-agents help report"),
-                           (["launch", "--agent", "implementer"], "ub-agents help launch")):
+    def test_unknown_commands_print_the_error_and_overview_on_stderr(self):
+        for name in ("nope", "recover"):
+            for argv in ([name], ["help", name], ["--config", "missing.yaml", name],
+                         ["--config", "missing.yaml", "help", name]):
+                with self.subTest(argv=argv):
+                    self.assertEqual(self.invoke(argv), (2, "", f'ub-agents: unknown command "{name}"\n\n{OVERVIEW}'))
+
+    def test_usage_errors_print_the_usage_of_the_command_that_ran(self):
+        for argv, name in ((["retry"], "retry"), (["retry", "143"], "retry"),
+                           (["retry", "--agent", "implementer", "--reason", "Resolved"], "retry"),
+                           (["approve"], "approve"), (["approve", "0"], "approve"),
+                           (["approve", "143", "--number", "143"], "approve"),
+                           (["--config", "x.yaml", "check", "--config", "x.yaml"], "check"),
+                           (["report"], "report"), (["read"], "read"),
+                           (["launch", "--agent", "implementer"], "launch"),
+                           (["launch", "--bogus"], "launch"),
+                           (["launch", "not-a-number"], "launch"),
+                           (["launch", "--agent"], "launch"),
+                           (["launch", "--config", "missing.yaml", "--bogus"], "launch")):
             with self.subTest(argv=argv):
                 code, output, errors = self.invoke(argv)
                 self.assertEqual(code, 2)
                 self.assertEqual(output, "")
-                self.assertIn("error:", errors)
-                self.assertIn(f"Run {hint} for usage and examples.", errors)
+                self.assertTrue(errors.startswith(self.command_line.commands()[name].format_usage()))
+                self.assertIn(f"ub-agents {name}: error:", errors)
+                self.assertNotIn("usage: ub-agents <command>", errors)
+                self.assertNotIn("[-h]", errors)
+
+    def test_top_level_usage_errors_keep_the_overview_usage_line(self):
+        for argv in (["--bogus"], ["--config"]):
+            with self.subTest(argv=argv):
+                code, output, errors = self.invoke(argv)
+                self.assertEqual((code, output), (2, ""))
+                self.assertTrue(errors.startswith("usage: ub-agents <command> [options]\n"))
+                self.assertIn("ub-agents: error:", errors)
 
     def test_recover_has_no_help_or_examples(self):
         self.assertNotIn("recover", self.command_line.commands())
@@ -221,7 +291,9 @@ class HelpTests(unittest.TestCase):
                             for example in command.examples))
 
     def test_version_is_unchanged_and_isolated(self):
-        self.assertEqual(self.invoke(["--version"]), (0, f"ub-agents {__version__}\n", ""))
+        for flag in ("-v", "--version"):
+            with self.subTest(flag=flag):
+                self.assertEqual(self.invoke([flag]), (0, f"ub-agents {__version__}\n", ""))
 
     def test_cli_help_works_outside_a_repository_without_gh(self):
         # Exercise the real process entry point with no executables on PATH and
@@ -229,7 +301,7 @@ class HelpTests(unittest.TestCase):
         env = {key: value for key, value in os.environ.items()
                if key not in {"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"}}
         env.update(PATH=str(self.root), GH_CONFIG_DIR=str(self.root / "missing-gh"))
-        forms = [[], ["help"], ["--help"]]
+        forms = [[], ["help"], ["-h"], ["--help"], ["-v"], ["--version"]]
         forms.extend(argv for name in self.command_line.commands()
                      for argv in (["help", name], [name, "--help"]))
         for argv in forms:

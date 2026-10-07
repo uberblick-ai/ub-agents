@@ -55,7 +55,7 @@ class ArgumentTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as caught:
                     main([*command, "--help"])
                 self.assertEqual(caught.exception.code, 0)
-                self.assertIn("--config CONFIG", self.stdout.getvalue())
+                self.assertIn("--config PATH", self.stdout.getvalue())
                 self.assertNotIn("COMMAND_CONFIG", self.stdout.getvalue())
         self.run.assert_not_called()
         self.load.assert_not_called()
@@ -120,7 +120,7 @@ class ArgumentTests(unittest.TestCase):
             main(["--help"])
         self.assertEqual(caught.exception.code, 0)
         self.assertNotIn("recover", self.stdout.getvalue())
-        self.usage_error(["recover", "42", "--reason", "Stopped"], "invalid choice: 'recover'")
+        self.usage_error(["recover", "42", "--reason", "Stopped"], 'unknown command "recover"')
 
     def test_report_keeps_global_config_compatibility_but_no_command_config(self):
         self.run.return_value = 0
