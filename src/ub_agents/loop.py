@@ -92,6 +92,7 @@ class Loop:
         self._launcher_reason = None
         self._has_trigger = None
         self._maintaining = False
+        self._github_waiting = False
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
 
@@ -470,6 +471,9 @@ class Loop:
     def tick(self):
         self._observe("begin_pass")
         self.maintain_runtimes()
+        if not self.github_ready():
+            self._observe("complete_pass")
+            return False
         config = self.config
         present = set()
         for plan in self.iter_plans():
@@ -514,6 +518,9 @@ class Loop:
     def tick_item(self, number, agent_name=None):
         self._observe("begin_pass")
         self.maintain_runtimes()
+        if not self.github_ready():
+            self._observe("complete_pass")
+            return False
         item, plans = self.item_plans(number, agent_name)
         shown = False
         for plan in plans:
@@ -619,6 +626,16 @@ class Loop:
             self._pass_started = self._run_planning.cancel()
             self._run_planning = None
 
+    def github_ready(self):
+        """A broken/guarded gh cannot perform discovery; keep recovery polling."""
+        ready = self.maintenance.available("gh")
+        if not ready:
+            self._has_trigger = None
+            if not self._github_waiting:
+                self.output("GitHub CLI gh is unavailable or under maintenance; waiting for the next runtime boundary")
+        self._github_waiting = not ready
+        return ready
+
     def maintain_runtimes(self):
         self._before_claim()
         self._maintenance_graceful_stop = False
@@ -683,6 +700,8 @@ class Loop:
                 return False
             instructions = texts[plan.agent.name]
         self.maintain_runtimes()
+        if not self.github_ready():
+            return False
         # The snapshot runtime may have become guarded/broken since discovery,
         # or a reload may have enabled maintenance. Reapply runtime eligibility.
         runtime = None
@@ -783,7 +802,8 @@ class Loop:
                         self.stop_event.set()
                     reported = outcome
                 failure = run_hook(self.config, lease, workspace.private, reported,
-                                   expires=(lambda: self.coordinator.deadline(lease)) if record else None)
+                                   expires=(lambda: self.coordinator.deadline(lease)) if record else None,
+                                   pass_fds=reservation.descriptors if reservation is not None else ())
                 if failure:
                     if record:
                         try:

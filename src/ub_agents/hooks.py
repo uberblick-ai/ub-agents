@@ -59,7 +59,7 @@ def confirm_hook_groups_stopped(config, run):
                            next_step=f"confirm the hook has exited and repair its process records in {parent}") from exc
 
 
-def run_hook(config, lease, worktree, outcome=None, expires=None):
+def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=()):
     """Return a confirmed hook failure, or None. Unconfirmed stop raises."""
     if config.cleanup is None:
         return None
@@ -91,7 +91,8 @@ def run_hook(config, lease, worktree, outcome=None, expires=None):
     confirmed = True
     try:
         code = supervise(list(config.cleanup.command), config.root, env, directory,
-                         config.cleanup.timeout_seconds, threading.Event(), expires=expires)
+                         config.cleanup.timeout_seconds, threading.Event(), expires=expires,
+                         pass_fds=pass_fds)
         failure = f"Cleanup hook exited {code}" if code else None
     except CleanupError:
         confirmed = False

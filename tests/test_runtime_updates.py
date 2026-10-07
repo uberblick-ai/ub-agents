@@ -878,7 +878,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.manager.boundary(settings)
         self.assertEqual(len(self.updates()), 1)
 
-    def test_gh_guard_blocks_command_and_runtime_reservations_before_claim(self):
+    def test_gh_guard_blocks_discovery_for_command_and_runtime_agents(self):
         stub_refresh(self)
         self.npm()
         self.manager.root.mkdir()
@@ -890,7 +890,34 @@ class RuntimeUpdateTests(unittest.TestCase):
                 loop = Loop(settings, github, "operator", output=self.lines.append)
                 loop.maintenance = self.manager
                 loop.coordinator.runtime_available = self.manager.available
-                with patch("ub_agents.loop.supervise") as run:
+                for poll in (loop.tick, lambda: loop.tick_item(1)):
+                    with patch("ub_agents.loop.supervise") as run, \
+                            patch.object(github, "observe", side_effect=AssertionError("gh is under maintenance")), \
+                            patch.object(github, "item", side_effect=AssertionError("gh is under maintenance")):
+                        self.assertFalse(poll())
+                    run.assert_not_called()
+                    self.assertEqual(github.writes, [])
+                    self.assertIn("gh is unavailable or under maintenance", self.lines[-1])
+
+    def test_gh_reservation_race_blocks_claims_for_command_and_runtime_agents(self):
+        stub_refresh(self)
+        self.npm()
+        self.manager.root.mkdir()
+        guard = self.manager.paths(installation("gh", self.which))[0]
+        reserve = self.manager.reserve_run
+        @contextmanager
+        def maintenance_wins(cli):
+            with lock(guard):
+                with reserve(cli) as reservation:
+                    yield reservation
+        for settings in (config(self.root), self.settings()):
+            with self.subTest(runtime=settings.agents[0].runtimes):
+                github = FakeGitHub(issue())
+                loop = Loop(settings, github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                with patch.object(self.manager, "reserve_run", side_effect=maintenance_wins), \
+                        patch("ub_agents.loop.supervise") as run:
                     self.assertFalse(loop.tick())
                 run.assert_not_called()
                 self.assertEqual(github.writes, [])
@@ -933,7 +960,8 @@ class RuntimeUpdateTests(unittest.TestCase):
                 loop = Loop(agent_settings, github, "operator", output=self.lines.append)
                 loop.maintenance = self.manager_for()
                 loop.coordinator.runtime_available = loop.maintenance.available
-                with patch("ub_agents.loop.supervise") as run:
+                with patch("ub_agents.loop.supervise") as run, \
+                        patch.object(github, "observe", side_effect=AssertionError("gh is unusable")):
                     self.assertFalse(loop.tick())
                 self.assertEqual(github.writes, [])
                 run.assert_not_called()
@@ -955,7 +983,6 @@ class RuntimeUpdateTests(unittest.TestCase):
                 self.assertEqual(loop.maintenance.read(state)["checked"], checked)
                 version.unlink()
                 self.manager.write(state, self.manager.read(state) | {"usable": False})
-
 
     def test_sigterm_and_sigint_during_maintenance_exit_without_claim(self):
         from contextlib import redirect_stdout, redirect_stderr

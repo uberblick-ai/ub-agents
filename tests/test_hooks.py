@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from ub_agents.config import CleanupHook, load_config
 from ub_agents.errors import AgentError, CleanupError, LostOwnership
-from ub_agents.execution import Workspace, group_members
+from ub_agents.execution import Workspace, group_members, supervise
 from ub_agents.hooks import run_hook
 from ub_agents.loop import Loop
 from ub_agents.records import iso, timestamp
@@ -64,6 +64,19 @@ class HookTests(unittest.TestCase):
         value = json.loads(output.read_text())
         self.assertEqual((value["status"], value["handoff"], value["kind"]), ("success", 2, "issue"))
         self.assertEqual(value["worktree"], str(self.workspace.private))
+
+    def test_cleanup_hook_inherits_gh_run_lock(self):
+        loop = self.loop()
+        marker = self.root / "inherited"
+        def hook(command, *args, **kwargs):
+            descriptors = kwargs["pass_fds"]
+            self.assertEqual(len(descriptors), 1)
+            script = (f"import os; from pathlib import Path; os.fstat({descriptors[0]}); "
+                      f"Path({str(marker)!r}).touch()")
+            return supervise([sys.executable, "-c", script], *args, **kwargs)
+        with patch("ub_agents.hooks.supervise", side_effect=hook):
+            self.assertTrue(self.execute(loop))
+        self.assertTrue(marker.exists())
 
     def test_interrupted_outcome_read_still_runs_hook_once_and_removes_tree(self):
         output = self.root / "hook-ran"
