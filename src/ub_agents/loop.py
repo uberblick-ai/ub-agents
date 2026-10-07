@@ -28,6 +28,7 @@ from .polling import idle_interval, poll_delay
 from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
+from .notices import ACTION_MARKER
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
                       lease_summary, resolve_transition, seconds, timestamp, validate_report_action)
 from .status import refusal_reason
@@ -432,7 +433,7 @@ class Loop:
             return
         if reconcile_notices:
             self._before_claim()
-            self.reconcile_blocked_notices(history)
+            self.reconcile_blocked_notices(history, coordinator)
         latest = latest_leases(history)
         for agent in agents:
             record = latest.get((item.number, agent.name))
@@ -587,7 +588,7 @@ class Loop:
             return f"No trigger matches; add a trigger label ({labels})"
         return f"No evaluated agent applies to this {item.kind}"
 
-    def reconcile_blocked_notices(self, history):
+    def reconcile_blocked_notices(self, history, coordinator):
         """Retry a blocked run's advisory notice from existing coordination records."""
         for lease in latest_leases(history).values():
             if lease.get("result") != "blocked":
@@ -597,9 +598,19 @@ class Loop:
             source_id = lease.get("recovered_lease_id", lease["id"])
             outcome = next((r for r in history if r["kind"] == "outcome"
                             and r["lease_id"] == source_id), None)
-            self.coordinator.notices.advisory(f"Action needed post on #{lease['assignment']}", lambda:
+
+            def post_missing():
+                marker = f"{ACTION_MARKER}{lease['run']} -->"
+                trusted = coordinator.trust.observation()
+                if any((comment.get("body") or "").startswith(marker) and trusted(comment.get("user"))
+                       for comment in coordinator.github.observed_comments(lease['assignment'])):
+                    return
+                # Discovery can skip an existing notice; writes still reread
+                # fresh comments to deduplicate and check for a later resume.
                 self.coordinator.notices.post_action(lease['assignment'], lease, outcome,
-                                                      lease_summary(history, lease), ()))
+                                                      lease_summary(history, lease), ())
+
+            self.coordinator.notices.advisory(f"Action needed post on #{lease['assignment']}", post_missing)
 
     def park_approval(self, plan):
         # Recheck authority before advisory writes; stale discovery cannot park

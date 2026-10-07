@@ -1,6 +1,7 @@
 from contextlib import redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from dataclasses import replace
 import io
 from pathlib import Path
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator
+from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER, action_body, notice_reason
@@ -367,13 +369,37 @@ class NoticeTests(unittest.TestCase):
                     self.co.release(lease, 'blocked', 'Need a decision')
                 self.assertEqual(self.notices(), [])
                 restarted = Loop(config(self.root, self.worker), self.github, 'operator', output=self.output.append)
-                stale = restarted.plans()[0]
+                discovery = Discovery(restarted.github)
+                coordinator = Coordinator(discovery, 'operator', role=discovery.current_role)
+                stale = coordinator.history(1)
                 if resume == 'reset':
                     self.retry()
                 else:
                     self.start(worker=agent(self.root, name='next-role'))
-                restarted.reconcile_blocked_notices(stale.history)
+                restarted.reconcile_blocked_notices(stale, coordinator)
                 self.assertEqual(self.notices(), [])
+
+    def test_cached_notice_must_match_the_run_and_be_trusted(self):
+        for login, launchers, same_run in (('outside', None, True),
+                                          ('maintainer', ('operator',), True),
+                                          ('maintainer', None, False)):
+            with self.subTest(login=login, launchers=launchers, same_run=same_run):
+                self.setUp()
+                lease = self.start()
+                self.co.report(lease, 'blocked', 'Need a decision', action='Maintainer: decide the next step.')
+                with patch.object(self.github, 'create_comment', side_effect=GitHubError('POST', 'notice', 'Unavailable')):
+                    self.co.release(lease, 'blocked', 'Need a decision')
+                run = lease['run'] if same_run else lease['run'] + '-other'
+                self.github.create_comment(1, f'{ACTION_MARKER}{run} -->\nOther notice', login=login)
+                self.github.change(2, labels=frozenset())
+                cfg = replace(config(self.root, self.worker), launchers=launchers)
+                restarted = Loop(cfg, self.github, 'operator', output=self.output.append)
+                for _ in range(2):
+                    self.assertFalse(restarted.tick())
+                notices = self.notices()
+                self.assertEqual(len(notices), 2)
+                self.assertEqual(notices[-1]['user']['login'], 'operator')
+                self.assertTrue(notices[-1]['body'].startswith(f"{ACTION_MARKER}{lease['run']} -->"))
 
     def test_full_markdown_reasoning_is_preserved_and_all_evidence_is_collapsed(self):
         summary = ('## Storage reasoning\n\nLocal avoids uploads; cloud enables sharing.\n\n'
