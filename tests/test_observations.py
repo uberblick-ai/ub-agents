@@ -151,10 +151,13 @@ class ObservationTests(unittest.TestCase):
         path = self.root / '.ub-agents' / 'sessions' / 'launcher.json'
         path.parent.mkdir(parents=True)
         worker = LocalWorker(self.root, path)
+        previous_pane = None
         def published(selected='plan:4:worker'):
+            nonlocal previous_pane
             snapshot = self.memory.snapshots[-1]
             path.write_text(json.dumps(snapshot))
-            result = worker.read(Request(selected, 1))
+            result = worker.read(Request(selected, 1, chosen=True, previous=previous_pane))
+            previous_pane = result.pane
             self.assertIsNone(result.session.error)
             return snapshot, work_rows(result.session, self.root), result
         published()
@@ -174,13 +177,13 @@ class ObservationTests(unittest.TestCase):
             kept = next(row for row in work if row.item == 4)
             self.assertEqual(kept.data['history'], previous['histories']['4'])
             self.assertEqual(local_description(kept, result.session).body, 'Body 4')
-            self.assertEqual(next(row for row in result.rows if row.item == 4).state, 'blocked')
+            self.assertEqual(next(row for row in result.pane.rows if row.item == 4).state, 'blocked')
         self.observer.complete_pass()
         snapshot, work, result = published()
         self.assertEqual(snapshot['latest_pass']['state'], 'complete')
         self.assertEqual([row.item for row in work], [2, 5, 3, 1])
         self.assertNotIn('4', snapshot['histories'])
-        earlier = next(row for row in result.rows if row.item == 4)
+        earlier = next(row for row in result.pane.rows if row.item == 4)
         self.assertEqual(earlier.state, 'earlier observation')
         self.assertEqual(earlier.data['history'], previous['histories']['4'])
         self.assertEqual(result.description.body, 'Body 4')

@@ -14,8 +14,6 @@ from .view_spinner import SPINNER_FPS, spinner_frame
 from .attention import attention_state, waiting_time
 from .view_theme import SECTION_COLORS, item_reference, theme_style
 
-ELIGIBLE_LIMIT = 10
-
 
 def section_rule(label, width, style):
     heading = Text(label, style=style, no_wrap=True)
@@ -218,10 +216,8 @@ class WorkTree(Tree):
             label_style += self.get_component_rich_style('tree--cursor', partial=False)
         row = self.app.rows.get(node.data)
         if row:
-            eligible = next((value.key for value in self.app.rows.values()
-                             if value.group == 'Eligible' and value.state in {'ready', 'recover'}), None)
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
-            value = work_lines(row, width, next_row=row.key == eligible, stopping=stopping,
+            value = work_lines(row, width, next_row=row.key == self.app.pane.next, stopping=stopping,
                                now=(datetime.fromtimestamp(self.app.descriptions.clock(), timezone.utc)
                                     if row.group == 'Needs attention' else None),
                                claimed_at=self.claim_times.get(row.key), app=self.app)[line_no != node._line]
@@ -314,8 +310,7 @@ class RecentActivity(Static, can_focus=True):
         return self.row_height + self.row_spacing
 
     def populate(self, rows, session):
-        self.rows = [row for row in rows if row.group == 'Recent activity'
-                     and row.state != 'earlier observation'][:20]
+        self.rows = list(rows)
         self.today = outcomes_today(session)
         if self.cursor is None and self.rows:
             self.cursor = self.rows[0].key

@@ -16,6 +16,7 @@ CONTEXT_BYTES = 256 * 1024
 SESSION_LIMIT = 256
 DESCRIPTION_LIMIT = 2048
 WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Recent activity')
+ELIGIBLE_LIMIT = 10
 
 
 def read_json(path, limit=SNAPSHOT_BYTES):
@@ -192,6 +193,10 @@ def plan_group(row):
     return 'Needs attention'
 
 
+def omitted_plan(row):
+    return row.get('state') == 'owned' or plan_group(row) is None
+
+
 def outcomes_today(session, now=None):
     today = (now or datetime.now().astimezone()).date()
     local_zone = now.tzinfo if now else None
@@ -219,15 +224,14 @@ def work_rows(session, root):
                               run / 'context.json' if run else None))
     latest = mapping(data.get('latest_pass'))
     for row in rows(latest.get('rows'), 100):
-        group = plan_group(row)
-        if row.get('state') == 'owned' or group is None:
+        if omitted_plan(row):
             continue
         if assignment and (row.get('item'), row.get('agent')) == (assignment.get('item'), assignment.get('agent')):
             continue
         owner = mapping(row.get('owner'))
         reason = (f'Owner: @{text(owner.get("actor"))} on {text(owner.get("host"))}' if owner else text(row.get('reason')))
         result.append(WorkRow(f'plan:{row.get("item")}:{text(row.get("agent"))}',
-                              group, row.get('item', '?'),
+                              plan_group(row), row.get('item', '?'),
                               text(row.get('agent')), text(row.get('state')), reason, row))
     for index, row in enumerate(reversed(rows(data.get('outcomes'), 20))):
         run = own_run(root, row.get('run'))
@@ -254,6 +258,81 @@ def work_rows(session, root):
             row = replace(row, key=f'plan:{row.item}', eligible_plans=(row.data,))
         grouped.append(row)
     return grouped
+
+
+@dataclass(frozen=True)
+class Section:
+    name: str
+    label: str
+    rows: tuple[WorkRow, ...]
+    idle: bool = False
+    next: str | None = None
+
+
+@dataclass(frozen=True)
+class Pane:
+    sections: tuple[Section, ...]
+    recent: tuple[WorkRow, ...]
+    rows: tuple[WorkRow, ...]
+    selected: str | None
+    title: str
+
+    @property
+    def next(self):
+        return next((section.next for section in self.sections if section.next is not None), None)
+
+
+def work_pane(session, root, previous=None, selected=None, chosen=False):
+    """Compute the Work pane from a snapshot and the pane the view last drew.
+
+    No file reads or UI state: a superseded read can be recomputed using the
+    person's current selection, including a row missing from that snapshot.
+    """
+    work = work_rows(session, root)
+    own = next((row.key for row in work if row.group == 'Running'), None)
+    if own is not None and not chosen:
+        selected = own
+    selection = next((row for row in work if row.key == selected), None)
+    earlier = next((row for row in previous.rows if row.key == selected), None) if previous else None
+    if selection is None and earlier is not None:
+        selection = related_plan(work, earlier)
+        if selection is None:
+            omitted = any(omitted_plan(plan) and
+                          (plan.get('item'), text(plan.get('agent'))) == (earlier.item, earlier.agent)
+                          for plan in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
+            selection = replace(earlier, hidden=earlier.hidden or earlier.group != 'Eligible' or omitted)
+            if selection.state != 'earlier observation':
+                selection = replace(selection, state='earlier observation',
+                                    reason=f'Last observed state: {selection.state}. {selection.reason}')
+            work.append(selection)
+    if selection is None and work:
+        selection = work[0]
+
+    sections = []
+    for name in WORK_GROUPS[:-1]:
+        grouped = tuple(row for row in work if row.group == name and not row.hidden)
+        if not grouped and name != 'Running':
+            continue
+        count = len(grouped)
+        label = f'{name} · {count}'
+        next_key = None
+        if name == 'Eligible':
+            grouped = grouped[:ELIGIBLE_LIMIT]
+            if count > ELIGIBLE_LIMIT:
+                label += f' · showing {ELIGIBLE_LIMIT}'
+            if mapping(session.data.get('activity')).get('state') == 'stopping':
+                label += ' · not claimed while stopping'
+            next_key = next((row.key for row in grouped if row.state in {'ready', 'recover'}), None)
+        sections.append(Section(name, label, grouped, idle=name == 'Running' and not grouped, next=next_key))
+    recent = tuple(row for row in work if row.group == 'Recent activity' and not row.hidden)[:20]
+    title = 'Work'
+    latest = mapping(session.data.get('latest_pass'))
+    if latest:
+        title += ' · pass ' + text(latest.get('state'), 'partial')
+    omitted = mapping(session.data.get('omitted')).get('plans', 0)
+    if omitted:
+        title += f' · omitted {text(str(omitted))}'
+    return Pane(tuple(sections), recent, tuple(work), selection.key if selection else None, title)
 
 
 def item_history(row, session):

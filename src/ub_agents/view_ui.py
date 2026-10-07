@@ -3,6 +3,7 @@
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from math import ceil
+from pathlib import Path
 from queue import Empty
 import time
 
@@ -20,14 +21,14 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
-from .view_data import (WORK_GROUPS, context_header, context_text, item_handoff, item_header, item_history, mapping, plan_group,
-                        related_plan, rows as snapshot_rows, run_status, text)
+from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
+                        related_plan, run_status, text, work_pane)
 from .view_github import DescriptionLoads
 from .view_unblock import ActionComment, comment_sections, local_action, needs_attention, trust_reason, unblock_metadata
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_worker import LocalWorker, Request
-from .view_work import ELIGIBLE_LIMIT, RecentActivity, WorkTree, assignment_elapsed
+from .view_work import RecentActivity, WorkTree, assignment_elapsed
 from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
 from .updates import release_age
 
@@ -427,6 +428,7 @@ class View(App):
 
     def __init__(self, root, session_path, worker=None, descriptions=None, launcher=None):
         super().__init__()
+        self.root = Path(root)
         self.register_theme(VIEW_THEME)
         self.theme = VIEW_THEME.name
         self.launcher = launcher
@@ -437,6 +439,7 @@ class View(App):
         self.unblock_visible = False
         self.unblock_details_key = None
         self.session = None
+        self.pane = None
         self.rows, self.nodes, self.groups = {}, {}, {}
         self.idle_node = None
         self.selected = None
@@ -667,12 +670,16 @@ class View(App):
                 self._driver.write(str(Control.title(self.title)))
                 self._window_title = self.title
             self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
-            self.populate(result.rows)
+            # A person may pick a row while this read is in flight. Retain that
+            # selection from the pane we last drew, using the returned snapshot.
+            pane = (result.pane if result.token == self.token else
+                    work_pane(self.session, self.root, self.pane, self.selected, self.chosen))
+            self.populate(pane)
             if result.token == self.token and result.key == self.selected:
                 self.apply(result)
         if not self.busy:
             end, generation = self.pending_history or (None, 0)
-            if self.worker.request(Request(self.selected, self.token, end, generation)):
+            if self.worker.request(Request(self.selected, self.token, end, generation, self.chosen, self.pane)):
                 self.busy = True
                 self.pending_history = None
         self.update_issue()
@@ -680,75 +687,42 @@ class View(App):
         self.update_runs()
         self.update_status()
 
-    def populate(self, rows):
+    def populate(self, pane):
         tree = self.query_one('#work', Tree)
         recent = self.query_one(RecentActivity)
-        recent.populate(rows, self.session)
+        recent.populate(pane.recent, self.session)
         cursor = tree.cursor_node
-        incoming = {row.key: row for row in rows}
-        # Until a person picks a row, the view follows the launcher's own run,
-        # which can start after the view first read the snapshot.
-        assignment = mapping(self.session.data.get('assignment'))
-        own = 'assignment:' + text(assignment.get('run'), 'claiming') if assignment else None
-        follow = own is not None and not self.chosen and own != self.selected
         previous_selection = self.selected
-        if self.selected not in incoming and not follow:
-            replacement = related_plan(incoming.values(), self.rows.get(self.selected))
-            if replacement is not None:
+        if pane.selected != self.selected:
+            replacement = related_plan(pane.rows, self.rows.get(self.selected))
+            if replacement is not None and replacement.key == pane.selected:
                 if self.selected in self.readings:
                     self.readings[replacement.key] = self.readings.pop(self.selected)
                 self.selected = replacement.key
-        # A worker may still return the previous selection while the view follows
-        # a new assignment. Only the current picked observation needs retaining.
-        incoming = {key: row for key, row in incoming.items() if row.state != 'earlier observation'
-                    or key == self.selected and not follow}
-        # A selected row disappearing from a snapshot is retained as an earlier
-        # observation; updates never replace a picked row or steal pane focus.
-        if self.selected in self.rows and self.selected not in incoming and not follow:
-            incoming[self.selected] = self.rows[self.selected]
-        # Retain a picked row's right-pane details without presenting an old run
-        # or removed attention, foreign-owned or dependency-waiting plans as live work.
-        omitted = {(plan.get('item'), text(plan.get('agent'))) for plan in
-                   snapshot_rows(mapping(self.session.data.get('latest_pass')).get('rows'), 100)
-                   if plan.get('state') == 'owned' or plan_group(plan) is None}
-        live = {key: row for key, row in incoming.items() if not row.hidden and row.group != 'Recent activity'
-                and not (row.group == 'Needs attention' and row.state == 'earlier observation')
-                and (row.group != 'Running' or key == own)
-                and (not key.startswith('plan:') or (row.item, row.agent) not in omitted)}
-        eligible_keys = [key for key, row in live.items() if row.group == 'Eligible']
-        for key in eligible_keys[ELIGIBLE_LIMIT:]:
-            del live[key]
+        live = {row.key for section in pane.sections for row in section.rows}
         for key in tuple(self.nodes):
             if key not in live:
                 self.nodes.pop(key).remove()
         previous = None
-        for name in WORK_GROUPS[:-1]:
-            grouped = [row for row in live.values() if row.group == name]
-            if not grouped and name != 'Running':
-                continue
+        for section in pane.sections:
+            name = section.name
             group = self.groups.get(name)
             if group is None:
                 group = self.groups[name] = tree.root.add(
                     Text(name), after=previous, before=0 if previous is None else None,
                     expand=True)
             previous = group
-            count = len(eligible_keys) if name == 'Eligible' else len(grouped)
-            label = f'{name} · {count}'
-            if name == 'Eligible' and count > ELIGIBLE_LIMIT:
-                label += f' · showing {ELIGIBLE_LIMIT}'
-            if name == 'Eligible' and mapping(self.session.data.get('activity')).get('state') == 'stopping':
-                label += ' · not claimed while stopping'
-            group.set_label(Text(label))
+            group.set_label(Text(section.label))
             if not group.is_expanded:
                 group.expand()
             if name == 'Running':
-                if grouped and self.idle_node is not None:
+                if not section.idle and self.idle_node is not None:
                     self.idle_node.remove()
                     self.idle_node = None
-                elif not grouped and self.idle_node is None:
+                elif section.idle and self.idle_node is None:
                     self.idle_node = group.add_leaf(
                         Text('    Idle · nothing eligible for this launcher', style='dim'))
-            for index, row in enumerate(grouped):
+            for index, row in enumerate(section.rows):
                 node = self.nodes.get(row.key)
                 if node is not None and (node.parent is not group or group.children[index] is not node):
                     node.remove()
@@ -761,20 +735,13 @@ class View(App):
             if not group.children:
                 group.remove()
                 del self.groups[name]
-        self.rows = incoming
-        tree.remember_claims(incoming)
+        self.pane = pane
+        self.rows = {row.key: row for row in pane.rows}
+        tree.remember_claims(self.rows)
         tree.root.expand()
-        title = 'Work'
-        latest = mapping(self.session.data.get('latest_pass'))
-        if latest:
-            title += ' · pass ' + text(latest.get('state'), 'partial')
-        omitted = mapping(self.session.data.get('omitted')).get('plans', 0)
-        if omitted:
-            title += f' · omitted {text(str(omitted))}'
-        self.query_one('#work_pane').border_title = Text(title)
-        if follow or self.selected is None and incoming:
-            first = next(iter(incoming.values()))
-            self.select(own if follow else first.key, chosen=False)
+        self.query_one('#work_pane').border_title = Text(pane.title)
+        if pane.selected != self.selected:
+            self.select(pane.selected, chosen=False)
             if self.selected in self.nodes:
                 tree.move_cursor(self.nodes[self.selected])
             else:
@@ -794,8 +761,12 @@ class View(App):
             self.select(event.node.data)
 
     def select(self, key, chosen=True):
+        previously_chosen = self.chosen
         self.chosen = self.chosen or chosen
         if key == self.selected:
+            if self.chosen != previously_chosen:
+                # Picking the followed run also supersedes an in-flight read.
+                self.token += 1
             return
         self.selected = key
         self.query_one(RecentActivity).refresh()
