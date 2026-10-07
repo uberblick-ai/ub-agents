@@ -5,7 +5,8 @@ guides the polish issues (#159–#166). [terminal-view.md](../terminal-view.md)
 describes what the view does today. When an issue lands, update both files.
 
 The view stays read-only. It reads the launcher's local session snapshot and run logs
-and makes no GitHub calls except `g` on the Issue and Unblock tabs. It has no workflow controls,
+and makes no GitHub calls except `g` on the Issue and Unblock tabs or activating
+Unblock with a missing snapshot notice and no cached load result. It has no workflow controls,
 so there is no retry key and no filter. `q` stops the launch after the current run;
 Ctrl-C stops it immediately. The view stays open through launcher cleanup (#287).
 
@@ -275,9 +276,26 @@ title. New notices keep Claim/Outcome links with the folded evidence; earlier
 formats omit their standalone links line. The header gives the agent, the state
 and how long it has waited. For an
 item whose trusted notice the launcher already observed, the text comes from the
-snapshot; `g` loads a missing comment from GitHub. Its `waiting … · since HH:MM`
+snapshot. Activating Unblock with `4` or a tab click loads a missing or omitted
+snapshot notice from GitHub when no result is cached; `g` loads or retries it.
+Successful and failed results share the existing in-memory cache, so reopening
+Unblock does not repeat the read. A cooldown or another pending read queues
+nothing; a later activation can try again if no result was cached. Snapshot
+notices excluded by trust checks do not auto-load. Selection changes, redraws
+and timers start no reads, including when Unblock stays active.
+Its `waiting … · since HH:MM`
 uses the same published start time and minute/hour/day format as the Work row,
 even after a GitHub load. Unknown times are omitted.
+
+To fit the 64 KiB snapshot, notices outside Needs attention are omitted first,
+then description previews are shortened and surplus history runs trimmed, then
+Needs attention notices are omitted, and finally plans and outcomes are trimmed.
+Omitted notices retain an `omitted` marker without text in the published copy;
+the launcher's retained state is unchanged. Their status reads "Comment left out
+of the snapshot to save space; loading from GitHub…" while their read is pending,
+or "Comment left out of the snapshot to save space; press g to load from GitHub."
+when no read is pending. Loads share the single read slot, cooldown and launcher
+author verification checks used by `g`.
 
 New notices show the reason first: the first action without options, or the
 summary's first sentence with options, normalized to one line and cut at 300

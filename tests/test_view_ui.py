@@ -28,7 +28,7 @@ from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, Rec
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, work_pane
 from ub_agents.view_theme import theme_style
-from ub_agents.view_unblock import ActionComment
+from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
@@ -1372,6 +1372,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             {'item': number, 'kind': kind, 'agent': 'worker', 'state': 'blocked',
              'reason': 'Needs a decision', 'title': 'Long title ' + '界' * 200}
             for number, kind in ((114, 'issue'), (12, 'pr'))]}
+        self.state['coordination_authors'] = {'operator': {'trusted': True}}
+        self.state['action_needed'] = {
+            str(number): {'text': ACTION_MARKER + 'run -->\n**Action needed**\n\nMaintainer: decide.',
+                          'author': 'operator'} for number in (114, 12)}
         self.state['outcomes'].append({'item': 114, 'run': 'handoff', 'handoff': 1235})
         publish_snapshot(self.path, self.state)
         for size in ((130, 36), (60, 16)):

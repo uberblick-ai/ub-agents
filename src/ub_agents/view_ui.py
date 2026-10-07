@@ -903,7 +903,18 @@ class View(App):
                 # visible, or prevent an explicit retry after trust is restored.
                 cached = replace(cached, body='', available=False, error=reason)
                 self.descriptions.cache[self.description_key()]['unblock'] = cached
-        return cached or local
+        return replace(cached, omitted=local.omitted) if cached else local
+
+    def load_missing_action(self):
+        """Opening Unblock may load an unseen notice, but never retry a cached result."""
+        if not self.unblock_visible:
+            return
+        local = local_action(self.rows.get(self.selected), self.session)
+        key = self.description_key()
+        if local.available or local.error or self.descriptions.get(key, 'unblock') is not None:
+            return
+        self.descriptions.request(key, 'unblock', mapping(self.session.data.get('coordination_authors')))
+        self.update_unblock()
 
     def update_unblock(self):
         visible = needs_attention(self.rows.get(self.selected))
@@ -936,14 +947,15 @@ class View(App):
             self.unblock_details_key = details_key
         extra = ''
         key = self.description_key()
-        if self.descriptions.pending == key and self.descriptions.pending_kind == 'unblock':
+        pending = self.descriptions.pending == key and key is not None and self.descriptions.pending_kind == 'unblock'
+        if pending and not comment.omitted:
             extra += 'Loading action-needed comments from GitHub…\n'
-        elif self.descriptions.pending is not None:
+        elif self.descriptions.pending is not None and not pending:
             extra += 'Another GitHub read is pending; no requests are queued.\n'
         if self.descriptions.clock() < self.descriptions.cooldown:
             reset = datetime.fromtimestamp(self.descriptions.cooldown, timezone.utc).isoformat()
             extra += f'GitHub cooldown until {reset}; no loads or retries before then.\n'
-        details = extra + comment.details(self.descriptions.clock())
+        details = extra + comment.details(self.descriptions.clock(), pending=pending)
         self.update_static(self.query_one('#unblock_note', Static), Text(details))
 
     def raw_details(self):
@@ -1231,6 +1243,14 @@ class View(App):
         if self.query_one(TabbedContent).active == 'log':
             self.query_one('#output', LogPane).save_anchor()
         self.query_one(TabbedContent).active = tab
+        if tab == 'unblock':
+            self.load_missing_action()
+
+    def on_click(self, event):
+        # Clicking an already active tab does not emit TabActivated, but is
+        # still an explicit activation after selecting a different item.
+        if self.unblock_visible and event.widget is self.query_one(ItemTabs).get_tab('unblock'):
+            self.load_missing_action()
 
     def on_tabbed_content_tab_activated(self, event):
         self.query_one(ItemTabs).border_title = Text(
@@ -1238,6 +1258,8 @@ class View(App):
         if event.pane.id == 'log' and self.is_mounted:
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
         if self.is_mounted:
+            if event.pane.id == 'unblock':
+                self.load_missing_action()
             if event.pane.id == 'runs':
                 self.last_runs = None
                 # Before its first layout a hidden table has no width, so

@@ -49,10 +49,14 @@ class ActionComment(Description):
     created_at: str = ''
     author: str = ''
     comment_id: str = ''
+    omitted: bool = False
 
-    def details(self, now=None):
+    def details(self, now=None, pending=False):
         now = time.time() if now is None else now
         lines = [] if self.available else ['No action-needed comment is cached; press g to load from GitHub.']
+        if not self.available and self.omitted:
+            suffix = 'loading from GitHub…' if pending else 'press g to load from GitHub.'
+            lines = ['Comment left out of the snapshot to save space; ' + suffix]
         if self.error:
             lines.append(self.error + ' Press g to retry.')
         if self.notice:
@@ -77,6 +81,8 @@ def needs_attention(row):
 
 def local_action(row, session):
     notice = mapping(mapping(session.data.get('action_needed')).get(str(row.item))) if row and session else {}
+    if notice.get('omitted') is True:
+        return ActionComment(omitted=True)
     if not isinstance(notice.get('text'), str) or not notice['text'].startswith(ACTION_MARKER):
         return ActionComment()
     reason = trust_reason(notice.get('author'), mapping(session.data.get('coordination_authors')))
