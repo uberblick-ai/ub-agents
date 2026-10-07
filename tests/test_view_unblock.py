@@ -10,6 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from textual.containers import VerticalScroll
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent
 
 from tests.support import RecordingDescriptionTransport
@@ -17,7 +18,7 @@ from tests.test_view_data import fixture, publish_snapshot
 from ub_agents.view_data import Description, Session, WorkRow
 from ub_agents.view_github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, DescriptionLoads,
                                    GhTransport, Response, parse_response)
-from ub_agents.view_ui import ItemTabs, View, description_parser
+from ub_agents.view_ui import ItemTabs, View, WorkTree, description_parser
 from ub_agents.view_unblock import (ACTION_MARKER, ActionComment, comment_body, local_action,
                                     comment_sections, needs_attention, stamp, unblock_metadata)
 from ub_agents.notices import action_body
@@ -37,6 +38,14 @@ OLD_PROSE_NOTICE = (ACTION_MARKER + '261 -->\n**Action needed**\n\n'
                     'Local CI is red on 0afe8c4: one test reads the launcher environment. '
                     'Maintainer: run CI outside a supervised session or merge a fix.\n\n'
                     '```sh\nub-agents retry 261 --agent integrator\n```\n')
+DESCRIPTION_TABLE = (
+    '| Kind | Examples | Home | Owner |\n'
+    '| --- | --- | --- | --- |\n'
+    '| Project guidance | build and test commands, conventions | '
+    "the repository's own AGENTS.md / CLAUDE.md, untouched by ub-agents | "
+    'the project; each runtime loads it itself |\n'
+    '| Loop contract | report_command, --action format, … | '
+    "the launcher's run prompt | ub-agents |")
 
 
 def comment(body=NOTICE, author='operator', created='2026-10-05T12:12:00Z'):
@@ -46,6 +55,27 @@ def comment(body=NOTICE, author='operator', created='2026-10-05T12:12:00Z'):
 def comments_reply(*comments):
     return json.dumps({'data': {'repository': {'issueOrPullRequest': {
         'comments': {'nodes': list(comments)}}}}}).encode()
+
+
+class DescriptionParserTests(unittest.TestCase):
+    def test_source_text_stays_inert_in_paragraphs_and_table_cells(self):
+        literals = ['[link](https://example.test)', '<https://example.test>',
+                    '![image](https://example.test/image.png)', '<b>HTML</b>',
+                    '&amp; &#27; &#x9b;', '[ref][target]']
+        reference = '[target]: https://example.test'
+        for table in (False, True):
+            with self.subTest(table=table):
+                source = ('| Source |\n| --- |\n' +
+                          '\n'.join('| ' + literal + ' |' for literal in literals) if table
+                          else '\n'.join(literals)) + '\n\n' + reference
+                tokens = description_parser().parse(source)
+                children = [child for token in tokens for child in token.children or []]
+                rendered = '\n'.join(child.content for child in children if child.type == 'text')
+                for literal in [*literals, reference]:
+                    self.assertIn(literal, rendered)
+                self.assertFalse(any(token.type in {'link_open', 'image', 'html_inline', 'html_block'}
+                                     for token in [*tokens, *children]))
+                self.assertFalse(any('href' in child.attrs or 'src' in child.attrs for child in children))
 
 
 class UnblockDataTests(unittest.TestCase):
@@ -303,6 +333,50 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             if condition():
                 return
         self.fail('View did not become ready')
+
+    async def test_github_tables_wrap_and_strikethrough_renders_in_all_description_panes(self):
+        body = DESCRIPTION_TABLE + '\n\n~~gone~~\nfirst\nsecond'
+        self.state['latest_pass']['rows'][-2]['description'] = {'available': True, 'text': body}
+        self.state['action_needed']['178']['text'] = (
+            ACTION_MARKER + 'table -->\n**Action needed**\n\n' + body +
+            '\n\n<details>\n<summary>Reasoning and evidence</summary>\n\n' + body + '\n\n</details>')
+        publish_snapshot(self.path, self.state)
+        app = self.app
+        async with app.run_test(size=(80, 40)) as pilot:
+            await self.ready(pilot, lambda: app.local_description is not None)
+            tree = app.query_one(WorkTree)
+            tree.move_cursor(app.nodes['plan:178:worker'])
+            await pilot.press('enter', '2')
+            for pane in ('issue_body', 'unblock_body', 'unblock_details_body'):
+                with self.subTest(pane=pane):
+                    if pane == 'unblock_body':
+                        await pilot.press('4')
+                    elif pane == 'unblock_details_body':
+                        app.query_one('#unblock_details', Collapsible).collapsed = False
+                    markdown = app.query_one('#' + pane, Markdown)
+                    await self.ready(pilot, lambda: len(markdown.query('MarkdownTableContent')) == 1
+                                     and markdown.query_one('MarkdownTableContent').region.width > 0)
+                    self.assertEqual(markdown.source, body)
+                    self.assertEqual(len(markdown.query('MarkdownTable')), 1)
+                    table = markdown.query_one('MarkdownTableContent')
+                    self.assertEqual([header.plain for header in table.headers],
+                                     ['Kind', 'Examples', 'Home', 'Owner'])
+                    self.assertEqual(len(table.rows), 2)
+                    self.assertTrue(all(len(row) == 4 for row in table.rows))
+                    cells = list(table.query('.cell'))
+                    self.assertEqual(len(cells), 8)
+                    for cell in table.query('MarkdownTableCellContents'):
+                        self.assertGreaterEqual(cell.region.x, markdown.content_region.x)
+                        self.assertLessEqual(cell.region.right, markdown.content_region.right)
+                    lines = cells[2].render_lines(cells[2].size.region)
+                    self.assertGreater(sum(bool(line.text.strip()) for line in lines), 1)
+                    self.assertEqual(markdown.query_ancestor(VerticalScroll).max_scroll_x, 0)
+                    paragraph = markdown.query_one('MarkdownParagraph').render()
+                    self.assertEqual(paragraph.plain, 'gone\nfirst\nsecond')
+                    self.assertTrue(any(span.style == '.s' and paragraph.plain[span.start:span.end] == 'gone'
+                                        for span in paragraph.spans))
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_new_notice_details_start_collapsed_expand_and_reset_for_another_item(self):
         asks = ['Owner: approve Q&A rollout -> staged with ~2h downtime; recommend staged when load < capacity.',
