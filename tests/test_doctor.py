@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -59,24 +60,37 @@ agents:
             render(result, json_output, verbose)
         return output.getvalue()
 
-    def cli(self, json_output=False, verbose=False):
+    def cli(self, json_output=False, verbose=False, *, terminal=False, stdout_terminal=None, ci='', answer=''):
+        def respond(question):
+            if isinstance(answer, Exception):
+                raise answer
+            return answer(question) if callable(answer) else answer
+
         with patch("ub_agents.doctor.subprocess.run", self.runner), \
                 patch("ub_agents.doctor.shutil.which", self.which), \
                 patch("ub_agents.doctor.GitHub", return_value=self.github), \
+                patch("ub_agents.labels.sys.stdin.isatty", return_value=terminal), \
+                patch.dict("os.environ", {"CI": ci}), \
+                patch("builtins.input", side_effect=respond) as prompt, \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
-            code = main(["--config", str(self.path), "doctor"]
-                        + (["--json"] if json_output else []) + (["--verbose"] if verbose else []))
+            with patch.object(stdout, "isatty", return_value=terminal if stdout_terminal is None else stdout_terminal):
+                code = main(["--config", str(self.path), "doctor"]
+                            + (["--json"] if json_output else []) + (["--verbose"] if verbose else []))
         self.assertEqual(stderr.getvalue(), "")
+        self.prompt = prompt
         return code, stdout.getvalue()
 
     def test_success_json_schema_and_stable_human_order(self):
         result = self.diagnose()
         self.assertTrue(result["ok"])
-        self.assertEqual(result["version"], 1)
+        self.assertEqual(result["version"], 2)
         self.assertEqual([c["id"] for c in result["checks"]][:4], ["python", "platform", "git", "gh"])
         self.assertEqual(len({c["id"] for c in result["checks"]}), len(result["checks"]))
         for check in result["checks"]:
-            self.assertEqual(set(check), {"id", "status", "required", "agent", "runtime", "message", "remedy"})
+            expected = {"id", "status", "required", "agent", "runtime", "message", "remedy"}
+            if check["id"].startswith("github-label:"):
+                expected.add("uses")
+            self.assertEqual(set(check), expected)
             self.assertIn(check["status"], {"ok", "warn", "fail", "skip"})
             self.assertIsInstance(check["required"], bool)
         self.assertIn("0 required failures, 0 warnings", self.capture(result))
@@ -137,7 +151,7 @@ agents:
         self.github.label_names.append("workflow:next")
         result = self.diagnose()
         self.assertTrue(all(c["status"] == "ok" for c in result["checks"]))
-        self.assertEqual(len(self.checks(result, "github-label")), 9)
+        self.assertEqual(len(self.checks(result, "github-label")), 3)
         expected = ("ok machine: 7 checks passed\n"
                     "ok configuration: 11 checks passed\n"
                     "ok GitHub: 5 checks passed, 3 labels present\n"
@@ -161,11 +175,13 @@ agents:
         def attention(output):
             return [line for line in output.splitlines()
                     if line.startswith(("warn ", "fail ", "  remedy:"))]
-        # Area grouping may reorder checks, but must retain every repeated consumer.
+        # Area grouping may reorder checks, but must retain every label and remedy.
         self.assertCountEqual(attention(default), attention(verbose))
         self.assertEqual(default.splitlines()[-1], verbose.splitlines()[-1])
-        self.assertIn("fail github-label:ready:worker worker Label ready is missing", default)
-        self.assertIn("fail github-label:ready:reviewer reviewer Label ready is missing", default)
+        label_line = next(line for line in default.splitlines() if line.startswith("fail github-label:ready "))
+        self.assertIn("starts worker on an issue", label_line)
+        self.assertIn("starts reviewer on an issue", label_line)
+        self.assertEqual(default.count("fail github-label:ready "), 1)
         self.assertIn("warn github-launcher-role - Launcher account operator has admin", default)
         self.assertIn("ok GitHub: 4 checks passed\n", default)
         self.assertIn("skip runtimes: 1 skipped\n", default)
@@ -220,22 +236,22 @@ agents:
         checks = [
             dict(id="runtime-auth:worker:codex:model-a:high", status="skip", required=True,
                  agent="worker", runtime="codex:model-a:high", message="executable unavailable", remedy=None),
-            dict(id="github-label:ready:worker", status="fail", required=True,
-                 agent="worker", runtime=None, message="Label ready is missing", remedy="Create ready"),
+            dict(id="github-label:ready", status="fail", required=True,
+                 agent=None, runtime=None, message="Label ready is missing", remedy="Create ready", uses=[]),
             dict(id="github-auth", status="ok", required=True,
                  agent=None, runtime=None, message="authenticated as operator", remedy=None),
             dict(id="github-launcher-role", status="warn", required=False,
                  agent=None, runtime=None, message="elevated account", remedy="Use write"),
         ]
-        result = {"version": 1, "ok": False, "checks": checks}
+        result = {"version": 2, "ok": False, "checks": checks}
         self.assertEqual(self.capture(result, verbose=True),
                          "skip runtime-auth:worker:codex:model-a:high worker/codex:model-a:high executable unavailable\n"
-                         "fail github-label:ready:worker worker Label ready is missing\n"
+                         "fail github-label:ready - Label ready is missing\n"
                          "  remedy: Create ready\n"
                          "ok github-auth - authenticated as operator\n"
                          "warn github-launcher-role - elevated account\n"
                          "  remedy: Use write\n"
-                         "1 required failures, 1 warnings\n")
+                         "1 required failure, 1 warning\n")
         # Areas consisting entirely of failures/warnings have no summary line.
         checks[:] = [c for c in checks if c["status"] in {"warn", "fail"}]
         self.assertEqual(self.capture(result), self.capture(result, verbose=True))
@@ -377,7 +393,8 @@ agents:
         self.assertEqual(len(failures), 3)
         for check, name in zip(failures, ['ready', 'review-next', 'old-state']):
             self.assertTrue(check['required'])
-            self.assertEqual(check['agent'], 'worker')
+            self.assertIsNone(check['agent'])
+            self.assertEqual([use['agent'] for use in check['uses']], ['worker'])
             self.assertIn(name, check['message'])
             self.assertIn('worker', check['message'])
             self.assertIn(f'gh label create {name} --repo org/project', check['remedy'])
@@ -395,7 +412,7 @@ agents:
         self.assertTrue(all(check['status'] == 'ok' for check in self.checks(self.diagnose(), 'github-label')))
         self.assertEqual(self.github.writes, [])
 
-    def test_stop_label_used_by_a_transition_has_both_required_and_stop_checks(self):
+    def test_stop_label_used_by_a_transition_is_one_required_check_with_both_uses(self):
         self.path.write_text(self.path.read_text().replace('    outcomes: {done: {}}\n', '''    outcomes:
       needs-human: {add: [needs-human]}
 '''))
@@ -404,7 +421,151 @@ agents:
         self.assertFalse(result['ok'])
         missing = [check for check in self.checks(result, 'github-label') if check['status'] != 'ok']
         self.assertEqual([(check['status'], check['agent']) for check in missing],
-                         [('fail', 'worker'), ('warn', None)])
+                         [('fail', None)])
+        self.assertEqual(missing[0]['uses'], [
+            {'agent': 'worker', 'meaning': 'added to the destination by worker outcome needs-human', 'required': True},
+            {'agent': None, 'meaning': 'parks an issue or PR until a person decides', 'required': False},
+        ])
+        self.assertIn('1 required failure, 0 warnings', self.capture(result))
+
+    def test_shared_missing_label_has_one_line_remedy_and_json_result_for_all_uses(self):
+        self.path.write_text(self.path.read_text().replace('outcomes: {done: {}}',
+                                                         'outcomes: {done: {remove: [READY]}}') + '''  reviewer:
+    command: [git, --version]
+    trigger: READY
+    outcomes: {done: {}}
+''')
+        self.github.label_names = []
+        result = self.diagnose()
+        labels = self.checks(result, 'github-label')
+        self.assertEqual([check['id'] for check in labels], ['github-label:ready', 'github-label:needs-human'])
+        self.assertIsNone(labels[0]['agent'])
+        self.assertEqual(labels[0]['uses'], [
+            {'agent': 'worker', 'meaning': 'starts worker on an issue or PR', 'required': True},
+            {'agent': 'worker', 'meaning': 'removed from the assignment by worker outcome done', 'required': True},
+            {'agent': 'reviewer', 'meaning': 'starts reviewer on an issue or PR', 'required': True},
+        ])
+        self.assertEqual(labels[1]['uses'], [
+            {'agent': None, 'meaning': 'parks an issue or PR until a person decides', 'required': False},
+        ])
+        for verbose in (False, True):
+            output = self.capture(result, verbose=verbose)
+            lines = [line for line in output.splitlines() if line.startswith('fail github-label:ready ')]
+            self.assertEqual(len(lines), 1)
+            for use in labels[0]['uses']:
+                self.assertIn(use['meaning'], lines[0])
+            self.assertEqual(output.count('gh label create ready '), 1)
+            self.assertEqual(output.count('gh label create needs-human '), 1)
+            self.assertEqual(output.splitlines()[-1], '1 required failure, 1 warning')
+        code, output = self.cli(json_output=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output), result)
+
+    def test_confirmed_creation_follows_report_and_rereads_labels_before_final_counts(self):
+        for verbose in (False, True):
+            with self.subTest(verbose=verbose):
+                self.github.label_names = ['unrelated']
+                self.github.reads.clear()
+                self.github.writes.clear()
+
+                def answer(question):
+                    report = sys.stdout.getvalue()
+                    self.assertIn('1 required failure, 1 warning', report)
+                    self.assertIn('starts worker on an issue', report)
+                    self.assertIn('parks an issue or PR until a person decides', report)
+                    self.assertEqual(self.github.writes, [])
+                    return ' YeS '
+
+                code, output = self.cli(terminal=True, answer=answer, verbose=verbose)
+                self.prompt.assert_called_once_with('Create these 2 labels on org/project? [y/N] ')
+                self.assertEqual(code, 0)
+                self.assertEqual([write[1] for write in self.github.writes], ['ready', 'needs-human'])
+                self.assertEqual(self.github.reads.count('repos/org/project/labels'), 2)
+                self.assertEqual(self.github.reads.count('user'), 1)
+                self.assertEqual(output.count('fail github-label:ready '), 1)
+                self.assertIn('Created label ready on org/project.', output)
+                self.assertEqual(output.splitlines()[-1], '0 required failures, 0 warnings')
+
+    def test_confirmed_creation_never_changes_existing_labels(self):
+        self.github.label_names = ['READY', 'unrelated']
+        code, output = self.cli(terminal=True, answer='y')
+        self.assertEqual(code, 0)
+        self.assertEqual([write[1] for write in self.github.writes], ['needs-human'])
+        self.assertEqual(self.github.label_names, ['READY', 'unrelated', 'needs-human'])
+        self.assertEqual(self.github.reads.count('repos/org/project/labels'), 2)
+        self.assertEqual(output.splitlines()[-1], '0 required failures, 0 warnings')
+
+    def test_second_label_read_controls_exit_status_even_after_successful_writes(self):
+        self.github.label_names = []
+        with patch.object(self.github, 'labels', side_effect=[[], ['needs-human']]) as labels:
+            code, output = self.cli(terminal=True, answer='yes')
+        self.assertEqual(code, 1)
+        self.assertEqual(labels.call_count, 2)
+        self.assertEqual(len(self.github.writes), 2)
+        self.assertEqual(output.splitlines()[-1], '1 required failure, 0 warnings')
+
+    def test_unreadable_second_label_read_fails_without_exposing_private_errors(self):
+        self.github.label_names = []
+        with patch.object(self.github, 'labels', side_effect=[[], AgentError('ghp_private')]):
+            code, output = self.cli(terminal=True, answer='yes')
+        self.assertEqual(code, 1)
+        self.assertIn('fail github-labels - GitHub labels failed', output)
+        self.assertNotIn('ghp_private', output)
+        self.assertEqual(output.splitlines()[-1], '1 required failure, 0 warnings')
+
+    def test_second_read_reports_new_missing_labels_and_quota_warnings(self):
+        self.github.label_names = ['needs-human']
+        responses = iter([['needs-human'], []])
+
+        def labels():
+            names = next(responses)
+            if not names:
+                self.github.quota_headers['x-ratelimit-remaining'] = '0'
+            return names
+
+        with patch.object(self.github, 'labels', side_effect=labels):
+            code, output = self.cli(terminal=True, answer='yes')
+        self.assertEqual(code, 1)
+        self.assertEqual(output.count('fail github-label:ready '), 1)
+        self.assertEqual(output.count('warn github-label:needs-human '), 1)
+        self.assertIn('warn github-rate-limit - 0 of 5000 requests remaining', output)
+        self.assertEqual(output.splitlines()[-1], '1 required failure, 2 warnings')
+
+    def test_decline_default_unrecognized_answer_and_eof_keep_commands_without_writes(self):
+        for answer in ('no', '', 'maybe', EOFError()):
+            with self.subTest(answer=answer):
+                self.github.label_names = []
+                self.github.reads.clear()
+                code, output = self.cli(terminal=True, answer=answer)
+                self.prompt.assert_called_once_with('Create these 2 labels on org/project? [y/N] ')
+                self.assertEqual(code, 1)
+                self.assertEqual(self.github.writes, [])
+                self.assertEqual(self.github.reads.count('repos/org/project/labels'), 1)
+                self.assertEqual(output.count('gh label create '), 2)
+                self.assertEqual(output.splitlines()[-1], '1 required failure, 1 warning')
+
+    def test_pipes_ci_and_json_never_prompt_or_create_labels(self):
+        for terminal, stdout_terminal, ci, json_output in (
+                (False, True, '', False), (True, False, '', False),
+                (True, True, 'true', False), (True, True, '0', False), (True, True, '', True)):
+            with self.subTest(terminal=terminal, stdout_terminal=stdout_terminal, ci=ci, json_output=json_output):
+                self.github.label_names = []
+                self.github.reads.clear()
+                code, output = self.cli(terminal=terminal, stdout_terminal=stdout_terminal, ci=ci,
+                                        json_output=json_output, answer='yes')
+                self.assertEqual(code, 1)
+                self.prompt.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assertEqual(self.github.reads.count('repos/org/project/labels'), 1)
+                self.assertEqual(output.count('gh label create '), 2)
+
+    def test_present_or_unreadable_labels_do_not_prompt(self):
+        for error in (None, AgentError('unavailable')):
+            with self.subTest(error=error):
+                self.github.label_error = error
+                self.cli(terminal=True, answer='yes')
+                self.prompt.assert_not_called()
+                self.assertEqual(self.github.writes, [])
 
     def test_unreadable_labels_fail_and_hide_private_errors(self):
         for error in (AgentError('ghp_private sk-private'), subprocess.TimeoutExpired('gh', 20)):
@@ -447,7 +608,7 @@ agents:
         self.assertEqual(code, 0)
         self.assertEqual(output.count('warn runtime-permissions '), 1)
         self.assertEqual(output.count(url), 1)
-        self.assertIn('0 required failures, 1 warnings', output)
+        self.assertIn('0 required failures, 1 warning', output)
         self.assertEqual(self.capture(result, verbose=True).count('warn runtime-permissions '), 1)
         self.assertEqual(self.github.writes, [])
 
@@ -558,6 +719,23 @@ agents:
                     self.assertEqual(self.one(result, id)["status"], "ok")
         self.path.unlink()
         self.assertIn("ub-agents init", self.one(self.diagnose(), "config")["remedy"])
+
+    def test_before_init_names_selected_configuration_and_uses_singular_failure(self):
+        self.path.unlink()
+        for name in ('ub-agents.yaml', 'workflow.yaml'):
+            with self.subTest(name=name):
+                self.path = self.root / name
+                result = self.diagnose()
+                self.assertEqual(self.one(result, 'config')['message'], f'no {name} here; run ub-agents init')
+                code, output = self.cli(terminal=True, answer='yes')
+                self.assertEqual(code, 1)
+                self.assertEqual(output.splitlines()[-1], '1 required failure, 0 warnings')
+                self.prompt.assert_not_called()
+
+    def test_final_counts_pluralize_failures_and_warnings_independently(self):
+        self.github.label_names = []
+        self.missing.add('git')
+        self.assertEqual(self.capture(self.diagnose()).splitlines()[-1], '2 required failures, 1 warning')
 
     def test_instruction_read_failure(self):
         original = Path.read_text

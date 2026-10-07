@@ -47,7 +47,8 @@ def parser():
                                  "Use after editing the workflow or before launching it.",
                                  examples=("ub-agents check", "ub-agents check --config workflow.yaml"))
     doctor = commands.add_parser("doctor", help="Diagnose setup or launch issues",
-                                 description="Check machine, GitHub and runtime prerequisites without changing them. "
+                                 description="Check machine, GitHub and runtime prerequisites. "
+                                 "Create missing workflow labels only after a confirmed interactive prompt. "
                                  "Show warnings and failures with a summary per area by default; "
                                  "use --verbose for every check. "
                                  "Use during setup or to diagnose launch failures; required failures exit nonzero.",
@@ -339,9 +340,17 @@ def run(args):
         print(json.dumps(read_item(GitHub(policy["repository"]), args.number, policy), indent=2))
         return
     if args.command == "doctor":
-        from .doctor import diagnose, render
-        result = diagnose(args.config)
+        from .doctor import Doctor, render, render_check, render_counts
+        doctor = Doctor()
+        result = doctor.run(args.config)
         render(result, json_output=args.json, verbose=args.verbose)
+        if not args.json and doctor.create_missing_labels():
+            previous = result["checks"]
+            result = doctor.result()
+            for check in result["checks"]:
+                if check["status"] in {"fail", "warn"} and check not in previous:
+                    render_check(check)
+            render_counts(result)
         return 0 if result["ok"] else 1
     config = load_config(args.config)
     if args.command == "launch" and args.agent is not None:

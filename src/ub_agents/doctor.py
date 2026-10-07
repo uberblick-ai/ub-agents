@@ -1,4 +1,4 @@
-"""Read-only prerequisite diagnostics. Probe output stays private."""
+"""Prerequisite diagnostics and confirmed label setup. Probe output stays private."""
 
 from dataclasses import asdict, dataclass
 import json
@@ -14,7 +14,7 @@ from .approvals import Roles, resolve_policy
 from .errors import AgentError
 from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
-from .labels import configured_labels
+from .labels import LabelUse, configured_labels, confirm_label_creation
 from .records import iso
 from .refresh import control_checkout_checks
 from .trust import WRITERS
@@ -57,6 +57,7 @@ class Check:
     runtime: str | None
     message: str
     remedy: str | None
+    uses: list[LabelUse] | None = None
 
 
 class Doctor:
@@ -66,13 +67,15 @@ class Doctor:
         self.github = github
         self.access = access or os.access
         self.checks = []
+        self.config = None
+        self.missing_labels = []
 
-    def add(self, id, status, message, remedy=None, *, required=True, agent=None, runtime=None):
+    def add(self, id, status, message, remedy=None, *, required=True, agent=None, runtime=None, uses=None):
         # Scope repeated checks with stable configuration identities.
         scope = [id] + ([agent.name] if agent else []) + ([runtime.name] if runtime else [])
         self.checks.append(Check(":".join(scope), status, required,
                                  agent.name if agent else None, runtime.name if runtime else None,
-                                 public(message), public(remedy) if remedy else None))
+                                 public(message), public(remedy) if remedy else None, uses))
 
     def probe(self, command, cwd=None):
         try:
@@ -112,7 +115,7 @@ class Doctor:
             self.add("config", "ok", f"{config.repository}, {len(config.agents)} agents")
         except (AgentError, OSError, UnicodeError) as exc:
             missing = not Path(path).exists()
-            self.add("config", "fail", str(exc),
+            self.add("config", "fail", f"no {Path(path).name} here; run ub-agents init" if missing else str(exc),
                      "Run ub-agents init to create the configuration" if missing else
                      "Fix the configuration error in the selected YAML file")
         if config:
@@ -148,6 +151,7 @@ class Doctor:
             for id in ("repository-root", "repository-remote"):
                 self.add(id, "skip", "configuration unavailable" if not config else "git unavailable")
         github = self.github or GitHub(config.repository if config else "", runner=self.runner)
+        self.config, self.github = config, github
         metadata = None
         login = None
         if gh_ready:
@@ -254,8 +258,27 @@ class Doctor:
         except AgentError as exc:
             self.add("process-inspection", "fail", str(exc),
                      "Supervision needs ps; install/allow ps (sandboxes may block process inspection)")
-        return {"version": 1, "ok": not any(c.required and c.status == "fail" for c in self.checks),
-                "checks": [asdict(c) for c in self.checks]}
+        return self.result()
+
+    def result(self):
+        checks = []
+        for check in self.checks:
+            value = asdict(check)
+            if check.uses is None:
+                del value["uses"]
+            checks.append(value)
+        return {"version": 2, "ok": not any(c.required and c.status == "fail" for c in self.checks),
+                "checks": checks}
+
+    def create_missing_labels(self):
+        if not confirm_label_creation(self.config, self.github, self.missing_labels):
+            return False
+        # Recheck labels rather than treating successful writes as proof they exist.
+        self.checks = [check for check in self.checks
+                       if check.id.split(":", 1)[0] not in {"github-label", "github-labels", "github-rate-limit"}]
+        self.labels(self.config, self.github)
+        self.rate_limit(self.github.quota_headers, self.github.rate_limited)
+        return True
 
     def rate_limit(self, headers, limited):
         try:
@@ -310,25 +333,22 @@ class Doctor:
             self.add("github-permissions", "skip", "repository response unavailable")
 
     def labels(self, config, github):
+        self.missing_labels = []
         try:
             existing = {name.casefold() for name in github.labels()}
         except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
             self.add("github-labels", "fail", self.github_failure("labels", exc),
                      f"Authenticate with gh auth login and obtain access to {config.repository}")
             return
-        agents = {agent.name: agent for agent in config.agents}
         for label in configured_labels(config):
-            # One check per label and consuming agent; a stop use stays a warning
-            # even when the same label is required by an outcome transition.
-            for name in dict.fromkeys(use.agent for use in label.uses):
-                uses = [use for use in label.uses if use.agent == name]
-                present = label.name.casefold() in existing
-                required = any(use.required for use in uses)
-                self.add(f"github-label:{label.name}", "ok" if present else "fail" if required else "warn",
-                         f"Label {label.name} {'exists' if present else 'is missing'}: "
-                         + "; ".join(use.meaning for use in uses),
-                         None if present else label.command(config.repository),
-                         required=required, agent=agents.get(name))
+            present = label.name.casefold() in existing
+            required = any(use.required for use in label.uses)
+            self.add(f"github-label:{label.name}", "ok" if present else "fail" if required else "warn",
+                     f"Label {label.name} {'exists' if present else 'is missing'}: {label.explanation}",
+                     None if present else label.command(config.repository),
+                     required=required, uses=list(label.uses))
+            if not present:
+                self.missing_labels.append(label)
 
     def agents(self, config):
         usable = {}
@@ -435,11 +455,7 @@ def render_area(area, checks):
         elif check["status"] == "skip":
             skipped += 1
         elif check["id"].startswith("github-label:"):
-            # Remove only the agent scope; label names can themselves contain colons.
-            id = check["id"]
-            if check["agent"]:
-                id = id.removesuffix(f":{check['agent']}")
-            labels.add(id.casefold())
+            labels.add(check["id"].casefold())
         else:
             passed += 1
     summary = []
@@ -467,6 +483,11 @@ def render(result, json_output=False, verbose=False):
             groups[CHECK_AREAS[check["id"].split(":", 1)[0]]].append(check)
         for area, checks in groups.items():
             render_area(area, checks)
+    render_counts(result)
+
+
+def render_counts(result):
     failures = sum(c["required"] and c["status"] == "fail" for c in result["checks"])
     warnings = sum(c["status"] == "warn" for c in result["checks"])
-    print(f"{failures} required failures, {warnings} warnings")
+    print(f"{failures} required failure{'s' if failures != 1 else ''}, "
+          f"{warnings} warning{'s' if warnings != 1 else ''}")

@@ -55,8 +55,9 @@ ub-agents launch       # run the loop in the foreground; Ctrl-C stops it
 ```
 
 `doctor` shows every warning and failure with its remedy, then summarizes passed
-and skipped checks by area. Labels are counted once per distinct label. Use
-`doctor --verbose` for the full per-check list, or `doctor --json` for all
+and skipped checks by area. Each label has one result naming every agent and use,
+and counts once in the totals. Use `doctor --verbose` for the full per-check list,
+or `doctor --json` for all
 structured results; `--verbose` does not change JSON output.
 
 Interactive launches open a read-only [terminal view](docs/terminal-view.md) of
@@ -86,12 +87,16 @@ warning below 10% remaining. See [polling and retry limits](docs/configuration.m
 for the waits and failure limit. `launch --once` and `status` fail on the first
 error.
 
-In an interactive terminal, `init` explains the missing workflow labels and offers
-to create them; the default is no. Otherwise it prints runnable `gh label create`
-commands. Noninteractive runs make no GitHub calls beyond repository inference.
-Existing labels are never changed. `doctor` fails for missing trigger or transition
-labels and warns for missing stop labels. `launch` refuses to start when a trigger
-or transition label is missing and points to `ub-agents doctor` for setup commands.
+In an interactive terminal, `init` and `doctor` explain the missing workflow labels
+and offer to create them; the default is no. They write labels only after a confirmed
+`y` or `yes` and never change existing labels. `doctor` offers after its report,
+then reads the labels again so its final counts and exit status reflect that read.
+Declining, end of input, CI, pipes and `doctor --json` leave runnable `gh label create`
+commands without creating labels. Noninteractive `init` makes no GitHub calls beyond
+repository inference; `doctor` still reads GitHub to diagnose prerequisites.
+`doctor` fails for labels with any trigger or transition use and warns for labels
+used only to stop work. `launch` refuses to start when a trigger or transition label
+is missing and points to `ub-agents doctor` for setup commands.
 
 In an interactive terminal, `init` also asks once whether to enable starter
 [permissions](docs/configuration.md#runtime-permissions) for all four agents;

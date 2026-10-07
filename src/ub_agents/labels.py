@@ -1,4 +1,4 @@
-"""Configured workflow labels and explicitly confirmed starter provisioning."""
+"""Configured workflow labels and explicitly confirmed provisioning."""
 
 from dataclasses import dataclass
 import os
@@ -19,6 +19,10 @@ class LabelUse:
 class Label:
     name: str
     uses: tuple[LabelUse, ...]
+
+    @property
+    def explanation(self):
+        return "; ".join(use.meaning for use in self.uses)
 
     @property
     def description(self):
@@ -64,6 +68,22 @@ def print_commands(labels, repository, reason):
         print(label.command(repository))
 
 
+def confirm_label_creation(config, github, missing):
+    """Share init's prompt; the caller has already explained every missing use."""
+    if not missing or os.environ.get("CI") or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    try:
+        answer = input(f"Create these {len(missing)} labels on {config.repository}? [y/N] ")
+    except EOFError:
+        answer = ""
+    if answer.strip().casefold() not in {"y", "yes"}:
+        return False
+    for label in missing:
+        github.create_label(label.name, label.description, label.color)
+        print(f"Created label {label.name} on {config.repository}.")
+    return True
+
+
 def provision_labels(config, github):
     labels = configured_labels(config)
     if os.environ.get("CI") or not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -80,14 +100,6 @@ def provision_labels(config, github):
         return
     print(f"Missing workflow labels on {config.repository}:")
     for label in missing:
-        print(f"  {label.name}: {'; '.join(use.meaning for use in label.uses)}")
-    try:
-        answer = input(f"Create these {len(missing)} labels on {config.repository}? [y/N] ")
-    except EOFError:
-        answer = ""
-    if answer.strip().casefold() not in {"y", "yes"}:
+        print(f"  {label.name}: {label.explanation}")
+    if not confirm_label_creation(config, github, missing):
         print_commands(missing, config.repository, "Label creation declined; no labels were written")
-        return
-    for label in missing:
-        github.create_label(label.name, label.description, label.color)
-        print(f"Created label {label.name} on {config.repository}.")
