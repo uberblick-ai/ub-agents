@@ -7,7 +7,7 @@ import re
 
 import yaml
 
-from .errors import AgentError
+from .errors import AgentError, InstructionError
 from .github import REPOSITORY
 
 DEFAULT_CONFIG = "ub-agents.yaml"
@@ -86,9 +86,9 @@ def number(value, where, integer=False, zero=False):
 def project_path(root, value, where):
     path = (root / string(value, where)).resolve()
     if not path.is_relative_to(root):
-        raise AgentError(f"{where} must remain inside the project")
+        raise InstructionError(f"{where} must remain inside the project")
     if not path.is_file():
-        raise AgentError(f"{where} does not exist: {path}")
+        raise InstructionError(f"{where} does not exist: {path}")
     return path
 
 
@@ -99,7 +99,7 @@ def instruction_text(root, path, where):
     try:
         return validated.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
-        raise AgentError(f"{where} is unreadable: {path}: {exc}") from exc
+        raise InstructionError(f"{where} is unreadable: {path}: {exc}") from exc
 
 
 CLIS = ("codex", "claude")

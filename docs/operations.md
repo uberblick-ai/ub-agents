@@ -77,6 +77,13 @@ upgrading any.
 
 ## When things go wrong
 
+Checkout refresh failures, unconfirmed cleanup and GitHub request failures end
+`launch` with one `ub-agents:` line naming the problem and the next step, including
+`launch --once` and `launch N`. Resolve the reported problem before launching again.
+If cleanup cannot confirm termination, make `ps` usable or confirm the named process
+group has exited. Retained artifacts remain subject to
+[stale artifact cleanup](configuration.md#stale-artifact-cleanup).
+
 Before its first pass, `launch` requires a clean control checkout on the default
 branch with no commits outside the local `origin` ref. `doctor` warns about the
 same checkout conditions during setup; it does not fetch or fast-forward.
