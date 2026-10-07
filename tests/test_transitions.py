@@ -375,6 +375,7 @@ class TransitionTests(unittest.TestCase):
         for stage in ('ownership', 'outcome', 'item', 'start-before', 'start-after', 'accept-after'):
             with self.subTest(stage=stage):
                 self.setUp()
+                (self.root / 'ub-agents.yaml').touch()
                 with ExitStack() as stack:
                     def interrupt_completion(outcome):
                         if stage in ('ownership', 'outcome', 'item'):

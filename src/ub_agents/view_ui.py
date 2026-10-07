@@ -649,6 +649,10 @@ class View(App):
         return self.readings.setdefault(self.selected, Reading())
 
     def tick(self):
+        # Textual clears is_running before removing screen widgets, while
+        # refresh timers may still fire until teardown closes the message pump.
+        if not self.is_running:
+            return
         self.descriptions.poll()
         try:
             result = self.worker.results.get_nowait()

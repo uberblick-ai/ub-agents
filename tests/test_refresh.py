@@ -780,6 +780,6 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 redirect_stdout(io.StringIO()), redirect_stderr(error):
             self.assertEqual(main(["launch", "--once"]), 1)
-        self.assertIn("Control checkout refresh stopped", error.getvalue())
+        self.assertIn("control checkout is dirty", error.getvalue())
         self.assertIn("dirty", error.getvalue())
         self.assertEqual(self.github.writes, [])

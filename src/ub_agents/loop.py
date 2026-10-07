@@ -22,7 +22,7 @@ from .execution import ScratchDirectory, Workspace, command_for, repository_chec
 from .report_command import launcher_report_command
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
-from .polling import idle_interval
+from .polling import idle_interval, poll_delay
 from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
@@ -90,6 +90,7 @@ class Loop:
         self._launch_number = None
         self._launch_agent = None
         self._launcher_reason = None
+        self._has_trigger = None
         self._maintaining = False
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
@@ -241,6 +242,9 @@ class Loop:
         github = self.discovery if cached else Discovery(self.github)
         lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
+        triggers = {label for agent in self.config.agents for label in agent.triggers}
+        self._has_trigger = any(item.state == "open" and item.labels.intersection(triggers)
+                                for item in items.values())
         self._observe("discovered", items, self.config.agents, True)
         coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
                                   queue=self.config.queue, output=self.output,
@@ -1235,6 +1239,8 @@ class Loop:
             if self.stop_event.is_set():
                 return
             if once:
+                if not worked and self._launch_number is None and self._has_trigger is False:
+                    self.output(self.idle_message())
                 return (0 if worked else 1) if self._launch_number is not None else None
             elapsed = monotonic() - self._pass_started
             interval = self.config.poll_seconds
@@ -1246,12 +1252,20 @@ class Loop:
                                               self.github.resource_quotas,
                                               self.coordinator.clock(), elapsed)
                 interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
-                if idle_state != low:
-                    self.output(f"No eligible work; next poll in {max(0, interval - elapsed) / 60:g} min "
+                message = self.idle_message()
+                if idle_state != (low, message):
+                    self.output(f"{message}; next poll in {poll_delay(max(0, interval - elapsed))} "
                                 f"({requests} requests last poll)")
-                idle_state = low
+                idle_state = (low, message)
             delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
                 self._wait(self.stop_event, delay, "next poll or runtime pause")
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
+
+    def idle_message(self):
+        if self._has_trigger is False:
+            labels = dict.fromkeys(label for agent in self.config.agents for label in agent.triggers)
+            return (f"No open issue or PR has a trigger label ({', '.join(labels)}); "
+                    "add one to start")
+        return "No eligible work"

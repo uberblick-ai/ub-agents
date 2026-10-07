@@ -477,6 +477,7 @@ class UsageLoopTests(unittest.TestCase):
 
     def test_signals_interrupt_runtime_pause_wait(self):
         from ub_agents.records import timestamp
+        (self.root / "ub-agents.yaml").touch()
         settings = replace(self.loop.config, poll_seconds=5000)
         for sig in (signal.SIGINT, signal.SIGTERM):
             with self.subTest(signal=sig):
@@ -491,6 +492,7 @@ class UsageLoopTests(unittest.TestCase):
                     signal.raise_signal(sig)
 
                 with patch("ub_agents.cli.load_config", return_value=settings), \
+                        patch("ub_agents.cli.launch_checks"), \
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch.object(Loop, "tick", autospec=True, side_effect=tick), \

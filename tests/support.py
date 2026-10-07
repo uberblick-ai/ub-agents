@@ -216,6 +216,9 @@ class FakeGitHub:
     def default_branch(self):
         return "main"
 
+    def labels(self):
+        return ["ready", "needs-changes", "needs-review", "needs-human"]
+
     def prs_for_branch(self, branch, state="open"):
         return [item for item in self.items.values()
                 if item.kind == "pr" and item.branch == branch and (state == "all" or item.state == state)]
@@ -440,6 +443,9 @@ class RecordingRunner:
         self.calls = []
         self.responses = {
             ("git", "-C", str(root), "rev-parse", "--show-toplevel"): str(root),
+            ("git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"): "main",
+            ("git", "-C", str(root), "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"): "",
+            ("git", "-C", str(root), "rev-list", "--left-right", "--count", "HEAD...refs/remotes/origin/main"): "0\t0",
             ("git", "-C", str(root), "remote", "get-url", "origin"): "git@github.com:org/project.git",
             ("git", "-C", str(root), "check-ignore", "-q", ".ub-agents/"): "",
             ("ps", "-axo", "pid=,pgid=,stat="): f"{os.getpid()} {os.getpgrp()} S\n",
@@ -564,7 +570,8 @@ class DoctorGitHub(FakeGitHub):
         self.quota_headers = {"x-ratelimit-remaining": "5000", "x-ratelimit-limit": "5000",
                                  "x-ratelimit-reset": "1000"}
         self.rate_limited = False
-        self.metadata = {"full_name": "org/project", "permissions": {"triage": True}, "visibility": "public"}
+        self.metadata = {"full_name": "org/project", "permissions": {"triage": True}, "visibility": "public",
+                         "default_branch": "main"}
 
     def actor(self):
         self.reads.append("user")

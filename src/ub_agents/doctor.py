@@ -16,6 +16,7 @@ from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import configured_labels
 from .records import iso
+from .refresh import control_checkout_checks
 from .trust import WRITERS
 
 
@@ -28,7 +29,8 @@ AUTH_PROBES = {"codex": ("codex", "login", "status"),
 
 AREAS = {
     "machine": ("python", "platform", "git", "gh", "process-inspection", "local-state", "local-state-ignored"),
-    "configuration": ("config", "instructions", "repository-root", "repository-remote", "approvals"),
+    "configuration": ("config", "instructions", "repository-root", "repository-remote", "approvals",
+                      "control-checkout", "control-checkout-branch", "control-checkout-dirty", "control-checkout-origin"),
     "GitHub": ("github-auth", "github-repository", "github-permissions", "github-labels", "github-label",
                "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit",
                "github-retrospectives"),
@@ -193,6 +195,17 @@ class Doctor:
             self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
             self.add("github-permissions", "skip", "repository response unavailable")
             self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
+        default = metadata.get("default_branch") if metadata else None
+        if config and git_ready and isinstance(default, str) and default:
+            for id, error in control_checkout_checks(config, default, read_git):
+                self.add(id, "warn" if error else "ok", str(error) if error else
+                         {"control-checkout-branch": f"control checkout is on {default}",
+                          "control-checkout-dirty": "control checkout is clean",
+                          "control-checkout-origin": f"control checkout has no commits outside origin/{default}"}[id],
+                         required=False)
+        else:
+            self.add("control-checkout", "skip", "configuration unavailable" if not config else
+                     "git unavailable" if not git_ready else "repository default branch unavailable", required=False)
         if config and config.approvals is None and metadata is None:
             self.add("approvals", "skip", "gh unavailable" if not gh_ready else
                      "repository response unavailable")

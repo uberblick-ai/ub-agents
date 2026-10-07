@@ -24,6 +24,7 @@ class PollingTests(unittest.TestCase):
         clock.start()
         self.addCleanup(clock.stop)
         self.refresh = stub_refresh(self)
+        self.enterContext(patch("ub_agents.cli.launch_checks"))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -73,7 +74,7 @@ class PollingTests(unittest.TestCase):
                 execute.assert_called_once()
                 waits.assert_called_once()
                 self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), 1)
-                self.assertNotIn("No eligible work; next poll in 0.0166667 min (0 requests last poll)", self.lines)
+                self.assertFalse(any("next poll in" in line for line in self.lines))
 
     def test_failed_reads_through_claim_revalidation_never_write(self):
         cases = [("observe", [], Queue()), ("repository_comments", [], Queue()),
@@ -131,7 +132,8 @@ class PollingTests(unittest.TestCase):
         with patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         self.assertEqual(delays, [5, 10, self.config.poll_seconds, 5])
-        self.assertEqual(self.lines.count("No eligible work; next poll in 0.0166667 min (0 requests last poll)"), 1)
+        self.assertEqual(self.lines.count("No open issue or PR has a trigger label (ready, needs-changes); "
+                                          "add one to start; next poll in 1s (0 requests last poll)"), 1)
 
     def test_completed_work_poll_resets_failure_count(self):
         failure = self.http_error()

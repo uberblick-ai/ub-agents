@@ -114,6 +114,36 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         app.exit()
                     app.worker.thread.join(2)
 
+    async def test_tick_ignores_pending_result_during_screen_teardown(self):
+        for attached in (False, True):
+            with self.subTest(attached=attached):
+                app = View(self.root, self.path, launcher=Mock() if attached else None)
+                close_all = app._close_all
+
+                async def close_all_with_late_tick():
+                    # run_test has begun shutdown, but the refresh timer can
+                    # still fire while Textual removes the screen's widgets.
+                    await app.query_one(UpdateBanner).remove()
+                    with (patch.object(app.descriptions, 'poll') as poll,
+                          patch.object(app.worker.results, 'get_nowait',
+                                       return_value=Mock(session=app.session)) as result,
+                          patch.object(app.worker, 'request') as request):
+                        app.tick()
+                        poll.assert_not_called()
+                        result.assert_not_called()
+                        request.assert_not_called()
+                    await close_all()
+
+                with patch.object(app, '_close_all', side_effect=close_all_with_late_tick) as teardown:
+                    async with app.run_test(size=(110, 32)) as pilot:
+                        await self.ready(app, pilot)
+                        if attached:
+                            await pilot.press('q')
+                            self.assertFalse(app._exit)
+                    teardown.assert_awaited_once()
+                self.assertTrue(app.worker.stopping.is_set())
+                app.worker.thread.join(2)
+
     async def test_poll_key_on_every_tab_pane_and_overlay_only_for_attached_launcher(self):
         self.state['latest_pass']['rows'].append(
             {'item': 20, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
