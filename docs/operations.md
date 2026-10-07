@@ -38,8 +38,8 @@ error.
 | Signal or key | Effect | Exit |
 |---|---|---|
 | `q` in the view | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup. A centered shutdown screen stays visible until exit; idle launchers exit promptly. | 0 |
-| `SIGTERM` (`kill -TERM <pid>`) | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup; an in-progress checkout refresh finishes without a claim. When idle it exits promptly. | 0 |
-| `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`, including when idle or during a GitHub request. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
+| `SIGTERM` (`kill -TERM <pid>`) | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup; an in-progress checkout refresh or setup finishes without a claim. When idle it exits promptly. | 0 |
+| `SIGINT` (Ctrl-C) | Terminates the active agent and prints `Stopped; supervised execution terminated`, including when idle or during a GitHub request. During checkout setup, terminates setup and names its log and recovery step. After confirmed cleanup the lease is released as an operator interrupt: attempt count unchanged, eligible on the next launch without backoff. Also applies during a SIGTERM drain. | 130 |
 | `SIGHUP` | Same as Ctrl-C. | 130 |
 | Further `SIGTERM` | During a SIGTERM drain: no change, the drain continues. After Ctrl-C or SIGHUP: does not interrupt process-group termination, cleanup or release. | unchanged |
 
@@ -98,6 +98,16 @@ with a nonzero exit and an actionable message; fix the checkout and restart.
 No attempt is charged, and the assignment is not marked blocked or retrying.
 Refresh happens between executions and cleanup hooks, never during a run or
 durable-outcome recovery.
+Projects can configure [checkout setup](configuration.md#checkout-setup) to
+reinstall control-checkout dependencies after watched files change. The view and
+plain output show setup running and the file that triggered it; command output is
+captured in the named log. A failed exit, start failure, timeout or interruption
+ends launch before a claim, without charging an attempt or marking the item blocked
+or retrying. Read the log, fix the install in the named checkout, and launch again.
+Setup stays pending and retries even if there is nothing left to pull, until it
+succeeds. If process termination could not be confirmed, follow the message's
+process-group recovery step before retrying.
+
 Instruction text and configuration stay fixed for each run; PR candidates are not
 rebased. See [Stopping and restarting](#stopping-and-restarting) for signal handling
 during checkout refresh and how to restart after code updates.

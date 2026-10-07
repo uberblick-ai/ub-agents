@@ -72,6 +72,7 @@ All optional:
 | `approvals`, `trusted-bots` | [Approvals](/docs/configuration/approvals.html) |
 | `launchers` | [Launcher accounts](/docs/configuration/launchers.html) |
 | `cleanup` | [Cleanup hook](/docs/configuration/cleanup.html) |
+| `checkout-setup` | [Checkout setup](/docs/configuration/checkout-setup.html) |
 | `runtime-updates` | [Runtime updates](/docs/configuration/runtime-updates.html) |
 
 ## Another file

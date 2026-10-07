@@ -10,6 +10,10 @@ class CheckoutRefreshError(AgentError):
     """An actionable control checkout refresh failure."""
 
 
+class CheckoutSetupInterrupted(KeyboardInterrupt):
+    """An interrupted install with its log and recovery step, still exit 130."""
+
+
 class GitHubError(AgentError):
     """A named request failure, with conservative poll retry metadata."""
 

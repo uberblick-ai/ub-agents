@@ -5,6 +5,13 @@ queue:
   milestones: ignore
   dependencies: wait
 
+# Reinstall control-checkout dependencies after watched files change on refresh.
+# Upgrade every launcher before enabling this setting.
+# checkout-setup:
+#   command: [mise, run, install]
+#   when-changed: [pnpm-lock.yaml, mise.toml]
+#   timeout-seconds: 600
+
 # Customize these outcomes and rules with the project's owners.
 agents:
   issue-preparer:

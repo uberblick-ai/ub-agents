@@ -1289,6 +1289,19 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport.response = parse_response(reply(title, body), b'', 0, 1000)
         return transport
 
+    async def test_checkout_setup_activity_names_triggering_file(self):
+        self.state['activity'] = {'state': 'checkout setup running: pnpm-lock.yaml changed'}
+        self.state['assignment'] = None
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(160, 32)) as pilot:
+            await self.ready(app, pilot, lambda: 'checkout setup running' in
+                             app.query_one('#status', Static).render().plain)
+            self.assertIn('checkout setup running: pnpm-lock.yaml changed',
+                          app.query_one('#status', Static).render().plain)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_one_line_footer_version_activity_and_session_diagnostics(self):
         now = datetime.now(timezone.utc)
         self.state['base_version'] = '9.8.7'

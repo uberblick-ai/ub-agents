@@ -29,6 +29,7 @@ The launcher pins its repository and input configuration; worktree edits and
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
+| `checkout-setup` | Optional control-checkout setup command, run after refresh when watched files change. |
 | `runtime-updates` | Optional daily maintenance policy for Claude Code, Codex and the launcher's GitHub CLI (`gh`). |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
@@ -309,6 +310,49 @@ unlisted authenticated account.
 **Upgrading:** older launchers trust only their own account. Stop all launchers
 and upgrade them together before mixing accounts. Omitting `launchers` requires
 no configuration change for an existing single-account setup with write access.
+
+## Checkout setup
+
+```yaml
+checkout-setup:
+  command: [mise, run, install]
+  when-changed: [pnpm-lock.yaml, mise.toml]
+  timeout-seconds: 600
+```
+
+Use this to reinstall the control checkout's dependencies when a launcher pulls
+a lockfile or tool configuration change. Without `checkout-setup`, no command runs.
+`command` is a nonempty argv list, run without a shell in the control checkout.
+`when-changed` is a nonempty list of literal repository-relative file paths;
+absolute paths, directories and `..` components are rejected. Paths can name files added or
+deleted by the pull. `timeout-seconds` is a positive number, defaults to 600,
+and cannot exceed 3600. Unknown keys are errors.
+
+Before each new run, after fetching, fast-forwarding and reloading configuration,
+the launcher compares these files with the last commit where setup succeeded.
+Until the first successful setup, it uses the HEAD before the fast-forward.
+That baseline is saved before the fast-forward, so stopping launch or failing
+configuration reload cannot lose a watched-file change before setup runs.
+If any watched file differs, the command runs once before claiming a role.
+An unrelated change or a refresh with nothing to pull skips setup, unless a
+previous setup failed. A commit can add this setting and a lockfile change together.
+This does not detect pulls made by hand outside the launcher.
+
+The terminal view and plain output name the file that triggered setup. Command
+output goes only to the reported log file. Setup records and logs live outside
+the checkout, under the user's state directory (`$XDG_STATE_HOME/ub-agents/checkouts/`,
+or `~/.local/state/ub-agents/checkouts/`), keyed by the control checkout's path.
+The command should keep tracked files unchanged and use ignored paths for installed
+dependencies so the next refresh still has a clean checkout.
+
+A nonzero exit, start failure, timeout or interruption stops launch before a claim,
+without spending an attempt or marking the item blocked or retrying. The message
+names the cause, log and next step. Failed setup remains pending and runs again on
+the next launch, even with nothing to pull, until it succeeds. See
+[operations](operations.md#when-things-go-wrong) for recovery.
+
+**Upgrading:** Upgrade every launcher of a project before adding `checkout-setup`
+to its `ub-agents.yaml`; older versions reject the unknown key.
 
 ## Project cleanup hook
 

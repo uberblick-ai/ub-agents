@@ -142,10 +142,8 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
         except AgentError as exc:
             next_step = "fix origin access and launch again"
             raise AgentError(f"fetch of origin/{default} failed: {exc}") from exc
-        if on_fetch is None:
-            head = git(root, "rev-parse", remote)
-        else:
-            head, previous = git(root, "rev-parse", remote, "HEAD").splitlines()
+        head, previous = git(root, "rev-parse", remote, "HEAD").splitlines()
+        if on_fetch is not None:
             on_fetch(default, previous, head)
         ahead, behind = map(int, git(root, "rev-list", "--left-right", "--count",
                                     f"HEAD...{head}").split())
@@ -173,8 +171,10 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
             next_step = "restore readable, valid instruction files and launch again"
             instruction_text(root, config.shared_instructions, "shared-instructions")
             return instruction_text(root, agent.instructions, where)
-    except GitHubError:
+        return previous
+    except (GitHubError, CheckoutRefreshError):
         # This pre-claim read is discovery: preserve its request and retry metadata.
+        # Setup baseline failures already name their own recovery step.
         raise
     except (AgentError, OSError, UnicodeError) as exc:
         # Git may append several paragraphs of advice; keep the actual error.

@@ -714,7 +714,7 @@ class TargetedLaunchTests(unittest.TestCase):
     def test_refresh_rechecks_only_target_and_refuses_new_stop_label(self):
         self.config = replace(self.config, launchers=("operator", "peer"))
 
-        def refresh(*_):
+        def refresh(*_, on_fetch=None):
             self.github.change(11, labels=frozenset({"ready", "needs-human"}))
 
         code, stdout, _, run = self.launch("11", refresh=refresh)
@@ -733,7 +733,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 self.config = replace(self.config, launchers=("operator", "peer"))
                 self.github.roles["operator"] = "write"
 
-                def refresh(*_):
+                def refresh(*_, on_fetch=None):
                     self.config = replace(self.config, launchers=launchers)
                     self.github.roles["operator"] = role
 
@@ -753,7 +753,7 @@ class TargetedLaunchTests(unittest.TestCase):
         writes = self.github.writes[:]
         self.github.reads.clear()
 
-        def refresh(*_):
+        def refresh(*_, on_fetch=None):
             self.config = replace(self.config, launchers=("OPERATOR", "PEER"))
 
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
@@ -769,7 +769,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.config = replace(self.config, launchers=("operator", "peer"))
         self.github.roles["peer"] = "write"
 
-        def refresh(*_):
+        def refresh(*_, on_fetch=None):
             peer = self.coordinator(AccountGitHub(self.github, "peer"))
             lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
             peer.update(lease, state="running", started=True)

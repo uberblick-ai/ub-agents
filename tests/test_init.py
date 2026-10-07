@@ -56,6 +56,9 @@ class InitTests(unittest.TestCase):
         code, output, error, prompt = self.init(infer=True)
         self.assertEqual((code, error), (0, ''))
         config = load_config(self.path)
+        self.assertIsNone(config.checkout_setup)
+        self.assertIn('# checkout-setup:', self.path.read_text())
+        self.assertIn('#   when-changed: [pnpm-lock.yaml, mise.toml]', self.path.read_text())
         names = [label.name for label in configured_labels(config)]
         self.assertEqual(set(names), {'needs-preparation', 'ready', 'needs-human', 'needs-changes',
                                      'needs-review', 'ready-to-merge'})
