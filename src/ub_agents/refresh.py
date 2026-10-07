@@ -177,7 +177,8 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
         # This pre-claim read is discovery: preserve its request and retry metadata.
         raise
     except (AgentError, OSError, UnicodeError) as exc:
-        detail = " ".join(str(exc).split())
+        # Git may append several paragraphs of advice; keep the actual error.
+        detail = " ".join(str(exc).splitlines()[0].split())
         raise CheckoutRefreshError(f"{root}: {detail}; {next_step}") from exc
 
 

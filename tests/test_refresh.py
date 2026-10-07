@@ -606,6 +606,19 @@ class RefreshTests(unittest.TestCase):
         self.stopped("fast-forward to origin/main failed", "resolve the checkout's merge error and launch again")
         self.assertEqual(lock.read_text(), "Existing synthetic lock")
 
+    def test_fast_forward_error_omits_multiline_git_advice(self):
+        self.push_policy()
+
+        def fail_merge(root, *args, **kwargs):
+            if "merge" in args:
+                raise AgentError("Git operation failed: synthetic lock\n\nLong Git advice\nMore Git advice")
+            return git(root, *args, **kwargs)
+
+        with patch("ub_agents.refresh.git", side_effect=fail_merge):
+            message = self.stopped("fast-forward to origin/main failed", "resolve the checkout's merge error and launch again")
+        self.assertEqual(message, f"ub-agents: {self.root}: fast-forward to origin/main failed: "
+                         "Git operation failed: synthetic lock; resolve the checkout's merge error and launch again\n")
+
     def test_fast_forward_refuses_to_overwrite_ignored_local_files(self):
         (self.root / "ignored").write_text("Operator local data")
         (self.upstream / "ignored").write_text("New upstream tracked file")
