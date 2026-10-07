@@ -258,5 +258,9 @@ class LogReader:
                     self.anchor = (self.anchor + chunk[:consumed])[-ANCHOR_BYTES:]
                 self.error = None
         except OSError as exc:
-            self.error = shorten(inert(str(exc)))
+            if isinstance(exc, FileNotFoundError) and self.file_id is None:
+                # The view can attach before the supervisor creates process.log.
+                self.error = None
+            else:
+                self.error = shorten(inert(str(exc)))
         return self.snapshot()

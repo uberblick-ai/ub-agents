@@ -2240,10 +2240,18 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
                 output = app.query_one(LogPane)
+                note = app.query_one('#log_note', Static)
+                self.assertIsNone(app.reading.log.error)
+                self.assertEqual(app.reading.empty_message, 'No log output yet.')
+                self.assertNotIn('Read error:', note.render().plain)
+                self.assertNotIn('Read error:', app.raw_details())
                 reader = app.worker.readers[str(self.log)]
                 await pilot.press('g')
                 await self.ready(app, pilot, lambda: app.worker.readers[str(self.log)] is not reader
-                                 and app.reading.log.error is not None)
+                                 and app.reading.page is not None)
+                self.assertIsNone(app.reading.log.error)
+                self.assertNotIn('Read error:', note.render().plain)
+                self.assertNotIn('Read error:', app.raw_details())
                 self.assertEqual(app.reading.empty_message, 'No log output yet.')
                 self.assertEqual(app.reading.page.refs, ())
                 await pilot.press('f', 'u')
