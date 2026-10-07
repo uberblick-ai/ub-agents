@@ -427,9 +427,22 @@ Claude and Codex Log transcripts are described below.
 | `p` | Show the full raw file path, byte ranges and retention diagnostics; `Escape` closes it |
 | `r` (attached launcher) | Poll GitHub now while idle, or refresh the queue read-only during a run; at most once per 10 seconds |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the log; scrolling up pauses follow |
+| Mouse drag and release | Copy the selected text to the clipboard through OSC 52, including in the `p` and `?` overlays |
+| `y` | Copy the current selection again; do nothing without a selection |
 | `?` | Show all keys; `Escape` or `?` closes help |
 | `q` | Stop after the current run or recovery, with no new claims (exit 0); close a standalone view |
 | `Ctrl-C` | Stop now with the launcher's normal SIGINT handling (exit 130); close a standalone view |
+
+Each copy briefly shows `copied N characters` in the footer. Plain clicks and
+empty selections copy nothing. OSC 52 works over ssh and inside herdr when the
+terminal accepts it. In iTerm2, enable **Applications in terminal may access
+clipboard** for OSC 52. Terminal.app does not support OSC 52.
+
+On macOS, the view also uses `pbcopy` when it is on PATH and neither
+`SSH_CONNECTION` nor `SSH_TTY` is set. This covers local terminals that do not
+accept OSC 52. A failed or slow `pbcopy` does not delay the view or prevent the
+OSC 52 copy. Use **Option-drag** for the terminal's own selection. Ctrl-C remains
+the stop key.
 
 On an attached view, either stop key replaces the panes, header, update banner,
 footer and any overlay with a centered full-screen message until the launcher

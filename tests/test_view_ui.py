@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import io
 import json
 import os
@@ -9,7 +10,7 @@ import tempfile
 import threading
 import unittest
 from xml.etree import ElementTree
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 from rich.console import Console
 from rich.text import Text
@@ -32,6 +33,119 @@ from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_mouse_release_and_y_copy_exact_selection_in_panes_and_overlays(self):
+        launcher = Mock()
+        app = View(self.root, self.path, launcher=launcher)
+        value = '  café α\nsecond line  '
+        selected = 'café α\nsecond line'
+        sequence = '\x1b]52;c;' + base64.b64encode(selected.encode('utf-8')).decode('ascii') + '\a'
+        with (patch('ub_agents.view_ui.local_pbcopy', return_value=None),
+              patch.object(app, 'raw_details', return_value=value)):
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                await app.query_one('#issue VerticalScroll').mount(
+                    Static(Text(value), id='copy_sample'), before=app.query_one('#issue_text'))
+                for key, selector in (('2', '#copy_sample'), ('p', '#raw_details'), ('?', '#raw_details')):
+                    with self.subTest(surface=key):
+                        await pilot.press(key)
+                        widget = app.screen.query_one(selector, Static)
+                        widget.update(Text(value))
+                        await pilot.pause()
+                        footer = app.screen.query_one('#raw_status' if key != '2' else '#status', Static)
+                        with patch.object(app._driver, 'write') as write:
+                            def clipboard_writes():
+                                return [call.args[0] for call in write.call_args_list
+                                        if call.args[0].startswith('\x1b]52;')]
+
+                            await pilot.mouse_down(widget, offset=(2, 0))
+                            await pilot.hover(widget, offset=(10, 1))
+                            self.assertEqual(clipboard_writes(), [])
+                            await pilot.mouse_up(widget, offset=(10, 1))
+                            self.assertEqual(app.screen.get_selected_text(), selected)
+                            self.assertEqual(app.clipboard, selected)
+                            self.assertEqual(clipboard_writes(), [sequence])
+                            self.assertEqual(footer.render().plain.strip(), f'copied {len(selected)} characters')
+                            self.assertEqual(footer.render().cell_length, footer.size.width)
+                            self.assertFalse(app._exit)
+                            self.assertIsNone(app.shutdown)
+                            if key == '2':
+                                await self.ready(app, pilot, lambda: 'copied' not in footer.render().plain)
+                                self.assertIn('q quit', footer.render().plain)
+                            await pilot.press('y')
+                            self.assertEqual(clipboard_writes(), [sequence, sequence])
+                            self.assertEqual(footer.render().plain.strip(), f'copied {len(selected)} characters')
+                        if key != '2':
+                            await pilot.press('escape')
+                launcher.drain.assert_not_called()
+                launcher.interrupt.assert_not_called()
+                with patch.object(app, 'copy_to_clipboard') as copy:
+                    await pilot.press('ctrl+c')
+                    copy.assert_not_called()
+                launcher.interrupt.assert_called_once_with()
+                self.assertFalse(app._exit)
+                app.exit()
+        app.worker.thread.join(2)
+
+    async def test_click_empty_selection_and_y_without_selection_copy_nothing(self):
+        app = View(self.root, self.path)
+        with (patch.object(app, 'copy_to_clipboard') as copy,
+              patch('ub_agents.view_ui.local_pbcopy') as pbcopy):
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                for key in ('2', 'p', '?'):
+                    await pilot.press(key)
+                    selector = '#issue_text' if key == '2' else '#raw_details'
+                    widget = app.screen.query_one(selector, Static)
+                    await pilot.click(widget)
+                    await pilot.press('y')
+                    # A drag across blank text yields an empty string rather than None.
+                    with patch.object(app.screen, 'get_selected_text', return_value=''):
+                        app.action_copy_selection()
+                    copy.assert_not_called()
+                    pbcopy.assert_not_called()
+                    self.assertEqual(app.copy_notice, '')
+                    self.assertFalse(app._exit)
+                    if key != '2':
+                        await pilot.press('escape')
+                await pilot.press('ctrl+c')
+            self.assertTrue(app._exit)
+            copy.assert_not_called()
+        app.worker.thread.join(2)
+
+    async def test_pbcopy_worker_does_not_delay_osc52_keyboard_or_stop(self):
+        launcher = Mock()
+        app = View(self.root, self.path, launcher=launcher)
+        process = Mock(returncode=None, wait=AsyncMock())
+        started = asyncio.Event()
+
+        async def communicate(value):
+            started.set()
+            await asyncio.Event().wait()
+
+        process.communicate = AsyncMock(side_effect=communicate)
+        with (patch('ub_agents.view_ui.local_pbcopy', return_value='/usr/bin/pbcopy'),
+              patch('ub_agents.view_clipboard.asyncio.create_subprocess_exec',
+                    new=AsyncMock(return_value=process))):
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                with (patch.object(app.screen, 'get_selected_text', return_value='selected text'),
+                      patch.object(app, 'copy_to_clipboard') as copy):
+                    await pilot.press('y')
+                    copy.assert_called_once_with('selected text')
+                    await asyncio.wait_for(started.wait(), timeout=1)
+                    self.assertIn('copied 13 characters', app.query_one('#status', Static).render().plain)
+                    self.assertFalse(app._exit)
+                    await pilot.press('2')
+                    self.assertEqual(app.query_one(TabbedContent).active, 'issue')
+                    await pilot.press('ctrl+c')
+                    launcher.interrupt.assert_called_once_with()
+                    self.assertFalse(app._exit)
+                    copy.assert_called_once_with('selected text')
+                    app.exit()
+            process.kill.assert_called_once_with()
+            process.wait.assert_awaited_once_with()
+        app.worker.thread.join(2)
+
     async def test_shutdown_replaces_every_surface_keeps_elapsed_time_and_allows_interrupt(self):
         now = datetime.now(timezone.utc)
         self.state['histories']['114']['kind'] = 'pr'
@@ -1292,6 +1406,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn(key, help_text)
                 self.assertIn('q   Stop after run; close a standalone view', help_text)
                 self.assertIn('Ctrl-C   Stop now; close a standalone view', help_text)
+                self.assertIn('Mouse drag   Copy selected text on release (OSC 52)', help_text)
+                self.assertIn('y   Copy the current selection again', help_text)
+                self.assertIn('Applications in terminal may access clipboard', help_text)
+                self.assertIn("Option-drag selects with the terminal's own selection", help_text)
                 await pilot.press('f', 'h', 'u', 'g', 'p', '2', 'pageup', 'pagedown', 'home', 'end')
                 self.assertIsInstance(app.screen, KeyHelp)
                 await pilot.press(close)

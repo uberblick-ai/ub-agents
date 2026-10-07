@@ -1,6 +1,7 @@
 """Actual owned PTY acceptance, separate from Textual headless pilots."""
 
 from datetime import datetime, timedelta, timezone
+import base64
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,66 @@ from tests.terminal import Terminal
 from tests.test_view_data import event, fixture, publish_snapshot
 
 class TerminalViewTests(unittest.TestCase):
+    def test_mouse_copy_and_y_in_real_terminal_restore_after_ctrl_c(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, _, _ = fixture(root)
+            proof = root / 'proof.json'
+            script = '''
+import pathlib, sys
+from ub_agents.view_ui import RawAccess, View
+class ProofView(checkpoint_view(View, sys.argv[3])):
+    copies = 0
+    def copy_to_clipboard(self, value):
+        self.copies += 1
+        super().copy_to_clipboard(value)
+    def proof_values(self):
+        overlay = isinstance(self.screen, RawAccess)
+        widget = self.screen.query_one('#raw_details' if overlay else '#issue_text')
+        footer = self.screen.query_one('#raw_status' if overlay else '#status')
+        return {'ready': self.last_context is not None, 'screen': type(self.screen).__name__,
+                'tab': self.query_one('#panes').active, 'copies': self.copies,
+                'clipboard': self.clipboard, 'selection': self.screen.get_selected_text(),
+                'content': widget.render().plain, 'region': list(widget.region),
+                'footer': footer.render().plain}
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
+'''
+            with Terminal(script, root, path, proof, proof=proof) as terminal:
+                terminal.checkpoint(lambda value: value['ready'])
+                copies = 0
+                for key, screen in ((b'2', 'Screen'), (b'p', 'RawAccess'), (b'?', 'KeyHelp')):
+                    terminal.send(key)
+                    surface = terminal.checkpoint(lambda value: value['screen'] == screen
+                                                  and (screen != 'Screen' or value['tab'] == 'issue'))
+                    x, y = surface['region'][:2]
+                    expected = surface['content'].splitlines()[0][:4]
+                    sequence = b'\x1b]52;c;' + base64.b64encode(expected.encode('utf-8')) + b'\a'
+                    terminal.send(f'\x1b[<0;{x + 1};{y + 1}M\x1b[<32;{x + 4};{y + 1}M'.encode('ascii'))
+                    selected = terminal.checkpoint(lambda value: value['selection'] == expected)
+                    self.assertEqual(selected['copies'], copies)
+                    terminal.send(f'\x1b[<0;{x + 4};{y + 1}m'.encode('ascii'))
+                    copies += 1
+                    released = terminal.checkpoint(lambda value: value['copies'] == copies)
+                    self.assertEqual(released['clipboard'], expected)
+                    self.assertIn('copied 4 characters', released['footer'])
+                    terminal.expect(sequence)
+                    terminal.send(b'y')
+                    copies += 1
+                    repeated = terminal.checkpoint(lambda value: value['copies'] == copies)
+                    self.assertEqual(repeated['clipboard'], expected)
+                    terminal.expect(sequence)
+                    terminal.send(f'\x1b[<0;{x + 1};{y + 1}M\x1b[<0;{x + 1};{y + 1}m'.encode('ascii'))
+                    cleared = terminal.checkpoint(lambda value: value['selection'] is None)
+                    self.assertEqual(cleared['copies'], copies)
+                    terminal.send(b'y')
+                    normal = terminal.checkpoint(lambda value: 'copied' not in value['footer'])
+                    self.assertEqual(normal['copies'], copies)
+                    if screen != 'Screen':
+                        terminal.send(b'\x1b')
+                        terminal.checkpoint(lambda value: value['screen'] == 'Screen')
+                terminal.send(b'\x03')
+                terminal.wait_exit()
+
     def test_claiming_log_pickup_and_g_reload_in_real_terminal(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

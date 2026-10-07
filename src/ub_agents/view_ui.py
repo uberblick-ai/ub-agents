@@ -23,6 +23,7 @@ from textual.strip import Strip
 from textual.screen import ModalScreen
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
+from .view_clipboard import copy_with_pbcopy, local_pbcopy
 from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
                         related_assignment, related_plan, run_status, text, work_pane)
 from .view_github import DescriptionLoads
@@ -162,9 +163,15 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             'p   Show the full raw path and log diagnostics; Escape closes it\n'
             + poll_key +
             'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
+            'Mouse drag   Copy selected text on release (OSC 52)\n'
+            'y   Copy the current selection again\n'
             '?   Open or close this help; Escape also closes it\n'
             'q   Stop after run; close a standalone view\n'
-            'Ctrl-C   Stop now; close a standalone view')
+            'Ctrl-C   Stop now; close a standalone view\n\n'
+            'Copy works over ssh and inside herdr. Local macOS also uses pbcopy when available.\n'
+            'In iTerm2, enable "Applications in terminal may access clipboard" for OSC 52.\n'
+            'Terminal.app does not support OSC 52; local macOS uses pbcopy instead.\n'
+            "Option-drag selects with the terminal's own selection.")
 
 
 @dataclass
@@ -410,6 +417,7 @@ class View(App):
     BINDINGS = [
         Binding('q', 'quit', 'Stop after run', priority=True),
         Binding('ctrl+c', 'stop_now', 'Stop now', priority=True),
+        Binding('y', 'copy_selection', 'Copy selection', priority=True),
         Binding('enter', 'open_item', 'Open item', priority=True),
         Binding('escape', 'back', 'Back', priority=True),
         Binding('f', 'follow', 'Follow/pause', priority=True),
@@ -461,6 +469,8 @@ class View(App):
         self.too_small = False
         self.item_view = False
         self.layout_focus = None
+        self.copy_notice = ''
+        self.copy_notice_until = 0
 
     def compose(self) -> ComposeResult:
         yield Static('', id='shutdown', markup=False)
@@ -614,6 +624,22 @@ class View(App):
         elif self.shutdown != 'stopping':
             self.begin_shutdown('stopping')
             self.call_after_refresh(self.launcher.interrupt)
+
+    def on_text_selected(self):
+        self.action_copy_selection()
+
+    def action_copy_selection(self):
+        value = self.screen.get_selected_text()
+        if not value:
+            return
+        self.copy_to_clipboard(value)
+        command = local_pbcopy()
+        if command is not None:
+            self.run_worker(copy_with_pbcopy(command, value), group='clipboard',
+                            exclusive=True, exit_on_error=False)
+        self.copy_notice = f'copied {len(value)} characters'
+        self.copy_notice_until = time.monotonic() + 2
+        self.update_status()
 
     def begin_shutdown(self, mode):
         self.shutdown = mode
@@ -1048,6 +1074,11 @@ class View(App):
         return unread, lag
 
     def footer(self, width, keys):
+        if time.monotonic() < self.copy_notice_until:
+            notice = Text(self.copy_notice, no_wrap=True, overflow='ellipsis')
+            notice.truncate(max(0, width), overflow='ellipsis')
+            notice.pad_right(max(0, width - notice.cell_len))
+            return notice
         parts = ['' if self.narrow else 'ub-agents']
         if self.session:
             version = text(self.session.data.get('base_version'), '')
