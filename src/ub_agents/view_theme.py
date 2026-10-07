@@ -13,6 +13,7 @@ VIEW_THEME = Theme(
     accent='#b79cff', success='#7ee2a0', error='#ff8b7f', warning='#ff8b7f',
     variables={
         'view-accent': '#b79cff',
+        'view-link': '#6cb6ff',
         'view-assistant': '#c8cdd6',
         'view-muted': '#6b7484',
         'view-border': '#2a303b',
@@ -39,6 +40,7 @@ def variable_defaults(theme):
     foreground, background = Color.parse(colors['foreground']), Color.parse(colors['background'])
     return {
         'view-accent': colors['accent' if theme.dark else 'primary'],
+        'view-link': colors['text-primary'],
         'view-assistant': foreground.blend(background, 0.05).hex,
         'view-muted': foreground.blend(background, 0.4).hex,
         'view-border': colors['surface-lighten-2' if theme.dark else 'surface-darken-2'],

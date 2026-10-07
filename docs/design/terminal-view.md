@@ -160,8 +160,11 @@ pane's two-column inset; labels sit one column right of the shared header.
 The pane's rounded border is titled `Log`, `Issue` or `Runs`.
 Unblock appears only for Needs attention rows. Each tab
 starts with the same item header: `#N title` (issue) or `⌥N title` (PR) in bold,
-then agent · runtime · attempt · PR in dim text and a dashed rule. Missing values
-are omitted. The running assignment shows `attempt N`; planned work shows
+then agent · runtime · attempt · PR in dim text and a dashed rule. The header's
+number, including `#` or `⌥`, is an underlined link that opens the item on GitHub.
+It keeps the title color (with `⌥` in accent) at rest and turns link blue on hover;
+the rest of the title stays unchanged. Without a GitHub URL, it has no link styling.
+Missing values are omitted. The running assignment shows `attempt N`; planned work shows
 `F/M failures`. A session outcome's linked PR shows as `⌥N` (#162).
 
 ### Log
@@ -438,6 +441,7 @@ Colors, as Textual theme variables with these dark-theme values:
   background #0d1016 · panel/footer #161a22 · text #d4d9e1 · dim #6b7484
   assistant text (view-assistant, italic without dimming) #c8cdd6
   accent (focus border, pane titles, launcher lines, ⌥) #b79cff · selection row #1b2030
+  link hover (view-link, underlined header number) #6cb6ff
   Running #6cb6ff · Needs attention #ff8b7f · Eligible #7ee2a0
   diff + #7ee2a0 · diff - #ff8b7f
 Focused pane: accent border with its title in the border ("Work", "Log", "Issue"); unfocused: #2a303b border.
