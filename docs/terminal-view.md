@@ -23,12 +23,6 @@ The view is part of every install: `brew install uberblick-ai/tap/ub-agents`, or
 `pip install -e .` (or `mise run setup`) in a checkout, which installs Textual
 8.2.8 alongside PyYAML.
 
-`ub-agents-ui /path/to/control-checkout --session SESSION_ID` is available for
-manual local observation. Without an ID this standalone view opens the only
-fresh, unended local session or lists available sessions. Only this manual form
-allows an explicit ended/unavailable session; automatic launch attachment is
-strict. `q` or Ctrl-C in a standalone view closes only that view.
-
 ## Using the view
 
 The Work pane and active tab each have one rounded border, with the title in its

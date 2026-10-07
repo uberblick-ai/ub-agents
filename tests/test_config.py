@@ -23,10 +23,10 @@ class ConfigTests(unittest.TestCase):
         self.path.write_text(content)
         return load_config(self.path)
 
-    def test_package_exposes_project_and_optional_view_entrypoints(self):
+    def test_package_exposes_only_the_ub_agents_command(self):
         scripts = {entry.name: entry.value for entry in distribution("ub-agents").entry_points
                    if entry.group == "console_scripts"}
-        self.assertEqual(scripts, {"ub-agents": "ub_agents.cli:main", "ub-agents-ui": "ub_agents.view:main"})
+        self.assertEqual(scripts, {"ub-agents": "ub_agents.cli:main"})
 
     def test_default_config_requires_the_named_file_and_explicit_paths_work(self):
         custom = self.root / "custom.yaml"
