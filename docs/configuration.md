@@ -250,7 +250,7 @@ Time spent waiting for a rate limit counts toward the `poll-seconds` or empty-pa
 budget gap between discovery-pass starts. A completed pass waits only for any gap
 still left; if the wait or run already used that time, the next pass starts immediately.
 
-Rate limits do not count toward the poll failure limit or an item's attempts.
+Rate-limited reads do not count toward the poll failure limit or an item's attempts.
 Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)`
 and makes no GitHub writes while waiting. Authentication, permission, missing
 repository, other malformed responses and unclassified failures still stop immediately.
@@ -259,8 +259,8 @@ The error names the request and tells the operator to fix the cause and restart
 
 Each skipped poll for another transient error prints its error and next delay
 and does not report an empty queue. Failed discovery reads make no GitHub writes.
-Discovery includes initial authentication and fresh reads immediately before a claim, including the
-default-branch read for instruction refresh. See
+Discovery includes initial authentication and fresh reads immediately before a
+claim, including the default-branch read for instruction refresh. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 discovery waits. `launch --once` and `status` still fail on their first error.
 
@@ -278,8 +278,8 @@ current expiry. Renewal continues during the wait. If the last confirmed expiry
 actually passes, the launcher takes the lost-ownership path and leaves expiry recovery
 to finish durable completion. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signals during
-owned-run waits. Rate-limited writes retain their existing handling and are not
-replayed by this retry mechanism.
+owned-run waits. Rate-limited writes other than claim POSTs retain their existing
+handling and are not replayed by this retry mechanism.
 
 ## Launcher accounts
 
