@@ -15,7 +15,7 @@ your-project/
 
 ## Role files
 
-Point each agent at its file. Say what the role does, which checks to run, what a good handoff looks like and when to stop for a person.
+Point each agent at its file. Say what the role does, which checks to run, what a good handoff looks like and [when to stop for a person](/docs/configuration/stop-labels.html#say-when-a-person-decides).
 
 ```yaml
 instructions: .agents/implementer.md

@@ -24,6 +24,26 @@ ub-agents report --outcome needs-human --summary "Storage policy unclear" \
   --action "Owner: choose local or cloud storage; recommend local."
 ```
 
+## Say when a person decides
+
+The agent stops only where its instructions tell it to. Name the decisions that belong to a person, and who answers them, in the [shared policy](/docs/configuration/instructions.html#shared-policy):
+
+```markdown
+## Human decisions
+
+@acme/maintainers answers scope and policy questions. Stop and ask before you:
+- change a public API, a database schema or a dependency
+- delete data or change permissions
+- choose between designs the issue leaves open
+```
+
+Then say in each role file what that means for the role:
+
+```markdown
+If the issue does not name the storage backend, or the change needs a
+migration, report needs-human with one --action per decision.
+```
+
 ## Blocked runs
 
 `--status blocked` also needs an ask but adds no label. The item waits for `ub-agents retry`, or for a new commit on a pull request.

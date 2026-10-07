@@ -1,6 +1,6 @@
 # Keep people on the decisions
 
-Agents do the work; people decide what matters. Make that boundary explicit.
+Agents do the work; people decide what matters. Make that boundary explicit in the [instructions](/docs/configuration/stop-labels.html#say-when-a-person-decides).
 
 ## Park, do not guess
 
