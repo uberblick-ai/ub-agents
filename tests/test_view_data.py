@@ -276,6 +276,31 @@ class WorkPaneTests(unittest.TestCase):
         self.assertEqual([plan['agent'] for plan in pane.sections[-1].rows[0].eligible_plans],
                          ['integrator', 'reviewer'])
 
+    def test_selected_claiming_assignment_follows_its_named_run(self):
+        self.data['assignment'].pop('run')
+        claiming = self.pane()
+        self.assertEqual(claiming.selected, 'assignment:claiming')
+        self.assertIsNone(claiming.rows[0].log)
+        self.data['assignment']['run'] = 'owned-run'
+        for chosen in (False, True):
+            with self.subTest(chosen=chosen):
+                named = self.pane(claiming, claiming.selected, chosen)
+                self.assertEqual(named.selected, 'assignment:owned-run')
+                self.assertNotIn('assignment:claiming', [row.key for row in named.rows])
+                self.assertEqual(named.sections[0].rows[0].log,
+                                 self.root / '.ub-agents/runs/owned-run/process.log')
+
+    def test_chosen_claiming_assignment_does_not_follow_a_different_item_or_agent(self):
+        self.data['assignment'].pop('run')
+        claiming = self.pane()
+        for change in ({'item': 115}, {'agent': 'reviewer'}):
+            with self.subTest(change=change):
+                self.data['assignment'] = {'item': 114, 'agent': 'implementer', 'run': 'other-run'} | change
+                named = self.pane(claiming, claiming.selected, True)
+                self.assertEqual(named.selected, 'assignment:claiming')
+                self.assertEqual(named.rows[-1].state, 'earlier observation')
+                self.assertIsNone(named.rows[-1].log)
+
     def test_recent_is_bounded_and_a_rolled_out_selection_is_details_only(self):
         self.data['outcomes'] = [{'item': n, 'run': f'run-{n}', 'result': 'success'} for n in range(1, 21)]
         pane = self.pane(selected='outcome:run-1', chosen=True)
@@ -304,6 +329,42 @@ class ViewDataTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path, self.log, self.state = fixture(self.root)
+
+    def test_worker_retries_a_late_log_and_reload_replaces_the_cached_reader_at_tail(self):
+        self.log.unlink()
+        worker = LocalWorker(self.root, self.path)
+        request = Request('assignment:owned-run', 1, chosen=True)
+        missing = worker.read(request)
+        self.assertEqual(missing.page.refs, ())
+        reader = worker.readers[str(self.log)]
+        self.log.write_bytes(b'first\n')
+        picked_up = worker.read(request)
+        self.assertEqual(picked_up.page.refs[-1].value.text, 'first')
+        self.assertIs(worker.readers[str(self.log)], reader)
+        # Reload skips the old backlog and reads a bounded tail of the file.
+        self.log.write_bytes(b'first\n' + b'old output\n' * 10000 + b'latest output\n')
+        reloaded = worker.read(Request(request.key, 2, chosen=True, reload=True))
+        self.assertIsNot(worker.readers[str(self.log)], reader)
+        self.assertGreater(reloaded.page.start, 0)
+        self.assertLess(len(reloaded.page.refs), 201)
+        self.assertLessEqual(reloaded.log.bytes_read, PAGE_BYTES)
+        # The record budget may need a second update to finish the bounded tail.
+        reloaded = worker.read(request)
+        self.assertEqual(reloaded.log.unread_bytes, 0)
+        self.assertEqual(reloaded.page.refs[-1].value.text, 'latest output')
+
+    def test_worker_reload_resolves_a_claiming_row_from_the_latest_snapshot(self):
+        self.state['assignment'].pop('run')
+        publish_snapshot(self.path, self.state)
+        worker = LocalWorker(self.root, self.path)
+        claiming = worker.read(Request('assignment:claiming', 1, chosen=True))
+        self.assertIsNone(claiming.log)
+        self.state['assignment']['run'] = 'owned-run'
+        self.log.write_bytes(event(1, 20))
+        publish_snapshot(self.path, self.state)
+        named = worker.read(Request(claiming.key, 2, chosen=True, previous=claiming.pane, reload=True))
+        self.assertEqual(named.key, 'assignment:owned-run')
+        self.assertIn('event 00001', named.page.refs[-1].value.text)
 
     def test_worker_retains_from_the_requested_pane_instead_of_its_last_result(self):
         worker = LocalWorker(self.root, self.path)

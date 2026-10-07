@@ -585,9 +585,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
                 self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open ? keys q quit'))
                 await pilot.press('enter')
-                self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs g reload ? keys q quit'))
                 await pilot.press('f')
-                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'))
                 await pilot.resize_terminal(60, 16)
                 await pilot.pause()
                 self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
@@ -1044,7 +1044,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
-                keys = '↑↓ select ⏎ open 1-3 tabs ? keys q quit'
+                keys = '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'
                 self.assertIn('ub-agents v9.8.7 · next poll 30s', footer.render().plain)
                 self.assertTrue(footer.render().plain.endswith(keys))
                 self.assertEqual(footer.size.height, 1)
@@ -1095,7 +1095,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('f follow', pill.render().plain)
             self.assertNotIn('0 new', pill.render().plain)
             self.assertNotIn('0B lag', pill.render().plain)
-            self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
+            self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'))
             self.assertEqual(footer.render().cell_length, 110)
             await pilot.press('u')
             self.assertIn('RAW', pill.render().plain)
@@ -1114,11 +1114,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             for tab in ('2', '3'):
                 await pilot.press(tab)
                 self.assertIn('f follow h older', footer.render().plain)
+                self.assertNotIn('g reload', footer.render().plain)
                 self.assertNotIn('PAUSED', footer.render().plain)
             await pilot.press('1', 'f')
             await self.ready(app, pilot, lambda: not pill.display)
             self.assertTrue(app.reading.raw)
-            self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+            self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
             # Ingestion can lag while following; it must be visible without a
             # persistent FOLLOW or RAW badge when caught up.
             app.reading.log = replace(app.reading.log, unread_bytes=8192)
@@ -1885,6 +1886,102 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.reading.page, page)
             await pilot.press('q')
         app.worker.thread.join(2)
+
+    async def test_claiming_selection_picks_up_the_named_run_and_late_log_without_keys(self):
+        for chosen in (False, True):
+            for log_first in (False, True):
+                with self.subTest(chosen=chosen, log_first=log_first):
+                    self.log.unlink(missing_ok=True)
+                    self.state['assignment'].pop('run', None)
+                    publish_snapshot(self.path, self.state)
+                    transport = RecordingDescriptionTransport()
+                    app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                    async with app.run_test(size=(110, 32)) as pilot:
+                        await self.ready(app, pilot, lambda: app.selected == 'assignment:claiming')
+                        if chosen:
+                            app.select(app.selected)
+                        output = app.query_one(LogPane)
+                        output.focus()
+                        reading = app.reading
+                        self.assertEqual(reading.empty_message, 'No local log cached for this row.')
+                        if log_first:
+                            self.log.write_bytes(event(1, 20))
+                        self.state['assignment']['run'] = 'owned-run'
+                        publish_snapshot(self.path, self.state)
+                        await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run'
+                                         and app.reading.page is not None)
+                        if not log_first:
+                            self.assertEqual(app.reading.page.refs, ())
+                            self.assertEqual(app.reading.empty_message, 'No log output yet.')
+                            self.log.write_bytes(event(1, 20))
+                        await self.ready(app, pilot, lambda: any('event 00001' in line.text for line in output.lines))
+                        self.assertIs(app.reading, reading)
+                        self.assertEqual(app.chosen, chosen)
+                        self.assertNotIn('assignment:claiming', app.rows)
+                        self.assertEqual(app.rows[app.selected].state, 'running')
+                        self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
+                        self.assertIs(app.focused, output)
+                        self.assertTrue(app.reading.follow)
+                        with self.log.open('ab') as stream:
+                            stream.write(event(2, 20))
+                        await self.ready(app, pilot, lambda: any('event 00002' in line.text for line in output.lines))
+                        self.assertEqual(transport.calls, [])
+                        await pilot.press('q')
+                    app.worker.thread.join(2)
+                    self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_log_g_retries_missing_file_then_reattaches_and_follows_without_github(self):
+        self.log.unlink()
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        entered, release = threading.Event(), threading.Event()
+        try:
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                output = app.query_one(LogPane)
+                reader = app.worker.readers[str(self.log)]
+                await pilot.press('g')
+                await self.ready(app, pilot, lambda: app.worker.readers[str(self.log)] is not reader
+                                 and app.reading.log.error is not None)
+                self.assertEqual(app.reading.empty_message, 'No log output yet.')
+                self.assertEqual(app.reading.page.refs, ())
+                await pilot.press('f', 'u')
+                reader = app.worker.readers[str(self.log)]
+                original = app.worker.read
+
+                def delayed(request):
+                    result = original(request)
+                    if not entered.is_set():
+                        entered.set()
+                        release.wait(5)
+                    return result
+
+                with patch.object(app.worker, 'read', side_effect=delayed):
+                    await self.ready(app, pilot, entered.is_set)
+                    self.log.write_bytes(b''.join(event(i, 20) for i in range(1000)))
+                    await pilot.press('g')
+                    release.set()
+                    await self.ready(app, pilot, lambda: any('event 00999' in line.text for line in output.lines))
+                    self.assertIsNot(app.worker.readers[str(self.log)], reader)
+                    self.assertTrue(app.reading.follow)
+                    self.assertTrue(app.reading.raw)
+                    self.assertGreater(app.reading.page.start, 0)
+                    self.assertEqual(app.reading.page.end, self.log.stat().st_size)
+                    await self.settled(app, output)
+                    self.assertEqual(output.scroll_y, output.max_scroll_y)
+                    with self.log.open('ab') as stream:
+                        stream.write(event(1000, 20))
+                    await self.ready(app, pilot, lambda: any('event 01000' in line.text for line in output.lines))
+                self.assertIn('g reload', app.query_one('#status', Static).render().plain)
+                await pilot.press('?')
+                self.assertIn('g on Log', app.screen.query_one('#raw_details', Static).render().plain)
+                await pilot.press('g', 'escape')
+                self.assertEqual(transport.calls, [])
+                await pilot.press('q')
+        finally:
+            release.set()
+            app.worker.thread.join(6)
+        self.assertFalse(app.worker.thread.is_alive())
 
     async def test_selected_plan_claimed_elsewhere_leaves_work_but_keeps_item_history(self):
         app = View(self.root, self.path)

@@ -24,7 +24,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tabs, Tree
 
 from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
-                        related_plan, run_status, text, work_pane)
+                        related_assignment, related_plan, run_status, text, work_pane)
 from .view_github import DescriptionLoads
 from .view_unblock import ActionComment, comment_sections, local_action, needs_attention, trust_reason, unblock_metadata
 from .view_runs import run_status as history_status, runs_view
@@ -154,6 +154,7 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             'Esc below 110×32   Return to Work; close an overlay first\n'
             '1 / 2 / 3   Log / Issue / Runs\n'
             + unblock_keys +
+            'g on Log   Reload the selected local log at the end and follow it\n'
             'g on Issue   Load a missing description or retry a failed read\n'
             'f   Toggle follow/pause; resuming loads the latest generation\n'
             'h   Read an older bounded page toward byte zero\n'
@@ -417,7 +418,7 @@ class View(App):
         Binding('p', 'path', 'Full raw path', priority=True),
         Binding('r', 'poll_now', 'Poll now', priority=True),
         Binding('question_mark', 'help', 'Keys', priority=True),
-        Binding('g', 'load_description', 'Load/retry description', priority=True),
+        Binding('g', 'load_description', 'Reload/load/retry', priority=True),
         Binding('1', "tab('log')", 'Log', priority=True),
         Binding('2', "tab('issue')", 'Issue', priority=True),
         Binding('3', "tab('runs')", 'Runs', priority=True),
@@ -451,6 +452,7 @@ class View(App):
         self.token = 0
         self.busy = False
         self.pending_history = None
+        self.pending_reload = False
         self.last_context = self.last_runs = None
         self._static_values = WeakKeyDictionary()
         self._tree_second = None
@@ -684,9 +686,11 @@ class View(App):
                 self.apply(result)
         if not self.busy:
             end, generation = self.pending_history or (None, 0)
-            if self.worker.request(Request(self.selected, self.token, end, generation, self.chosen, self.pane)):
+            if self.worker.request(Request(self.selected, self.token, end, generation, self.chosen,
+                                           self.pane, reload=self.pending_reload)):
                 self.busy = True
                 self.pending_history = None
+                self.pending_reload = False
         self.update_issue()
         self.update_unblock()
         self.update_runs()
@@ -706,7 +710,8 @@ class View(App):
         cursor = tree.cursor_node
         previous_selection = self.selected
         if pane.selected != self.selected:
-            replacement = related_plan(pane.rows, self.rows.get(self.selected))
+            replacement = (related_assignment(pane.rows, self.rows.get(self.selected)) or
+                           related_plan(pane.rows, self.rows.get(self.selected)))
             if replacement is not None and replacement.key == pane.selected:
                 if self.selected in self.readings:
                     self.readings[replacement.key] = self.readings.pop(self.selected)
@@ -803,6 +808,7 @@ class View(App):
         self.query_one(RecentActivity).refresh()
         self.token += 1
         self.pending_history = None
+        self.pending_reload = False
         self.query_one('#output', LogPane).set_reading(self.reading)
         self.last_context = None
         self.last_runs = None
@@ -1007,6 +1013,18 @@ class View(App):
         return '\n\n'.join(part for part in details if part)
 
     def action_load_description(self):
+        if not isinstance(self.screen, RawAccess) and self.query_one(TabbedContent).active == 'log':
+            # Read the latest snapshot and replace the cached reader on its
+            # local worker. In-flight pages must not override this reload.
+            self.token += 1
+            self.pending_history = None
+            self.pending_reload = True
+            self.reading.follow = True
+            self.reading.anchor = None
+            self.reading.notice = ''
+            self.query_one(LogPane).set_reading(self.reading)
+            self.update_status()
+            return
         if not isinstance(self.screen, RawAccess) and self.query_one(TabbedContent).active == 'unblock':
             if self.unblock_visible and not self.current_action().available:
                 self.descriptions.request(self.description_key(), 'unblock',
@@ -1085,6 +1103,8 @@ class View(App):
             if not self.narrow or len(poll_keys) + left.cell_len + 1 <= width:
                 keys = poll_keys
         # Shorten paused keys only when they crowd out the version/activity.
+        if self.narrow and len(keys) + left.cell_len + 1 > width:
+            keys = keys.replace('g reload ', '')
         if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('f follow'):
             keys = 'f follow h older u raw PgUp/Dn ? keys q quit'
             if len(keys) + left.cell_len + 1 > width:
@@ -1133,6 +1153,8 @@ class View(App):
                 if '1-4 tabs' not in keys:
                     keys = '1-4 tabs ' + keys
                 keys = keys.replace('? keys', 'g load ? keys')
+        if self.query_one(ItemTabs).active == 'log' and (not self.narrow or self.item_view):
+            keys = keys.replace('? keys', 'g reload ? keys')
         status = self.footer(self.size.width, keys)
         self.update_static(self.query_one('#status', Static), status, layout=False)
         if isinstance(self.screen, RawAccess):

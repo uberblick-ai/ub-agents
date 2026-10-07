@@ -13,9 +13,75 @@ import time
 import unittest
 
 from tests.terminal import Terminal
-from tests.test_view_data import fixture
+from tests.test_view_data import event, fixture, publish_snapshot
 
 class TerminalViewTests(unittest.TestCase):
+    def test_claiming_log_pickup_and_g_reload_in_real_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, log, state = fixture(root)
+            log.unlink()
+            state['assignment'].pop('run')
+            publish_snapshot(path, state)
+            proof = root / 'proof.json'
+            script = '''
+import pathlib, sys
+from tests.support import RecordingDescriptionTransport
+from ub_agents.view_github import DescriptionLoads
+from ub_agents.view_ui import LogPane, View
+class ProofView(checkpoint_view(View, sys.argv[3])):
+    def proof_values(self):
+        output = self.query_one(LogPane)
+        row = self.rows.get(self.selected)
+        return {'selected': self.selected, 'chosen': self.chosen,
+                'state': row.state if row else None, 'follow': self.reading.follow,
+                'empty': self.reading.empty_message, 'token': self.token,
+                'reader': id(next(iter(self.worker.readers.values()), None)),
+                'start': self.reading.page.start if self.reading.page else 0,
+                'end': self.reading.page.end if self.reading.page else 0,
+                'lines': [line.text for line in output.lines],
+                'bottom': output.scroll_y == output.max_scroll_y,
+                'footer': self.query_one('#status').render().plain,
+                'calls': self.descriptions.transport.calls}
+ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]),
+          descriptions=DescriptionLoads(RecordingDescriptionTransport())).run()
+'''
+            with Terminal(script, root, path, proof, proof=proof) as terminal:
+                claiming = terminal.checkpoint(lambda value: value['selected'] == 'assignment:claiming')
+                self.assertEqual(claiming['empty'], 'No local log cached for this row.')
+                terminal.send(b'\r')
+                terminal.checkpoint(lambda value: value['chosen'])
+                state['assignment']['run'] = 'owned-run'
+                publish_snapshot(path, state)
+                named = terminal.checkpoint(lambda value: value['selected'] == 'assignment:owned-run'
+                                            and value['empty'] == 'No log output yet.')
+                self.assertEqual(named['state'], 'running')
+                terminal.send(b'g')
+                missing = terminal.checkpoint(lambda value: value['token'] > named['token']
+                                              and value['reader'] != named['reader'])
+                self.assertEqual(missing['empty'], 'No log output yet.')
+                log.write_bytes(event(1, 20))
+                picked_up = terminal.checkpoint(lambda value: any('event 00001' in line for line in value['lines']))
+                self.assertTrue(picked_up['follow'])
+                self.assertEqual(picked_up['selected'], 'assignment:owned-run')
+                terminal.send(b'f')
+                paused = terminal.checkpoint(lambda value: not value['follow'])
+                with log.open('ab') as stream:
+                    stream.write(b''.join(event(i, 20) for i in range(2, 1000)))
+                terminal.send(b'g')
+                reloaded = terminal.checkpoint(lambda value: value['follow'] and value['bottom']
+                                               and value['reader'] != paused['reader']
+                                               and value['end'] == log.stat().st_size
+                                               and any('event 00999' in line for line in value['lines']))
+                self.assertGreater(reloaded['start'], 0)
+                self.assertIn('g reload', reloaded['footer'])
+                with log.open('ab') as stream:
+                    stream.write(event(1000, 20))
+                followed = terminal.checkpoint(lambda value: any('event 01000' in line for line in value['lines']))
+                self.assertEqual(followed['calls'], [])
+                terminal.send(b'q')
+                terminal.wait_exit()
+
     def test_single_pane_resize_navigation_floor_and_q_in_real_terminal(self):
         self.check_single_pane_terminal(b'q')
 
@@ -103,7 +169,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertFalse(opened['work'])
                 self.assertIn('#114', opened['header'])
                 self.assertIn('no outcome reported', opened['status'])
-                self.assertTrue(opened['footer'].endswith('Esc back 1-3 tabs ? keys q quit'))
+                self.assertTrue(opened['footer'].endswith('Esc back 1-3 tabs g reload ? keys q quit'))
                 check_resize(80, 32)
                 terminal.send(b'3')
                 denied = terminal.checkpoint(lambda value: value['tab'] == 'runs'
@@ -329,7 +395,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                               env={'NO_COLOR': None}) as terminal:
                     transcript = terminal.transcript
                     initial = terminal.checkpoint(lambda value: value['starts'] and value['focus'] is not None
-                                    and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+                                    and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
                     window_title = 'ub-agents launch — example/repo'.encode()
                     self.assertTrue(b'\x1b]0;' + window_title + b'\x07' in transcript,
                                     'Terminal output is missing the window-title OSC sequence')
@@ -355,7 +421,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         path.write_text(json.dumps(state))
                         for width in (110, 70, 170):
                             terminal.resize(width, 32)
-                            keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit'
+                            keys = ('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'
                                     if width >= 110 else 'f follow h older u raw PgUp/Dn ? keys q quit')
                             current = terminal.checkpoint(lambda value: value['text'] == banner['text']
                                             and value['display'] and value['height'] == 1
@@ -966,7 +1032,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn(b'FORMATTED', transcript)
                 self.assertNotIn(b'FOLLOW', transcript)
                 self.assertIn('ub-agents v9.8.7 · running assignment', initial['footer'])
-                self.assertTrue(initial['footer'].endswith('↑↓ select ⏎ open 1-3 tabs ? keys q quit'))
+                self.assertTrue(initial['footer'].endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
                 self.assertEqual(initial['footer_height'], 1)
                 self.assertFalse(initial['pill_visible'])
                 self.assertEqual(initial['notice'], '')
@@ -1053,7 +1119,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.send(b'?')
                 help_view = terminal.checkpoint(lambda value: value['screen'] == 'KeyHelp')
                 self.assertEqual(help_view['screen'], 'KeyHelp')
-                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
+                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Log', 'g on Issue', 'f   ', 'h   ',
                             'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', 'Escape', 'q   ', 'Ctrl-C'):
                     self.assertIn(key, help_view['modal'])
                 terminal.send(b'?')
@@ -1066,7 +1132,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertFalse(paused['follow'])
                 self.assertTrue(paused['pill_visible'])
                 self.assertIn('⏸ PAUSED', paused['pill'])
-                self.assertTrue(paused['footer'].endswith('f follow h older u raw PgUp/PgDn scroll ? keys q quit'))
+                self.assertTrue(paused['footer'].endswith('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'))
                 # More than both ingestion retention (200 entries) and renderer
                 # retention (400 wrapped rows) arrive while the page is paused.
                 from tests.test_view_data import event

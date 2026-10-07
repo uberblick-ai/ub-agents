@@ -273,7 +273,9 @@ issue descriptions and log lines keep their verbatim text and existing styles.
 Outcome completion and a human blocker are shown separately: a completed step
 can still be blocked. Until you select a row, the view selects the launcher's own
 run whenever one starts. Selection, focus and paused log positions survive refreshes,
-including when a row moves between sections. A selected row that disappears
+including when a row moves between sections. A selected claiming assignment stays
+selected when its run ID appears; Log picks up and follows its output as soon as
+the local `process.log` exists. A selected row that disappears
 remains an earlier local observation in the right pane. A previous assignment or
 a plan now claimed by another launcher or parked for dependencies or a milestone
 is omitted from the live work sections.
@@ -416,6 +418,7 @@ Claude and Codex Log transcripts are described below.
 | `Esc` in the narrow item view | Return to Work; close help or raw access first |
 | `1`, `2`, `3` | Log, Issue, Runs |
 | `4` on Needs attention | Unblock; ignored for other rows |
+| `g` on Log | Reload the selected row's log from the latest local snapshot, attach at the end and follow; no GitHub request |
 | `g` on Issue | Load the selected item's missing title/body, or retry a failed description read |
 | `g` on Unblock | Load the latest trusted action-needed comment, or retry a failed comment read |
 | `f` | Toggle follow/pause; resuming loads the latest generation |
@@ -456,7 +459,9 @@ and keep the `next poll Ns` countdown during rate-limit waits.
 In the narrow layout, the prefix is omitted and `next poll Ns` becomes `poll Ns`,
 for example `v0.1.11 · poll 26s`. Other activity and diagnostic labels keep their
 text. The list's right side reads `↑↓ select ⏎ open ? keys q quit`; the item view
-reads `Esc back 1-3 tabs ? keys q quit`. A paused item uses the existing log keys,
+reads `Esc back 1-3 tabs ? keys q quit`. On Log, the footer adds `g reload`,
+dropping it at narrow widths when it does not fit. Reloading before the log exists
+keeps the existing empty-log notice. A paused item uses the existing log keys,
 including on Issue and Runs, shortened only when they do not fit. Needs attention
 uses `1-4 tabs`; on Unblock the footer also includes `g load`, including when the
 log is paused. `?` includes `4` and `g on Unblock` only for Needs attention rows,

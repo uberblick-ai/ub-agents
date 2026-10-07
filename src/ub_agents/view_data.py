@@ -295,7 +295,7 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
     selection = next((row for row in work if row.key == selected), None)
     earlier = next((row for row in previous.rows if row.key == selected), None) if previous else None
     if selection is None and earlier is not None:
-        selection = related_plan(work, earlier)
+        selection = related_assignment(work, earlier) or related_plan(work, earlier)
         if selection is None:
             omitted = any(omitted_plan(plan) and
                           (plan.get('item'), text(plan.get('agent'))) == (earlier.item, earlier.agent)
@@ -349,6 +349,14 @@ def related_plan(work, previous):
     return next((row for row in work if row.key.startswith('plan:') and row.item == previous.item
                  and (row.agent == previous.agent or
                       any(plan.get('agent') == previous.agent for plan in row.eligible_plans))), None)
+
+
+def related_assignment(work, previous):
+    """Keep a claiming assignment selected when its snapshot names the run."""
+    if previous is None or previous.key != 'assignment:claiming' or previous.run:
+        return None
+    return next((row for row in work if row.group == 'Running' and row.run
+                 and (row.item, row.agent) == (previous.item, previous.agent)), None)
 
 
 @dataclass(frozen=True)
