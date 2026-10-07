@@ -71,7 +71,7 @@ the repository, and the agent CLI you want to run: `codex` or `claude`.
 
 ```sh
 cd your-project
-ub-agents init --runtime claude:opus:high   # or leave out --runtime for Codex
+ub-agents init --runtime claude:claude-opus-5-5:high   # or leave out --runtime for Codex
 ```
 
 `init` writes the starter files and offers to create the workflow labels on GitHub:
@@ -129,12 +129,12 @@ a single agent. Each role is a few lines of `ub-agents.yaml`:
 
 ```yaml
 implementer:
-  runtime: "claude:opus:high"          # cli:model:effort
-  trigger: [ready, needs-changes]      # labels that start it
+  runtime: "claude:claude-opus-5-5:high"  # cli:model:effort
+  trigger: [ready, needs-changes]         # labels that start it
   outcomes:
-    handed-off: {add: [needs-review]}  # what each reported outcome does
+    handed-off: {add: [needs-review]}     # what each reported outcome does
   instructions: .agents/implementer.md
-  worktree: true                       # private checkout for each run
+  worktree: true                          # private checkout for each run
 ```
 
 The launcher removes the trigger label and applies the outcome's labels only after

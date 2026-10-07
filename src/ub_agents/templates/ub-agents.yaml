@@ -44,7 +44,7 @@ agents:
     worktree: true
     agent-timeout-minutes: 180
     # For independent cross-provider review, configure an eligible alternative:
-    # runtime: "claude:opus:high"
+    # runtime: "claude:claude-opus-5-5:high"
     # different-runtime-from: implementer
     # Native GitHub approval requires an identity other than the PR author.
 

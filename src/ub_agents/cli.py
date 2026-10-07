@@ -44,7 +44,7 @@ def parser():
                                description="Create starter configuration and agent instructions for a project. "
                                "Use when adopting ub-agents; existing starter files are never overwritten.",
                                examples=("ub-agents init --repository org/project",
-                                         "ub-agents init --repository org/project --runtime claude:opus:high"))
+                                         "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")
     check = commands.add_parser("check", help="validate the configuration and instruction files",

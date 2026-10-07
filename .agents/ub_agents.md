@@ -37,8 +37,11 @@ to a maintainer, and says why, when the PR:
 - changes this repository's own workflow: `AGENTS.md`, `.agents/`, `ub-agents.yaml`
   or `.github/`.
 
-Updates to `README.md` and `docs/` that describe what the closing issue asked for
-need no maintainer merge. The reviewer checks that they are accurate.
+Updates to `README.md`, `docs/` and the website pages in `site/content/` that describe
+what the closing issue asked for need no maintainer merge. The reviewer checks that
+they are accurate. Before merging a change to what users install, run, configure or
+see, the integrator reads the affected `site/content/` pages and, if one is now wrong
+or missing, sends the PR back with `changes-requested` naming the page.
 
 ## Human decisions
 
