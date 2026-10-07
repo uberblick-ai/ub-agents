@@ -89,7 +89,7 @@ def description_parser():
     # Show links, images and HTML as source text, without interactive targets.
     # Entities stay literal so parsing cannot introduce escaped control characters.
     parser = MarkdownIt('commonmark', {'html': False}).disable(
-        ['link', 'autolink', 'image', 'reference', 'entity'])
+        ['link', 'autolink', 'image', 'reference', 'entity']).enable(['table', 'strikethrough'])
 
     def line_breaks(state):
         # Textual otherwise renders Markdown soft breaks as spaces.

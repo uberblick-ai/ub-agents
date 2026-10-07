@@ -395,12 +395,14 @@ An item with no filing or run data shows `No item history cached.` Recent activi
 rows each show their item's history.
 
 Issue renders only the description body as Markdown, including headings, lists,
-emphasis, inline code and code blocks. Line breaks, including CRLF and lone CR,
-display as real line breaks; tabs are retained. Other control characters stay
-visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
-images and raw HTML display as text; links cannot be opened with the mouse or
-keyboard, and nothing is fetched. The item header stays literal text with only
-its reference clickable; source/age and all notices remain inert literal text.
+emphasis, strikethrough, inline code, code blocks and GitHub tables. Wide tables
+shrink their columns and wrap cell text within the pane. Line breaks, including
+CRLF and lone CR, display as real line breaks; tabs are retained. Other control
+characters stay visibly escaped. Rich/Textual markup such as `[bold]` stays literal. Links,
+images, raw HTML and entities display as source text, including in table cells;
+links cannot be opened with the mouse or keyboard, and nothing is fetched.
+The item header stays literal text with only its reference clickable;
+source/age and all notices remain inert literal text.
 Issue does not repeat the item reference or title in its
 content. Shortening notices sit outside the Markdown body, including
 when a description is cut inside a code fence. Runs and the raw log projection
