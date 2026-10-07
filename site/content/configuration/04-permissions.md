@@ -59,5 +59,5 @@ runtime-args: [--add-dir, "{scratch}"]
 `ub-agents doctor` warns about runtime agents without `runtime-args`. It does not test whether the arguments grant enough.
 
 ```sh
-ub-agents init --runtime "claude:claude-opus-5-5:high"
+ub-agents doctor
 ```
