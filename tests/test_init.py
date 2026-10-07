@@ -195,6 +195,44 @@ class InitTests(unittest.TestCase):
         self.assertIn('Immediately before merging', roles['integrator'])
         self.assertIn('gh pr merge N --squash --match-head-commit SHA', roles['integrator'])
 
+    def test_base_merge_procedure_in_starter_and_repository_roles(self):
+        self.assertEqual(self.init()[0], 0)
+        root = Path(__file__).resolve().parents[1]
+        for directory in (self.path.parent / '.agents', root / '.agents'):
+            with self.subTest(directory=directory):
+                implementer = ' '.join((directory / 'implementer.md').read_text().split())
+                for expected in (
+                    "Before reporting the handoff outcome, fetch the PR's base branch",
+                    'git merge-tree --write-tree <base> HEAD',
+                    'If it reports conflicts, merge the base into the PR branch (no rebase or force push)',
+                    'resolve them and, after the checks below pass, push before handing off',
+                    'A head that merges cleanly needs no merge, even if it is behind the base',
+                ):
+                    self.assertIn(expected, implementer)
+                rerun = ('After merging the base branch into the PR branch, rerun the checks that cover what '
+                         'the PR adds or changes, not only the files that conflicted.')
+                self.assertEqual(implementer.count(rerun), 1)
+
+                integrator = ' '.join((directory / 'integrator.md').read_text().split())
+                for expected in (
+                    "Before changing the PR branch, check `gh pr view N --json headRefOid` against the "
+                    "assignment context's `candidate_sha`; report blocked if they differ",
+                    'git merge-tree --write-tree <base> HEAD',
+                    'If the candidate is behind the base but merges cleanly, do not send it back',
+                    'merge the base into the PR branch with a merge commit (no rebase or force push)',
+                    'git push origin HEAD:refs/heads/BRANCH',
+                    'Your own clean base merge needs no new review',
+                    'Run the declared final checks at the resulting head',
+                    '`candidate_sha` or the SHA of the base merge you pushed yourself; '
+                    'any other change reports blocked',
+                    'merge exactly the verified head',
+                    'Only if the candidate conflicts with the base branch, a declared check fails for a '
+                    "cause that code or tests in the repository can fix, or the project's shared guidance "
+                    'asks PRs to carry changelog entries and the entry for a user-facing change is missing '
+                    'or inaccurate, send it back to the implementer:',
+                ):
+                    self.assertIn(expected, integrator)
+
     def test_template_shell_examples_need_no_expansion(self):
         templates = Path(__file__).resolve().parents[1] / 'src/ub_agents/templates'
         for path in templates.iterdir():

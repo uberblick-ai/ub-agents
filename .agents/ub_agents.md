@@ -17,9 +17,11 @@ integrator merges, under the policy below.
 ## Merging
 
 The integrator squash-merges a PR once every owed review and check applies to its
-current head, with `--match-head-commit` set to the assigned SHA. The check is a green
-`signoff` status at that head from local CI. The integrator runs it: detach its own
-worktree at `origin/main` (`git switch --detach origin/main`), run `mise trust` there,
+current head, with `--match-head-commit` set to the assigned SHA or the head of its
+own clean base merge. That clean base merge keeps the review and needs no new
+review. The check is a green `signoff` status from local CI at the head it merges.
+The integrator runs it: detach its own worktree at `origin/main`
+(`git switch --detach origin/main`), run `mise trust` there,
 and run `mise run ci SHA`, every time: a `signoff` already on the commit only says someone
 posted it, not that the checks ran. It leaves the merge
 to a maintainer, and says why, when the PR:

@@ -378,11 +378,28 @@ decision. Before each checkpoint push and before marking the PR ready, read PR
 comments, reviews, and inline feedback; incorporate it or explain why you cannot.
 An unresolved human decision leaves the PR as a draft and is reported as blocked.
 
+Before reporting the handoff, fetch the PR's base branch and check
+`git merge-tree --write-tree <base> HEAD` with the fetched base ref. If it reports
+conflicts, merge the base into the PR branch, resolve them, rerun the checks that
+cover the PR's changes and push. Use a merge commit, with no rebase or force push.
+A head that merges cleanly is handed off without a base merge, even if it is behind.
+
 At completion, pass the project checks, push the final work, mark the same PR ready
 (`gh pr ready`), and report `--outcome handed-off` with the PR handoff. The runner
 removes the issue triggers and adds `needs-review` to that same PR. Drafts never
 receive `needs-review` or `ready-to-merge` from the starter workflow. Feedback after
 readiness follows the normal review and `needs-changes` path.
+
+The starter integrator merges the base into a reviewed candidate that is behind
+but merges cleanly, pushes the merge commit to the PR's branch and runs the declared
+final checks at that new head. Its own clean base merge needs no new review.
+Immediately before merging or handing off to a maintainer, the remote head must
+match `candidate_sha` or the base merge the integrator pushed itself; any other
+change is blocked. Real conflicts and check failures that repository code or tests
+can fix go back to the implementer. Missing or inaccurate changelog entries also
+go back when shared guidance requires them in PRs. External blockers and other
+unmet gates are reported as blocked. This repository requires a green local-CI
+`signoff` at the head being merged, including an integrator's own base merge.
 
 A retried issue run starts in a fresh worktree on a new branch. The assignment
 context lists the branches recorded by the issue's earlier runs as
@@ -684,8 +701,12 @@ may impose stricter identity rules in its instructions.
 Independent assignments start a fresh CLI session with project instructions and
 original task/candidate context. They are directed to original requirements,
 acceptance criteria, code/diff and candidate-specific evidence, not implementation
-reasoning transcripts. If the assigned head moves, the independent result fails
-validation. No earlier-head result automatically satisfies a newer candidate.
+reasoning transcripts. If `different-runtime-from` is configured and the assigned
+head moves, the independent result fails validation. The starter integrator has
+no such setting and allows its own clean base merge as described above; other head
+changes are blocked. The launcher records the PR head at report time and validates
+that recorded head on completion. No earlier-head result automatically satisfies
+a newer candidate.
 
 ## Run prompt
 

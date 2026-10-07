@@ -18,6 +18,13 @@ starting with `Closes #N`. Push meaningful checkpoints to that same PR. Checkpoi
 not complete the assignment: keep the PR draft and do not report success until
 implementation and all project checks finish.
 
+Before reporting the handoff outcome, fetch the PR's base branch and check
+`git merge-tree --write-tree <base> HEAD`, using the fetched base ref for `<base>`.
+If it reports conflicts, merge the base into the PR branch (no rebase or force
+push), resolve them and, after the checks below pass, push before handing off.
+A head that merges cleanly needs no merge, even if it is behind the base; bringing
+it up to date is the integrator's job.
+
 After merging the base branch into the PR branch, rerun the checks that cover what
 the PR adds or changes, not only the files that conflicted.
 

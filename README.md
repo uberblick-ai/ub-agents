@@ -120,6 +120,10 @@ ready-to-merge ─────▶ integrator ──────▶ merged, needs
 needs-human ────────▶ waits for a person
 ```
 
+Before handoff, the implementer fetches the PR's base and fixes any merge conflicts.
+If the reviewed PR is behind its base but merges cleanly, the integrator merges
+the base into it, keeps the review and runs final checks at the new head.
+
 These labels are conventions, not built-ins. Rename them, drop the review, or run
 a single agent. Each role is a few lines of `ub-agents.yaml`:
 
