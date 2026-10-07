@@ -26,7 +26,8 @@ commands:
   doctor [--json]        check the machine, GitHub access, labels and agent
                          runtimes
   launch [NUMBER]        run the queue in the foreground, or handle one item
-  status [--json]        matching work, owners, attempts and why items wait
+  status [NUMBER] [--json]
+                         matching work, owners, attempts and why items wait
   cleanup [--apply]      preview or remove stale worktrees and branches
   retry NUMBER           let stopped work run again, with a recorded reason
   approve NUMBER         record approval of an issue's or PR's current input
@@ -110,7 +111,14 @@ class HelpTests(unittest.TestCase):
                     for name, command in self.command_line.commands().items()
                     if command.run_command == run_command and not command.overview_hidden]
         self.assertEqual([line.split()[0] for line in rows], expected)
-        self.assertTrue(all(line[25:].strip() for line in rows))
+        lines = overview.splitlines()
+        for line in rows:
+            if len(line[2:25].strip()) > 21:
+                continuation = lines[lines.index(line) + 1]
+                self.assertTrue(continuation.startswith(" " * 25))
+                self.assertTrue(continuation[25:].strip())
+            else:
+                self.assertTrue(line[25:].strip())
         self.assertNotIn(" # ", overview)
 
     def test_overview_fits_within_80_columns(self):
@@ -126,6 +134,14 @@ class HelpTests(unittest.TestCase):
         self.assertIn("show the full per-check list", output)
         self.assertIn("does not change --json", output)
         self.assertIn("confirmed interactive prompt", output)
+
+    def test_status_help_describes_optional_item_and_has_an_example(self):
+        code, output, errors = self.invoke(["status", "--help"])
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("usage: ub-agents status [NUMBER] [options]", output)
+        self.assertIn("even without a matching trigger", " ".join(output.split()))
+        self.assertIn("ub-agents status 143\n", output)
+        self.assertIn("ub-agents status 143 --json\n", output)
 
     def test_overview_stays_aligned_with_forced_color(self):
         env = os.environ.copy()
@@ -157,10 +173,11 @@ class HelpTests(unittest.TestCase):
                 args = self.command_line.parse_args(["report", option, value, "--summary", "Result"])
                 self.assertEqual(getattr(args, option.removeprefix("--")), value)
 
-    def test_number_is_optional_only_for_launch(self):
-        rows = {line.split()[0]: line[2:25].strip()
+    def test_number_is_optional_for_launch_and_status(self):
+        rows = {line.split()[0]: line[2:].split("  ", 1)[0].strip()
                 for line in self.invoke([])[1].splitlines() if re.match(r"^  [a-z]", line)}
         self.assertEqual(rows["launch"], "launch [NUMBER]")
+        self.assertEqual(rows["status"], "status [NUMBER] [--json]")
         self.assertEqual(rows["retry"], "retry NUMBER")
         self.assertEqual(rows["approve"], "approve NUMBER")
         for name in ("retry", "approve"):
@@ -216,7 +233,7 @@ class HelpTests(unittest.TestCase):
 
     def test_command_usage_has_positionals_required_options_and_compact_optional_options(self):
         expected = {"init": "[options]", "check": "[options]", "doctor": "[options]",
-                    "launch": "[NUMBER] [options]", "status": "[options]", "cleanup": "[options]",
+                    "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]", "cleanup": "[options]",
                     "report": "(--outcome OUTCOME | --status {retry,blocked}) --summary SUMMARY [options]",
                     "retrospective": "--body-file PATH [options]",
                     "retry": "NUMBER --reason REASON [options]", "approve": "NUMBER [options]",

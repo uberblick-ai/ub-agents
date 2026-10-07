@@ -1476,9 +1476,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(header.render().plain.split('\n')[0], 'No item selected.')
                 await pilot.click(header, offset=(0, 0))
                 opened.assert_not_called()
-                app.session = None
-                app.action_open_reference()
-                opened.assert_not_called()
+                # Restore the loaded session before yielding to the renderer.
+                with patch.object(app, 'session', None):
+                    app.action_open_reference()
+                    opened.assert_not_called()
                 await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())

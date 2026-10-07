@@ -536,21 +536,22 @@ class Loop:
             self.output(f"#{number} {plan.agent.name}: {state} — {reason}")
             shown = True
         if not shown:
-            if item.state != "open":
-                reason = f"{item.kind} is {item.state}"
-            else:
-                agents = [a for a in self.config.agents if agent_name is None or a.name == agent_name]
-                applicable = [a for a in agents if a.kind in {"either", item.kind}]
-                if applicable:
-                    labels = "; ".join(f"{a.name}: {', '.join(a.triggers)}" for a in applicable)
-                    reason = f"No trigger matches; add a trigger label ({labels})"
-                else:
-                    reason = f"No evaluated agent applies to this {item.kind}"
-                if not agents:
-                    reason = f"Agent {agent_name} is no longer configured"
-            self.output(f"#{number}: {reason}")
+            self.output(f"#{number}: {self.item_explanation(item, agent_name)}")
         self._observe("complete_pass")
         return False
+
+    def item_explanation(self, item, agent_name=None):
+        """Explain scoped evaluation when it produces no assignment rows."""
+        if item.state != "open":
+            return f"{item.kind} is {item.state}"
+        agents = [a for a in self.config.agents if agent_name is None or a.name == agent_name]
+        if not agents:
+            return f"Agent {agent_name} is no longer configured"
+        applicable = [a for a in agents if a.kind in {"either", item.kind}]
+        if applicable:
+            labels = "; ".join(f"{a.name}: {', '.join(a.triggers)}" for a in applicable)
+            return f"No trigger matches; add a trigger label ({labels})"
+        return f"No evaluated agent applies to this {item.kind}"
 
     def park_approval(self, plan):
         # Recheck authority before advisory writes; stale discovery cannot park
