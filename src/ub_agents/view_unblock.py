@@ -7,6 +7,7 @@ import time
 
 from .view_data import Description, description_text, mapping, text
 from .attention import attention_state, stamp, waiting_time
+from .notices import retry_command
 
 ACTION_MARKER = '<!-- ub-agents:action-needed '
 LINKS = re.compile(r'^\[Claim\]\(.*?\) · (?:\[Outcome\]\(.*?\)|No outcome was reported\.)$')
@@ -92,6 +93,19 @@ def local_action(row, session):
                          notice='Comment shortened in snapshot.' if notice.get('omitted_characters') else '',
                          created_at=notice.get('created_at'), author=notice['author'],
                          comment_id=str(notice.get('id') or ''))
+
+
+def unblock_body(row, comment):
+    if comment.available:
+        return comment.body
+    if row and row.state == 'blocked' and needs_attention(row):
+        reason = description_text(row.reason)
+        return (f"{reason}\n\nThen resume {text(row.agent)}:\n\n```sh\n"
+                f"{retry_command(row.item, row.agent)}\n```\n\n"
+                "Restore a matching trigger if absent; remove any stop label. "
+                "Use these steps only when resuming the same role; follow the project's "
+                "correction or handoff route if a different role must act next.")
+    return ''
 
 
 def unblock_metadata(row, comment, session, now=None):

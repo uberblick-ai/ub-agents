@@ -166,7 +166,11 @@ startup, so checkout refreshes and package upgrades leave active runs on the sam
 code. Restart the launcher to use an update.
 
 When an agent needs a decision, the item stops with an **Action needed** comment
-that lists the options and how to resume. Launcher output is also appended to
+that lists the options and how to resume. Missing blocked notices are retried on
+later passes; Unblock shows the blocked reason and retry command while a notice
+is unavailable. GitHub failures while finalizing a stored report leave it for
+[expiry recovery](docs/coordination.md#recovery) without rerunning the agent.
+Launcher output is also appended to
 `.ub-agents/launch.log`.
 
 **More machines.** Install ub-agents, clone the repository and run

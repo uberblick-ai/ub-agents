@@ -515,7 +515,7 @@ class Coordinator:
             return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
-                max_attempts=None):
+                max_attempts=None, *, unreported=False):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         now = self.clock()
@@ -525,7 +525,8 @@ class Coordinator:
                               and reported["status"] == "blocked" else "failure")
         # A released lease expires now; retry_after is only needed for a backoff.
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
-                    retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect)
+                    retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
+                    **({"unreported": True} if unreported else {}))
         self.notices.advisory("released run comments", lambda:
                               self.notices.released(lease, reported, summary, parking_outcome, max_attempts))
 

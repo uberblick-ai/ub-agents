@@ -28,6 +28,7 @@ from .polling import idle_interval, poll_delay
 from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
+from .notices import ACTION_MARKER
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
                       lease_summary, resolve_transition, seconds, timestamp, validate_report_action)
 from .status import refusal_reason
@@ -88,6 +89,7 @@ class Loop:
         self._shown = {}
         self._released_blockers = {}
         self._poll_complete = False
+        self._finalizing = False
         self._refreshing_checkout = False
         self._launch_number = None
         self._launch_agent = None
@@ -241,7 +243,7 @@ class Loop:
         return sorted(self.iter_plans(cached=False),
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
-    def iter_plans(self, cached=True):
+    def iter_plans(self, cached=True, *, reconcile_notices=False):
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         github = self.discovery if cached else Discovery(self.github)
         lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
@@ -334,7 +336,8 @@ class Loop:
                     blockers = dependencies.blockers.get(item.number, ())
                 else:
                     blockers = self._open_blockers(item, github)
-            plans = self._item_plans(item, now, github, coordinator, matches, active_milestone, blockers)
+            plans = self._item_plans(item, now, github, coordinator, matches, active_milestone, blockers,
+                                     reconcile_notices=reconcile_notices)
             for plan in plans:
                 observed = replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
@@ -356,7 +359,7 @@ class Loop:
                            approval_gate=None)
         return replace(plan, blockers=blockers)
 
-    def item_plans(self, number, agent_name=None):
+    def item_plans(self, number, agent_name=None, *, reconcile_notices=False):
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         # Share this item's history and approval reads, without repository
         # discovery, priority inheritance or milestone ordering.
@@ -378,7 +381,8 @@ class Loop:
                   and self.config.queue.milestones == "gate" else None)
         blockers = self._open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
-        plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, active, blockers, agents)
+        plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, active, blockers, agents,
+                                 reconcile_notices=reconcile_notices)
 
         def observed_plans():
             for plan in plans:
@@ -394,14 +398,17 @@ class Loop:
                    for login, role in github.pass_roles.items()}
         self._observe("plan", plan, filing, github.observed_comments(plan.item.number), authors)
 
-    def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None):
+    def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None,
+                    *, reconcile_notices=False):
         agents = self.config.agents if agents is None else agents
         starts = {a.name: check_start(item, a, matches, self.config.stop_labels,
                                      self.config.queue, active_milestone, blockers) for a in agents}
-        for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents):
+        for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
+                                             reconcile_notices=reconcile_notices):
             yield self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
 
-    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents):
+    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,
+                            *, reconcile_notices=False):
         matched = tuple(a for a in matches.matched if a in agents)
         approval = None
         # The same comments supply coordination history and approval input.
@@ -424,6 +431,9 @@ class Loop:
                 raise
             yield from (Plan(item, a, None, "parked", approval.reason, 1, history_read=False) for a in matched)
             return
+        if reconcile_notices:
+            self._before_claim()
+            self.reconcile_blocked_notices(history, coordinator)
         latest = latest_leases(history)
         for agent in agents:
             record = latest.get((item.number, agent.name))
@@ -489,7 +499,7 @@ class Loop:
     def _tick(self):
         config = self.config
         present = set()
-        for plan in self.iter_plans():
+        for plan in self.iter_plans(reconcile_notices=True):
             present.add((plan.item.number, plan.agent.name))
             self._before_claim()
             if plan.state in {"ready", "recover"}:
@@ -539,7 +549,7 @@ class Loop:
             return self._tick_item(number, agent_name)
 
     def _tick_item(self, number, agent_name=None):
-        item, plans = self.item_plans(number, agent_name)
+        item, plans = self.item_plans(number, agent_name, reconcile_notices=True)
         shown = False
         for plan in plans:
             self._before_claim()
@@ -578,6 +588,30 @@ class Loop:
             return f"No trigger matches; add a trigger label ({labels})"
         return f"No evaluated agent applies to this {item.kind}"
 
+    def reconcile_blocked_notices(self, history, coordinator):
+        """Retry a blocked run's advisory notice from existing coordination records."""
+        for lease in latest_leases(history).values():
+            if lease.get("result") != "blocked":
+                continue
+            if lease["state"] != "released" and seconds(lease["expires"]) > self.coordinator.clock():
+                continue
+            source_id = lease.get("recovered_lease_id", lease["id"])
+            outcome = next((r for r in history if r["kind"] == "outcome"
+                            and r["lease_id"] == source_id), None)
+
+            def post_missing():
+                marker = f"{ACTION_MARKER}{lease['run']} -->"
+                trusted = coordinator.trust.observation()
+                if any((comment.get("body") or "").startswith(marker) and trusted(comment.get("user"))
+                       for comment in coordinator.github.observed_comments(lease['assignment'])):
+                    return
+                # Discovery can skip an existing notice; writes still reread
+                # fresh comments to deduplicate and check for a later resume.
+                self.coordinator.notices.post_action(lease['assignment'], lease, outcome,
+                                                      lease_summary(history, lease), ())
+
+            self.coordinator.notices.advisory(f"Action needed post on #{lease['assignment']}", post_missing)
+
     def park_approval(self, plan):
         # Recheck authority before advisory writes; stale discovery cannot park
         # closed, stopped, already owned or newly approved work.
@@ -609,6 +643,7 @@ class Loop:
                                           sorted(matches.trigger_labels))
 
     def execute(self, plan):
+        self._finalizing = False
         self._renewal = LeaseRenewal(self.coordinator, self.github.github)
         try:
             return self._execute(plan)
@@ -977,6 +1012,7 @@ class Loop:
             # No acceptance or release until all attributable execution has ended.
             cleanup_workspace()
             completing = True
+            self._finalizing = True
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
             if outcome is not None and denials:
@@ -1012,6 +1048,8 @@ class Loop:
             result, summary, effect = "blocked", str(exc), "unchanged"
             cleanup_workspace()
         except Exception as exc:
+            if completing and not isinstance(exc, ValidationError):
+                raise  # Keep completed reports recoverable; never invent a failure verdict.
             result = ("retry" if isinstance(exc, RetryableExecutionError)
                       or (setup and isinstance(exc, (AgentError, OSError))
                           and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
@@ -1029,11 +1067,13 @@ class Loop:
         if usage_output and usage_output.reached and effect != "reset" and not interrupted:
             result, effect = "retry", "unchanged"
             summary = usage_output.summary
+            completing = False  # This supervision verdict supersedes an early report.
         if outcome is None:
             # A report can precede a timeout/interruption. Keep that report
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
-        self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials)
+        self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
+                    completed=completing)
         diagnostic("released", result=result, summary=summary)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
@@ -1080,33 +1120,37 @@ class Loop:
         return "success", outcome["summary"], "reset"
 
     def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, denials=None,
-               parking_outcome=None):
-        """End a run: persist verdict and backoff, then its report, then release, so a crash loses neither.
+               parking_outcome=None, *, completed=False):
+        """Release with the verdict and backoff after persisting the report.
 
+        Supervision failures persist their verdict first to supersede early reports.
+        Completed reports remain recoverable until release succeeds.
         Without an outcome the launcher writes the run's report. The run is unreported
         unless a recovery parks the source's agent report."""
         delay = backoff(plan.agent, attempt) if result == "retry" and effect == "failure" else 0
-        if result != "success":
+        unreported = outcome is None and parking_outcome is None
+        if result != "success" and not completed:
             # The verdict supersedes early agent reports without relinquishing live ownership.
             # If GitHub is unreadable, this fails closed and the lease expires without a lie.
-            unreported = {"unreported": True} if outcome is None and parking_outcome is None else {}
+            changes = {"unreported": True} if unreported else {}
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, result=result, summary=summary, attempt_effect=effect,
                                     retry_after=iso(self.coordinator.clock() + delay) if delay else None,
-                                    **unreported)
+                                    **changes)
         if outcome is None:
             outcome = self.coordinator.report(lease, result, summary, agent_report=False)
         if denials and any(outcome.get(key) != value for key, value in denials.items()):
             self.coordinator.update_outcome(lease, outcome, **denials)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
-                                 parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts)
+                                 parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
+                                 unreported=unreported)
 
     def finalize(self, lease, plan, outcome, what):
         """Validate a success report, apply its transition and accept it.
 
         A rejected report is recorded on the outcome and raised as ValidationError.
-        A GitHub read or write failure becomes LostOwnership, so expiry recovery
-        finishes the job instead of this run guessing."""
+        GitHub errors retain their retry classification and leave expiry recovery
+        to finish the job."""
         try:
             if outcome.get("transition", {}).get("started"):
                 # Start is durable proof that success validation passed. A later
@@ -1119,12 +1163,7 @@ class Loop:
             self.coordinator.update_outcome(lease, outcome, rejected=str(exc),
                                             attempt_effect="unchanged" if isinstance(exc, TransitionPaused) else "failure")
             raise
-        except (AgentError, OSError) as exc:
-            raise LostOwnership(f"Cannot observe {what}; leave expiry recovery: {exc}") from exc
-        try:
-            self.coordinator.accept(lease, outcome)
-        except AgentError as exc:
-            raise LostOwnership(f"Cannot finalize {what}; leave expiry recovery: {exc}") from exc
+        self.coordinator.accept(lease, outcome)
 
     def validate_success(self, plan, outcome):
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -1220,14 +1259,17 @@ class Loop:
             self.github.lease = None
 
     def _recover(self, plan):
+        self._finalizing = False
         history = self.coordinator.history(plan.item.number)
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
             return False
         self._observe("assignment", plan)
+        self._finalizing = True
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
                                           before_write=self._end_poll)
         if recovery is None:
+            self._finalizing = False
             return False
         # The claim reread may have observed a supervisor's newer outcome flags.
         source = lease_by_id(self.coordinator.history(plan.item.number), recovery["recovered_lease_id"])
@@ -1242,14 +1284,9 @@ class Loop:
         except ValidationError as exc:
             result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
             effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
-        except AgentError:
-            raise
-        except Exception as exc:
-            # An unclassified recovery failure must not be retried forever.
-            result, summary, effect = "blocked", f"Unclassified recovery failure: {exc}", "failure"
         # The source's attempt counts this failure, as an execution lease's does.
         self.settle(plan, recovery, source["attempt"], result, f"Recovered {outcome['run']}:\n\n{summary}",
-                    effect, parking_outcome=outcome)
+                    effect, parking_outcome=outcome, completed=True)
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 
@@ -1287,6 +1324,7 @@ class Loop:
         while not self.stop_event.is_set():
             self.github.lease = None
             self._poll_complete = False
+            self._finalizing = False
             self._pass_started = monotonic()
             requests_before = self._requests_before = self.github.quota_requests
             try:
@@ -1294,12 +1332,19 @@ class Loop:
                           self.tick_item(self._launch_number, self._launch_agent))
             except _GracefulStop:
                 return
-            except (_InvalidReload, CleanupError, LostOwnership, RecordError):
+            except (_InvalidReload, CleanupError, RecordError):
                 raise
             except AgentError as exc:
+                if isinstance(exc, LostOwnership):
+                    if not self._finalizing or not isinstance(exc.__cause__, GitHubError):
+                        raise
+                    # Ownership reads fail closed, but a completed agent needs no
+                    # termination. Preserve the underlying request's poll policy.
+                    exc = exc.__cause__
                 if self.interrupt_event.is_set():
                     raise KeyboardInterrupt from None
-                if once or (self._poll_complete and self.coordinator.lost_claim is None):
+                if once or (self._poll_complete and not self._finalizing
+                            and self.coordinator.lost_claim is None):
                     raise
                 failures += 1
                 delay = min(POLL_RETRY_MAX_SECONDS, POLL_RETRY_BASE_SECONDS * 2 ** (failures - 1))

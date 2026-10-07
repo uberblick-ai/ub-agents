@@ -230,7 +230,8 @@ repositories, and add busy discovery, execution/write costs and agents' calls.
 GraphQL has a separate point budget; graph-list query cost depends on its
 connections. Long runs reduce discovery frequency.
 
-Continuous `ub-agents launch` retries failed discovery polls and claim POSTs for
+Continuous `ub-agents launch` retries failed discovery polls, claim POSTs and
+completed-run finalization requests for
 request timeouts, connection failures, empty or truncated responses reported by
 `gh` as `unexpected end of JSON input`, and HTTP 5xx responses. The fixed backoff
 starts at **5 seconds**, doubles after each consecutive failure and caps at
@@ -271,7 +272,10 @@ launcher checks whether that claim was created. If present, it withdraws the cla
 with `state: withdrawn` and summary `Claim response was lost; withdrawn`.
 This spends no attempt and adds no item backoff, so the item can be claimed again
 on that pass. If the launcher restarts first, the claim expires normally.
-Failures after a confirmed claim retain their existing handling.
+Failures during active execution retain their existing handling. After execution
+and cleanup finish, failed GitHub requests preserve the recorded outcome and use
+this same poll backoff; lease expiry permits outcome-only recovery without
+rerunning the agent. See [recovery](coordination.md#recovery).
 
 From claim election through release, including completion recovery, rate-limited
 reads wait and retry under the active lease, even when the reset is beyond its

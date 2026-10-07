@@ -8,6 +8,7 @@ import unittest
 from ub_agents.cli import status_rows
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
+from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import body, iso, payload, timestamp
 from tests.support import FakeGitHub, MemoryPublisher, agent, config, edit_lease, issue, pr, stub_refresh
 
@@ -50,6 +51,7 @@ class CompletedItemTests(unittest.TestCase):
                                        expires=iso(self.now), attempt_effect="unchanged", summary="Interrupted")
                             github.change(item.number, state=state, labels=frozenset(labels))
                             before = json.dumps(github.store, sort_keys=True), list(github.writes)
+                            history = loop.coordinator.history(item.number)
                             plans = self.check_plans(loop, item.number)
                             if state != "open":
                                 self.assertEqual(plans, [])
@@ -59,7 +61,13 @@ class CompletedItemTests(unittest.TestCase):
                                 if not item.labels.intersection(labels):
                                     self.assertEqual(plans[0].state, "blocked")
                                     self.assertIn("restore a trigger", plans[0].reason)
-                            self.assertEqual((json.dumps(github.store, sort_keys=True), github.writes), before)
+                            self.assertEqual(loop.coordinator.history(item.number), history)
+                            if state != "open" and result == "blocked":
+                                notices = [c for c in github.comments(item.number) if c['body'].startswith(ACTION_MARKER)]
+                                self.assertEqual(len(notices), 1)
+                                self.assertEqual(github.writes, before[1] + [('create', notices[0]['id'])])
+                            else:
+                                self.assertEqual((json.dumps(github.store, sort_keys=True), github.writes), before)
                             self.assertEqual(github.item(item.number).labels, frozenset(labels))
 
     def test_closed_items_keep_live_and_expired_unfinished_leases(self):

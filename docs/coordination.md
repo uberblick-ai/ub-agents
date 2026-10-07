@@ -227,8 +227,8 @@ payload fields cannot grant trust: the actor is always the comment author.
 Agents using the operator's GitHub credentials can write trusted records
 themselves; author filtering is not a security boundary against a compromised
 agent session. Malformed or contradictory trusted records park their item
-visibly without stopping unrelated work. Transport and read failures still stop
-the loop; they never become an empty queue.
+visibly without stopping unrelated work. Transport and read failures invalidate
+the pass and follow the bounded GitHub retry policy; they never become an empty queue.
 
 Use the same `launchers` setting on every machine so all launchers agree on the
 trusted set.
@@ -265,7 +265,10 @@ coordination records: they never affect routing authority, verdicts or attempt
 counts. A later claim by any agent on the item, or an explicit retry
 reset, minimizes its earlier Action needed notices. Minimization, notice posts
 and evidence reads are advisory: a failure is logged and does not change the
-durable result. A failed notice post is not retried on each poll.
+durable result. A missing blocked-run notice is retried on later passes, including
+after a launcher restart, until posted. A later claim or reset suppresses the old
+notice even if its earlier post failed. Approval-gate notices retain their
+once-per-gate handling.
 Notice deduplication considers all trusted authors. Simultaneous posters elect
 the lowest comment ID; each loser removes only its own newly posted advisory
 duplicate, preserving every coordination record. Duplicate removal is advisory too.
@@ -582,9 +585,11 @@ backoff. Explicit blocked outcomes require a PR head change or a reasoned operat
 reset; blocked issues and exhausted budgets require the reset. The lease's
 released `result` records the launcher's final verdict; a reported success with
 failed validation remains unaccepted. After
-confirmed cleanup, a nonsuccess verdict and its count effect are persisted before
+confirmed cleanup, a supervision failure and its count effect are persisted before
 reporting or releasing, so a crash in that window cannot promote an early success
-or lose the interrupt classification. The live lease still excludes pickup until
+or lose the interrupt classification. A completed agent report's verdict is
+persisted with release, so a failed GitHub request leaves it recoverable.
+The live lease still excludes pickup until
 release or expiry. If a timeout
 or interruption follows an early report, the launcher reconciles that report and
 releases with the supervision failure rather than posting a second outcome or
@@ -597,6 +602,18 @@ lost, no comment protocol can make that verdict durable.
 
 An unexpired lease excludes pickup until release or expiry. Expiry permits a new
 fresh run on any host, never conversation resumption.
+
+After execution and cleanup finish, GitHub failures during outcome reads or
+PATCHes, validation reads, label changes, acceptance, or release leave the
+unfinished lease recoverable without a blocked or failure verdict. Only the
+agent's report or a failed validation, including a paused transition, can block
+completion. Continuous launch ends a failed pass with the existing
+`Skipped GitHub poll: …; retrying in Ns` message for retryable requests; these
+failures count toward the same poll limit and backoff as discovery failures.
+Non-retryable errors stop the launcher with the lease still recoverable;
+`launch --once` fails on the first error. No agent restarts while its lease is live.
+After expiry, the stored outcome finishes through outcome-only recovery. If no
+outcome was stored, the existing expired-run retry handling may rerun the agent.
 Durable attempts and backoff survive restarts.
 
 At startup, launcher and `status` discovery read repository issue comments updated

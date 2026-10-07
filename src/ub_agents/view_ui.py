@@ -27,7 +27,8 @@ from .view_clipboard import copy_with_pbcopy, local_pbcopy
 from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
                         related_assignment, related_plan, run_status, text, work_pane)
 from .view_github import DescriptionLoads
-from .view_unblock import ActionComment, comment_sections, local_action, needs_attention, trust_reason, unblock_metadata
+from .view_unblock import (ActionComment, comment_sections, local_action, needs_attention,
+                           trust_reason, unblock_body, unblock_metadata)
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
@@ -1053,7 +1054,7 @@ class View(App):
                 tabs.hide_tab('unblock')
             self.unblock_visible = visible
         comment = self.current_action()
-        body = comment.body if visible and comment.available else ''
+        body = unblock_body(self.rows.get(self.selected), comment) if visible else ''
         lead, supporting = comment_sections(body)
         markdown = self.query_one('#unblock_body', Markdown)
         if lead != markdown.source:

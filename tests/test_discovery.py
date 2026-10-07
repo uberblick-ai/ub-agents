@@ -345,6 +345,26 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(loop.github.reads, [("observe", ()), ("repository_comments", (1800 + COMMENT_RECOVERY_SECONDS,)),
                                                       ("role", ("operator",))])
 
+    def test_existing_blocked_notice_reuses_discovery_comments(self):
+        for item in (issue(), pr(1)):
+            for scoped in (False, True):
+                with self.subTest(kind=item.kind, scoped=scoped):
+                    loop = self.loop([item])
+                    lease = loop.coordinator.claim(loop.plans()[0], loop.config.stop_labels)
+                    loop.coordinator.report(lease, "blocked", "Need a decision",
+                                            action="Maintainer: decide the next step.")
+                    loop.github.login = "maintainer"
+                    loop.coordinator.release(lease, "blocked", "Need a decision")
+                    loop.github.change(1, labels=frozenset({"needs-human"}))
+                    with patch.object(loop.coordinator.notices, "post_action",
+                                      wraps=loop.coordinator.notices.post_action) as post:
+                        for poll in range(3):
+                            loop.github.reads.clear()
+                            self.assertFalse(loop.tick_item(1) if scoped else loop.tick())
+                            self.assertEqual([args for name, args in loop.github.reads if name == "comments"],
+                                             [(1,)] if scoped or poll == 0 else [])
+                        post.assert_not_called()
+
     def test_changed_blocker_state_updates_inheritance_without_rereading_dependents(self):
         loop = self.loop([issue(1, ("ready", "low")), issue(2, ("urgent",))],
                          Queue(priority=Priority(("urgent", "low"))))
