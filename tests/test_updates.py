@@ -83,7 +83,8 @@ class UpdateTests(unittest.TestCase):
     def test_strict_release_comparison_commands_and_age(self):
         for tag in ('v0.1.11', '0.1.10', 'v0.0.99'):
             self.assertIsNone(release_banner(release(tag), 'brew', running='0.1.11'))
-        for method, command in (('brew', 'brew upgrade ub-agents'), ('pip', 'pip install -U ub-agents')):
+        for method, command in (('brew', 'brew update && brew upgrade ub-agents'),
+                                ('pip', 'pip install -U ub-agents')):
             banner = release_banner(release('v0.1.100'), method, running='0.1.11')
             self.assertEqual(banner['text'], f'⬆ ub-agents 0.1.100 is available · you run 0.1.11 · '
                                             f'{command}, then restart the launcher')
@@ -196,7 +197,8 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue(eventually(lambda: update.banner is not None))
         for _ in range(10):
             loop._poll_updates()
-        self.assertEqual(len([line for line in lines if line.startswith('⬆')]), 1)
+        self.assertEqual([line for line in lines if line.startswith('⬆')],
+                         [f"{update.banner['text']}  {release_age(update.banner['released_at'])}"])
         self.assertEqual(memory.snapshots[-1]['update'], update.banner)
         self.assertNotIn('\n', lines[-1])
         update.banner = None

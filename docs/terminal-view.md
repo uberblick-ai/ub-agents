@@ -65,7 +65,7 @@ The view writes it when it changes and clears it on exit.
 When newer ub-agents code is available, a themed, one-line banner appears at the
 top, above both panes and the shared item header. It takes no focus and truncates
 to the terminal width. Installed releases say
-`⬆ ub-agents X is available · you run Y · brew upgrade ub-agents,
+`⬆ ub-agents X is available · you run Y · brew update && brew upgrade ub-agents,
 then restart the launcher`, or name `pip install -U ub-agents` for pip installs;
 the release age appears at the right when space permits. The launcher makes one
 GitHub REST request at startup and at most one per day while running.

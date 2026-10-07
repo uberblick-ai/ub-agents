@@ -69,7 +69,7 @@ to restart when a normal control-checkout fetch finds newer code. See
 Before upgrading, check the [changelog](../CHANGELOG.md) and
 [GitHub release notes](https://github.com/uberblick-ai/ub-agents/releases) for any
 required configuration edits. Send SIGTERM and wait for the launcher to exit,
-upgrade with `brew upgrade ub-agents` (or `git pull` for a development checkout),
+upgrade with `brew update && brew upgrade ub-agents` (or `git pull` for a development checkout),
 then start `ub-agents launch` again. Under tmux, systemd or similar that restarts the
 launcher automatically, upgrade first and then send SIGTERM. When a release says
 launchers must be upgraded together, stop every launcher for the project before

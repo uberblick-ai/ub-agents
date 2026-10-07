@@ -345,7 +345,7 @@ footer keys switch to log keys):
  ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll r poll now ? keys q quit
 
 Update available (themed banner above both panes):
- ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew upgrade ub-agents, then restart the launcher   released 2 days ago
+ ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew update && brew upgrade ub-agents, then restart the launcher   released 2 days ago
  ⬆ This launcher runs code 3 commits behind origin/main · restart the launcher
 
 External SIGTERM (normal panes remain visible):
