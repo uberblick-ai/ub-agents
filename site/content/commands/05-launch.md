@@ -2,6 +2,11 @@
 
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
+Pane and overlay scrollbars stay hidden until you scroll. Each muted bar uses
+one reserved column, so appearing or disappearing never shifts the content.
+It hides after 1.5 seconds of inactivity; hovering or dragging keeps it visible.
+Log follow updates and automatic position changes leave the bar hidden.
+
 Before each new run, launch refreshes the control checkout and reloads its configuration. Optional [checkout setup](/docs/configuration/checkout-setup.html) reinstalls dependencies when watched files changed. The view names the triggering file; command output stays in the reported log. A failed setup stops launch before a claim or charged attempt and retries on the next launch, even with nothing to pull.
 
 Press `r` to refresh the queue. During a continuous launch's assignment, this

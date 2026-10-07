@@ -10,6 +10,7 @@ from textual.strip import Strip
 from textual.widgets import Static, Tree
 
 from .view_data import item_handoff, mapping, outcomes_today, rows, text
+from .view_scroll import ScrollbarVisibility
 from .view_spinner import spinner_frame
 from .attention import attention_state, waiting_time
 from .view_theme import SECTION_COLORS, item_reference, theme_style
@@ -119,7 +120,7 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     return first, detail
 
 
-class WorkTree(Tree):
+class WorkTree(ScrollbarVisibility, Tree):
     """One Tree node per row, one or two lines, using pinned Textual 8.2.8."""
 
     @property

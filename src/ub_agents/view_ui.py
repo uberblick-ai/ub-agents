@@ -30,6 +30,7 @@ from .view_github import DescriptionLoads
 from .view_unblock import ActionComment, comment_sections, local_action, needs_attention, trust_reason, unblock_metadata
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
+from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
 from .view_worker import LocalWorker, Request
 from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
 from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
@@ -139,7 +140,7 @@ class RawAccess(ModalScreen):
         # Read the view's state now: updates that land between the push and
         # this compose find no widgets to update.
         yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='raw_size_warning')
-        with VerticalScroll(id='raw_content'):
+        with PaneScroll(id='raw_content'):
             yield Static(Text(self.message if self.message is not None else self.app.raw_details()), id='raw_details')
         yield Static(self.app.footer(self.app.size.width - self.styles.padding.width, self.footer_keys),
                      id='raw_status', markup=False)
@@ -205,7 +206,7 @@ class Reading:
     empty_message: str = 'No local log cached for this row.'
 
 
-class LogPane(ScrollView):
+class LogPane(ScrollbarVisibility, ScrollView):
     """A fixed retained page, with a logical entry anchor instead of RichLog redraw.
 
     At most 400 wrapped lines are rendered. Accounting and older paging include
@@ -388,6 +389,16 @@ class View(App):
     TITLE = 'ub-agents launch'
     CSS = '''
     Screen { background: $background; color: $foreground; }
+    .view-scroll {
+        scrollbar-visibility: hidden;
+        scrollbar-size-vertical: 1;
+        scrollbar-color: $view-muted;
+        scrollbar-color-hover: $view-muted;
+        scrollbar-color-active: $view-muted;
+        scrollbar-background: transparent;
+        scrollbar-background-hover: transparent;
+        scrollbar-background-active: transparent;
+    }
     #update { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
     #body { height: 1fr; }
     #size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
@@ -512,15 +523,15 @@ class View(App):
                     yield Static('', id='log_state', markup=False)
                     yield Static('', id='run_status', markup=False)
                 with TabPane('2 Issue', id='issue'):
-                    with VerticalScroll():
+                    with PaneScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
                         yield Markdown('', id='issue_body', parser_factory=description_parser, open_links=False)
                         yield Static('', id='issue_note', markup=False)
                 with TabPane('3 Runs', id='runs'):
-                    with VerticalScroll():
+                    with PaneScroll():
                         yield Static('Select an item to see its history.', id='runs_text', markup=False)
                 with TabPane('4 Unblock', id='unblock'):
-                    with VerticalScroll():
+                    with PaneScroll():
                         yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
                         with Collapsible(title='Reasoning and evidence',
                                          collapsed=True, id='unblock_details'):
@@ -734,6 +745,9 @@ class View(App):
         # refresh timers may still fire until teardown closes the message pump.
         if not self.is_running:
             return
+        for screen in self.screen_stack:
+            for area in screen.query('.view-scroll'):
+                area.update_scrollbar()
         self.descriptions.poll()
         try:
             result = self.worker.results.get_nowait()
@@ -1421,40 +1435,39 @@ class View(App):
         else:
             self.push_screen(KeyHelp(self.unblock_visible, attached=self.launcher is not None))
 
-    def action_page_up(self):
+    def scroll_area(self):
         if isinstance(self.screen, RawAccess):
-            self.screen.query_one(VerticalScroll).scroll_page_up(animate=False)
-            return
-        if self.query_one(TabbedContent).active == 'log':
-            if self.reading.follow:
-                self.action_follow()
-            self.query_one('#output', LogPane).scroll_page_up(animate=False)
-            self.call_after_refresh(self.query_one('#output', LogPane).save_anchor)
-        else:
-            self.query_one('#' + self.query_one(TabbedContent).active + ' VerticalScroll', VerticalScroll).scroll_page_up(animate=False)
+            return self.screen.query_one(PaneScroll)
+        tab = self.query_one(TabbedContent).active
+        return self.query_one(LogPane) if tab == 'log' else self.query_one('#' + tab + ' VerticalScroll')
+
+    async def _dispatch_action(self, namespace, action_name, params):
+        # Textual dispatches bindings at App level, rather than as widget key
+        # events. Scope only scroll/cursor actions, including inherited ones.
+        area = namespace if isinstance(namespace, ScrollbarVisibility) else (
+            self.scroll_area() if namespace is self and scroll_action(action_name) else None)
+        if area is not None and scroll_action(action_name):
+            with area.user_scroll():
+                return await super()._dispatch_action(namespace, action_name, params)
+        return await super()._dispatch_action(namespace, action_name, params)
+
+    def scroll_key(self, action):
+        area = self.scroll_area()
+        if isinstance(area, LogPane) and action in {'page_up', 'scroll_home'} and self.reading.follow:
+            self.action_follow()
+        method = 'scroll_' + action if action.startswith('page_') else action
+        getattr(area, method)(animate=False)
+        if isinstance(area, LogPane):
+            self.call_after_refresh(area.save_anchor)
+
+    def action_page_up(self):
+        self.scroll_key('page_up')
 
     def action_page_down(self):
-        if isinstance(self.screen, RawAccess):
-            self.screen.query_one(VerticalScroll).scroll_page_down(animate=False)
-            return
-        if self.query_one(TabbedContent).active == 'log':
-            self.query_one('#output', LogPane).scroll_page_down(animate=False)
-            self.call_after_refresh(self.query_one('#output', LogPane).save_anchor)
-        else:
-            self.query_one('#' + self.query_one(TabbedContent).active + ' VerticalScroll', VerticalScroll).scroll_page_down(animate=False)
+        self.scroll_key('page_down')
 
     def action_home(self):
-        if isinstance(self.screen, RawAccess):
-            self.screen.query_one(VerticalScroll).scroll_home(animate=False)
-            return
-        if self.reading.follow:
-            self.action_follow()
-        self.query_one('#output', LogPane).scroll_home(animate=False)
-        self.call_after_refresh(self.query_one('#output', LogPane).save_anchor)
+        self.scroll_key('scroll_home')
 
     def action_end(self):
-        if isinstance(self.screen, RawAccess):
-            self.screen.query_one(VerticalScroll).scroll_end(animate=False)
-            return
-        self.query_one('#output', LogPane).scroll_end(animate=False)
-        self.call_after_refresh(self.query_one('#output', LogPane).save_anchor)
+        self.scroll_key('scroll_end')
