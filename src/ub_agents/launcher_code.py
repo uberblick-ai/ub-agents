@@ -12,8 +12,14 @@ from .state import lock, user_state_directory
 _active = None
 
 
+def source_directory():
+    # This module is loaded before copying. Keep the original install location
+    # for update banners even when their module is imported lazily from the copy.
+    return Path(__file__).resolve().parent
+
+
 def package_directory():
-    return _active[0] / "ub_agents" if _active else Path(__file__).resolve().parent
+    return _active[0] / "ub_agents" if _active else source_directory()
 
 
 def descriptors():

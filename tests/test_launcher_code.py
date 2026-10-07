@@ -1,5 +1,6 @@
 from contextlib import redirect_stdout
 import importlib
+from importlib.util import module_from_spec, spec_from_file_location
 import io
 import json
 import os
@@ -11,7 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import ub_agents
 from ub_agents.cli import main
@@ -21,7 +22,7 @@ from ub_agents.launcher_code import descriptors, helper_command, startup_copy
 from ub_agents.loop import Loop
 from ub_agents.report_command import launcher_report_command
 from ub_agents.state import lock
-from tests.support import FakeGitHub, agent, config, isolate_runtime_state, issue, run_environment
+from tests.support import FakeGitHub, config, isolate_runtime_state, issue, run_environment
 
 
 class LauncherCodeTests(unittest.TestCase):
@@ -82,7 +83,8 @@ GitHub = lambda repository: fixture
                                         pass_fds=descriptors(), capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(Path(result.stdout.strip()), copied / "ub_agents/run_config.py")
-            lazy = importlib.import_module("ub_agents.startup_probe")
+            with redirect_stdout(io.StringIO()):
+                lazy = importlib.import_module("ub_agents.startup_probe")
             self.addCleanup(sys.modules.pop, "ub_agents.startup_probe", None)
             self.assertEqual(Path(lazy.__file__), copied / "ub_agents/startup_probe.py")
         self.assertFalse(copied.exists())
@@ -102,6 +104,23 @@ GitHub = lambda repository: fixture
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 0)
         self.assertFalse(paths[0].exists())
         self.assertEqual(descriptors(), ())
+
+    def test_lazy_update_checker_preserves_original_installation_and_banner_selection(self):
+        with startup_copy() as copied:
+            spec = spec_from_file_location("ub_agents.copied_updates", copied / "ub_agents/updates.py")
+            updates = module_from_spec(spec)
+            spec.loader.exec_module(updates)
+            self.assertTrue(Path(updates.__file__).is_relative_to(copied))
+            dist = Mock()
+            for source, editable, expected in (
+                    (self.root / "src/ub_agents", True, "checkout"),
+                    (self.root / "Cellar/ub-agents/0.1.15/libexec/ub_agents", False, "brew"),
+                    (self.root / "venv/lib/python3.11/site-packages/ub_agents", False, "pip")):
+                with self.subTest(method=expected), \
+                        patch("ub_agents.launcher_code.__file__", str(source / "launcher_code.py")):
+                    dist.read_text.return_value = json.dumps({"url": self.root.as_uri(),
+                                                              "dir_info": {"editable": editable}})
+                    self.assertEqual(updates.installation(self.root, dist=dist), expected)
 
     def test_inherited_run_lock_retains_copy_after_launcher_exit_and_during_startup_pruning(self):
         with startup_copy() as copied:
@@ -131,6 +150,30 @@ GitHub = lambda repository: fixture
         other.close()
         with startup_copy():
             self.assertFalse(copied.exists())
+
+    def test_helper_retains_lazy_imports_after_launcher_exit_and_removes_last_copy(self):
+        with startup_copy() as copied:
+            (copied / "ub_agents/startup_probe.py").write_text('''
+import sys
+print("ready", flush=True)
+sys.stdin.read()
+from ub_agents import run_config
+print(run_config.__file__)
+''')
+            process = subprocess.Popen(helper_command("ub_agents.startup_probe"), pass_fds=descriptors(),
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       text=True)
+            self.assertEqual(process.stdout.readline().strip(), "ready")
+        try:
+            self.assertTrue(copied.exists())
+            output, errors = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, errors)
+            self.assertEqual(Path(output.strip()), copied / "ub_agents/run_config.py")
+            self.assertFalse(copied.exists())
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
 
     def test_killed_launcher_copy_is_pruned_on_next_start(self):
         script = '''

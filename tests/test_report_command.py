@@ -17,6 +17,7 @@ from ub_agents.cli import main
 from ub_agents.config import Runtime, load_config
 from ub_agents.coordination import Coordinator
 from ub_agents.loop import Loop
+from ub_agents.launcher_code import descriptors, startup_copy
 from ub_agents.records import MARKER, record_version
 from ub_agents.report_command import launcher_report_command
 from tests.support import FakeGitHub, agent, config, issue, run_environment, stub_refresh
@@ -115,6 +116,7 @@ def main():
                     report = env["UB_AGENTS_REPORT"]
                     self.assertEqual(report, context["report_command"])
                     self.assertEqual(report, launcher_report_command())
+                    self.assertIn(descriptors()[0], kwargs["pass_fds"])
                     self.assertTrue(Path(shlex.split(report)[0]).is_absolute())
                     if cli:
                         self.assertIn(f"Bash({report} report *)", command)
@@ -130,7 +132,8 @@ def main():
                         patch.dict(os.environ, {"UB_AGENTS_REPORT": "/stale/ub-agents",
                                                 "UB_AGENTS_READ_CONFIG": "/stale/read.json",
                                                 "UB_AGENTS_RETROSPECTIVE_CONFIG": "/stale/retro.json"}), \
-                        patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                        patch("ub_agents.loop.supervise", side_effect=execute) as executed, \
+                        startup_copy():
                     self.assertTrue(loop.tick())
                 executed.assert_called_once()
 
