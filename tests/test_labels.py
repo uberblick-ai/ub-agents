@@ -6,7 +6,7 @@ import shlex
 import unittest
 from unittest.mock import patch
 
-from ub_agents.labels import configured_labels, provision_labels
+from ub_agents.labels import Label, LabelUse, configured_labels, provision_labels
 from tests.support import DoctorGitHub, agent, config
 
 
@@ -32,6 +32,19 @@ class LabelTests(unittest.TestCase):
         self.assertEqual([use.required for use in labels[3].uses], [False, True])
         self.assertEqual(labels[3].explanation,
                          'parks an issue or PR until a person decides; added when worker reports parked')
+
+    def test_description_keeps_whole_clauses_at_the_character_limit(self):
+        effect = LabelUse('reviewer', 'starts reviewer on a PR')
+        transition = LabelUse('worker', 'added when worker reports ' + 'x' * 38)
+        label = Label('review', (effect, transition, LabelUse('worker', 'removed when worker reports done')))
+        self.assertEqual(len(label.description), 100)
+        self.assertEqual(label.description, f'ub-agents: {effect.meaning}; {transition.meaning}')
+        longer = replace(label, uses=(effect, replace(transition, meaning=transition.meaning + 'x')))
+        self.assertEqual(longer.description, f'ub-agents: {effect.meaning}')
+
+    def test_overlong_first_clause_shortens_at_a_word_boundary(self):
+        label = Label('review', (LabelUse('worker', 'starts ' + 'long-name-' * 20 + ' on an issue or PR'),))
+        self.assertEqual(label.description, 'ub-agents: starts...')
 
     def test_confirmed_provisioning_follows_the_configuration(self):
         with patch.dict('os.environ', {'CI': ''}), \

@@ -156,7 +156,10 @@ class InitTests(unittest.TestCase):
                         path.write_text('# Checks\nRun project tests.\n')
                     self.assertEqual(self.init(runtime=runtime)[0], 0)
                     policy = load_config(self.path).shared_instructions.read_text()
-                    self.assertIn('`@org/maintainers`', policy)
+                    customized = ' '.join(policy.replace('@org/maintainers', '@acme/core').split())
+                    self.assertIn('`@acme/core` answers scope and policy questions;', customized)
+                    self.assertIn('Leave changes to workflow, permissions and release policy to `@acme/core`;',
+                                  customized)
                     self.assertNotIn('maintainer team', policy)
                     self.assertEqual(policy.split('## Review focus\n\n')[1].strip(),
                                      "Replace this section with the project's review priorities and required evidence.")
@@ -361,6 +364,14 @@ class InitTests(unittest.TestCase):
             'ready': 'starts implementer on an issue or PR; added when issue-preparer reports prepared',
             'needs-review': 'starts reviewer on a PR; added when implementer reports handed-off',
             'needs-human': 'parks an issue or PR until a person decides; added when issue-preparer reports needs-human',
+            'needs-changes': 'starts implementer on an issue or PR; added when reviewer reports changes-requested; '
+                             'added when integrator reports changes-requested',
+        }
+        descriptions = {
+            'ready': 'ub-agents: starts implementer on an issue or PR; added when issue-preparer reports prepared',
+            'needs-review': 'ub-agents: starts reviewer on a PR; added when implementer reports handed-off',
+            'needs-human': 'ub-agents: parks an issue or PR until a person decides',
+            'needs-changes': 'ub-agents: starts implementer on an issue or PR; added when reviewer reports changes-requested',
         }
         for terminal, answer in ((False, ''), (True, 'no'), (True, 'yes')):
             with self.subTest(terminal=terminal, answer=answer), tempfile.TemporaryDirectory() as directory:
@@ -373,7 +384,8 @@ class InitTests(unittest.TestCase):
                 for name, meaning in meanings.items():
                     if terminal:
                         self.assertIn(f'  {name}: {meaning}', output)
-                    description = f'ub-agents: {meaning}'[:100]
+                    description = descriptions[name]
+                    self.assertLessEqual(len(description), 100)
                     if answer == 'yes':
                         self.assertIn(('create-label', name, description,
                                        'd876e3' if name == 'needs-human' else '1d76db'), self.github.writes)

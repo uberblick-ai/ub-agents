@@ -89,10 +89,11 @@ error.
 
 In an interactive terminal, `init` and `doctor` explain the missing workflow labels
 with the effect first (such as starting an implementer), followed by the reports
-that add or remove them. GitHub label descriptions use the same wording, up to
-GitHub's 100-character limit. Both commands offer to create missing labels; the
-default is no. They write labels only after a confirmed
-`y` or `yes` and never change existing labels. `doctor` offers after its report,
+that add or remove them. GitHub label descriptions include whole clauses within
+GitHub's 100-character limit, starting with the effect. An overlong first clause
+is shortened at a word boundary. Both commands offer to create missing labels;
+the default is no. They write labels only after a confirmed `y` or `yes` and never
+change existing labels. `doctor` offers after its report,
 then reads the labels again so its final counts and exit status reflect that read.
 Declining, end of input, CI, pipes and `doctor --json` leave runnable `gh label create`
 commands without creating labels. Noninteractive `init` makes no GitHub calls beyond

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import os
 import shlex
 import sys
+from textwrap import shorten
 
 from .errors import AgentError
 
@@ -26,7 +27,16 @@ class Label:
 
     @property
     def description(self):
-        return f"ub-agents: {self.explanation}"[:100]
+        description = f"ub-agents: {self.uses[0].meaning}"
+        if len(description) > 100:
+            return shorten(description, width=100, placeholder="...",
+                           break_long_words=False, break_on_hyphens=False)
+        for use in self.uses[1:]:
+            candidate = f"{description}; {use.meaning}"
+            if len(candidate) > 100:
+                break
+            description = candidate
+        return description
 
     @property
     def color(self):
