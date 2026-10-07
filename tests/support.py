@@ -60,6 +60,19 @@ def isolate_runtime_state(test):
     environment = patch.dict(os.environ, {"XDG_STATE_HOME": state.name})
     test.addCleanup(environment.stop)
     environment.start()
+    # Recording GitHub adapters need no host gh installation. Patch only this
+    # module's lookup so tests can still override shutil.which independently.
+    executable = Path(state.name) / "bin/gh"
+    executable.parent.mkdir()
+    executable.write_text(f"#!{sys.executable}\nprint('gh test fixture')\n")
+    executable.chmod(0o755)
+    from ub_agents import runtime_installations
+    from types import SimpleNamespace
+    which = runtime_installations.shutil.which
+    lookup = patch("ub_agents.runtime_installations.shutil",
+                   SimpleNamespace(which=lambda cli: str(executable) if cli == "gh" else which(cli)))
+    test.addCleanup(lookup.stop)
+    lookup.start()
 
 
 def observation_writer_command(body):

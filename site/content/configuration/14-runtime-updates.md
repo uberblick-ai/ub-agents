@@ -49,4 +49,6 @@ Claude Code and Codex are checked only when configured agent runtimes use them. 
 
 Checks run at unclaimed launcher boundaries. Every run reserves `gh` through execution and cleanup, so an active run defers its updater without starting a cooldown. Completed checks print a maintenance line and start a shared 24-hour cooldown; automatic skips stay local to the launcher. A check that leaves `gh` unusable blocks every new run until a later boundary finds it working again, including launchers with updates off.
 
+Discovery waits while `gh` is guarded or recorded unusable. Each discovery pass reserves `gh` through recovery and claim writes, so an update also defers until the pass finishes without starting its cooldown.
+
 **Upgrading:** upgrade every launcher of a project before setting `runtime-updates.gh`; earlier launchers reject that key.

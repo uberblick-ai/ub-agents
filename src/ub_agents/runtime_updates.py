@@ -221,10 +221,13 @@ class RuntimeMaintenance:
                 self.output(f"Runtime maintenance {cli} ({install.method}): failed — warning: local state unavailable: {exc}")
 
     @contextmanager
-    def reserve_run(self, cli=None):
+    def reserve_run(self, cli=None, *, github=None):
         """Every agent uses gh; protect it through execution and cleanup too."""
         with ExitStack() as stack:
-            github = stack.enter_context(self.reserve("gh"))
+            # A discovery pass already owns gh and keeps it until this run's
+            # cleanup completes. Reuse its descriptor for child inheritance.
+            if github is None:
+                github = stack.enter_context(self.reserve("gh"))
             if github is None:
                 yield None
                 return

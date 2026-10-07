@@ -4,7 +4,7 @@ import json
 import os
 import socket
 import threading
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from time import monotonic
 from dataclasses import replace
 
@@ -93,6 +93,7 @@ class Loop:
         self._has_trigger = None
         self._maintaining = False
         self._github_waiting = False
+        self._github_reservation = None
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
 
@@ -471,9 +472,13 @@ class Loop:
     def tick(self):
         self._observe("begin_pass")
         self.maintain_runtimes()
-        if not self.github_ready():
-            self._observe("complete_pass")
-            return False
+        with self.github_pass() as ready:
+            if not ready:
+                self._observe("complete_pass")
+                return False
+            return self._tick()
+
+    def _tick(self):
         config = self.config
         present = set()
         for plan in self.iter_plans():
@@ -518,9 +523,13 @@ class Loop:
     def tick_item(self, number, agent_name=None):
         self._observe("begin_pass")
         self.maintain_runtimes()
-        if not self.github_ready():
-            self._observe("complete_pass")
-            return False
+        with self.github_pass() as ready:
+            if not ready:
+                self._observe("complete_pass")
+                return False
+            return self._tick_item(number, agent_name)
+
+    def _tick_item(self, number, agent_name=None):
         item, plans = self.item_plans(number, agent_name)
         shown = False
         for plan in plans:
@@ -628,13 +637,36 @@ class Loop:
 
     def github_ready(self):
         """A broken/guarded gh cannot perform discovery; keep recovery polling."""
-        ready = self.maintenance.available("gh")
+        return self._github_status(self.maintenance.available("gh"))
+
+    def _github_status(self, ready):
         if not ready:
             self._has_trigger = None
             if not self._github_waiting:
                 self.output("GitHub CLI gh is unavailable or under maintenance; waiting for the next runtime boundary")
         self._github_waiting = not ready
         return ready
+
+    @contextmanager
+    def github_pass(self):
+        """Protect every discovery/recovery read and write, including the claim."""
+        if not self.github_ready():
+            yield False
+            return
+        with self.maintenance.reserve("gh") as reservation:
+            if reservation is None:
+                self._github_status(False)
+                yield False
+                return
+            self._github_reservation = reservation
+            try:
+                if self.coordinator.actor is None:
+                    self.coordinator.actor = self.github.actor()
+                    self.coordinator.notices.actor = self.coordinator.actor
+                    self._observe("configure", self.config, self.coordinator.actor, self.config_path)
+                yield True
+            finally:
+                self._github_reservation = None
 
     def maintain_runtimes(self):
         self._before_claim()
@@ -713,7 +745,8 @@ class Loop:
         except AgentError as exc:
             self.output(f"#{plan.item.number} {plan.agent.name}: waiting — {exc}")
             return False
-        with self.maintenance.reserve_run(runtime.cli if runtime is not None else None) as reservation:
+        with self.maintenance.reserve_run(runtime.cli if runtime is not None else None,
+                                          github=self._github_reservation) as reservation:
             if reservation is None:
                 self.output(f"#{plan.item.number} {plan.agent.name}: waiting — "
                             f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
@@ -1218,9 +1251,6 @@ class Loop:
         self.usage.reset()
         self._continuous = not once
         self.github.discovery = not once
-        if self.coordinator.actor is None:
-            self.coordinator.actor = self.github.actor()
-            self.coordinator.notices.actor = self.coordinator.actor
         self._observe("configure", self.config, self.coordinator.actor, self.config_path)
         failures = 0
         idle_state = None

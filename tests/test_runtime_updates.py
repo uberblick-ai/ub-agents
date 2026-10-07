@@ -899,29 +899,117 @@ class RuntimeUpdateTests(unittest.TestCase):
                     self.assertEqual(github.writes, [])
                     self.assertIn("gh is unavailable or under maintenance", self.lines[-1])
 
-    def test_gh_reservation_race_blocks_claims_for_command_and_runtime_agents(self):
+    def test_gh_guard_after_ready_blocks_discovery_for_command_and_runtime_agents(self):
         stub_refresh(self)
         self.npm()
         self.manager.root.mkdir()
         guard = self.manager.paths(installation("gh", self.which))[0]
-        reserve = self.manager.reserve_run
-        @contextmanager
-        def maintenance_wins(cli):
-            with lock(guard):
-                with reserve(cli) as reservation:
-                    yield reservation
         for settings in (config(self.root), self.settings()):
-            with self.subTest(runtime=settings.agents[0].runtimes):
-                github = FakeGitHub(issue())
-                loop = Loop(settings, github, "operator", output=self.lines.append)
+            for scoped in (False, True):
+                with self.subTest(runtime=settings.agents[0].runtimes, scoped=scoped), ExitStack() as stack:
+                    github = FakeGitHub(issue())
+                    loop = Loop(settings, github, "operator", output=self.lines.append)
+                    loop.maintenance = self.manager
+                    loop.coordinator.runtime_available = self.manager.available
+                    ready = loop.github_ready
+                    def maintenance_wins():
+                        self.assertTrue(ready())
+                        self.assertIsNotNone(stack.enter_context(lock(guard)))
+                        return True
+                    with patch.object(loop, "github_ready", side_effect=maintenance_wins), \
+                            patch("ub_agents.loop.supervise") as run, \
+                            patch.object(github, "observe", side_effect=AssertionError("gh is under maintenance")), \
+                            patch.object(github, "item", side_effect=AssertionError("gh is under maintenance")):
+                        self.assertFalse(loop.tick_item(1) if scoped else loop.tick())
+                    run.assert_not_called()
+                    self.assertEqual(github.writes, [])
+                    self.assertIn("gh is unavailable or under maintenance", self.lines[-1])
+
+    def test_gh_updates_defer_during_discovery_and_authentication_without_cooldown(self):
+        self.brew("gh", kind="Cellar")
+        settings = self.settings("gh")
+        state = self.manager.paths(installation("gh", self.which))[2]
+        for scoped in (False, True):
+            with self.subTest(scoped=scoped):
+                state.unlink(missing_ok=True)
+                self.calls.clear()
+                github = FakeGitHub(issue(labels=()))
+                loop = Loop(config(self.root), github, None, output=self.lines.append)
                 loop.maintenance = self.manager
                 loop.coordinator.runtime_available = self.manager.available
-                with patch.object(self.manager, "reserve_run", side_effect=maintenance_wins), \
-                        patch("ub_agents.loop.supervise") as run:
-                    self.assertFalse(loop.tick())
-                run.assert_not_called()
+                second = self.manager_for()
+                def guarded(read):
+                    def call(*args, **kwargs):
+                        second.boundary(settings)
+                        self.assertEqual(self.calls, [])
+                        self.assertFalse(state.exists())
+                        return read(*args, **kwargs)
+                    return call
+                with patch.object(github, "actor", side_effect=guarded(github.actor)) as actor, \
+                        patch.object(github, "observe", side_effect=guarded(github.observe)) as observe, \
+                        patch.object(github, "item", side_effect=guarded(github.item)) as item:
+                    self.assertFalse(loop.tick_item(1) if scoped else loop.tick())
+                actor.assert_called_once()
+                self.assertTrue(item.called if scoped else observe.called)
                 self.assertEqual(github.writes, [])
-                self.assertIn("gh became unavailable before the claim", self.lines[-1])
+                self.assertIsNone(loop._github_reservation)
+                second.boundary(settings)
+                self.assertEqual(len(self.updates()), 1)
+
+    def test_gh_updates_defer_through_recovery_claim_and_settlement(self):
+        self.brew("gh", kind="Cellar")
+        settings = self.settings("gh")
+        state = self.manager.paths(installation("gh", self.which))[2]
+        for scoped in (False, True):
+            with self.subTest(scoped=scoped):
+                state.unlink(missing_ok=True)
+                self.calls.clear()
+                github = FakeGitHub(issue())
+                loop = Loop(config(self.root), github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                co = loop.coordinator
+                co.clock = lambda: self.now
+                lease = co.claim(loop.plans()[0])
+                co.update(lease, state="running", started=True)
+                co.report(lease, "success", "Completed before launcher stopped", outcome="done")
+                self.now += 61
+                second = self.manager_for()
+                def guarded(write):
+                    def call(*args, **kwargs):
+                        second.boundary(settings)
+                        self.assertEqual(self.calls, [])
+                        self.assertFalse(state.exists())
+                        return write(*args, **kwargs)
+                    return call
+                with patch.object(github, "create_comment", side_effect=guarded(github.create_comment)) as create, \
+                        patch.object(github, "update_comment", side_effect=guarded(github.update_comment)) as update, \
+                        patch("ub_agents.loop.supervise") as run:
+                    self.assertTrue(loop.tick_item(1) if scoped else loop.tick())
+                self.assertTrue(create.called)
+                self.assertTrue(update.called)
+                run.assert_not_called()
+                source, outcome, recovery, verdict = co.history(1)
+                self.assertTrue(outcome["accepted"])
+                self.assertEqual((recovery["mode"], recovery["result"]), ("recovery", "success"))
+                self.assertEqual(verdict["status"], "success")
+                second.boundary(settings)
+                self.assertEqual(len(self.updates()), 1)
+
+    def test_gh_discovery_reservation_releases_after_read_failure(self):
+        from ub_agents.errors import GitHubError
+        self.brew("gh", kind="Cellar")
+        github = FakeGitHub(issue())
+        loop = Loop(config(self.root), github, "operator", output=self.lines.append)
+        loop.maintenance = self.manager
+        loop.coordinator.runtime_available = self.manager.available
+        failure = GitHubError("GET", "issues", "temporary failure", retryable=True)
+        with patch.object(github, "observe", side_effect=failure):
+            with self.assertRaises(GitHubError):
+                loop.tick()
+        self.assertIsNone(loop._github_reservation)
+        self.manager_for().boundary(self.settings("gh"))
+        self.assertEqual(len(self.updates()), 1)
 
     def test_supervised_command_inherits_gh_reservation(self):
         self.brew("gh", kind="Cellar")

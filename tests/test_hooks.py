@@ -2,6 +2,7 @@ from contextlib import ExitStack
 from dataclasses import replace
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import threading
@@ -77,6 +78,15 @@ class HookTests(unittest.TestCase):
         with patch("ub_agents.hooks.supervise", side_effect=hook):
             self.assertTrue(self.execute(loop))
         self.assertTrue(marker.exists())
+
+    def test_command_run_and_cleanup_need_no_host_gh(self):
+        which = shutil.which
+        with patch("shutil.which", side_effect=lambda cli: None if cli == "gh" else which(cli)):
+            stub_refresh(self)
+            loop = self.loop()
+            self.assertIsNone(shutil.which("gh"))
+            self.assertTrue(self.execute(loop))
+        self.assertEqual(len(self.removed), 1)
 
     def test_interrupted_outcome_read_still_runs_hook_once_and_removes_tree(self):
         output = self.root / "hook-ran"

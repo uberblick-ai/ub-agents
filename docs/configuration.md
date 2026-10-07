@@ -861,7 +861,9 @@ does not track sessions launched outside ub-agents.
 Every run, including a `command:` agent, reserves `gh` through execution and
 cleanup; agent processes and cleanup hooks inherit its run lock. A `gh` update
 therefore waits for all tracked runs to finish. Discovery waits while `gh` is
-guarded or recorded unusable. Failed `gh` health blocks every new run until a
+guarded or recorded unusable, then holds a reservation through the entire pass,
+including recovery and claim writes. Maintenance defers during that pass without
+starting its cooldown. Failed `gh` health blocks every new run until a
 later unclaimed boundary finds it working again, even in projects with updates off.
 
 **Upgrading:** upgrade every launcher of a project before setting
