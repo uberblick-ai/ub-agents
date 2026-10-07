@@ -995,16 +995,72 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
 
 ## Commands
 
-`ub-agents`, `ub-agents help` and `ub-agents --help` print the same compact, aligned
-command overview and exit successfully. Rows show one usage form; detailed help
-includes all options and alternatives. `ub-agents help COMMAND` and
-`ub-agents COMMAND --help` print the same detailed purpose, usage, arguments,
-options and examples. All help forms work without project configuration, GitHub
-authentication or network access, and neither execute commands nor create files.
-Square brackets mean optional: `launch [NUMBER]` accepts an optional item number,
-while `retry NUMBER` and `approve NUMBER` require one. `retry --agent` is optional.
-Unknown commands and missing required arguments exit nonzero on standard error
-with a help command to run.
+`ub-agents`, `ub-agents -h`, `ub-agents --help` and `ub-agents help` print the
+same overview on stdout and exit 0. Operator commands and commands used inside a
+run appear in separate groups; rows omit the program name and wrap within 80 columns.
+
+```text
+ub-agents — project-owned engineering loops on GitHub
+
+usage: ub-agents <command> [options]
+
+commands:
+  init                   set up this repository: starter configuration, agent
+                         instructions and workflow labels
+  check                  validate the configuration and instruction files
+  doctor [--json]        check the machine, GitHub access, labels and agent
+                         runtimes
+  launch [NUMBER]        run the queue in the foreground, or handle one item
+  status [--json]        matching work, owners, attempts and why items wait
+  cleanup [--apply]      preview or remove stale worktrees and branches
+  retry NUMBER           let stopped work run again, with a recorded reason
+  approve NUMBER         record approval of an issue's or PR's current input
+
+inside a run, through the launcher's report_command:
+  report                 record the run's outcome
+  retrospective          post to the agent's retrospective board
+  read NUMBER            read an issue or PR as filtered JSON
+
+options:
+  -h, --help             show this help; after a command, that command's help
+  -v, --version          print the version
+  --config PATH          project configuration (default: ub-agents.yaml)
+```
+
+`help` remains available without appearing in the overview. Use `ub-agents help COMMAND`,
+`ub-agents COMMAND -h` or `ub-agents COMMAND --help` for the same compact command help.
+The usage line shows positional arguments and required options, with the remaining
+options folded into `[options]`. For example, `ub-agents help launch` prints:
+
+```text
+usage: ub-agents launch [NUMBER] [options]
+
+Run the queue in the foreground under the configured gates. Without a number,
+watch the queue; with a number, handle only that issue or PR, then exit.
+
+options:
+  --agent NAME           evaluate only this configured agent (needs NUMBER)
+  --once                 observe once, run at most one assignment, then exit
+  --no-ui                plain lines instead of the terminal view
+  --config PATH          project configuration (default: ub-agents.yaml)
+  -h, --help             show this help
+
+examples:
+  ub-agents launch
+  ub-agents launch --once
+  ub-agents launch 143 --agent implementer
+```
+
+All help forms work without project configuration, GitHub authentication or network
+access, and create no files. Square brackets mean optional: `launch [NUMBER]` accepts
+an optional item number, while `retry NUMBER` and `approve NUMBER` require one.
+`retry` also requires `--reason REASON`, as shown in its command help.
+
+`ub-agents -v` and `ub-agents --version` print `ub-agents 0.1.14` and exit 0.
+An unknown command, including `ub-agents help NAME`, prints
+`ub-agents: unknown command "NAME"`, a blank line and the overview on stderr, then
+exits 2. Other usage errors exit 2 and print the command's usage line and error on
+stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [options]`.
 
 - `ub-agents help [COMMAND]` shows the overview or detailed help for that command.
 - `ub-agents init [--repository owner/name] [--runtime cli:model:effort]` writes the
