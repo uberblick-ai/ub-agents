@@ -3000,6 +3000,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             # Building the rows queues scrollbar layout; wait for that refresh
             # before checking geometry, including under the parallel suite.
             await self.settled(app, tree)
+            self.assertTrue(tree.show_vertical_scrollbar)
+            self.assertEqual(tree.styles.overflow_x, 'hidden')
             # A busy runner can need more than one layout pass to drop the scrollbar.
             await self.ready(app, pilot, lambda: not tree.show_horizontal_scrollbar)
             self.assertFalse(tree.show_horizontal_scrollbar)
@@ -3051,6 +3053,144 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                              app.query_one('#issue_text', Static).render().plain)
             self.assertEqual(transport.calls, [])
             await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_populate_identical_result_leaves_work_and_recent_untouched(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            tree = app.query_one(Tree)
+            await self.settled(app, tree)
+            work, recent = app.query_one('#work_pane'), app.query_one(RecentActivity)
+            lines = tree._tree_lines_cached
+            updates = {key: node._updates for key, node in app.nodes.items()}
+            with (patch.object(tree, 'refresh', wraps=tree.refresh) as refresh,
+                  patch.object(tree, '_build', wraps=tree._build) as build,
+                  patch.object(tree, '_invalidate', wraps=tree._invalidate) as invalidate,
+                  patch.object(tree, '_clear_line_cache', wraps=tree._clear_line_cache) as clear,
+                  patch.object(tree, 'call_later', wraps=tree.call_later) as later,
+                  patch.object(work, 'refresh', wraps=work.refresh) as work_refresh,
+                  patch.object(recent, 'refresh', wraps=recent.refresh) as recent_refresh):
+                for _ in range(10):
+                    # Each worker result has fresh objects, even if its data is identical.
+                    app.session = Session(self.path, json.loads(json.dumps(app.session.data)))
+                    pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                    app.populate(pane)
+                for call in (refresh, build, invalidate, clear, later, work_refresh, recent_refresh):
+                    call.assert_not_called()
+                self.assertIs(tree._tree_lines_cached, lines)
+                self.assertEqual({key: node._updates for key, node in app.nodes.items()}, updates)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_populate_repaints_changed_row_content_and_next_without_tick(self):
+        now = datetime.now(timezone.utc)
+        self.state['assignment']['attempt'] = 1
+        self.state['latest_pass']['rows'].extend([
+            {'item': 20, 'agent': 'worker', 'state': 'ready', 'title': 'Work', 'priority': 'low'},
+            {'item': 21, 'agent': 'worker', 'state': 'blocked', 'attention_reason': 'Old reason',
+             'waiting_since': (now - timedelta(minutes=5)).isoformat()},
+        ])
+        publish_snapshot(self.path, self.state)
+        with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+            app = View(self.root, self.path)
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                app.worker.close()
+                app.worker.thread.join(2)
+                tick.side_effect = None  # Only populate may request the following repaints.
+                tree = app.query_one(Tree)
+                await self.settled(app, tree)
+                cases = [
+                    ('assignment:owned-run', self.state['assignment'], {'title': 'New title'}, 0, 'New title'),
+                    ('assignment:owned-run', self.state['assignment'], {'attempt': 2}, 1, 'attempt 2'),
+                    ('plan:20', self.state['latest_pass']['rows'][-2], {'priority': 'urgent'}, 1, 'urgent'),
+                    ('plan:20', self.state['latest_pass']['rows'][-2],
+                     {'failures': 1, 'max_attempts': 3}, 1, '1/3 failures'),
+                    ('plan:21:worker', self.state['latest_pass']['rows'][-1],
+                     {'attention_reason': 'New reason'}, 1, 'New reason'),
+                    ('plan:21:worker', self.state['latest_pass']['rows'][-1],
+                     {'waiting_since': (now - timedelta(minutes=10)).isoformat()}, 0, '10m'),
+                ]
+                for key, data, changes, offset, expected in cases:
+                    with self.subTest(changes=changes):
+                        node = app.nodes[key]
+                        data.update(changes)
+                        app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                        pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                        with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
+                            app.populate(pane)
+                            await self.settled(app, tree)
+                            self.assertIs(app.nodes[key], node)
+                            self.assertEqual([call.args[0] for call in refresh.call_args_list], [node])
+                        self.assertIn(expected, tree.render_line(node._line + offset - tree.scroll_offset.y).text)
+                # A changed diagnostic that is absent from work_lines stays inert.
+                self.state['assignment']['process_reason'] = 'Another supervisor observation'
+                app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
+                    app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                    await self.settled(app, tree)
+                    refresh.assert_not_called()
+                node = app.nodes['plan:20']
+                old_row = app.rows['plan:20']
+                self.state['latest_pass']['rows'] = [
+                    row for row in self.state['latest_pass']['rows'] if row['item'] != 12]
+                app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
+                    app.populate(pane)
+                    await self.settled(app, tree)
+                    self.assertIs(app.nodes['plan:20'], node)
+                    self.assertEqual(app.rows['plan:20'], old_row)
+                    self.assertIn(node, [call.args[0] for call in refresh.call_args_list])
+                self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('next'))
+                self.state['activity'] = {'state': 'stopping'}
+                app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                await self.settled(app, tree)
+                self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('held'))
+                own = app.nodes['assignment:owned-run']
+                self.assertTrue(tree.render_line(own._line - tree.scroll_offset.y).text.endswith('stopping'))
+                self.assertIn('finishing run', tree.render_line(own._line + 1 - tree.scroll_offset.y).text)
+                await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_populate_recent_display_rows_and_today_count_without_work_repaint(self):
+        with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+            app = View(self.root, self.path)
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                app.worker.close()
+                app.worker.thread.join(2)
+                tick.side_effect = None
+                tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
+                await self.settled(app, tree)
+                outcome = self.state['outcomes'][0]
+                cases = [({'title': 'New outcome'}, 'New outcome'),
+                         ({'summary': 'New summary'}, 'New summary'),
+                         ({'result': 'blocked'}, 'blocked'),
+                         ({'handoff': 42}, 'opened ⌥42'),
+                         ({'time': datetime.now(timezone.utc).isoformat()}, '1 today')]
+                with patch.object(tree, 'refresh', wraps=tree.refresh) as work_refresh:
+                    for changes, expected in cases:
+                        with self.subTest(changes=changes):
+                            outcome.update(changes)
+                            app.session = Session(self.path, json.loads(json.dumps(self.state)))
+                            with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
+                                app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                                refresh.assert_called_once_with()
+                                await self.settled(app, recent)
+                            self.assertIn(expected, recent.render().plain)
+                    # Count changes independently of the bounded recent rows.
+                    pane = app.pane
+                    app.session.data['outcomes'].append(dict(outcome, run='another-run'))
+                    with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
+                        app.populate(pane)
+                        refresh.assert_called_once_with()
+                        await self.settled(app, recent)
+                    self.assertIn('2 today', recent.render().plain)
+                    work_refresh.assert_not_called()
+                await pilot.press('q')
         app.worker.thread.join(2)
 
     async def test_tick_refreshes_only_spinner_nodes_between_whole_tree_seconds(self):

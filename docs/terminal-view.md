@@ -252,9 +252,11 @@ theme's green success color for `✓` and red error color for `✗`, retaining r
 dimming and cursor highlighting. Neutral `○` outcomes keep the row style.
 `NO_COLOR=1` keeps these cues monochrome.
 The lower half does not scroll or collapse, and its header cannot be selected.
-The live sections fill the upper half and scroll independently. Arrow keys move
-between the two halves; `Enter` selects an outcome with the same local log access
-as other own runs. With no live rows, the newest outcome is selected first.
+The live sections fill the upper half and scroll vertically, with no horizontal
+scrollbar. Unchanged worker results leave Work and Recent activity untouched;
+the running spinner and elapsed times continue to update on the view's clock.
+Arrow keys move between the two halves; `Enter` selects an outcome with the same
+local log access as other own runs. With no live rows, the newest outcome is selected first.
 A selected outcome pushed out of view remains selected in the right pane.
 
 Recent activity uses `#N` for issues and `⌥N` for PRs, from the cached outcome or

@@ -1,5 +1,6 @@
 """Optional responsive Textual UI. Imported only by the view process."""
 
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from math import ceil
@@ -29,7 +30,7 @@ from .view_unblock import ActionComment, comment_sections, local_action, needs_a
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_worker import LocalWorker, Request
-from .view_work import RecentActivity, WorkTree, assignment_elapsed
+from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
 from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
 from .updates import release_age
 
@@ -375,7 +376,7 @@ class View(App):
     #work_pane:focus-within, #panes:focus-within {
         border: round $view-accent; border-title-color: $view-accent;
     }
-    #work { height: 1fr; }
+    #work { height: 1fr; overflow-x: hidden; }
     #work, #work:focus { background: $background; background-tint: $background 0%; }
     #work > .tree--cursor, #work:focus > .tree--cursor {
         background: $view-selection; color: $view-accent; text-style: none;
@@ -442,6 +443,7 @@ class View(App):
         self.session = None
         self.pane = None
         self.rows, self.nodes, self.groups = {}, {}, {}
+        self._work_values = {}
         self.idle_node = None
         self.selected = None
         self.chosen = False  # a person picked a row; the view stops following the run
@@ -709,6 +711,20 @@ class View(App):
                 if self.selected in self.readings:
                     self.readings[replacement.key] = self.readings.pop(self.selected)
                 self.selected = replacement.key
+        self.rows = {row.key: row for row in pane.rows}
+        tree.remember_claims(self.rows)
+        stopping = mapping(self.session.data.get('activity')).get('state') == 'stopping'
+        # Compare both snapshots at the same instant so clock changes alone
+        # stay with tick, while a changed waiting_since still repaints its row.
+        now = datetime.fromtimestamp(self.descriptions.clock(), timezone.utc)
+
+        def displayed(value):
+            row, next_row, stopping, claimed_at = value
+            return work_lines(row, tree.scrollable_content_region.width, next_row=next_row,
+                              stopping=stopping, now=now, claimed_at=claimed_at,
+                              app=self)[:tree.row_height]
+
+        work_values = {}
         live = {row.key for section in pane.sections for row in section.rows}
         for key in tuple(self.nodes):
             if key not in live:
@@ -722,7 +738,8 @@ class View(App):
                     Text(name), after=previous, before=0 if previous is None else None,
                     expand=True)
             previous = group
-            group.set_label(Text(section.label))
+            if group.label.plain != section.label:
+                group.set_label(Text(section.label))
             if not group.is_expanded:
                 group.expand()
             if name == 'Running':
@@ -733,23 +750,31 @@ class View(App):
                     self.idle_node = group.add_leaf(
                         Text('    Idle · nothing eligible for this launcher', style='dim'))
             for index, row in enumerate(section.rows):
+                value = (row, row.key == pane.next, stopping, tree.claim_times.get(row.key))
+                old_value = self._work_values.get(row.key)
+                changed = value != old_value
+                # WorkRow is frozen, but its data dictionaries are mutable.
+                work_values[row.key] = (deepcopy(row), *value[1:]) if changed else old_value
                 node = self.nodes.get(row.key)
                 if node is not None and (node.parent is not group or group.children[index] is not node):
                     node.remove()
                     node = None
                 if node is None:
                     node = self.nodes[row.key] = group.add_leaf(Text(row.label()), data=row.key, before=index)
-                else:
+                elif changed and (old_value is None or displayed(old_value) != displayed(value)):
                     node.set_label(Text(row.label()))
         for name, group in tuple(self.groups.items()):
             if not group.children:
                 group.remove()
                 del self.groups[name]
         self.pane = pane
-        self.rows = {row.key: row for row in pane.rows}
-        tree.remember_claims(self.rows)
-        tree.root.expand()
-        self.query_one('#work_pane').border_title = Text(pane.title)
+        self._work_values = work_values
+        if not tree.root.is_expanded:
+            tree.root.expand()
+        work = self.query_one('#work_pane')
+        title = Text(pane.title)
+        if work.border_title != title.markup:
+            work.border_title = title
         if pane.selected != self.selected:
             self.select(pane.selected, chosen=False)
             if self.selected in self.nodes:
