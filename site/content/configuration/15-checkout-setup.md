@@ -9,7 +9,7 @@ checkout-setup:
   timeout-seconds: 600
 ```
 
-The command is a nonempty argv list, run without a shell in the control checkout. `when-changed` is a nonempty list of literal repository-relative file paths, including files added or deleted by a pull. Absolute paths and `..` components are rejected. The timeout defaults to 600 seconds and must be positive and at most 3600.
+The command is a nonempty argv list, run without a shell in the control checkout. `when-changed` is a nonempty list of literal repository-relative file paths, including files added or deleted by a pull. Absolute paths, directories and `..` components are rejected. The timeout defaults to 600 seconds and must be positive and at most 3600.
 
 Before every new run, after refresh and configuration reload, the launcher compares watched files with the last commit where setup succeeded. Until setup first succeeds, it compares with the HEAD before the fast-forward. Any difference runs the command once before claiming a role. A commit can add the setting and lockfile change together. Unrelated changes and refreshes with nothing to pull skip setup, unless a previous setup failed. Pulls made by hand are outside this mechanism.
 

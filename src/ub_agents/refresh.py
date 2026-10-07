@@ -4,7 +4,6 @@ from collections import deque
 from pathlib import Path
 
 from .config import instruction_text
-from .checkout_setup import remember_refresh
 from .errors import AgentError, CheckoutRefreshError, GitHubError
 from .execution import git
 
@@ -143,10 +142,8 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
         except AgentError as exc:
             next_step = "fix origin access and launch again"
             raise AgentError(f"fetch of origin/{default} failed: {exc}") from exc
-        if on_fetch is None:
-            head = git(root, "rev-parse", remote)
-        else:
-            head, previous = git(root, "rev-parse", remote, "HEAD").splitlines()
+        head, previous = git(root, "rev-parse", remote, "HEAD").splitlines()
+        if on_fetch is not None:
             on_fetch(default, previous, head)
         ahead, behind = map(int, git(root, "rev-list", "--left-right", "--count",
                                     f"HEAD...{head}").split())
@@ -164,7 +161,6 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
                 instruction_text(root, config.shared_instructions, "shared-instructions")
                 validate_incoming(root, head, config.shared_instructions, "shared-instructions")
             next_step = "resolve the checkout's merge error and launch again"
-            remember_refresh(root)
             try:
                 # Never inherit autostash or execute checkout-mutating merge hooks.
                 git(root, "-c", "merge.autostash=false", "-c", "core.hooksPath=/dev/null",
@@ -175,6 +171,7 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
             next_step = "restore readable, valid instruction files and launch again"
             instruction_text(root, config.shared_instructions, "shared-instructions")
             return instruction_text(root, agent.instructions, where)
+        return previous
     except GitHubError:
         # This pre-claim read is discovery: preserve its request and retry metadata.
         raise

@@ -7,7 +7,8 @@ import re
 import shlex
 import uuid
 
-from .errors import AgentError, CheckoutRefreshError, CleanupError
+from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted, CleanupError,
+                     RetryableExecutionError)
 from .execution import git, group_members, supervise
 from .state import lock, user_state_directory
 
@@ -38,21 +39,14 @@ def write_record(directory, record):
     directory.mkdir(parents=True, exist_ok=True)
     temporary = directory / (uuid.uuid4().hex + ".json")
     try:
-        temporary.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(record, stream)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         temporary.replace(directory / "setup.json")
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def remember_refresh(root):
-    """Keep the pre-fast-forward HEAD even if config reload or setup fails."""
-    directory = setup_directory(root)
-    try:
-        if read_record(directory) is None:
-            write_record(directory, {"baseline": git(root, "rev-parse", "HEAD"),
-                                     "succeeded": False, "pending": None})
-    except (OSError, ValueError) as exc:
-        raise AgentError(f"cannot record checkout setup baseline in {directory}: {exc}") from exc
 
 
 def confirm_stopped(directory):
@@ -61,7 +55,10 @@ def confirm_stopped(directory):
     if not attempts.exists():
         return
     for attempt in attempts.iterdir():
-        if (attempt / "stopped").exists():
+        stopped = attempt / "stopped"
+        if stopped.exists():
+            if stopped.read_text() != "confirmed\n":
+                raise AgentError(f"repair the checkout setup stop record in {attempt}")
             continue
         pid = attempt / "pid"
         if not pid.exists():
@@ -72,21 +69,23 @@ def confirm_stopped(directory):
         (attempt / "stopped").write_text("confirmed\n")
 
 
-def run_setup(config, interrupt, output, activity):
+def run_setup(config, interrupt, output, activity, previous=None):
     root = config.root
-    directory = setup_directory(root)
-    path = directory / "setup.json"
     if config.checkout_setup is None:
-        path.unlink(missing_ok=True)
         return
+    directory = None
+    trigger = None
+    log = None
     try:
+        directory = setup_directory(root)
         directory.mkdir(parents=True, exist_ok=True)
         with lock(directory / "setup.lock") as guard:
             if guard is None:
                 raise AgentError("another checkout setup is still running; wait for it to finish")
             confirm_stopped(directory)
             head = git(root, "rev-parse", "HEAD")
-            record = read_record(directory) or {"baseline": head, "succeeded": False, "pending": None}
+            record = read_record(directory) or {"baseline": previous or head,
+                                                "succeeded": False, "pending": None}
             setting = config.checkout_setup
             trigger = record["pending"]
             if trigger is None:
@@ -108,24 +107,26 @@ def run_setup(config, interrupt, output, activity):
             message = f"checkout setup running after {trigger} changed: {command} (log: {log})"
             output(message)
             activity(f"checkout setup running: {trigger} changed")
-            confirmed = True
+            confirmed = False
             try:
                 code = supervise(list(setting.command), root, os.environ.copy(), attempt,
                                  setting.timeout_seconds, interrupt, pass_fds=(guard.fileno(),))
+                confirmed = True
                 if code:
                     raise AgentError(f"{command} exited {code}")
-            except KeyboardInterrupt as exc:
-                raise AgentError(f"{command} interrupted") from exc
-            except CleanupError:
-                confirmed = False
+            except (KeyboardInterrupt, RetryableExecutionError):
+                # These supervisor exits have either never spawned or confirmed
+                # termination. A cleanup error masks them and remains uncertain.
+                confirmed = True
                 raise
             finally:
                 if confirmed:
                     (attempt / "stopped").write_text("confirmed\n")
             write_record(directory, {"baseline": head, "succeeded": True, "pending": None})
-    except (AgentError, OSError, ValueError) as exc:
-        detail = " ".join(str(exc).split())
-        if "log" in locals():
+    except (AgentError, OSError, ValueError, KeyboardInterrupt) as exc:
+        interrupted = isinstance(exc, KeyboardInterrupt)
+        detail = f"{command} interrupted" if interrupted and log is not None else " ".join(str(exc).split())
+        if log is not None:
             detail = f"checkout setup failed after {trigger} changed: {detail} (log: {log})."
         else:
             detail = f"checkout setup failed: {detail} (state: {directory})."
@@ -133,4 +134,5 @@ def run_setup(config, interrupt, output, activity):
             detail += f" {exc.next_step};"
         message = f"{detail} Fix the install in {root} and launch again."
         activity(message)
-        raise CheckoutRefreshError(message) from exc
+        error = CheckoutSetupInterrupted if interrupted else CheckoutRefreshError
+        raise error(message) from exc

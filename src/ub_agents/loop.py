@@ -697,13 +697,21 @@ class Loop:
         # Between supervised runs and cleanup hooks, before any assignment writes.
         # Refresh errors belong to the operator, not to an assignment attempt.
         self._refreshing_checkout = True
+        previous = None
         try:
             options = {"on_fetch": self.updates.fetched} if self.updates is not None else {}
             if self.config_path is None:
+                if self.config.checkout_setup is not None:
+                    def fetched(default, before, head):
+                        nonlocal previous
+                        previous = before
+                        if self.updates is not None:
+                            self.updates.fetched(default, before, head)
+                    options["on_fetch"] = fetched
                 instructions = refresh_instructions(self.config, plan.agent, self.github, **options)
                 shared = instruction_text(self.config.root, self.config.shared_instructions, "shared-instructions")
             else:
-                refresh_checkout(self.config, self.github, **options)
+                previous = refresh_checkout(self.config, self.github, **options)
         finally:
             # An asynchronous exception in subprocess.run kills its child. Let
             # the checkout refresh finish so a fast-forward is never torn down
@@ -736,7 +744,7 @@ class Loop:
         self._refreshing_checkout = True
         try:
             run_setup(self.config, self.interrupt_event, self.output,
-                      lambda state: self._observe("activity", state))
+                      lambda state: self._observe("activity", state), previous)
         finally:
             self._refreshing_checkout = False
         self._before_claim()

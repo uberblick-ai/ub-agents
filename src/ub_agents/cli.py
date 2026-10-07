@@ -17,7 +17,8 @@ from . import __version__
 from .config import DEFAULT_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
 from .denials import denial_count
-from .errors import AgentError, CheckoutRefreshError, CleanupError, GitHubError, InstructionError
+from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted, CleanupError,
+                     GitHubError, InstructionError)
 from .execution import repository_checks
 from .github import GitHub
 from .help import HelpParser
@@ -612,8 +613,10 @@ def main(argv=None):
                 from .launcher_code import startup_copy
                 stack.enter_context(startup_copy())
             return run(args) or 0
-        except KeyboardInterrupt:
-            print("Stopped; supervised execution terminated", file=sys.stderr)
+        except KeyboardInterrupt as exc:
+            detail = (f"ub-agents: {exc}" if isinstance(exc, CheckoutSetupInterrupted)
+                      else "Stopped; supervised execution terminated")
+            print(detail, file=sys.stderr)
             return 130
         except (AgentError, OSError) as exc:
             detail = str(exc)

@@ -1,5 +1,4 @@
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import replace
 import io
 import json
 from pathlib import Path
@@ -11,7 +10,7 @@ from unittest.mock import patch
 from ub_agents.checkout_setup import read_record, run_setup, setup_directory
 from ub_agents.cli import main
 from ub_agents.config import CheckoutSetup, load_config
-from ub_agents.errors import AgentError, CheckoutRefreshError
+from ub_agents.errors import CheckoutRefreshError, CleanupError
 from ub_agents.execution import git, supervise
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, timestamp
@@ -91,7 +90,7 @@ class CheckoutSetupTests(unittest.TestCase):
         setup.assert_not_called()
         self.assertFalse(any(line.startswith("checkout setup") for line in self.lines))
 
-    def failed_launch(self):
+    def failed_launch(self, expected=1):
         errors, output = io.StringIO(), io.StringIO()
         with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
@@ -104,7 +103,7 @@ class CheckoutSetupTests(unittest.TestCase):
                 patch.object(self.loop.stop_event, "wait") as wait, \
                 redirect_stderr(errors), redirect_stdout(output):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"),
-                                   "launch", "--once", "--no-ui"]), 1)
+                                   "launch", "--once", "--no-ui"]), expected)
         role.assert_not_called()
         prepare.assert_not_called()
         wait.assert_not_called()
@@ -153,9 +152,13 @@ class CheckoutSetupTests(unittest.TestCase):
 
     def test_interrupt_stops_command_without_claiming(self):
         self.push_setup("import time; time.sleep(30)")
-        self.loop.interrupt_event = threading.Event()
-        with patch("ub_agents.checkout_setup.supervise", side_effect=KeyboardInterrupt):
-            self.assertIn("interrupted", self.failed_launch())
+        def interrupted(*args, **kwargs):
+            return supervise(*args, **kwargs,
+                             process_started=lambda _: self.loop.interrupt_event.set())
+        with patch("ub_agents.checkout_setup.supervise", side_effect=interrupted):
+            self.assertIn("interrupted", self.failed_launch(expected=130))
+        attempt = next((setup_directory(self.root) / "attempts").iterdir())
+        self.assertEqual((attempt / "stopped").read_text(), "confirmed\n")
         self.assertEqual(self.record()["pending"], "pnpm-lock.yaml")
 
     def test_successful_baseline_is_retained_across_unrelated_refreshes(self):
@@ -190,12 +193,51 @@ class CheckoutSetupTests(unittest.TestCase):
             self.execute()
         setup.assert_not_called()
 
+    def test_without_setting_setup_has_no_state_directory_prerequisites(self):
+        with patch("ub_agents.checkout_setup.setup_directory") as directory:
+            run_setup(self.loop.config, threading.Event(), self.fail, self.fail)
+        directory.assert_not_called()
+
+    def test_graceful_stop_during_setup_finishes_install_without_claiming(self):
+        self.push_setup()
+        def drained(*args, **kwargs):
+            return supervise(*args, **kwargs, process_started=lambda _: self.loop.stop_gracefully())
+        from ub_agents.loop import _GracefulStop
+        with patch("ub_agents.checkout_setup.supervise", side_effect=drained), \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                patch("ub_agents.loop.supervise") as role, self.assertRaises(_GracefulStop):
+            self.loop.tick()
+        role.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+        self.assertTrue(self.record()["succeeded"])
+        self.assertIsNone(self.record()["pending"])
+
+    def test_unconfirmed_termination_stays_pending_and_prevents_overlapping_install(self):
+        self.push_setup()
+        def uncertain(command, root, env, attempt, *args, **kwargs):
+            (attempt / "pid").write_text("321")
+            raise CleanupError("Cannot inspect setup process group 321", next_step="make ps usable")
+        with patch("ub_agents.checkout_setup.supervise", side_effect=uncertain):
+            self.assertIn("make ps usable", self.failed_launch())
+        attempt = next((setup_directory(self.root) / "attempts").iterdir())
+        self.assertFalse((attempt / "stopped").exists())
+        self.new_loop()
+        with patch("ub_agents.checkout_setup.group_members", return_value=[321]), \
+                patch("ub_agents.checkout_setup.supervise") as setup, \
+                patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                self.assertRaisesRegex(CheckoutRefreshError, "confirm checkout setup process group 321 has exited"):
+            self.loop.tick()
+        setup.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(self.record()["pending"], "pnpm-lock.yaml")
+
 
 class CheckoutSetupConfigTests(unittest.TestCase):
     def test_strict_configuration(self):
         import tempfile
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "ub-agents.yaml"
+            (path.parent / "directory").mkdir()
             base = "repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
             path.write_text(base)
             self.assertIsNone(load_config(path).checkout_setup)
@@ -213,6 +255,7 @@ class CheckoutSetupConfigTests(unittest.TestCase):
                        "{command: [echo], when-changed: [../lock]}",
                        "{command: [echo], when-changed: [a/../lock]}",
                        "{command: [echo], when-changed: ['.']}",
+                       "{command: [echo], when-changed: [directory]}",
                        "{command: [echo], when-changed: [lock], surprise: true}"]
             for timeout in ("0", "-1", "3601", "true", "null", "inf", ".inf", ".nan"):
                 invalid.append("{command: [echo], when-changed: [lock], timeout-seconds: " + timeout + "}")

@@ -211,8 +211,8 @@ def load_config(path):
         data = yaml.load(path.read_text(), Loader=UniqueLoader)
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
-    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup", "checkout-setup",
-                          "runtime-updates", "launchers", "approvals", "trusted-bots", "shared-instructions"},
+    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
+                          "checkout-setup", "runtime-updates", "launchers", "approvals", "trusted-bots", "shared-instructions"},
                    "configuration")
     # Keep symlinks in the configured path so each run revalidates their targets.
     shared = (root / string(data["shared-instructions"], "shared-instructions")
@@ -263,7 +263,7 @@ def load_config(path):
         paths = argv(setup.get("when-changed"), "checkout-setup when-changed")
         for value in paths:
             path = Path(value)
-            if path.is_absolute() or ".." in path.parts or not path.parts:
+            if path.is_absolute() or ".." in path.parts or not path.parts or (root / path).is_dir():
                 raise AgentError("checkout-setup when-changed must contain repository-relative file paths")
         timeout = number(setup.get("timeout-seconds", 600), "checkout-setup timeout-seconds")
         if timeout > 3600:

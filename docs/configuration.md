@@ -324,7 +324,7 @@ Use this to reinstall the control checkout's dependencies when a launcher pulls
 a lockfile or tool configuration change. Without `checkout-setup`, no command runs.
 `command` is a nonempty argv list, run without a shell in the control checkout.
 `when-changed` is a nonempty list of literal repository-relative file paths;
-absolute paths and `..` components are rejected. Paths can name files added or
+absolute paths, directories and `..` components are rejected. Paths can name files added or
 deleted by the pull. `timeout-seconds` is a positive number, defaults to 600,
 and cannot exceed 3600. Unknown keys are errors.
 
