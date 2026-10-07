@@ -34,7 +34,8 @@ class GitHub:
     repository = 'example/project'
     def __init__(self, *_): pass
 with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.cli.GitHub', GitHub), \\
-     patch('ub_agents.cli.repository_checks', return_value=[]), patch.object(Loop, 'launch'), \\
+     patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.cli.launch_checks'), \\
+     patch.object(Loop, 'launch'), \\
      patch('ub_agents.observations.Publisher', side_effect=OSError('packaging fake')):
     assert main(['--config', str(root / 'ub-agents.yaml'), 'launch', '--no-ui', '--once']) == 0
 assert 'textual' not in sys.modules
@@ -42,6 +43,8 @@ assert 'textual' not in sys.modules
     # No queue, network or operator checkout participates in this check.
     project = destination / 'project'
     project.mkdir(exist_ok=True)
+    # launch looks for the file before loading it; the faked loader ignores its content.
+    (project / 'ub-agents.yaml').write_text('')
     run(python, '-P', '-c', script, project)
     run(root / 'bin/ub-agents-ui', '--version')
     run(root / 'bin/ub-agents-ui', '--probe', '--base-version',

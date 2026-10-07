@@ -38,7 +38,7 @@ def parser():
     result.add_argument("--config", metavar="PATH", help="project configuration (default: ub-agents.yaml)")
     next(action for action in result._actions if action.dest == "help").help = (
         "show this help; after a command, that command's help")
-    commands = result.add_subparsers(dest="command")
+    commands = result.add_subparsers(dest="command", prog="ub-agents")
     init = commands.add_parser("init", help="set up this repository: starter configuration, agent instructions and workflow labels",
                                description="Create starter configuration and agent instructions for a project. "
                                "Use when adopting ub-agents; existing starter files are never overwritten.",

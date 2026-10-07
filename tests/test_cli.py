@@ -136,7 +136,8 @@ class MissingConfigTests(unittest.TestCase):
 
     def test_missing_config_names_init_and_creates_nothing(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            # Resolve like config paths are: macOS temporary paths live under /private/var.
+            root = Path(directory).resolve()
             selected = root / "custom.yaml"
             for command in self.commands:
                 for selection in ([], ["--config", str(selected)]):
