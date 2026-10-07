@@ -493,7 +493,7 @@ class Loop:
                 key, value = (plan.item.number, plan.agent.name), (plan.state, plan.reason)
                 released = self._released_blockers.pop(key, None)
                 announced = plan.state == "blocked" and released is not None and released in plan.reason
-                if not announced and (plan.state not in {"blocked", "parked", "waiting"} or self._shown.get(key) != value):
+                if not announced and self._shown.get(key) != value:
                     self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
                 self._shown[key] = value
         self._shown = {key: value for key, value in self._shown.items() if key in present}

@@ -270,9 +270,10 @@ Notice deduplication considers all trusted authors. Simultaneous posters elect
 the lowest comment ID; each loser removes only its own newly posted advisory
 duplicate, preserving every coordination record. Duplicate removal is advisory too.
 
-Within one `ub-agents launch` session, an unchanged blocked or parked item is
-printed once. A change to its state or reason prints it again. Stop-label outcomes
-remain visible as parked even when their transition consumed every trigger.
+Within one `ub-agents launch` session, an unchanged blocked, parked, waiting,
+owned or backoff item is printed once per item and agent. A change to its state
+or reason prints it again. Stop-label outcomes remain visible as parked even
+when their transition consumed every trigger.
 
 ## Distinct clocks
 
