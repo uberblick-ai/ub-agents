@@ -40,7 +40,7 @@ def _mapping(loader, node, deep=False):
         # spelling without changing existing YAML booleans elsewhere.
         if key == "runtime-updates" and isinstance(result[key], dict):
             for policy_key, policy_value in value_node.value:
-                if (policy_key.value in ("claude", "codex")
+                if (policy_key.value in UPDATE_CLIS
                         and isinstance(policy_value, yaml.ScalarNode)
                         and policy_value.value == "off"):
                     result[key][policy_key.value] = "off"
@@ -103,6 +103,7 @@ def instruction_text(root, path, where):
 
 
 CLIS = ("codex", "claude")
+UPDATE_CLIS = (*CLIS, "gh")
 
 
 @dataclass(frozen=True)
@@ -223,9 +224,9 @@ def load_config(path):
             raise AgentError("launchers logins must be unique (case-insensitive)")
     runtime_updates = None
     if "runtime-updates" in data:
-        settings = mapping(data["runtime-updates"], {*CLIS, "timeout-seconds"}, "runtime-updates")
+        settings = mapping(data["runtime-updates"], {*UPDATE_CLIS, "timeout-seconds"}, "runtime-updates")
         policies = {}
-        for cli in CLIS:
+        for cli in UPDATE_CLIS:
             policy = settings.get(cli, "off")
             if isinstance(policy, str) and policy in {"auto", "off"}:
                 policies[cli] = policy

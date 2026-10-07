@@ -36,11 +36,15 @@ def installation(cli, which=None, home=None):
     for parent in target.parents:
         if parent.parent.name in {"Caskroom", "Cellar"}:
             kind = "homebrew-cask" if parent.parent.name == "Caskroom" else "homebrew-formula"
-            allowed = {"claude-code", "claude-code@latest"} if cli == "claude" else {"codex"}
-            if parent.name in allowed and (cli != "claude" or kind == "homebrew-cask"):
+            allowed = {"claude": {"claude-code", "claude-code@latest"},
+                       "codex": {"codex"}, "gh": {"gh"}}.get(cli, set())
+            owns = (cli == "codex" or cli == "claude" and kind == "homebrew-cask"
+                    or cli == "gh" and kind == "homebrew-formula")
+            if parent.name in allowed and owns:
                 return Installation(executable, str(parent), kind, parent.parent.parent,
                                     parent, parent.name)
-        if parent.parent.name in {"@openai", "@anthropic-ai"} and parent.parent.parent.name == "node_modules":
+        if (cli in {"claude", "codex"} and parent.parent.name in {"@openai", "@anthropic-ai"}
+                and parent.parent.parent.name == "node_modules"):
             modules = parent.parent.parent
             expected = "@openai/codex" if cli == "codex" else "@anthropic-ai/claude-code"
             if modules.parent.name != "lib" or f"{parent.parent.name}/{parent.name}" != expected:

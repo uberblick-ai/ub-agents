@@ -683,21 +683,22 @@ class Loop:
                 return False
             instructions = texts[plan.agent.name]
         self.maintain_runtimes()
-        if plan.runtime is None:
-            return self._claim_execute(plan, instructions, shared_instructions=shared)
         # The snapshot runtime may have become guarded/broken since discovery,
         # or a reload may have enabled maintenance. Reapply runtime eligibility.
+        runtime = None
         try:
-            runtime = self.coordinator.choose_runtime(plan.item, plan.agent, list(plan.history))
+            if plan.runtime is not None:
+                runtime = self.coordinator.choose_runtime(plan.item, plan.agent, list(plan.history))
         except GitHubError:
             raise
         except AgentError as exc:
             self.output(f"#{plan.item.number} {plan.agent.name}: waiting — {exc}")
             return False
-        with self.maintenance.reserve(runtime.cli) as reservation:
+        with self.maintenance.reserve_run(runtime.cli if runtime is not None else None) as reservation:
             if reservation is None:
                 self.output(f"#{plan.item.number} {plan.agent.name}: waiting — "
-                            f"{runtime.cli} runtime became unavailable before the claim; retry next poll")
+                            f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
+                            "before the claim; retry next poll")
                 return False
             self._before_claim()
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation,
@@ -868,7 +869,7 @@ class Loop:
             diagnostic("started", cwd=str(cwd))
             setup = False
             command = command_for(plan.agent, plan.runtime, scratch.path, report_command)
-            if reservation is not None:
+            if reservation is not None and reservation.executable is not None:
                 command[0] = reservation.executable
             if plan.runtime:
                 usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env)
@@ -883,7 +884,7 @@ class Loop:
                                                  shared_instructions=shared_instructions) if plan.runtime else None,
                                  expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
                                  observe_output=observe_output if usage_output or self.updates else None,
-                                 **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
+                                 **({"pass_fds": reservation.descriptors} if reservation is not None else {}))
             finally:
                 denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
             if usage_output:

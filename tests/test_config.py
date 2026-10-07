@@ -166,7 +166,7 @@ cleanup:
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         self.assertIsNone(self.load(base).runtime_updates)
         settings = self.load(base + "runtime-updates:\n  claude: auto\n  codex: off\n  timeout-seconds: 30\n")
-        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "off"})
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "off", "gh": "off"})
         self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
         settings = self.load(base + "runtime-updates: {codex: {command: [./update, codex]}}\n")
         self.assertEqual(settings.runtime_updates.policies["codex"], (str(self.root.resolve() / "update"), "codex"))
@@ -185,7 +185,7 @@ cleanup:
 
     def test_repository_opts_into_daily_runtime_updates(self):
         settings = load_config(Path(__file__).resolve().parents[1] / "ub-agents.yaml")
-        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "auto"})
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "auto", "gh": "off"})
 
     def test_launchers_and_runtime_updates_can_be_configured_together(self):
         settings = self.load('''repository: org/project
@@ -198,8 +198,26 @@ agents:
     outcomes: {done: {}}
 ''')
         self.assertEqual(settings.launchers, ("bot-a", "Alice"))
-        self.assertEqual(settings.runtime_updates.policies, {"claude": "off", "codex": "auto"})
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "off", "codex": "auto", "gh": "off"})
         self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
+
+    def test_gh_runtime_updates_policies_and_check(self):
+        base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        for value, expected in (("auto", "auto"), ("off", "off"), ("'off'", "off"),
+                                ("{command: [./update, gh]}", (str(self.root.resolve() / "update"), "gh"))):
+            with self.subTest(value=value):
+                settings = self.load(base + f"runtime-updates: {{gh: {value}}}\n")
+                self.assertEqual(settings.runtime_updates.policies["gh"], expected)
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+        for value in ("true", "false", "on", "null", "install", "[brew, upgrade, gh]",
+                      "{command: []}", "{command: shell}", "{command: [echo], extra: 1}",
+                      "{command: [sudo, update]}", "{command: [/usr/bin/su, update]}",
+                      "{command: [doas, update]}", "{command: [pkexec, update]}"):
+            with self.subTest(value=value):
+                self.path.write_text(base + f"runtime-updates: {{gh: {value}}}\n")
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
 
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n    outcomes: {done: {}}\n"

@@ -1,6 +1,6 @@
 """Daily local runtime maintenance, serialized with launch reservations."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass
 import fcntl
 import hashlib
@@ -33,6 +33,20 @@ class Reservation:
         # Hold the start gate until Popen, not just until the claim. Otherwise a
         # native updater could race a reserved run that has not started yet.
         self.guard.close()
+
+
+@dataclass
+class RunReservation:
+    executable: str | None
+    reservations: tuple
+
+    @property
+    def descriptors(self):
+        return tuple(reservation.descriptor for reservation in self.reservations)
+
+    def started(self):
+        for reservation in self.reservations:
+            reservation.started()
 
 
 def state_directory():
@@ -180,9 +194,9 @@ class RuntimeMaintenance:
 
     def boundary(self, config):
         settings = config.runtime_updates
-        used = {runtime.cli for agent in config.agents for runtime in agent.runtimes}
+        used = {"gh"} | {runtime.cli for agent in config.agents for runtime in agent.runtimes}
         policies = settings.policies if settings is not None else {}
-        for cli in sorted(used | policies.keys()):
+        for cli in sorted(used | policies.keys(), key=lambda cli: (cli != "gh", cli)):
             if self.stopped():
                 return
             if cli not in used:
@@ -205,6 +219,25 @@ class RuntimeMaintenance:
                     self.check(cli, install, policies.get(cli, "off"), settings.timeout_seconds)
             except OSError as exc:
                 self.output(f"Runtime maintenance {cli} ({install.method}): failed — warning: local state unavailable: {exc}")
+
+    @contextmanager
+    def reserve_run(self, cli=None):
+        """Every agent uses gh; protect it through execution and cleanup too."""
+        with ExitStack() as stack:
+            github = stack.enter_context(self.reserve("gh"))
+            if github is None:
+                yield None
+                return
+            reservations = (github,)
+            executable = None
+            if cli is not None:
+                runtime = stack.enter_context(self.reserve(cli))
+                if runtime is None:
+                    yield None
+                    return
+                reservations += (runtime,)
+                executable = runtime.executable
+            yield RunReservation(executable, reservations)
 
     def recover(self, cli, install):
         """Recheck failed health without changing another project's update policy."""
