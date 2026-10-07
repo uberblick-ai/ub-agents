@@ -344,7 +344,7 @@ class LaunchOutputTests(unittest.TestCase):
                 plans = [Plan(issue(number), role, None, state, reason, 1)
                          for number in (1, 2)
                          for role in (self.agent, replace(self.agent, name="other"))]
-                with patch.object(loop, "iter_plans", side_effect=lambda: iter(plans)):
+                with patch.object(loop, "iter_plans", side_effect=lambda **kwargs: iter(plans)):
                     for _ in range(3):
                         self.assertFalse(loop.tick())
                     self.assertEqual(self.lines, [
@@ -1020,7 +1020,7 @@ class RecoveryTests(unittest.TestCase):
 
         with patch.object(github, "item", side_effect=read), \
                 patch("ub_agents.loop.supervise", side_effect=execute):
-            with self.assertRaisesRegex(LostOwnership, "Cannot observe completion"):
+            with self.assertRaisesRegex(AgentError, "GitHub 502"):
                 loop.tick()
         lease, outcome = loop.coordinator.history(1)
         self.assertEqual(lease["state"], "running")
@@ -1047,7 +1047,7 @@ class RecoveryTests(unittest.TestCase):
         for _ in range(self.agent.max_attempts):
             now += 61
             with patch.object(loop, "validate_success", side_effect=AgentError("GitHub timeout")):
-                with self.assertRaisesRegex(LostOwnership, "Cannot observe recovered completion"):
+                with self.assertRaisesRegex(AgentError, "GitHub timeout"):
                     loop.tick()
             history = loop.coordinator.history(1)
             self.assertEqual((history[-1]["state"], history[-1]["mode"]), ("claiming", "recovery"))

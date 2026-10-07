@@ -11,6 +11,12 @@ ub-agents status 214
 
 Stopped items are listed under **Needs attention** in `ub-agents launch`. Select one and press `4` for the Unblock tab: it shows the item's **Action needed** comment, with each decision, the options and how to resume.
 
+If a blocked item's comment is unavailable, Unblock shows its blocked reason and the `ub-agents retry N --agent AGENT --reason "Human resolved the blocker"` command. A failed blocked notice post is retried on later launcher passes until the item resumes.
+
+## GitHub failed after a completed run
+
+A failed GitHub request while the launcher finalizes a stored report leaves the lease recoverable. Continuous launch uses its normal GitHub backoff; after lease expiry it finishes the report and its label transition without rerunning the agent. If no report was stored, the agent may run again. A non-retryable error stops the launcher; fix its cause and restart launch to recover.
+
 ## Needs a person
 
 The item has a [stop label](/docs/configuration/stop-labels.html) such as `needs-human` and an **Action needed** comment that lists the options and how to resume. Decide, remove the stop label, and add the workflow label you want.

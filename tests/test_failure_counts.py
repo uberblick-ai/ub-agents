@@ -394,17 +394,19 @@ class FailureCountTests(unittest.TestCase):
                         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
                             self.assertFalse(self.loop.tick())
 
-    def test_unknown_recovery_failure_counts_and_parks_instead_of_recovering_forever(self):
+    def test_unknown_recovery_failure_stops_without_inventing_a_blocked_verdict(self):
         source = self.start()
         self.loop.coordinator.report(source, 'success', 'Reported before crash', outcome='done')
         self.now += 61
         with patch.object(self.loop, 'validate_success', side_effect=RuntimeError('Unexpected failure')):
-            self.assertTrue(self.loop.tick())
-        self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
+            with self.assertRaisesRegex(RuntimeError, 'Unexpected failure'):
+                self.loop.tick()
+        self.assertNotIn('result', self.loop.coordinator.history(1)[-1])
         self.now += 61
         self.loop = self.restart()
+        self.assertEqual((self.count(), self.plan().state), (0, 'recover'))
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
-            self.assertFalse(self.loop.tick())
+            self.assertTrue(self.loop.tick())
 
     def test_log_directory_setup_failure_is_a_durable_retry(self):
         # A file where the run directory belongs makes mkdir fail before execution.

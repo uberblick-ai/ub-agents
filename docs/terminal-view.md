@@ -338,6 +338,14 @@ shows why the load cannot start and queues nothing; a later activation may try
 again while no result is cached. Selecting another item while Unblock stays
 active starts no read.
 
+When a blocked row has no available notice, Unblock shows its published blocked
+reason and the notice's resume command,
+`ub-agents retry N --agent AGENT --reason "Human resolved the blocker"`.
+This fallback remains visible while loading and when GitHub finds no trusted
+notice or the read fails. It reminds the operator to restore a matching trigger
+and remove stop labels; a different next role still uses the project's correction
+or handoff route. An available trusted notice replaces the fallback.
+
 The session snapshot retains comments this launcher posts or finds in the pass's
 already-read item comments from verified trusted launcher accounts. Claims and resets clear
 them. Text and item counts are bounded. To fit the 64 KiB snapshot, notices for

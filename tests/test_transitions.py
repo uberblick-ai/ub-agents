@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
-from ub_agents.errors import AgentError, LostOwnership, RetryableExecutionError
+from ub_agents.errors import AgentError, RetryableExecutionError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, seconds, timestamp
@@ -138,7 +138,7 @@ class TransitionTests(unittest.TestCase):
             return create(number, text)
         with patch('ub_agents.coordination.shutil.which', return_value='installed'), \
                 patch.object(self.github, 'create_comment', side_effect=fail_on_pr), \
-                self.assertRaises(LostOwnership):
+                self.assertRaisesRegex(AgentError, 'Cannot publish pending provenance'):
             self.execute(handoff=2)
         self.assertEqual(self.labels_changed(), [])
         self.assertEqual(self.loop.coordinator.history(2), [])
@@ -159,7 +159,7 @@ class TransitionTests(unittest.TestCase):
             return update(comment_id, text)
         with patch('ub_agents.coordination.shutil.which', return_value='installed'):
             with patch.object(self.github, 'update_comment', side_effect=fail_on_pr), \
-                    self.assertRaises(LostOwnership):
+                    self.assertRaisesRegex(AgentError, 'Cannot accept PR provenance'):
                 self.execute(handoff=2)
             self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
             copied, = self.loop.coordinator.history(2)
@@ -179,7 +179,7 @@ class TransitionTests(unittest.TestCase):
         reviewer = self.independent_reviewer()
         with patch('ub_agents.coordination.shutil.which', return_value='installed'):
             with patch.object(self.loop.coordinator, 'accept', side_effect=AgentError('Cannot accept')), \
-                    self.assertRaises(LostOwnership):
+                    self.assertRaisesRegex(AgentError, 'Cannot accept'):
                 self.execute(handoff=2)
             self.now += 61
             self.assertEqual(self.reviewer_plan(reviewer).state, 'blocked')
@@ -317,7 +317,7 @@ class TransitionTests(unittest.TestCase):
             self.github.change(1, labels=self.github.item(1).labels | {'needs-human'})
             raise AgentError('Connection dropped after mutation')
         with patch.object(self.github, 'remove_label', side_effect=fail_after_remove):
-            with self.assertRaises(LostOwnership):
+            with self.assertRaisesRegex(AgentError, 'Connection dropped after mutation'):
                 self.execute(handoff=2)
         outcome = self.loop.coordinator.history(1)[1]
         self.assertTrue(outcome['transition']['started'])
@@ -437,7 +437,8 @@ class TransitionTests(unittest.TestCase):
                     if stage != 'before-add':
                         original(*args)
                     raise AgentError('Connection dropped during transition')
-                with patch.object(self.github, method, side_effect=fail), self.assertRaises(LostOwnership):
+                with patch.object(self.github, method, side_effect=fail), \
+                        self.assertRaisesRegex(AgentError, 'Connection dropped during transition'):
                     self.execute(handoff=2)
                 self.now += 61
                 # Exercise the operator command after the source lease expires.
@@ -474,7 +475,7 @@ class TransitionTests(unittest.TestCase):
         self.agent = replace(self.agent, outcomes={'done': {'add': ('old',), 'remove': ('old',)}})
         self.loop = self.new_loop()
         with patch.object(self.loop.coordinator, 'accept', side_effect=AgentError('Cannot accept')):
-            with self.assertRaises(LostOwnership):
+            with self.assertRaisesRegex(AgentError, 'Cannot accept'):
                 self.execute(name='done')
         previous_writes = self.labels_changed()
         self.assertEqual(previous_writes, [('remove-label', 1, 'needs-changes'),
@@ -488,7 +489,7 @@ class TransitionTests(unittest.TestCase):
 
     def test_fully_applied_transition_before_acceptance_is_idempotent(self):
         with patch.object(self.loop.coordinator, 'accept', side_effect=AgentError('Cannot accept')):
-            with self.assertRaises(LostOwnership):
+            with self.assertRaisesRegex(AgentError, 'Cannot accept'):
                 self.execute(handoff=2)
         previous_writes = self.labels_changed()
         self.now += 61
@@ -503,7 +504,7 @@ class TransitionTests(unittest.TestCase):
                 self.now = timestamp()
                 self.loop = self.new_loop()
                 with patch.object(self.loop.coordinator, 'accept', side_effect=AgentError('Crash before acceptance')):
-                    with self.assertRaises(LostOwnership):
+                    with self.assertRaisesRegex(AgentError, 'Crash before acceptance'):
                         self.execute()
                 source, outcome = self.loop.coordinator.history(1)
                 self.assertTrue(outcome['transition']['started'])
@@ -561,7 +562,7 @@ class TransitionTests(unittest.TestCase):
                 original(*args)
             raise AgentError('Connection dropped during completion')
         with patch.object(owner, method, side_effect=fail):
-            with self.assertRaises(LostOwnership):
+            with self.assertRaisesRegex(AgentError, 'Connection dropped during completion'):
                 self.execute(handoff=2)
         self.github.change(2, **changes)
         previous_writes = self.labels_changed()
@@ -619,7 +620,7 @@ class TransitionTests(unittest.TestCase):
             remove(number, label)
             raise AgentError('Connection dropped after removing review trigger')
         with patch.object(self.github, 'remove_label', side_effect=fail_after_remove):
-            with self.assertRaises(LostOwnership):
+            with self.assertRaisesRegex(AgentError, 'Connection dropped after removing review trigger'):
                 self.execute(name='approved')
         self.github.change(1, head='b' * 40)
         self.now += 61

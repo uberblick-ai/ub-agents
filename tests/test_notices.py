@@ -343,6 +343,38 @@ class NoticeTests(unittest.TestCase):
         self.assertIn(self.notices(2)[0]["id"], self.github.minimized_ids)
         self.assertEqual(self.co.plan(self.github.item(2), self.worker, ()).state, "ready")
 
+    def test_failed_blocked_notice_retries_after_restart_even_on_a_closed_item(self):
+        lease = self.start()
+        self.co.report(lease, 'blocked', 'Need a decision', action='Maintainer: decide the next step.')
+        with patch.object(self.github, 'create_comment', side_effect=GitHubError('POST', 'notice', 'Unavailable')):
+            self.co.release(lease, 'blocked', 'Need a decision')
+        self.assertEqual(self.notices(), [])
+        self.github.change(1, state='closed', labels=frozenset())
+        self.github.change(2, labels=frozenset())
+        restarted = Loop(config(self.root, self.worker), self.github, 'operator', output=self.output.append)
+        for _ in range(2):
+            self.assertFalse(restarted.tick())
+        self.assertEqual(len(self.notices()), 1)
+        self.assertIn(lease['run'], self.notices()[0]['body'])
+
+    def test_missing_blocked_notice_is_suppressed_by_a_later_reset_or_claim(self):
+        for resume in ('reset', 'claim'):
+            with self.subTest(resume=resume):
+                self.setUp()
+                lease = self.start()
+                self.co.report(lease, 'blocked', 'Need a decision', action='Maintainer: decide the next step.')
+                with patch.object(self.github, 'create_comment', side_effect=GitHubError('POST', 'notice', 'Unavailable')):
+                    self.co.release(lease, 'blocked', 'Need a decision')
+                self.assertEqual(self.notices(), [])
+                restarted = Loop(config(self.root, self.worker), self.github, 'operator', output=self.output.append)
+                stale = restarted.plans()[0]
+                if resume == 'reset':
+                    self.retry()
+                else:
+                    self.start(worker=agent(self.root, name='next-role'))
+                restarted.reconcile_blocked_notices(stale.history)
+                self.assertEqual(self.notices(), [])
+
     def test_full_markdown_reasoning_is_preserved_and_all_evidence_is_collapsed(self):
         summary = ('## Storage reasoning\n\nLocal avoids uploads; cloud enables sharing.\n\n'
                    '## Rollout reasoning\n\nStaging limits migration risk.\n\n'

@@ -20,7 +20,7 @@ from ub_agents.view_github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, 
                                    GhTransport, Response, parse_response)
 from ub_agents.view_ui import ItemTabs, View, WorkTree, description_parser
 from ub_agents.view_unblock import (ACTION_MARKER, ActionComment, comment_body, local_action,
-                                    comment_sections, needs_attention, stamp, unblock_metadata)
+                                    comment_sections, needs_attention, stamp, unblock_body, unblock_metadata)
 from ub_agents.notices import action_body
 
 AUTHORS = {'operator': {'trusted': True, 'reason': None},
@@ -182,6 +182,23 @@ class UnblockDataTests(unittest.TestCase):
         self.assertEqual(unblock_metadata(row, ActionComment(), self.session, now), ('worker · failed 3/3', ''))
         row = replace(row, reason='Previous cleanup was unconfirmed')
         self.assertEqual(unblock_metadata(row, ActionComment(), self.session, now), ('worker · blocked', ''))
+
+    def test_blocked_row_without_notice_uses_reason_and_notice_retry_command(self):
+        row = replace(self.row, state='blocked', reason='Last run blocked: decision pending')
+        self.session.data['action_needed'] = {}
+        for comment in (local_action(row, self.session),
+                        ActionComment(omitted=True),
+                        ActionComment(error='No trusted action-needed comment was found.')):
+            with self.subTest(comment=comment):
+                body = unblock_body(row, comment)
+                self.assertIn(row.reason, body)
+                self.assertIn('ub-agents retry 178 --agent worker --reason "Human resolved the blocker"', body)
+                self.assertIn('same role', body)
+                self.assertIn('different role', body)
+        comment = local_action(self.row, Session(Path('session.json'), {
+            'action_needed': {'178': {'text': NOTICE, 'author': 'operator'}}, 'coordination_authors': AUTHORS}))
+        self.assertEqual(unblock_body(row, comment), comment.body)
+        self.assertEqual(unblock_body(self.row, ActionComment()), '')
 
     def test_github_uses_latest_trusted_marker_including_approval_notices(self):
         result = parse_response(comments_reply(
@@ -549,7 +566,8 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             publish_snapshot(self.path, self.state)
             await self.ready(pilot, lambda: not app.current_action().available and
                              'not verified' in app.query_one('#unblock_note', Static).render().plain)
-            self.assertEqual(app.query_one('#unblock_body', Markdown).source, '')
+            self.assertIn('Attempt limit exhausted', app.query_one('#unblock_body', Markdown).source)
+            self.assertIn('ub-agents retry 179 --agent worker', app.query_one('#unblock_body', Markdown).source)
             self.assertIn('not verified', app.query_one('#unblock_note', Static).render().plain)
             await pilot.press('g', 'q')
         app.worker.thread.join(2)

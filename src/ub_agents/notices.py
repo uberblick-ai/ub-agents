@@ -34,6 +34,11 @@ def notice_reason(summary, limit=300):
     return sentence if len(sentence) <= limit else sentence[:limit - 1].rstrip() + '…'
 
 
+def retry_command(number, agent):
+    return (f"ub-agents retry {number} --agent {agent} "
+            f"--reason {json.dumps('Human resolved the blocker')}")
+
+
 def action_body(marker, actions, details, *, options=(), reason='', resume=''):
     asks = [ask_markdown(ask.strip()) for ask in actions]
     lead = f"**{asks[0]}**" if len(asks) == 1 else "\n".join(f"- **{ask}**" for ask in asks)
@@ -262,8 +267,7 @@ class Notices:
             triggers = ", ".join(f"`{label}`" for label in resume_triggers)
             resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
         else:
-            command = (f"ub-agents retry {number} --agent {lease['agent']} "
-                       f"--reason {json.dumps('Human resolved the blocker')}")
+            command = retry_command(number, lease['agent'])
             triggers = ", ".join(f"`{label}`" for label in lease.get("triggers", ()))
             resume = f"```sh\n{command}\n```"
             if triggers:
