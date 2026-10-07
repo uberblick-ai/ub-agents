@@ -141,7 +141,7 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
             git(root, "fetch", "origin", f"+refs/heads/{default}:{remote}")
         except AgentError as exc:
             next_step = "fix origin access and launch again"
-            raise AgentError(f"fetch of origin/{default} failed") from exc
+            raise AgentError(f"fetch of origin/{default} failed: {exc}") from exc
         if on_fetch is None:
             head = git(root, "rev-parse", remote)
         else:

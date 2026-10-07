@@ -599,6 +599,17 @@ class RefreshTests(unittest.TestCase):
         git(self.root, "remote", "set-url", "origin", str(self.origin / "missing"))
         self.stopped("fetch of origin/main failed", "fix origin access and launch again")
 
+    def test_fetch_error_keeps_reason_and_omits_multiline_git_advice(self):
+        def fail_fetch(root, *args, **kwargs):
+            if "fetch" in args:
+                raise AgentError("Git operation failed: authentication denied\n\nLong Git advice\nMore Git advice")
+            return git(root, *args, **kwargs)
+
+        with patch("ub_agents.refresh.git", side_effect=fail_fetch):
+            message = self.stopped("fetch of origin/main failed", "fix origin access and launch again")
+        self.assertEqual(message, f"ub-agents: {self.root}: fetch of origin/main failed: "
+                         "Git operation failed: authentication denied; fix origin access and launch again\n")
+
     def test_fast_forward_failure_stops_without_mutation(self):
         self.push_policy()
         lock = self.root / ".git" / "index.lock"

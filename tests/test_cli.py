@@ -79,6 +79,23 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual([line.split(" ", 1)[1] for line in log.read_text().splitlines()],
                          ["Launching", "Launching"])
 
+    def test_config_resolution_failure_reports_error_without_running(self):
+        commands = (("launch", "--no-ui"), ("launch", "--once", "--no-ui"),
+                    ("launch", "42", "--no-ui"), ("status",), ("cleanup",), ("doctor",))
+        for command in commands:
+            for argv in ([*command], ["--config", str(self.path), *command],
+                         [*command, "--config", str(self.path)]):
+                failure = FileNotFoundError(2, "No such file or directory")
+                with self.subTest(argv=argv), \
+                        patch("ub_agents.cli.resolve_config_path", side_effect=failure):
+                    self.stderr.seek(0)
+                    self.stderr.truncate()
+                    self.assertEqual(main(argv), 1)
+                    self.assertEqual(self.stderr.getvalue(), f"ub-agents: {failure}\n")
+        self.run.assert_not_called()
+        self.load.assert_not_called()
+        self.assertFalse((self.path.parent / ".ub-agents").exists())
+
     def test_positional_number_and_hidden_alias(self):
         self.run.return_value = 0
         for name in ("approve", "retry"):

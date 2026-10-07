@@ -615,7 +615,7 @@ def main(argv=None):
             return 130
         except (AgentError, OSError) as exc:
             detail = str(exc)
-            if args is not None and args.command == "launch":
+            if args is not None and args.command == "launch" and isinstance(args.config, Path):
                 detail = launch_error_message(exc, args.config.parent)
             print(f"ub-agents: {detail}", file=sys.stderr)
             return 1
