@@ -1,4 +1,4 @@
-"""Supported optional view entrypoint. UI imports occur only after attachment."""
+"""Terminal view child that `ub-agents launch` starts. UI imports occur only after attachment."""
 
 import argparse
 from pathlib import Path
@@ -78,7 +78,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Read-only terminal view of one local launcher.')
     parser.add_argument('control_checkout', type=Path, nargs='?')
     parser.add_argument('--session', help='Exact session ID (required when launched by ub-agents)')
-    parser.add_argument('--version', action='version', version=f'ub-agents-ui {__version__}')
     parser.add_argument('--probe', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--base-version', help=argparse.SUPPRESS)
     parser.add_argument('--launcher-fd', type=int, help=argparse.SUPPRESS)

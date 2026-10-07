@@ -70,7 +70,7 @@ class LaunchSelectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             terminal = Tty()
             with redirect_stdout(terminal), patch('sys.stdin', Tty()), launch_output(Path(directory)) as output, \
-                    patch('ub_agents.launch_ui.ui_command', return_value=['ub-agents-ui']), \
+                    patch('ub_agents.launch_ui.ui_command', return_value=[sys.executable, '-P', '-m', 'ub_agents.view']), \
                     patch('ub_agents.launch_ui.subprocess.run', return_value=Mock(returncode=0)), \
                     patch('ub_agents.launch_ui.ViewProcess.start', side_effect=termios.error('terminal unavailable')):
                 self.assertIsNone(open_view(Path(directory), 'own', output, Mock()))
@@ -342,7 +342,7 @@ class LaunchTerminalTests(unittest.TestCase):
                     table = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,command='], text=True)
                     view_pid = next(int(line.split()[0]) for line in table.splitlines()
                                     if len(line.split()) > 2 and line.split()[1] == str(process.pid)
-                                    and ('ub_agents.view ' in line or 'ub-agents-ui ' in line))
+                                    and 'ub_agents.view ' in line)
                     self.assertIn(b'--session', table.encode())
                     self.assertIn(first_session, next(line for line in table.splitlines() if line.split()[0] == str(view_pid)))
                 if mode == 'q':

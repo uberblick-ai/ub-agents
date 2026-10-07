@@ -46,8 +46,7 @@ assert 'textual' not in sys.modules
     # launch looks for the file before loading it; the faked loader ignores its content.
     (project / 'ub-agents.yaml').write_text('')
     run(python, '-P', '-c', script, project)
-    run(root / 'bin/ub-agents-ui', '--version')
-    run(root / 'bin/ub-agents-ui', '--probe', '--base-version',
+    run(python, '-P', '-m', 'ub_agents.view', '--probe', '--base-version',
         __import__('tomllib').loads(Path('pyproject.toml').read_text())['project']['version'])
     run(python, '-c', 'from ub_agents.view_ui import View')
     print('Clean-wheel packaging checks passed')
