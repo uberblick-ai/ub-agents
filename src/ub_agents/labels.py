@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import os
 import shlex
 import sys
+from textwrap import shorten
 
 from .errors import AgentError
 
@@ -26,7 +27,16 @@ class Label:
 
     @property
     def description(self):
-        return f"ub-agents: {self.uses[0].meaning}"[:100]
+        description = f"ub-agents: {self.uses[0].meaning}"
+        if len(description) > 100:
+            return shorten(description, width=100, placeholder="...",
+                           break_long_words=False, break_on_hyphens=False)
+        for use in self.uses[1:]:
+            candidate = f"{description}; {use.meaning}"
+            if len(candidate) > 100:
+                break
+            description = candidate
+        return description
 
     @property
     def color(self):
@@ -38,28 +48,28 @@ class Label:
 
 
 def configured_labels(config):
-    """Deduplicate names case-insensitively while retaining every consumer."""
+    """Deduplicate names and retain every consumer, with effects before transitions."""
     labels = {}
 
-    def add(name, use):
+    def add(name, use, *, effect=False):
         key = name.casefold()
         if key not in labels:
-            labels[key] = (name, [])
-        labels[key][1].append(use)
+            labels[key] = (name, [], [])
+        _, effects, transitions = labels[key]
+        (effects if effect else transitions).append(use)
 
     for agent in config.agents:
         kind = {"issue": "an issue", "pr": "a PR", "either": "an issue or PR"}[agent.kind]
         for name in agent.triggers:
-            add(name, LabelUse(agent.name, f"starts {agent.name} on {kind}"))
+            add(name, LabelUse(agent.name, f"starts {agent.name} on {kind}"), effect=True)
         for outcome, transition in agent.outcomes.items():
             for action in ("add", "remove"):
                 for name in transition[action]:
-                    meaning = (f"{'added to the destination' if action == 'add' else 'removed from the assignment'} "
-                               f"by {agent.name} outcome {outcome}")
+                    meaning = f"{'added' if action == 'add' else 'removed'} when {agent.name} reports {outcome}"
                     add(name, LabelUse(agent.name, meaning))
     for name in config.stop_labels:
-        add(name, LabelUse(None, "parks an issue or PR until a person decides", required=False))
-    return [Label(name, tuple(uses)) for name, uses in labels.values()]
+        add(name, LabelUse(None, "parks an issue or PR until a person decides", required=False), effect=True)
+    return [Label(name, tuple(effects + transitions)) for name, effects, transitions in labels.values()]
 
 
 def print_commands(labels, repository, reason):

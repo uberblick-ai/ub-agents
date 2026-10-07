@@ -119,8 +119,54 @@ class InitTests(unittest.TestCase):
                     self.assertEqual('uncomment or customize' in output, not enabled)
                     if runtime:
                         self.assertIn("the project's check commands must still be added to --allowedTools", output)
-                        self.assertIn("Next step: add the project's check commands to --allowedTools", output)
+                        self.assertIn("add check commands to --allowedTools", output)
                     self.assertEqual(self.github.writes, [])
+
+    def test_output_names_relative_files_and_ordered_setup_steps(self):
+        for runtime in ('codex:model:high', 'claude:opus:high'):
+            for enabled in (False, True):
+                with self.subTest(runtime=runtime, enabled=enabled), tempfile.TemporaryDirectory() as directory:
+                    self.path = Path(directory) / 'starter.yaml'
+                    code, output, error, _ = self.init(runtime=runtime, terminal=enabled,
+                                                     permissions_answer='yes')
+                    self.assertEqual((code, error), (0, ''))
+                    lines = output.splitlines()
+                    start = lines.index('config: starter.yaml')
+                    self.assertEqual(lines[start:start + 3], [
+                        'config: starter.yaml',
+                        'policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)',
+                        'roles: .agents/ (issue-preparer, implementer, reviewer, integrator)',
+                    ])
+                    steps = lines[start + 3]
+                    self.assertTrue(steps.startswith('next: fill in the checks and policy in .agents/ub_agents.md;'))
+                    self.assertEqual('grant agent permissions' in steps, not enabled)
+                    self.assertEqual('--allowedTools' in steps, runtime.startswith('claude:'))
+                    self.assertTrue(steps.endswith('run ub-agents check; commit and push the starter files; '
+                                                  'run ub-agents doctor.'))
+                    self.assertNotIn(str(self.path.parent), output)
+
+    def test_starter_policy_is_neutral_and_has_no_repeated_sentences(self):
+        for runtime in ('codex:model:high', 'claude:opus:high'):
+            for guidance in (None, 'AGENTS.md', '.claude/CLAUDE.md'):
+                with self.subTest(runtime=runtime, guidance=guidance), tempfile.TemporaryDirectory() as directory:
+                    self.path = Path(directory) / 'ub-agents.yaml'
+                    if guidance:
+                        path = self.path.parent / guidance
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text('# Checks\nRun project tests.\n')
+                    self.assertEqual(self.init(runtime=runtime)[0], 0)
+                    policy = load_config(self.path).shared_instructions.read_text()
+                    customized = ' '.join(policy.replace('@org/maintainers', '@acme/core').split())
+                    self.assertIn('`@acme/core` answers scope and policy questions;', customized)
+                    self.assertIn('Leave changes to workflow, permissions and release policy to `@acme/core`;',
+                                  customized)
+                    self.assertNotIn('maintainer team', policy)
+                    self.assertEqual(policy.split('## Review focus\n\n')[1].strip(),
+                                     "Replace this section with the project's review priorities and required evidence.")
+                    self.assertEqual(policy.count('before handoff'), 1)
+                    prose = ' '.join(line for line in policy.splitlines() if not line.startswith('#'))
+                    sentences = re.split(r'(?<=[.!?])\s+', prose.strip())
+                    self.assertEqual(len(sentences), len(set(sentences)))
 
     def test_role_templates_supply_procedure_without_loop_contract(self):
         self.assertEqual(self.init()[0], 0)
@@ -175,7 +221,7 @@ class InitTests(unittest.TestCase):
             self.assertIn(f'Created label {label.name} on org/project.', output)
         self.assertIn('needs-review: ', output)
         self.assertIn('starts reviewer on a PR', output)
-        self.assertIn('outcome handed-off', output)
+        self.assertIn('added when implementer reports handed-off', output)
         self.assertIn('Create these 5 labels on org/project? [y/N]', prompt.call_args.args[0])
         self.assertIn('READY', self.github.label_names)
         self.assertIn('unrelated', self.github.label_names)
@@ -209,7 +255,7 @@ class InitTests(unittest.TestCase):
                 prompt.assert_not_called()
                 self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
                 self.assertEqual(self.path.read_text().count('# runtime-args:'), 4)
-                self.assertIn('Next step: uncomment or customize', output)
+                self.assertIn('grant agent permissions: uncomment or customize', output)
 
     def test_unreadable_labels_prints_all_commands_without_label_prompt(self):
         self.github.label_error = AgentError('private error')
@@ -266,6 +312,86 @@ class InitTests(unittest.TestCase):
         (self.root / 'AGENTS.md').unlink()
         self.assertIsNone(runtime_guidance(self.root, 'claude'))
         self.assertIsNone(runtime_guidance(self.root, 'codex'))
+
+    def test_guidance_detection_matrix_points_to_existing_checks_and_warns_about_unloaded_files(self):
+        cases = (
+            ((), None, None),
+            (('AGENTS.md',), 'AGENTS.md', 'AGENTS.md'),
+            (('CLAUDE.md',), 'CLAUDE.md', 'CLAUDE.md'),
+            (('.claude/CLAUDE.md',), '.claude/CLAUDE.md', '.claude/CLAUDE.md'),
+            (('AGENTS.md', 'CLAUDE.md'), 'AGENTS.md', 'CLAUDE.md'),
+            (('AGENTS.md', '.claude/CLAUDE.md'), 'AGENTS.md', '.claude/CLAUDE.md'),
+            (('CLAUDE.md', '.claude/CLAUDE.md'), 'CLAUDE.md', 'CLAUDE.md'),
+            (('AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'), 'AGENTS.md', 'CLAUDE.md'),
+        )
+        for names, codex_checks, claude_checks in cases:
+            for cli, checks in (('codex', codex_checks), ('claude', claude_checks)):
+                with self.subTest(names=names, cli=cli), tempfile.TemporaryDirectory() as directory:
+                    self.path = Path(directory) / 'ub-agents.yaml'
+                    for name in names:
+                        path = self.path.parent / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text(f'# Checks in {name}\n')
+                    code, output, error, _ = self.init(runtime=f'{cli}:model:high')
+                    self.assertEqual((code, error), (0, ''))
+                    policy = load_config(self.path).shared_instructions.read_text()
+                    if checks:
+                        self.assertIn(f'Project checks are documented in `{checks}`.', policy)
+                        self.assertNotIn('<project build command>', policy)
+                    else:
+                        self.assertIn('<project build command>', policy)
+                    loaded = checks
+                    if cli == 'codex' and 'AGENTS.md' not in names:
+                        loaded = None
+                    self.assertEqual(runtime_guidance(self.path.parent, cli),
+                                     self.path.parent / loaded if loaded else None)
+                    if loaded:
+                        self.assertIn(f'{cli} loads project guidance from {loaded}; kept unchanged.', output)
+                        self.assertNotIn('Warning:', output)
+                    elif checks:
+                        self.assertIn(f'Warning: {cli} loads no project guidance; checks are documented in {checks}. '
+                                      f'Add a one-line AGENTS.md: "Read {checks}".', output)
+                    else:
+                        choices = 'AGENTS.md' if cli == 'codex' else 'CLAUDE.md, .claude/CLAUDE.md or AGENTS.md'
+                        self.assertIn(f'Warning: {cli} loads no project guidance; add {choices} '
+                                      'so agents know how to build and test.', output)
+                    for name in names:
+                        self.assertEqual((self.path.parent / name).read_text(), f'# Checks in {name}\n')
+
+    def test_label_meanings_match_lists_commands_and_created_descriptions(self):
+        self.github.label_names = []
+        meanings = {
+            'ready': 'starts implementer on an issue or PR; added when issue-preparer reports prepared',
+            'needs-review': 'starts reviewer on a PR; added when implementer reports handed-off',
+            'needs-human': 'parks an issue or PR until a person decides; added when issue-preparer reports needs-human',
+            'needs-changes': 'starts implementer on an issue or PR; added when reviewer reports changes-requested; '
+                             'added when integrator reports changes-requested',
+        }
+        descriptions = {
+            'ready': 'ub-agents: starts implementer on an issue or PR; added when issue-preparer reports prepared',
+            'needs-review': 'ub-agents: starts reviewer on a PR; added when implementer reports handed-off',
+            'needs-human': 'ub-agents: parks an issue or PR until a person decides',
+            'needs-changes': 'ub-agents: starts implementer on an issue or PR; added when reviewer reports changes-requested',
+        }
+        for terminal, answer in ((False, ''), (True, 'no'), (True, 'yes')):
+            with self.subTest(terminal=terminal, answer=answer), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                self.github.label_names = []
+                self.github.writes.clear()
+                code, output, error, _ = self.init(terminal=terminal, answer=answer)
+                self.assertEqual((code, error), (0, ''))
+                commands = {command[3]: command for command in self.commands(output)}
+                for name, meaning in meanings.items():
+                    if terminal:
+                        self.assertIn(f'  {name}: {meaning}', output)
+                    description = descriptions[name]
+                    self.assertLessEqual(len(description), 100)
+                    if answer == 'yes':
+                        self.assertIn(('create-label', name, description,
+                                       'd876e3' if name == 'needs-human' else '1d76db'), self.github.writes)
+                    else:
+                        command = commands[name]
+                        self.assertEqual(command[command.index('--description') + 1], description)
 
     def test_any_existing_starter_refuses_before_writing_guidance_or_labels(self):
         for name in ('starter.yaml', '.agents/implementer.md', '.agents/reviewer.md',
