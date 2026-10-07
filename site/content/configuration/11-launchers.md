@@ -1,21 +1,23 @@
 # Launcher accounts
 
-Launchers on different machines share one queue through GitHub. By default, any account with write, maintain or admin access can run one.
+Launchers on different machines share one queue through GitHub. By default, any account with write, maintain or admin access can run one, so engineers can use their own `gh` logins.
+
+## Recommended: an agent account
+
+Give the agents their own GitHub account, such as `acme-agent`, with **write** access to only the repositories it works in. Write lets it push branches, open pull requests and comment. It cannot start or approve its own work, bypass branch protection or change settings. Log in with it on every launcher machine and list it:
 
 ```yaml
-launchers: [bot-a, alice]
+launchers: [acme-agent]
 ```
 
-## Default
-
-Leave `launchers` out. Every account with write access or higher counts, so engineers can run launchers with their own `gh` logins.
+People keep their own accounts for starting work, approving input and the merges the integrator leaves to them. See [Give launchers their own account](/docs/best-practices/launcher-account.html).
 
 ## Narrow the list
 
-List the accounts allowed to post claims and outcomes. Use the same list on every machine. Listed accounts still need write access.
+`launchers` limits whose claims and outcomes count. Use the same list on every machine. Listed accounts still need write access.
 
 ```yaml
-launchers: [ub-bot]
+launchers: [acme-agent, alice]
 ```
 
 ## Removing an account
@@ -24,7 +26,7 @@ Stop that account's launcher first. Removing it from the list, or lowering its r
 
 ## Check
 
-`ub-agents doctor` warns about listed accounts without write access and about a logged-in account that is not on the list.
+`ub-agents doctor` warns about listed accounts without write access, a logged-in account that is not on the list, and a launcher account with maintain or admin.
 
 ```sh
 ub-agents doctor
