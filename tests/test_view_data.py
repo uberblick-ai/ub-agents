@@ -12,8 +12,9 @@ from unittest.mock import patch
 
 from ub_agents.view import main
 from ub_agents.view_data import (Description, Session, choose_session, item_context, load_session,
-                                 item_header, outcome_text, outcomes_today, read_json, run_status, text, work_rows)
+                                 item_header, outcome_text, outcomes_today, read_json, run_status, text, work_pane, work_rows)
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
+from ub_agents.view_worker import LocalWorker, Request
 from ub_agents.config import Queue
 from ub_agents.eligibility import AgentMatches, check_start
 from tests.support import agent, issue
@@ -78,12 +79,247 @@ def event(i, size=400):
         {'type': 'text', 'text': f'event {i:05d} ' + 'x' * size}]}}) + '\n').encode()
 
 
+class WorkPaneTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path('unused')
+        self.data = {'assignment': {'item': 114, 'agent': 'implementer', 'run': 'owned-run', 'process': 'running'},
+                     'latest_pass': {'state': 'partial', 'rows': [
+                         {'item': 114, 'agent': 'implementer', 'state': 'ready'},
+                         {'item': 12, 'agent': 'reviewer', 'state': 'ready', 'reason': 'Trigger matched'}]},
+                     'outcomes': [{'item': 10, 'agent': 'preparer', 'run': 'previous-run', 'result': 'prepared'}]}
+
+    def pane(self, previous=None, selected=None, chosen=False):
+        return work_pane(Session(Path('launcher.json'), self.data), self.root, previous, selected, chosen)
+
+    def test_sections_counts_omitted_plans_title_stopping_and_idle(self):
+        self.data['latest_pass']['rows'].extend([
+            {'item': 20, 'agent': 'worker', 'state': 'ready'},
+            {'item': 21, 'agent': 'worker', 'state': 'blocked'},
+            {'item': 22, 'agent': 'worker', 'state': 'waiting'},
+            {'item': 23, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for blockers #31'},
+            {'item': 24, 'agent': 'worker', 'state': 'parked', 'reason': 'Waiting for active milestone #10'},
+            {'item': 25, 'agent': 'worker', 'state': 'backoff'},
+            {'item': 26, 'agent': 'worker', 'state': 'owned'}])
+        self.data['omitted'] = {'plans': 3}
+        pane = self.pane()
+        self.assertEqual([section.name for section in pane.sections], ['Running', 'Needs attention', 'Eligible'])
+        self.assertEqual([section.label for section in pane.sections],
+                         ['Running · 1', 'Needs attention · 1', 'Eligible · 4'])
+        self.assertEqual([row.key for row in pane.sections[-1].rows], ['plan:12', 'plan:20', 'plan:22', 'plan:25'])
+        self.assertEqual([row.item for row in pane.rows], [114, 21, 12, 20, 22, 25, 10])
+        self.assertEqual(pane.title, 'Work · pass partial · omitted 3')
+        self.assertFalse(pane.sections[0].idle)
+        self.data['activity'] = {'state': 'stopping'}
+        self.assertEqual(self.pane().sections[-1].label, 'Eligible · 4 · not claimed while stopping')
+        self.data['assignment'] = None
+        self.data['latest_pass'] = {'state': 'complete', 'rows': []}
+        self.data['outcomes'] = []
+        self.data.pop('omitted')
+        pane = self.pane()
+        self.assertEqual([section.label for section in pane.sections], ['Running · 0'])
+        self.assertTrue(pane.sections[0].idle)
+        self.assertEqual(pane.sections[0].rows, ())
+        self.assertEqual(pane.rows, ())
+        self.assertEqual(pane.recent, ())
+        self.assertIsNone(pane.selected)
+        self.assertIsNone(pane.next)
+        self.assertEqual(pane.title, 'Work · pass complete')
+        self.data['latest_pass'] = {}
+        self.assertEqual(self.pane().title, 'Work')
+
+    def test_eligible_limit_keeps_all_details_rows_and_counts_before_capping(self):
+        self.data['assignment'] = None
+        order = [30, 18, 42, 15, 9, 31, 22, 13, 37, 5] + list(range(100, 113))
+        self.data['latest_pass']['rows'] = [
+            {'item': n, 'agent': 'worker', 'state': 'backoff' if n == 18 else 'ready'} for n in order]
+        pane = self.pane(selected='plan:112', chosen=True)
+        eligible = pane.sections[-1]
+        self.assertEqual(eligible.label, 'Eligible · 23 · showing 10')
+        self.assertEqual([row.item for row in eligible.rows], [n for n in order if n != 18][:10])
+        self.assertEqual(len([row for row in pane.rows if row.group == 'Eligible']), 23)
+        self.assertEqual(pane.selected, 'plan:112')
+        self.assertEqual(eligible.next, 'plan:30')
+        self.assertEqual(pane.next, 'plan:30')
+        self.data['activity'] = {'state': 'stopping'}
+        self.assertEqual(self.pane().sections[-1].label,
+                         'Eligible · 23 · showing 10 · not claimed while stopping')
+
+    def test_next_never_marks_delayed_or_retained_rows(self):
+        self.data['assignment'] = None
+        self.data['latest_pass']['rows'] = [
+            {'item': 20, 'agent': 'worker', 'state': 'backoff'},
+            {'item': 21, 'agent': 'worker', 'state': 'waiting'}]
+        pane = self.pane()
+        self.assertIsNone(pane.next)
+        self.data['latest_pass']['rows'].append({'item': 22, 'agent': 'worker', 'state': 'recover'})
+        pane = self.pane(pane, 'plan:22', True)
+        self.assertEqual([row.item for row in pane.sections[-1].rows], [22, 20, 21])
+        self.assertEqual(pane.next, 'plan:22')
+        self.data['latest_pass']['rows'].pop()
+        pane = self.pane(pane, 'plan:22', True)
+        self.assertEqual(pane.selected, 'plan:22')
+        self.assertIsNone(pane.next)
+        self.assertEqual(pane.sections[-1].label, 'Eligible · 3')
+        self.assertEqual(pane.sections[-1].rows[-1].state, 'earlier observation')
+
+    def test_eligible_agents_merge_before_counting_and_next_selection(self):
+        self.data['latest_pass']['rows'] = [
+            {'item': 12, 'agent': 'reviewer', 'state': 'backoff'},
+            {'item': 12, 'agent': 'integrator', 'state': 'recover'},
+            {'item': 12, 'agent': 'worker', 'state': 'owned'},
+            {'item': 20, 'agent': 'worker', 'state': 'ready'},
+            {'item': 21, 'agent': 'reviewer', 'state': 'blocked'},
+            {'item': 21, 'agent': 'integrator', 'state': 'parked'}]
+        pane = self.pane()
+        self.assertEqual([section.label for section in pane.sections],
+                         ['Running · 1', 'Needs attention · 2', 'Eligible · 2'])
+        row = pane.sections[-1].rows[0]
+        self.assertEqual((row.key, row.agent, row.state), ('plan:12', 'integrator', 'recover'))
+        self.assertEqual([plan['agent'] for plan in row.eligible_plans], ['integrator', 'reviewer'])
+        self.assertEqual(pane.next, row.key)
+        self.data['latest_pass']['rows'][0]['state'] = 'ready'
+        refreshed = self.pane(pane, row.key, True)
+        self.assertEqual(refreshed.selected, row.key)
+        self.assertEqual(refreshed.sections[-1].rows[0].agent, 'reviewer')
+
+    def test_vanished_eligible_is_listed_counted_and_retained_only_while_selected(self):
+        pane = self.pane(selected='plan:12', chosen=True)
+        observed = next(row for row in pane.rows if row.key == pane.selected)
+        self.data['latest_pass']['rows'] = []
+        pane = self.pane(pane, 'plan:12', True)
+        kept = pane.sections[-1].rows[0]
+        self.assertEqual(pane.selected, 'plan:12')
+        self.assertEqual(kept.state, 'earlier observation')
+        self.assertEqual(kept.reason, 'Last observed state: ready. Trigger matched')
+        self.assertIs(kept.data, observed.data)
+        self.assertFalse(kept.hidden)
+        self.assertEqual(pane.sections[-1].label, 'Eligible · 1')
+        repeated = self.pane(pane, pane.selected, True)
+        self.assertEqual(repeated, pane)
+        other = self.pane(pane, 'assignment:owned-run', True)
+        self.assertNotIn('plan:12', [row.key for row in other.rows])
+        self.data['latest_pass']['rows'] = [{'item': 12, 'agent': 'reviewer', 'state': 'ready'}]
+        returned = self.pane(pane, 'plan:12', True)
+        self.assertEqual(returned.sections[-1].rows[0].state, 'ready')
+
+    def test_other_vanished_selections_are_details_only_and_never_counted(self):
+        cases = [
+            ('assignment:owned-run', None),
+            ('outcome:previous-run', None),
+            ('plan:12:reviewer', {'item': 12, 'agent': 'reviewer', 'state': 'blocked'}),
+            ('plan:12', {'item': 12, 'agent': 'reviewer', 'state': 'owned'}),
+            ('plan:12', {'item': 12, 'agent': 'reviewer', 'state': 'parked', 'reason': 'Waiting for blockers #31'}),
+            ('plan:12', {'item': 12, 'agent': 'reviewer', 'state': 'parked',
+                         'reason': 'Waiting for active milestone #10'})]
+        for key, plan in cases:
+            with self.subTest(key=key, plan=plan):
+                self.setUp()
+                if key == 'plan:12:reviewer':
+                    self.data['latest_pass']['rows'][1] = plan
+                pane = self.pane(selected=key, chosen=True)
+                self.data['assignment'] = None
+                self.data['outcomes'] = []
+                self.data['latest_pass']['rows'] = [plan] if plan and key == 'plan:12' else []
+                pane = self.pane(pane, key, True)
+                self.assertEqual(pane.selected, key)
+                self.assertEqual([row.key for row in pane.rows], [key])
+                kept = pane.rows[0]
+                self.assertEqual(kept.state, 'earlier observation')
+                self.assertTrue(kept.hidden)
+                self.assertEqual([section.label for section in pane.sections], ['Running · 0'])
+                self.assertTrue(pane.sections[0].idle)
+                self.assertEqual(pane.recent, ())
+                self.assertIsNone(pane.next)
+                # A later sparse pass must not make a hidden selection live again.
+                self.data['latest_pass']['rows'] = []
+                self.assertEqual(self.pane(pane, key, True).sections, pane.sections)
+
+    def test_omitted_selected_agent_uses_the_same_sanitized_identity_as_work_rows(self):
+        self.data['latest_pass']['rows'][1]['agent'] = 'reviewer\x1b'
+        pane = self.pane(selected='plan:12', chosen=True)
+        self.data['latest_pass']['rows'][1]['state'] = 'owned'
+        kept = self.pane(pane, pane.selected, True)
+        self.assertEqual([section.label for section in kept.sections], ['Running · 1'])
+        self.assertTrue(kept.rows[-1].hidden)
+
+    def test_follows_own_runs_until_a_person_picks_a_row(self):
+        assignment = self.data['assignment']
+        self.data['assignment'] = None
+        pane = self.pane()
+        self.assertEqual(pane.selected, 'plan:114')
+        self.data['assignment'] = assignment
+        pane = self.pane(pane, pane.selected)
+        self.assertEqual(pane.selected, 'assignment:owned-run')
+        self.assertNotIn('plan:114', [row.key for row in pane.rows])
+        self.data['assignment'] = dict(assignment, run='next-run')
+        followed = self.pane(pane, pane.selected)
+        self.assertEqual(followed.selected, 'assignment:next-run')
+        self.assertNotIn('assignment:owned-run', [row.key for row in followed.rows])
+        picked = self.pane(pane, 'plan:12', True)
+        self.assertEqual(picked.selected, 'plan:12')
+        kept = self.pane(pane, pane.selected, True)
+        self.assertEqual(kept.selected, 'assignment:owned-run')
+        self.assertEqual([row.key for row in kept.sections[0].rows], ['assignment:next-run'])
+
+    def test_selection_moves_to_related_plan_including_a_merged_secondary_agent(self):
+        pane = self.pane(selected='plan:12', chosen=True)
+        self.data['latest_pass']['rows'] = [{'item': 12, 'agent': 'reviewer', 'state': 'blocked'}]
+        pane = self.pane(pane, pane.selected, True)
+        self.assertEqual(pane.selected, 'plan:12:reviewer')
+        self.assertEqual([section.label for section in pane.sections], ['Running · 1', 'Needs attention · 1'])
+        self.data['latest_pass']['rows'] = [
+            {'item': 12, 'agent': 'integrator', 'state': 'ready'},
+            {'item': 12, 'agent': 'reviewer', 'state': 'ready'}]
+        pane = self.pane(pane, pane.selected, True)
+        self.assertEqual(pane.selected, 'plan:12')
+        self.assertNotIn('plan:12:reviewer', [row.key for row in pane.rows])
+        self.assertEqual([plan['agent'] for plan in pane.sections[-1].rows[0].eligible_plans],
+                         ['integrator', 'reviewer'])
+
+    def test_recent_is_bounded_and_a_rolled_out_selection_is_details_only(self):
+        self.data['outcomes'] = [{'item': n, 'run': f'run-{n}', 'result': 'success'} for n in range(1, 21)]
+        pane = self.pane(selected='outcome:run-1', chosen=True)
+        self.assertEqual([row.item for row in pane.recent], list(range(20, 0, -1)))
+        self.data['outcomes'] = [{'item': n, 'run': f'run-{n}', 'result': 'success'} for n in range(2, 22)]
+        pane = self.pane(pane, pane.selected, True)
+        self.assertEqual(len(pane.recent), 20)
+        self.assertEqual(pane.selected, 'outcome:run-1')
+        self.assertNotIn(pane.selected, [row.key for row in pane.recent])
+        self.assertEqual(pane.rows[-1].state, 'earlier observation')
+
+    def test_missing_selection_falls_back_to_first_row_and_import_needs_no_textual(self):
+        self.data['assignment'] = None
+        pane = self.pane(selected='missing', chosen=True)
+        self.assertEqual(pane.selected, 'plan:114')
+        self.data['latest_pass']['rows'] = []
+        self.assertEqual(self.pane().selected, 'outcome:previous-run')
+        code = 'import sys; import ub_agents.view_data; assert "textual" not in sys.modules'
+        result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 class ViewDataTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path, self.log, self.state = fixture(self.root)
+
+    def test_worker_retains_from_the_requested_pane_instead_of_its_last_result(self):
+        worker = LocalWorker(self.root, self.path)
+        drawn = worker.read(Request('plan:12', 1, chosen=True)).pane
+        self.state['latest_pass']['rows'] = []
+        publish_snapshot(self.path, self.state)
+        other = worker.read(Request('assignment:owned-run', 2, chosen=True, previous=drawn))
+        self.assertNotIn('plan:12', [row.key for row in other.pane.rows])
+        result = worker.read(Request('plan:12', 3, chosen=True, previous=drawn))
+        self.assertEqual(result.key, 'plan:12')
+        self.assertEqual(result.pane.selected, result.key)
+        self.assertEqual(result.pane.sections[-1].label, 'Eligible · 1')
+        self.assertEqual(result.pane.rows[-1].state, 'earlier observation')
+        # Without the last drawn pane, a separate request has no retained row.
+        unrelated = worker.read(Request('plan:12', 4, chosen=True))
+        self.assertNotIn('plan:12', [row.key for row in unrelated.pane.rows])
 
     def test_header_assignment_plan_pr_and_missing_fields(self):
         self.state['assignment'].update(kind='issue', title='Assignment title', attempt=3)
