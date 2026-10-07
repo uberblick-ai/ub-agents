@@ -1,6 +1,6 @@
 # Stop labels
 
-A stop label pauses all work on an issue or pull request until a person removes it. You list them in `ub-agents.yaml`; agents never set labels themselves. Defaults to `needs-human`.
+A stop label pauses all work on an issue or pull request until a person removes it. You list them in `ub-agents.yaml`. Agents may set other labels, but never workflow labels (triggers, outcome labels and stop labels): the launcher applies those from the reported outcome. Defaults to `needs-human`.
 
 ```yaml
 stop-labels: [needs-human]
