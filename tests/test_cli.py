@@ -9,7 +9,7 @@ from ub_agents.cli import main
 
 
 class ArgumentTests(unittest.TestCase):
-    commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",),
+    commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",), ("status", "42"),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"),
                 ("approve", "42"), ("read", "42"))
 
@@ -115,6 +115,17 @@ class ArgumentTests(unittest.TestCase):
         for number in ("0", "-1"):
             self.usage_error(["launch", number], "launch requires a positive item number")
 
+    def test_status_item_is_optional_and_requires_a_positive_number(self):
+        self.run.return_value = 0
+        for number, expected in (([], None), (["42"], 42)):
+            with self.subTest(number=number):
+                self.assertEqual(main(["status", *number, "--config", str(self.path)]), 0)
+                self.assertEqual(self.run.call_args.args[0].number, expected)
+        for number in ("0", "-1"):
+            self.usage_error(["status", number], "status requires a positive item number")
+        self.usage_error(["status", "invalid"], "invalid int value")
+        self.usage_error(["status", "42", "43"], "unrecognized arguments: 43")
+
     def test_recover_remains_removed(self):
         with self.assertRaises(SystemExit) as caught:
             main(["--help"])
@@ -131,7 +142,7 @@ class ArgumentTests(unittest.TestCase):
 
 
 class MissingConfigTests(unittest.TestCase):
-    commands = (("check",), ("status",), ("launch",), ("launch", "--once"),
+    commands = (("check",), ("status",), ("status", "42"), ("launch",), ("launch", "--once"),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"), ("approve", "42"), ("read", "42"))
 
     def test_missing_config_names_init_and_creates_nothing(self):

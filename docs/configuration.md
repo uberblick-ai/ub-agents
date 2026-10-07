@@ -726,6 +726,8 @@ CLI and its UTC end time, for example:
 The line is also written to `.ub-agents/launch.log`.
 
 `status --json` returns an object with `assignments` (the assignment rows).
+With `status NUMBER --json`, it contains only that item's rows. If no rows apply,
+it also has an `explanation` string containing the plain output's text after `#NUMBER: `.
 
 ### Daily runtime maintenance
 
@@ -1011,7 +1013,8 @@ commands:
   doctor [--json]        check the machine, GitHub access, labels and agent
                          runtimes
   launch [NUMBER]        run the queue in the foreground, or handle one item
-  status [--json]        matching work, owners, attempts and why items wait
+  status [NUMBER] [--json]
+                         matching work, owners, attempts and why items wait
   cleanup [--apply]      preview or remove stale worktrees and branches
   retry NUMBER           let stopped work run again, with a recorded reason
   approve NUMBER         record approval of an issue's or PR's current input
@@ -1150,7 +1153,16 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   signal handling and execution exit codes as `launch --once`.
 - `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
-- `ub-agents status [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+- `ub-agents status [NUMBER] [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
+  Without a number, it lists the queue as usual. With a number, it evaluates only
+  that open or closed issue or PR under the same gates as `launch NUMBER`, showing
+  each evaluated agent's row: `ready` when launch would run it, or `recover` when
+  launch would recover its pending completion. Priority and milestone use the
+  item's own values, without inheritance or milestone ordering. When no rows
+  apply, it prints launch's one-line explanation, including trigger labels to add
+  or the item's closed state. It makes no GitHub writes and starts no runtime
+  maintenance. It exits 0 when it can report, even for parked, blocked or
+  untriggered work; unreadable work exits 1, and invalid numbers exit 2.
   A live lease's summary names its actor, host, claim time, runtime and lease end,
   including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
   the current UTC day. Only leases on this host have their recorded process group

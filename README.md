@@ -171,7 +171,8 @@ commands:
   doctor [--json]        check the machine, GitHub access, labels and agent
                          runtimes
   launch [NUMBER]        run the queue in the foreground, or handle one item
-  status [--json]        matching work, owners, attempts and why items wait
+  status [NUMBER] [--json]
+                         matching work, owners, attempts and why items wait
   cleanup [--apply]      preview or remove stale worktrees and branches
   retry NUMBER           let stopped work run again, with a recorded reason
   approve NUMBER         record approval of an issue's or PR's current input
@@ -234,7 +235,7 @@ or launcher authority.
 | Command | What it does |
 |---|---|
 | `ub-agents help [COMMAND]` | Show the overview, or detailed command help with examples |
-| `ub-agents status` | Show matching work, lease details, whether local agents are running, what they reported, and recorded permission denial counts |
+| `ub-agents status [NUMBER] [--json]` | Show matching work, lease details, outcomes and permission denial counts; with NUMBER, explain only that issue or PR, including missing triggers, without changing it |
 | `ub-agents launch [--no-ui]` | Watch the queue; open the installed view on a TTY or keep plain output with `--no-ui` |
 | `ub-agents launch --once [--no-ui]` | Run at most one assignment, then exit |
 | `ub-agents launch N [--agent NAME] [--no-ui]` | Run or recover only item N under the usual gates, then exit; use the first eligible configured agent or select one |
