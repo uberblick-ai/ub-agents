@@ -48,6 +48,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.action = lambda: None
         self.stop = threading.Event()
         self.manager = self.manager_for()
+        self.executable(self.bin / "gh")
 
     def which(self, name):
         path = self.bin / name
@@ -81,9 +82,9 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.link(cli, target)
         return target
 
-    def brew(self, cli="codex", token=None, kind="Caskroom"):
-        token = token or ("codex" if cli == "codex" else "claude-code")
-        prefix = self.root / "brew"
+    def brew(self, cli="codex", token=None, kind="Caskroom", prefix=None):
+        token = token or ("claude-code" if cli == "claude" else cli)
+        prefix = prefix or self.root / "brew"
         target = self.executable(prefix / kind / token / "1.0/bin" / cli)
         self.executable(prefix / "bin/brew")
         self.link(cli, target)
@@ -113,7 +114,8 @@ class RuntimeUpdateTests(unittest.TestCase):
         return "updated"
 
     def settings(self, cli="codex", policy="auto", timeout=300):
-        role = agent(self.root, command=(), runtimes=(Runtime(cli, "model", "high"),))
+        role = (agent(self.root) if cli == "gh" else
+                agent(self.root, command=(), runtimes=(Runtime(cli, "model", "high"),)))
         return replace(config(self.root, role), runtime_updates=RuntimeUpdates({cli: policy}, timeout))
 
     def updates(self):
@@ -160,8 +162,8 @@ class RuntimeUpdateTests(unittest.TestCase):
             self.manager.boundary(settings)
         self.assertEqual(self.calls, [])
         self.assertFalse(self.manager.root.exists())
-        self.assertEqual(len(self.lines), 1)
-        self.assertIn("DISABLE_UPDATES", self.lines[0])
+        self.assertEqual(len(self.lines), 2)
+        self.assertIn("DISABLE_UPDATES", self.lines[-1])
         self.manager_for().boundary(settings)
         self.assertEqual(len(self.updates()), 1)
 
@@ -764,7 +766,311 @@ class RuntimeUpdateTests(unittest.TestCase):
             self.assertFalse(loop.execute(plan))
         self.assertEqual(github.writes, [])
         self.assertIn("waiting", self.lines[-1])
-        self.assertIn("claude runtime became unavailable before the claim", self.lines[-1])
+        self.assertIn("claude runtime or gh became unavailable before the claim", self.lines[-1])
+
+    def test_gh_auto_formula_uses_owning_homebrew_on_macos_and_linux(self):
+        for name in ("opt/homebrew", "home/linuxbrew/.linuxbrew"):
+            with self.subTest(prefix=name), patch.dict(os.environ, {"DISABLE_UPDATES": "1"}):
+                prefix = self.root / name
+                target = self.brew("gh", kind="Cellar", prefix=prefix)
+                install = installation("gh", self.which)
+                self.assertEqual(install.method, "homebrew-formula")
+                self.assertEqual(install.identity, str(prefix / "Cellar/gh"))
+                self.action = lambda: Path(str(target) + ".version").write_text("2.0")
+                self.manager.boundary(self.settings("gh"))
+                self.assertEqual(self.updates()[-1], (str(prefix / "bin/brew"), "upgrade", "--formula", "gh"))
+                self.assertTrue(all(value == "1" for value in self.brew_envs[-1].values()))
+                self.assertIn("gh (homebrew-formula) 1.0 -> 2.0: updated", self.lines[-1])
+                self.assertNotIn("unused", self.lines[-1])
+                self.assertFalse(any("sudo" in command for command in self.calls))
+
+    def test_gh_auto_skips_non_formula_installs_with_actionable_reasons(self):
+        cases = (("unknown", "configure runtime-updates.gh.command"),
+                 ("shim", "configure runtime-updates.gh.command"),
+                 ("cask", "configure runtime-updates.gh.command"),
+                 ("wrong-formula", "configure runtime-updates.gh.command"),
+                 ("system", "system package installation needs elevated privileges"),
+                 ("unwritable-prefix", "installation needs elevated privileges"),
+                 ("unwritable-cellar", "installation needs elevated privileges"),
+                 ("missing-owner", "owning Homebrew not found"),
+                 ("wrong-owner", "owning Homebrew not found"))
+        for case, reason in cases:
+            with self.subTest(case=case), ExitStack() as cleanup:
+                manager = self.manager_for()
+                manager.root = self.root / ("state-" + case)
+                self.calls.clear()
+                if case == "unknown":
+                    self.link("gh", self.executable(self.root / "custom/gh"))
+                elif case == "shim":
+                    self.link("gh", self.executable(self.root / "mise/shims/gh"))
+                elif case in {"cask", "wrong-formula"}:
+                    self.brew("gh", token="codex" if case == "wrong-formula" else "gh",
+                              kind="Caskroom" if case == "cask" else "Cellar")
+                elif case == "system":
+                    manager.which = lambda cli: "/usr/bin/gh" if cli == "gh" else None
+                    self.assertEqual(installation("gh", manager.which).method, "system")
+                else:
+                    self.brew("gh", kind="Cellar")
+                    prefix = self.root / "brew"
+                    if case.startswith("unwritable"):
+                        path = prefix if case == "unwritable-prefix" else prefix / "Cellar"
+                        path.chmod(0o555)
+                        cleanup.callback(path.chmod, 0o755)
+                    else:
+                        (prefix / "bin/brew").unlink()
+                        if case == "wrong-owner":
+                            self.executable(self.bin / "brew")
+                manager.boundary(self.settings("gh"))
+                self.assertIn("skipped — ", self.lines[-1])
+                self.assertIn(reason, self.lines[-1])
+                self.assertEqual(self.updates(), [])
+                state = manager.paths(installation("gh", manager.which))[2]
+                self.assertFalse(state.exists())
+                before = list(self.calls), list(self.lines)
+                manager.boundary(self.settings("gh"))
+                self.assertEqual((self.calls, self.lines), before)
+
+    def test_gh_omitted_off_and_missing_never_run_an_updater(self):
+        self.brew("gh", kind="Cellar")
+        for settings in (config(self.root), replace(config(self.root), runtime_updates=RuntimeUpdates({})),
+                         self.settings("gh", "off")):
+            self.manager.boundary(settings)
+            self.assertEqual(self.calls, [])
+            self.assertFalse(self.manager.root.exists())
+        (self.bin / "gh").unlink()
+        self.manager.boundary(self.settings("gh"))
+        self.assertIn("gh (missing): skipped", self.lines[-1])
+        self.assertIn("install the runtime manually; no updater run", self.lines[-1])
+        self.assertEqual(self.calls, [])
+
+    def test_gh_command_is_always_in_scope_and_shares_daily_cooldown(self):
+        settings = self.settings("gh", ("custom-updater", "gh"))
+        with patch.dict(os.environ, {"DISABLE_UPDATES": "1"}):
+            self.manager.boundary(settings)
+        self.assertIn(("custom-updater", "gh"), self.calls)
+        self.assertIn("gh (unknown) 1.0 -> 1.0: up-to-date", self.lines[-1])
+        state = self.manager.paths(installation("gh", self.which))[2]
+        checked = self.manager.read(state)["checked"]
+        second = self.manager_for()
+        second.boundary(replace(settings, root=self.root / "other-project"))
+        self.now += COOLDOWN_SECONDS - 1
+        second.boundary(settings)
+        self.assertEqual(self.calls.count(("custom-updater", "gh")), 1)
+        self.now = checked + COOLDOWN_SECONDS
+        second.boundary(settings)
+        self.assertEqual(self.calls.count(("custom-updater", "gh")), 2)
+
+    def test_gh_updates_defer_for_all_reserved_runs_without_cooldown(self):
+        self.npm()
+        self.brew("gh", kind="Cellar")
+        settings = self.settings("gh")
+        state = self.manager.paths(installation("gh", self.which))[2]
+        for cli in (None, "codex"):
+            with self.subTest(cli=cli), self.manager.reserve_run(cli) as reserved:
+                self.assertIsNotNone(reserved)
+                second = self.manager_for()
+                second.boundary(settings)
+                self.assertEqual(self.calls, [])
+                reserved.started()
+                second.boundary(settings)
+                self.assertEqual(self.calls, [])
+                self.assertFalse(state.exists())
+        self.manager.boundary(settings)
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_gh_guard_blocks_discovery_for_command_and_runtime_agents(self):
+        stub_refresh(self)
+        self.npm()
+        self.manager.root.mkdir()
+        guard = self.manager.paths(installation("gh", self.which))[0]
+        for settings in (config(self.root), self.settings()):
+            with self.subTest(runtime=settings.agents[0].runtimes), lock(guard) as held:
+                self.assertIsNotNone(held)
+                github = FakeGitHub(issue())
+                loop = Loop(settings, github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                for poll in (loop.tick, lambda: loop.tick_item(1)):
+                    with patch("ub_agents.loop.supervise") as run, \
+                            patch.object(github, "observe", side_effect=AssertionError("gh is under maintenance")), \
+                            patch.object(github, "item", side_effect=AssertionError("gh is under maintenance")):
+                        self.assertFalse(poll())
+                    run.assert_not_called()
+                    self.assertEqual(github.writes, [])
+                    self.assertIn("gh is unavailable or under maintenance", self.lines[-1])
+
+    def test_gh_guard_after_ready_blocks_discovery_for_command_and_runtime_agents(self):
+        stub_refresh(self)
+        self.npm()
+        self.manager.root.mkdir()
+        guard = self.manager.paths(installation("gh", self.which))[0]
+        for settings in (config(self.root), self.settings()):
+            for scoped in (False, True):
+                with self.subTest(runtime=settings.agents[0].runtimes, scoped=scoped), ExitStack() as stack:
+                    github = FakeGitHub(issue())
+                    loop = Loop(settings, github, "operator", output=self.lines.append)
+                    loop.maintenance = self.manager
+                    loop.coordinator.runtime_available = self.manager.available
+                    ready = loop.github_ready
+                    def maintenance_wins():
+                        self.assertTrue(ready())
+                        self.assertIsNotNone(stack.enter_context(lock(guard)))
+                        return True
+                    with patch.object(loop, "github_ready", side_effect=maintenance_wins), \
+                            patch("ub_agents.loop.supervise") as run, \
+                            patch.object(github, "observe", side_effect=AssertionError("gh is under maintenance")), \
+                            patch.object(github, "item", side_effect=AssertionError("gh is under maintenance")):
+                        self.assertFalse(loop.tick_item(1) if scoped else loop.tick())
+                    run.assert_not_called()
+                    self.assertEqual(github.writes, [])
+                    self.assertIn("gh is unavailable or under maintenance", self.lines[-1])
+
+    def test_gh_updates_defer_during_discovery_and_authentication_without_cooldown(self):
+        self.brew("gh", kind="Cellar")
+        settings = self.settings("gh")
+        state = self.manager.paths(installation("gh", self.which))[2]
+        for scoped in (False, True):
+            with self.subTest(scoped=scoped):
+                state.unlink(missing_ok=True)
+                self.calls.clear()
+                github = FakeGitHub(issue(labels=()))
+                loop = Loop(config(self.root), github, None, output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                second = self.manager_for()
+                def guarded(read):
+                    def call(*args, **kwargs):
+                        second.boundary(settings)
+                        self.assertEqual(self.calls, [])
+                        self.assertFalse(state.exists())
+                        return read(*args, **kwargs)
+                    return call
+                with patch.object(github, "actor", side_effect=guarded(github.actor)) as actor, \
+                        patch.object(github, "observe", side_effect=guarded(github.observe)) as observe, \
+                        patch.object(github, "item", side_effect=guarded(github.item)) as item:
+                    self.assertFalse(loop.tick_item(1) if scoped else loop.tick())
+                actor.assert_called_once()
+                self.assertTrue(item.called if scoped else observe.called)
+                self.assertEqual(github.writes, [])
+                self.assertIsNone(loop._github_reservation)
+                second.boundary(settings)
+                self.assertEqual(len(self.updates()), 1)
+
+    def test_gh_updates_defer_through_recovery_claim_and_settlement(self):
+        self.brew("gh", kind="Cellar")
+        settings = self.settings("gh")
+        state = self.manager.paths(installation("gh", self.which))[2]
+        for scoped in (False, True):
+            with self.subTest(scoped=scoped):
+                state.unlink(missing_ok=True)
+                self.calls.clear()
+                github = FakeGitHub(issue())
+                loop = Loop(config(self.root), github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                co = loop.coordinator
+                co.clock = lambda: self.now
+                lease = co.claim(loop.plans()[0])
+                co.update(lease, state="running", started=True)
+                co.report(lease, "success", "Completed before launcher stopped", outcome="done")
+                self.now += 61
+                second = self.manager_for()
+                def guarded(write):
+                    def call(*args, **kwargs):
+                        second.boundary(settings)
+                        self.assertEqual(self.calls, [])
+                        self.assertFalse(state.exists())
+                        return write(*args, **kwargs)
+                    return call
+                with patch.object(github, "create_comment", side_effect=guarded(github.create_comment)) as create, \
+                        patch.object(github, "update_comment", side_effect=guarded(github.update_comment)) as update, \
+                        patch("ub_agents.loop.supervise") as run:
+                    self.assertTrue(loop.tick_item(1) if scoped else loop.tick())
+                self.assertTrue(create.called)
+                self.assertTrue(update.called)
+                run.assert_not_called()
+                source, outcome, recovery, verdict = co.history(1)
+                self.assertTrue(outcome["accepted"])
+                self.assertEqual((recovery["mode"], recovery["result"]), ("recovery", "success"))
+                self.assertEqual(verdict["status"], "success")
+                second.boundary(settings)
+                self.assertEqual(len(self.updates()), 1)
+
+    def test_gh_discovery_reservation_releases_after_read_failure(self):
+        from ub_agents.errors import GitHubError
+        self.brew("gh", kind="Cellar")
+        github = FakeGitHub(issue())
+        loop = Loop(config(self.root), github, "operator", output=self.lines.append)
+        loop.maintenance = self.manager
+        loop.coordinator.runtime_available = self.manager.available
+        failure = GitHubError("GET", "issues", "temporary failure", retryable=True)
+        with patch.object(github, "observe", side_effect=failure):
+            with self.assertRaises(GitHubError):
+                loop.tick()
+        self.assertIsNone(loop._github_reservation)
+        self.manager_for().boundary(self.settings("gh"))
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_supervised_command_inherits_gh_reservation(self):
+        self.brew("gh", kind="Cellar")
+        settings = self.settings("gh")
+        with self.manager.reserve_run() as reserved:
+            script = f"import os; os.fstat({reserved.descriptors[0]}); print('inherited gh lock')"
+            def started(pid):
+                reserved.started()
+                self.manager_for().boundary(settings)
+                self.assertEqual(self.calls, [])
+            self.assertEqual(supervise([sys.executable, "-c", script], self.root, os.environ.copy(),
+                                      self.root / "run", 3, threading.Event(),
+                                      process_started=started, pass_fds=reserved.descriptors), 0)
+            self.assertIn("inherited gh lock", (self.root / "run/process.log").read_text())
+            # The launcher keeps the reservation after supervision for cleanup.
+            self.manager_for().boundary(settings)
+            self.assertEqual(self.calls, [])
+        self.manager.boundary(settings)
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_gh_failed_health_blocks_all_agents_until_boundary_recovery(self):
+        stub_refresh(self)
+        self.npm()
+        target = self.brew("gh", kind="Cellar")
+        version = Path(str(target) + ".version")
+        settings = self.settings("gh")
+        self.action = version.unlink
+        self.manager.boundary(settings)
+        state = self.manager.paths(installation("gh", self.which))[2]
+        checked = self.manager.read(state)["checked"]
+        self.assertFalse(self.manager.available("gh"))
+        self.assertIn("failed — warning: runtime is unusable; no new runs", self.lines[-1])
+        for agent_settings in (config(self.root), self.settings("codex", "off")):
+            with self.subTest(runtime=agent_settings.agents[0].runtimes):
+                github = FakeGitHub(issue())
+                loop = Loop(agent_settings, github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager_for()
+                loop.coordinator.runtime_available = loop.maintenance.available
+                with patch("ub_agents.loop.supervise") as run, \
+                        patch.object(github, "observe", side_effect=AssertionError("gh is unusable")):
+                    self.assertFalse(loop.tick())
+                self.assertEqual(github.writes, [])
+                run.assert_not_called()
+                version.write_text("2.0")
+                def supervise_run(*args, **kwargs):
+                    descriptors = kwargs["pass_fds"]
+                    self.assertEqual(len(descriptors), 2 if agent_settings.agents[0].runtimes else 1)
+                    for descriptor in descriptors:
+                        os.fstat(descriptor)
+                    kwargs["process_started"](123)
+                    # gh remains reserved after the start gate opens.
+                    self.now += COOLDOWN_SECONDS
+                    self.manager_for().boundary(settings)
+                    self.assertEqual(len(self.updates()), 1)
+                    return 1
+                with patch("ub_agents.loop.supervise", side_effect=supervise_run):
+                    self.assertTrue(loop.tick())
+                self.assertTrue(loop.maintenance.available("gh"))
+                self.assertEqual(loop.maintenance.read(state)["checked"], checked)
+                version.unlink()
+                self.manager.write(state, self.manager.read(state) | {"usable": False})
 
     def test_sigterm_and_sigint_during_maintenance_exit_without_claim(self):
         from contextlib import redirect_stdout, redirect_stderr

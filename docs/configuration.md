@@ -29,7 +29,7 @@ The launcher pins its repository and input configuration; worktree edits and
 | `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
-| `runtime-updates` | Optional daily maintenance policy for configured Claude Code and Codex runtimes. |
+| `runtime-updates` | Optional daily maintenance policy for Claude Code, Codex and the launcher's GitHub CLI (`gh`). |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
 `shared-instructions: .agents/ub_agents.md` supplies policy to every run between the
@@ -739,6 +739,7 @@ omitted CLI), or a mapping containing an explicit updater `command` argv:
 runtime-updates:
   claude: auto
   codex: auto
+  gh: auto
   timeout-seconds: 300
 ```
 
@@ -749,6 +750,8 @@ runtime-updates:
   claude: off
   codex:
     command: [mise, upgrade, codex]
+  gh:
+    command: [mise, upgrade, gh]
   timeout-seconds: 120
 ```
 
@@ -760,8 +763,10 @@ keys, invalid policies or argv, direct privilege-elevation commands, and timeout
 outside `0 < timeout-seconds <= 3600`. The default timeout is 300 seconds; version
 probes each have a separate five-second bound.
 
-Only CLIs used by an agent's configured `runtime` alternatives are checked.
-`command:` agents and unused CLIs never invoke an updater. Missing runtimes are
+Claude Code and Codex are checked only when an agent's configured `runtime`
+alternatives use them; `command:` agents do not invoke their updaters. Every
+launcher and agent uses `gh`, so its `auto` or command policy is always checked,
+including projects with only `command:` agents. Missing CLIs are reported and
 never installed. Automatic detection supports these installations:
 
 | Runtime / installation | Updater |
@@ -772,6 +777,7 @@ never installed. Automatic detection supports these installations:
 | Codex npm global (`@openai/codex`) | `npm install -g @openai/codex@latest`, using the npm verified to own that global prefix |
 | Codex Homebrew cask | `brew upgrade --cask codex` |
 | Codex Homebrew formula | `brew upgrade --formula codex` |
+| GitHub CLI Homebrew formula (macOS or Linux, under `Cellar/gh`) | `brew upgrade --formula gh`, using the Homebrew verified to own that installation |
 
 Homebrew commands run with dependent upgrades, automatic cleanup, application
 quitting and sudo disabled, and without interactive confirmation. These settings
@@ -786,6 +792,9 @@ and unwritable package installations are skipped with an instruction to
 configure `runtime-updates.CLI.command` or update manually. apt, dnf and apk
 installs that need root are skipped; no command uses `sudo`, upgrades unrelated
 packages, changes credentials, models or permissions, or switches install methods.
+Homebrew formulae are the only automatic updater for `gh`. Other `gh` installs
+are skipped: system packages require manual updates with elevated privileges,
+and shims or unknown installs require `runtime-updates.gh.command`.
 These automatic-policy skips stay local to the launcher and do not start a
 shared cooldown, so another project's configured command can update the same
 installation. Each launcher remembers its own automatic skip for 24 hours;
@@ -798,6 +807,7 @@ including operator-supplied commands, the launcher checks
 `DISABLE_UPDATES` in its environment, Claude's user `settings.json` (including
 `CLAUDE_CONFIG_DIR`) and system `managed-settings.json` / `managed-settings.d`
 files before invoking the updater. It skips when that policy cannot be read safely.
+Claude's `DISABLE_UPDATES` policy does not apply to Codex or `gh`.
 These policy skips are local to the launcher: they do not start the shared
 cooldown, so a launcher with updates enabled can still update the installation.
 The cask name preserves the installed stable or latest channel. See
@@ -847,6 +857,17 @@ descriptor, including detached background processes, defer in-place maintenance
 until they exit or close it.
 All cooperating launchers must use a version with this locking protocol; it
 does not track sessions launched outside ub-agents.
+
+Every run, including a `command:` agent, reserves `gh` through execution and
+cleanup; agent processes and cleanup hooks inherit its run lock. A `gh` update
+therefore waits for all tracked runs to finish. Discovery waits while `gh` is
+guarded or recorded unusable, then holds a reservation through the entire pass,
+including recovery and claim writes. Maintenance defers during that pass without
+starting its cooldown. Failed `gh` health blocks every new run until a
+later unclaimed boundary finds it working again, even in projects with updates off.
+
+**Upgrading:** upgrade every launcher of a project before setting
+`runtime-updates.gh` in its configuration; earlier launchers reject that key.
 
 Shutdown (`stop_gracefully`, SIGTERM or SIGINT) stops the updater and records a
 completed check, then exits before claiming. Updater failures produce a launcher

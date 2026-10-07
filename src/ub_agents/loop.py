@@ -4,7 +4,7 @@ import json
 import os
 import socket
 import threading
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from time import monotonic
 from dataclasses import replace
 
@@ -92,6 +92,8 @@ class Loop:
         self._launcher_reason = None
         self._has_trigger = None
         self._maintaining = False
+        self._github_waiting = False
+        self._github_reservation = None
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
 
@@ -470,6 +472,13 @@ class Loop:
     def tick(self):
         self._observe("begin_pass")
         self.maintain_runtimes()
+        with self.github_pass() as ready:
+            if not ready:
+                self._observe("complete_pass")
+                return False
+            return self._tick()
+
+    def _tick(self):
         config = self.config
         present = set()
         for plan in self.iter_plans():
@@ -514,6 +523,13 @@ class Loop:
     def tick_item(self, number, agent_name=None):
         self._observe("begin_pass")
         self.maintain_runtimes()
+        with self.github_pass() as ready:
+            if not ready:
+                self._observe("complete_pass")
+                return False
+            return self._tick_item(number, agent_name)
+
+    def _tick_item(self, number, agent_name=None):
         item, plans = self.item_plans(number, agent_name)
         shown = False
         for plan in plans:
@@ -619,6 +635,39 @@ class Loop:
             self._pass_started = self._run_planning.cancel()
             self._run_planning = None
 
+    def github_ready(self):
+        """A broken/guarded gh cannot perform discovery; keep recovery polling."""
+        return self._github_status(self.maintenance.available("gh"))
+
+    def _github_status(self, ready):
+        if not ready:
+            self._has_trigger = None
+            if not self._github_waiting:
+                self.output("GitHub CLI gh is unavailable or under maintenance; waiting for the next runtime boundary")
+        self._github_waiting = not ready
+        return ready
+
+    @contextmanager
+    def github_pass(self):
+        """Protect every discovery/recovery read and write, including the claim."""
+        if not self.github_ready():
+            yield False
+            return
+        with self.maintenance.reserve("gh") as reservation:
+            if reservation is None:
+                self._github_status(False)
+                yield False
+                return
+            self._github_reservation = reservation
+            try:
+                if self.coordinator.actor is None:
+                    self.coordinator.actor = self.github.actor()
+                    self.coordinator.notices.actor = self.coordinator.actor
+                    self._observe("configure", self.config, self.coordinator.actor, self.config_path)
+                yield True
+            finally:
+                self._github_reservation = None
+
     def maintain_runtimes(self):
         self._before_claim()
         self._maintenance_graceful_stop = False
@@ -683,21 +732,25 @@ class Loop:
                 return False
             instructions = texts[plan.agent.name]
         self.maintain_runtimes()
-        if plan.runtime is None:
-            return self._claim_execute(plan, instructions, shared_instructions=shared)
+        if not self.github_ready():
+            return False
         # The snapshot runtime may have become guarded/broken since discovery,
         # or a reload may have enabled maintenance. Reapply runtime eligibility.
+        runtime = None
         try:
-            runtime = self.coordinator.choose_runtime(plan.item, plan.agent, list(plan.history))
+            if plan.runtime is not None:
+                runtime = self.coordinator.choose_runtime(plan.item, plan.agent, list(plan.history))
         except GitHubError:
             raise
         except AgentError as exc:
             self.output(f"#{plan.item.number} {plan.agent.name}: waiting — {exc}")
             return False
-        with self.maintenance.reserve(runtime.cli) as reservation:
+        with self.maintenance.reserve_run(runtime.cli if runtime is not None else None,
+                                          github=self._github_reservation) as reservation:
             if reservation is None:
                 self.output(f"#{plan.item.number} {plan.agent.name}: waiting — "
-                            f"{runtime.cli} runtime became unavailable before the claim; retry next poll")
+                            f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
+                            "before the claim; retry next poll")
                 return False
             self._before_claim()
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation,
@@ -782,7 +835,8 @@ class Loop:
                         self.stop_event.set()
                     reported = outcome
                 failure = run_hook(self.config, lease, workspace.private, reported,
-                                   expires=(lambda: self.coordinator.deadline(lease)) if record else None)
+                                   expires=(lambda: self.coordinator.deadline(lease)) if record else None,
+                                   pass_fds=reservation.descriptors if reservation is not None else ())
                 if failure:
                     if record:
                         try:
@@ -868,7 +922,7 @@ class Loop:
             diagnostic("started", cwd=str(cwd))
             setup = False
             command = command_for(plan.agent, plan.runtime, scratch.path, report_command)
-            if reservation is not None:
+            if reservation is not None and reservation.executable is not None:
                 command[0] = reservation.executable
             if plan.runtime:
                 usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env)
@@ -883,7 +937,7 @@ class Loop:
                                                  shared_instructions=shared_instructions) if plan.runtime else None,
                                  expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
                                  observe_output=observe_output if usage_output or self.updates else None,
-                                 **({"pass_fds": (reservation.descriptor,)} if reservation is not None else {}))
+                                 **({"pass_fds": reservation.descriptors} if reservation is not None else {}))
             finally:
                 denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
             if usage_output:
@@ -1197,9 +1251,6 @@ class Loop:
         self.usage.reset()
         self._continuous = not once
         self.github.discovery = not once
-        if self.coordinator.actor is None:
-            self.coordinator.actor = self.github.actor()
-            self.coordinator.notices.actor = self.coordinator.actor
         self._observe("configure", self.config, self.coordinator.actor, self.config_path)
         failures = 0
         idle_state = None

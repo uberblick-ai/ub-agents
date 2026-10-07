@@ -645,7 +645,7 @@ class TargetedLaunchTests(unittest.TestCase):
     def test_runtime_unavailability_uses_the_same_gate_as_queue_launch(self):
         worker = agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.config = config(self.root, worker)
-        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=False):
+        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
         self.assertEqual(stdout, "#11 worker: blocked — No eligible runtime executable is installed, "
