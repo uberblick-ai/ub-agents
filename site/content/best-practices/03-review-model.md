@@ -1,6 +1,6 @@
 # Review with a different model
 
-A second model catches what the first one missed. Make the reviewer run on a different CLI and model from the agent that wrote the commit.
+A second model catches what the first one missed. Make the reviewer run on a [different CLI and model](/docs/configuration/agents.html#different-runtime-from) from the agent that wrote the commit.
 
 ```yaml
 reviewer:
@@ -10,7 +10,7 @@ reviewer:
 
 ## How it picks
 
-The reviewer uses the first runtime in its list that differs from the implementer's recorded one. A different effort alone does not count.
+The reviewer uses the first runtime in its [list](/docs/configuration/runtimes.html#alternatives) that differs from the implementer's recorded one. A different effort alone does not count.
 
 ## Keep both installed
 

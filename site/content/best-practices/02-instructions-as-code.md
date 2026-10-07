@@ -1,6 +1,6 @@
 # Treat instructions as code
 
-Role files live in your repository. Change them in pull requests and review them like any other code.
+[Role files](/docs/configuration/instructions.html#role-files) live in your repository. Change them in pull requests and review them like any other code.
 
 ## Short and specific
 
@@ -8,11 +8,11 @@ Say what the role does, which checks it runs, what a finished handoff looks like
 
 ## Checks in one place
 
-List the loop's checks in `.agents/ub_agents.md`, so every role runs the same ones. Keep build commands in the guidance your agent CLI already loads, such as `AGENTS.md`.
+List the loop's checks in [`.agents/ub_agents.md`](/docs/configuration/instructions.html#shared-policy), so every role runs the same ones. Keep build commands in the guidance your agent CLI already loads, such as `AGENTS.md`.
 
 ## Say when to stop
 
-Tell each role which decisions belong to a person. It reports blocked with one `--action` per decision instead of guessing.
+Tell each role which decisions belong to a person. It [reports blocked](/docs/configuration/outcomes.html#stop-reports) with one `--action` per decision instead of guessing.
 
 ```sh
 ub-agents report --status blocked --summary "Scope unclear" \

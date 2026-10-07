@@ -4,7 +4,7 @@ One issue, one change, one pull request a person can review in a few minutes. Sm
 
 ## Split before you start
 
-If an issue needs more than one pull request, split it into several issues. Use GitHub's "blocked by" links for the order; with `dependencies: wait`, later issues wait for earlier ones.
+If an issue needs more than one pull request, split it into several issues. Use GitHub's "blocked by" links for the order; with [`dependencies: wait`](/docs/configuration/queue.html#dependencies), later issues wait for earlier ones.
 
 ```yaml
 queue:
@@ -13,11 +13,11 @@ queue:
 
 ## Let the preparer ask
 
-The issue preparer turns a rough idea into clear requirements. Tell it, in its instructions, to stop and ask when an issue is too big or unclear rather than guess.
+The issue preparer turns a rough idea into clear requirements. Tell it, in its [instructions](/docs/configuration/instructions.html#role-files), to stop and ask when an issue is too big or unclear rather than guess.
 
 ## Ship in milestones
 
-Group related issues in a milestone and order the queue by it. Earlier milestones run first, and nothing waits on a milestone that cannot move.
+Group related issues in a milestone and [order the queue by it](/docs/configuration/queue.html#milestones). Earlier milestones run first, and nothing waits on a milestone that cannot move.
 
 ```yaml
 queue:

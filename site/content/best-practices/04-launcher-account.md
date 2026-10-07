@@ -4,7 +4,7 @@ Run launchers under an account with write access, not maintain or admin. Agents 
 
 ## Why not admin
 
-With approvals on, maintainers start work and approve outside input. A launcher with maintain or admin could do both for itself. `ub-agents doctor` warns about it.
+With [approvals on](/docs/configuration/approvals.html#on), maintainers start work and approve outside input. A launcher with maintain or admin could do both for itself. [`ub-agents doctor`](/docs/commands/doctor.html) warns about it.
 
 ```sh
 ub-agents doctor

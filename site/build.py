@@ -25,17 +25,14 @@ SECTIONS = [  # (title, content entry, kind)
 # ---------- Markdown (the subset these pages use) ----------
 
 def inline(text):
-    parts = re.split(r'(`[^`]+`)', text)
-    out = []
-    for part in parts:
-        if part.startswith('`') and part.endswith('`') and len(part) > 1:
-            out.append('<code>' + html.escape(part[1:-1]) + '</code>')
-            continue
-        s = html.escape(part, quote=False)
-        s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
-        s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', s)
-        out.append(s)
-    return ''.join(out)
+    codes = []
+    def stash(m):
+        codes.append('<code>' + html.escape(m.group(1)) + '</code>')
+        return f'\x00{len(codes) - 1}\x00'
+    s = html.escape(re.sub(r'`([^`]+)`', stash, text), quote=False)
+    s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
+    s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', s)
+    return re.sub(r'\x00(\d+)\x00', lambda m: codes[int(m.group(1))], s)
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', text).lower()).strip('-')

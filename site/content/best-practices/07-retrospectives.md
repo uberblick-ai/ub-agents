@@ -9,7 +9,7 @@ implementer:
 
 ## A board per role
 
-Enable GitHub Discussions, open one discussion per role and put its number on the agent. The agent gets a command to post there. Claude agents also need `"Bash({report_command} retrospective *)"` in `--allowedTools`, and `ub-agents doctor` checks that the board exists.
+Enable GitHub Discussions, open one discussion per role and put its number on the agent as [`retrospectives`](/docs/configuration/agents.html#retrospectives). The agent gets a command to post there. Claude agents also need `"Bash({report_command} retrospective *)"` in [`--allowedTools`](/docs/configuration/permissions.html#claude-code), and `ub-agents doctor` checks that the board exists.
 
 ## Only real losses
 
