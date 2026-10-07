@@ -75,6 +75,7 @@ class HelpTests(unittest.TestCase):
         self.assertIn("--verbose", output)
         self.assertIn("Show the full per-check list", output)
         self.assertIn("does not change --json", output)
+        self.assertIn("confirmed interactive prompt", output)
 
     def test_overview_stays_aligned_with_forced_color(self):
         env = os.environ.copy()

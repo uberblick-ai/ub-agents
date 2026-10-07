@@ -1028,17 +1028,18 @@ with a help command to run.
 - `ub-agents check` validates the configuration and instruction files.
 - `ub-agents doctor [--json] [--verbose]` shows every warning and failure with its
   remedy, grouped in machine, configuration, GitHub and runtimes order. Each area
-  has one summary line for passed and skipped checks; labels are counted once per
-  distinct label. Areas whose non-failing checks were all skipped use `skip`; areas with only
-  warnings or failures have no summary. The final failure and warning counts are
-  unchanged. `--verbose` shows the full per-check list, including remaining GitHub
-  requests and the reset time in UTC from real request headers.
+  has one summary line for passed and skipped checks; each distinct label has one
+  result and counts once in area summaries and final failure and warning counts.
+  Areas whose non-failing checks were all skipped use `skip`; areas with only
+  warnings or failures have no summary. `--verbose` shows the full per-check list,
+  including remaining GitHub requests and the reset time in UTC from real request headers.
   Doctor warns below 10% remaining and whenever it is rate limited.
   It checks everything `check` does, plus Python, the platform,
   `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
   A token that cannot change labels is a required failure, because the launcher
-  applies outcome transitions itself. Missing trigger or outcome transition labels
-  are required failures naming their agents; missing stop labels are warnings. Both give a `gh label create` remedy.
+  applies outcome transitions itself. Each missing label's result names every agent
+  and use, with one `gh label create` remedy. A label with any trigger or outcome
+  transition use is a required failure; a label used only to stop work is a warning.
   Label matching is case-insensitive and an unreadable label list is a required
   failure. The non-required `github-launcher-role` check warns when the launcher
   account has `maintain` or `admin`, because agents could start and approve their
@@ -1048,10 +1049,21 @@ with a help command to run.
   Use a dedicated account with `write`;
   see [Issue approvals](approvals.md#repository-roles). Runtime agents without
   `runtime-args` produce one warning naming them and linking the permission guidance.
-  Doctor makes no writes. It exits 1 when a required check fails; warnings and skips exit 0. The
-  JSON is unchanged by `--verbose` and has `version: 1`, `ok` and `checks`,
-  and each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and
-  `remedy`.
+  After its report, interactive doctor offers to create the missing labels with the
+  same explanation and prompt as init; the default is no. It writes labels only after
+  a confirmed `y` or `yes` and never changes existing labels. It then reads labels
+  again, and its final counts and exit status reflect that second read. Declining,
+  end of input, no terminal, CI and `--json` create nothing and keep the creation
+  commands in the report. Other diagnostics make no writes.
+  When the selected configuration is missing, it reports
+  `no ub-agents.yaml here; run ub-agents init`, using the selected file's name.
+  It exits 1 when a required check fails; warnings and skips exit 0.
+  The JSON is unchanged by `--verbose` and has `version: 2`, `ok` and `checks`.
+  Each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and `remedy`.
+  Label checks have the id `github-label:NAME`, `agent: null`, `runtime: null` and
+  an additional `uses` list. Each use has `agent` (null for a stop use), `meaning`
+  and `required`. The label check's `required` is true if any use is required.
+  Names are deduplicated case-insensitively, preserving the first configured spelling.
 - `ub-agents approve N` prints the current issue or PR title, body and
   outside comments; for PRs it also prints the head, outside reviews and review
   comments. It posts one [approval record](approvals.md#approving-current-input),
