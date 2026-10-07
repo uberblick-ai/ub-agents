@@ -18,6 +18,7 @@ class Request:
     generation: int = 0
     chosen: bool = False
     previous: Pane | None = None
+    reload: bool = False
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,7 @@ class LocalWorker:
         if selected and selected.log:
             identity = str(selected.log)
             reader = self.readers.get(identity)
-            if reader is None:
+            if reader is None or request.reload:
                 reader = self.readers[identity] = ViewReader(selected.log, selected.runtime)
             self.readers.move_to_end(identity)
             runtime = reader.runtime
