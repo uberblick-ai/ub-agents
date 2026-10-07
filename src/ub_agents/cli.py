@@ -609,6 +609,8 @@ def main(argv=None):
                 raise AgentError(f"No {name} here; run ub-agents init to set up a project")
             if args.command == "launch":
                 args.launch_output = stack.enter_context(launch_output(args.config.parent))
+                from .launcher_code import startup_copy
+                stack.enter_context(startup_copy())
             return run(args) or 0
         except KeyboardInterrupt:
             print("Stopped; supervised execution terminated", file=sys.stderr)

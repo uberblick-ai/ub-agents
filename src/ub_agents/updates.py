@@ -7,12 +7,12 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import threading
 import time
 from urllib.parse import unquote, urlparse
 
 from . import __version__
+from .launcher_code import descriptors, helper_command
 
 DAY = 24 * 60 * 60
 CHECK_SECONDS = 10
@@ -87,6 +87,8 @@ class Updates:
     def __init__(self, root, *, detect=installation, runner=None, clock=time.monotonic):
         self.root, self.detect, self.clock = root, detect, clock
         self.runner = runner or self.command
+        self.helper = helper_command('ub_agents.view_request')
+        self.code_fds = descriptors()
         self.banner = None
         self.wake = threading.Event()
         self.stopped = threading.Event()
@@ -123,12 +125,12 @@ class Updates:
                     raise OSError('Checker stopped')
                 self.life = life
                 registered = True
-            env = dict(os.environ, GH_PROMPT_DISABLED='1', GH_PAGER='cat')
-            env.pop('GH_DEBUG', None)
-            process = subprocess.Popen(
-                [sys.executable, '-P', '-m', 'ub_agents.view_request', str(read), *args],
-                pass_fds=(read,), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, env=env)
+                env = dict(os.environ, GH_PROMPT_DISABLED='1', GH_PAGER='cat')
+                env.pop('GH_DEBUG', None)
+                process = subprocess.Popen(
+                    [*self.helper, str(read), *args],
+                    pass_fds=(read, *self.code_fds), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, env=env)
             output, _ = process.communicate(timeout=CHECK_SECONDS)
             if process.returncode:
                 raise ValueError('Update check failed')

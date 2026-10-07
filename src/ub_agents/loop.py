@@ -20,6 +20,7 @@ from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, Recor
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
 from .report_command import launcher_report_command
+from .launcher_code import descriptors as code_descriptors
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
 from .polling import idle_interval, poll_delay
@@ -944,7 +945,7 @@ class Loop:
                                                  shared_instructions=shared_instructions) if plan.runtime else None,
                                  expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
                                  observe_output=observe_output if usage_output or self.updates else None,
-                                 **({"pass_fds": reservation.descriptors} if reservation is not None else {}))
+                                 pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
             finally:
                 denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
             if usage_output:

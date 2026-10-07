@@ -440,10 +440,14 @@ includes the fields in the outcome record.
 
 Agents invoke `report` through the launcher's absolute `report_command` in the
 assignment context, also supplied as `UB_AGENTS_REPORT`. It pins the launcher's
-Python interpreter and package, including for `python -m ub_agents` launchers;
+Python interpreter and a package copy taken at startup, including for `python -m ub_agents` launchers;
 PATH, the agent's working directory and `PYTHONPATH` cannot select another install.
 The prompt writes the command literally and uses it wherever project instructions
 say `ub-agents report`. Agents must not report through their worktree's development copy.
+Python helpers also use this copy. Kernel-held shared locks retain it while its
+launcher, runs or helpers use it; unused copies are removed on exit or at the next
+launcher start. Checkout refreshes and package upgrades leave claims running and
+the existing update banner continues to tell the operator when to restart.
 
 The launcher pins in-run context and policy in
 `.ub-agents/runs/<run>/run.json`, supplied through `UB_AGENTS_RUN_CONFIG`.

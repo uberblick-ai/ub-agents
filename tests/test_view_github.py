@@ -177,7 +177,7 @@ time.sleep(60)
                 loads.remember(('example/repo', 115), result)
                 self.assertIn('Description shortened', loads.get(('example/repo', 115)).details())
                 self.assertEqual(len(calls), 1)
-                self.assertEqual(calls[0][5:], ['gh', 'api', 'graphql', '--hostname', 'github.com', '--include',
+                self.assertEqual(calls[0][calls[0].index('gh'):], ['gh', 'api', 'graphql', '--hostname', 'github.com', '--include',
                                           '-f', 'query=' + QUERY, '-f', 'owner=example', '-f', 'repo=repo', '-F', 'number=115'])
                 self.assertNotIn('comments', QUERY)
                 self.assertNotIn('history', QUERY)
