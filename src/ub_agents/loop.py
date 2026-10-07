@@ -11,6 +11,7 @@ from dataclasses import replace
 from . import approvals as input_approvals
 from .approvals import ApprovalCheck, resolve_policy
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
+from .checkout_setup import run_setup
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .denials import collect_denials
@@ -732,6 +733,14 @@ class Loop:
             self.coordinator.trust.trusted_bots = {login.casefold() for login in config.trusted_bots}
             self.coordinator.trust.launchers = (None if config.launchers is None else
                                                {login.casefold() for login in config.launchers})
+        self._refreshing_checkout = True
+        try:
+            run_setup(self.config, self.interrupt_event, self.output,
+                      lambda state: self._observe("activity", state))
+        finally:
+            self._refreshing_checkout = False
+        self._before_claim()
+        if self.config_path is not None:
             plans = (self.iter_plans() if self._launch_number is None else
                      self.item_plans(self._launch_number, self._launch_agent)[1])
             plan = next((p for p in plans if p.item.number == plan.item.number

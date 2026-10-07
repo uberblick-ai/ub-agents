@@ -168,6 +168,13 @@ class CleanupHook:
 
 
 @dataclass(frozen=True)
+class CheckoutSetup:
+    command: tuple[str, ...]
+    when_changed: tuple[str, ...]
+    timeout_seconds: float = 600
+
+
+@dataclass(frozen=True)
 class RuntimeUpdates:
     policies: dict
     timeout_seconds: float = 300
@@ -187,6 +194,7 @@ class Config:
     approvals: str | None = None
     trusted_bots: tuple[str, ...] = ()
     shared_instructions: Path | None = None
+    checkout_setup: CheckoutSetup | None = None
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
@@ -203,7 +211,7 @@ def load_config(path):
         data = yaml.load(path.read_text(), Loader=UniqueLoader)
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
-    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
+    data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup", "checkout-setup",
                           "runtime-updates", "launchers", "approvals", "trusted-bots", "shared-instructions"},
                    "configuration")
     # Keep symlinks in the configured path so each run revalidates their targets.
@@ -249,6 +257,18 @@ def load_config(path):
                               number(hook.get("timeout-seconds", 60), "cleanup timeout-seconds"))
         if cleanup.timeout_seconds > 3600:
             raise AgentError("cleanup timeout-seconds must be at most 3600")
+    checkout_setup = None
+    if "checkout-setup" in data:
+        setup = mapping(data["checkout-setup"], {"command", "when-changed", "timeout-seconds"}, "checkout-setup")
+        paths = argv(setup.get("when-changed"), "checkout-setup when-changed")
+        for value in paths:
+            path = Path(value)
+            if path.is_absolute() or ".." in path.parts or not path.parts:
+                raise AgentError("checkout-setup when-changed must contain repository-relative file paths")
+        timeout = number(setup.get("timeout-seconds", 600), "checkout-setup timeout-seconds")
+        if timeout > 3600:
+            raise AgentError("checkout-setup timeout-seconds must be at most 3600")
+        checkout_setup = CheckoutSetup(argv(setup.get("command"), "checkout-setup command"), paths, timeout)
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
     if milestones not in ("gate", "order", "ignore"):
@@ -367,7 +387,7 @@ def load_config(path):
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
-                  runtime_updates, launchers, approvals, trusted_bots, shared)
+                  runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup)
 
 
 def bot_logins(value):

@@ -141,6 +141,11 @@ The launcher removes the trigger label and applies the outcome's labels only aft
 it has checked the agent's report on GitHub. The
 [configuration reference](docs/configuration.md) lists every key.
 
+Projects can configure [checkout setup](docs/configuration.md#checkout-setup) to
+reinstall dependencies when the launcher pulls changes to a lockfile or tool
+configuration. Setup runs before the role is claimed; failed setup stops launch
+and retries on the next launch without spending an attempt.
+
 ## Day to day
 
 | Command | What it does |

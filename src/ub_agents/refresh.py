@@ -4,6 +4,7 @@ from collections import deque
 from pathlib import Path
 
 from .config import instruction_text
+from .checkout_setup import remember_refresh
 from .errors import AgentError, CheckoutRefreshError, GitHubError
 from .execution import git
 
@@ -163,6 +164,7 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):
                 instruction_text(root, config.shared_instructions, "shared-instructions")
                 validate_incoming(root, head, config.shared_instructions, "shared-instructions")
             next_step = "resolve the checkout's merge error and launch again"
+            remember_refresh(root)
             try:
                 # Never inherit autostash or execute checkout-mutating merge hooks.
                 git(root, "-c", "merge.autostash=false", "-c", "core.hooksPath=/dev/null",
