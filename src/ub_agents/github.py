@@ -74,7 +74,8 @@ def failure_retry(status, headers, detail):
                           r"no such host|i/o timeout|TLS handshake timeout|"
                           r"context deadline exceeded|Client.Timeout exceeded|"
                           r"timeout awaiting response headers|operation timed out|"
-                          r"no route to host|broken pipe|(?:unexpected )?EOF\s*$", detail, re.IGNORECASE)
+                          r"no route to host|broken pipe|unexpected end of JSON input|"
+                          r"(?:unexpected )?EOF\s*$", detail, re.IGNORECASE)
     return bool(transport), None
 
 

@@ -476,7 +476,13 @@ class Loop:
             if not ready:
                 self._observe("complete_pass")
                 return False
+            self._withdraw_lost_claim()
             return self._tick()
+
+    def _withdraw_lost_claim(self):
+        number = self.coordinator.withdraw_lost_claim()
+        if number is not None:
+            self.discovery.invalidate(number)
 
     def _tick(self):
         config = self.config
@@ -527,6 +533,7 @@ class Loop:
             if not ready:
                 self._observe("complete_pass")
                 return False
+            self._withdraw_lost_claim()
             return self._tick_item(number, agent_name)
 
     def _tick_item(self, number, agent_name=None):
@@ -1225,8 +1232,8 @@ class Loop:
 
     def _end_poll(self):
         self._before_claim()
-        # Even an unsuccessful lease write ends discovery. Never retry a tick that
-        # may already have written a claim or withdrawn from a claim election.
+        # Starting a claim write ends discovery. Only a retryable POST failure
+        # may skip this pass; its uncertain record is withdrawn before planning.
         self._poll_complete = True
 
     def launch(self, once=False, number=None, agent_name=None):
@@ -1269,7 +1276,7 @@ class Loop:
             except AgentError as exc:
                 if self.interrupt_event.is_set():
                     raise KeyboardInterrupt from None
-                if once or self._poll_complete:
+                if once or (self._poll_complete and self.coordinator.lost_claim is None):
                     raise
                 failures += 1
                 delay = min(POLL_RETRY_MAX_SECONDS, POLL_RETRY_BASE_SECONDS * 2 ** (failures - 1))

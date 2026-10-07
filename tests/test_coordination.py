@@ -10,7 +10,7 @@ from unittest.mock import patch
 from ub_agents.cli import status_rows
 from ub_agents.config import Runtime
 from ub_agents.coordination import Coordinator
-from ub_agents.errors import AgentError, LostOwnership
+from ub_agents.errors import AgentError, GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.records import MARKER, attempts, body, iso, records, timestamp
 from tests.support import stub_refresh, FakeGitHub, agent, config, edit_lease, issue, pr
@@ -120,6 +120,61 @@ class CoordinationTests(unittest.TestCase):
         plan = self.plan()
         self.github.change(1, labels=frozenset())
         self.assertIsNone(self.co.claim(plan))
+
+    def test_lost_claim_withdrawal_matches_run_and_author_not_election_owner(self):
+        plan = self.plan()
+        self.github.roles["other-launcher"] = "write"
+        create = self.github.create_comment
+        failure = GitHubError("POST", "comments", "unexpected end of JSON input", retryable=True)
+
+        def post(number, text):
+            record = records([{"body": text, "id": 0, "user": {"login": "operator"}}])[0]
+            create(number, body(record | {"run": "other-run"}))
+            create(number, text, login="other-launcher")
+            create(number, text)
+            raise failure
+
+        with patch.object(self.github, "create_comment", side_effect=post), self.assertRaises(GitHubError):
+            self.co.claim(plan)
+        self.assertEqual(self.co.withdraw_lost_claim(), 1)
+        history = self.co.history(1)
+        self.assertEqual([r["state"] for r in history], ["claiming", "claiming", "withdrawn"])
+        self.assertEqual(history[-1]["summary"], "Claim response was lost; withdrawn")
+        self.assertEqual(self.github.writes[-1], ("update", history[-1]["id"]))
+        self.assertEqual(self.plan().state, "owned")
+
+    def test_lost_claim_restart_leaves_existing_expiry_behavior(self):
+        create = self.github.create_comment
+
+        def post(number, text):
+            create(number, text)
+            raise GitHubError("POST", "comments", "unexpected end of JSON input", retryable=True)
+
+        with patch.object(self.github, "create_comment", side_effect=post), self.assertRaises(GitHubError):
+            self.co.claim(self.plan())
+        restarted = Coordinator(self.github, "operator", lambda: self.now)
+        self.assertIsNone(restarted.withdraw_lost_claim())
+        self.assertEqual(restarted.plan(self.github.item(1), self.agent, ()).state, "owned")
+        self.now += 61
+        expired = restarted.plan(self.github.item(1), self.agent, ())
+        self.assertEqual((expired.state, expired.attempt), ("ready", 2))
+        self.assertEqual(len(attempts(restarted.history(1), self.agent.name, self.now)), 1)
+
+    def test_lost_claim_withdrawal_does_not_overwrite_a_started_run(self):
+        create = self.github.create_comment
+
+        def post(number, text):
+            create(number, text)
+            raise GitHubError("POST", "comments", "unexpected end of JSON input", retryable=True)
+
+        with patch.object(self.github, "create_comment", side_effect=post), self.assertRaises(GitHubError):
+            self.co.claim(self.plan())
+        edit_lease(self.github, self.co.history(1)[0], state="running", started=True)
+        writes = list(self.github.writes)
+        with self.assertRaisesRegex(LostOwnership, "changed before withdrawal"):
+            self.co.withdraw_lost_claim()
+        self.assertEqual(self.github.writes, writes)
+        self.assertIsNotNone(self.co.lost_claim)
 
     def test_attempts_backoff_and_expiry_reconstruct_after_restart(self):
         lease = self.start()
