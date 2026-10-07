@@ -1,0 +1,63 @@
+{{header}}
+<div class="wrap">
+  <div class="hero">
+    <h1>ub-agents</h1>
+    <p class="lede">The loop engineering framework for GitHub.</p>
+    <p class="lede">Any agent, no server.</p>
+    <div class="cmd">
+      <code id="install">brew install uberblick-ai/tap/ub-agents</code>
+      <button class="copy" id="copy" type="button">Copy</button>
+    </div>
+    <p class="note">macOS or Linux. You need git, an authenticated gh, and the agent CLIs you want to run.</p>
+  </div>
+
+  <section>
+    <h2>What does ub-agents do?</h2>
+    <p>It runs coding agents on your GitHub issues and pull requests. You start a launcher on your own computer. It watches the repository, claims an item whose label matches one of your agents, runs that agent, and records the result.</p>
+    <p>Labels are the queue. Put <code>ready</code> on an issue and the implementer picks it up. When it opens a pull request, that PR gets <code>needs-review</code> and the reviewer takes over. You decide what each label means and what happens after each outcome.</p>
+    <p>GitHub is the only state. Claims, attempts and outcomes are comments on the issue or PR, so a restarted launcher rebuilds everything from there. There is no database and nothing to host.</p>
+    <p>Use the agents you already have. Each role names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository. Launchers on several machines share one queue.</p>
+  </section>
+</div>
+
+<div class="wide term-section">
+  <figure>
+    <div class="term" role="img" aria-label="The ub-agents terminal view: a Work list with running, needs attention, eligible and recent items on the left, and the running agent's log on the right."><pre>
+{{tui}}
+</pre></div>
+    <figcaption><code>ub-agents launch</code> opens this view of its own session. Example session on the ub-agents repository.</figcaption>
+  </figure>
+</div>
+
+<div class="wrap">
+  <section>
+    <h2>Get started</h2>
+<pre><code><span class="p">$ </span>cd your-project
+<span class="p">$ </span>ub-agents init     <span class="c"># ub-agents.yaml and .agents/ policy and roles</span>
+<span class="p">$ </span>ub-agents doctor   <span class="c"># checks gh, labels and agent CLIs</span>
+<span class="p">$ </span>ub-agents launch   <span class="c"># runs the loop; q stops after the current run</span></code></pre>
+    <p>The starter workflow has four roles: issue preparer, implementer, reviewer and integrator. Commit the files <code>init</code> writes and change them like any other code. The <a href="/docs/installation.html">installation guide</a> walks through it.</p>
+  </section>
+
+  <section>
+    <h2>A role is a few lines of YAML</h2>
+<pre><code><span class="k">implementer</span>:
+  <span class="k">runtime</span>: "codex:gpt-6.1-sol:high"
+  <span class="k">trigger</span>: [ready, needs-changes]
+  <span class="k">outcomes</span>:
+    <span class="k">handed-off</span>: {add: [needs-review]}
+  <span class="k">instructions</span>: .agents/implementer.md
+  <span class="k">worktree</span>: true</code></pre>
+    <p>Every key has a short page in the <a href="/docs/configuration/index.html">configuration docs</a>.</p>
+  </section>
+</div>
+{{footer}}
+
+<script>
+document.getElementById('copy').addEventListener('click', function () {
+  var btn = this, code = document.getElementById('install');
+  function done(label) { btn.textContent = label; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); }
+  function select() { var r = document.createRange(); r.selectNodeContents(code); var s = getSelection(); s.removeAllRanges(); s.addRange(r); done('Selected'); }
+  try { navigator.clipboard.writeText(code.textContent).then(function () { done('Copied'); }, select); } catch (e) { select(); }
+});
+</script>

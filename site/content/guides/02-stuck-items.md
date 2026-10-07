@@ -1,0 +1,46 @@
+# Unstick an item
+
+Work stops for a reason, and ub-agents says which. Start with `status`, or ask about one item.
+
+```sh
+ub-agents status
+ub-agents status 214
+```
+
+## Needs a person
+
+The item has a stop label such as `needs-human` and an **Action needed** comment that lists the options and how to resume. Decide, remove the stop label, and add the workflow label you want.
+
+## Failed too often
+
+After `max-attempts` failures in a row the item stops. Fix the cause, then reset the count with a reason.
+
+```sh
+ub-agents retry 214 --reason "Fixed the flaky fixture"
+```
+
+## Run one item now
+
+Evaluate a single issue or pull request under the usual rules, run it once and exit.
+
+```sh
+ub-agents launch 214
+ub-agents launch 219 --agent reviewer
+```
+
+## Leftover worktrees
+
+A crashed run can leave its private worktree behind. Preview, then remove what is safe to remove.
+
+```sh
+ub-agents cleanup
+ub-agents cleanup --apply
+```
+
+## Logs
+
+Launcher output is also appended to `.ub-agents/launch.log`. Each run keeps its own log under `.ub-agents/runs/`.
+
+```sh
+tail -f .ub-agents/launch.log
+```
