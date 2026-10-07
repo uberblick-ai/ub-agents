@@ -580,7 +580,7 @@ agents:
     outcomes:
       handed-off: {add: [needs-review], remove: [old-workflow-state]}
   integrator:
-    runtime: "claude:opus:high"
+    runtime: "claude:claude-opus-5-5:high"
     trigger: ready-to-merge
     instructions: .agents/integrator.md
     outcomes:
