@@ -27,6 +27,17 @@ header, every tab's content and log status lines; the indicator follows the labe
 on the same row. Right-aligned columns and `…` truncation stay inside the padding.
 Below 110×32 the single full-width pane keeps the same padding, with no gap.
 
+Every scrollable area (Work, Log output, Issue, Runs, Unblock and the `p`/`?`
+overlays) hides its scrollbar at rest (`scrollbar-visibility: hidden`). An
+overflowing area reserves one column for its vertical bar; showing or hiding it
+never moves or rewraps content. Log output keeps `scrollbar-gutter: stable`.
+The bar uses the muted theme color (`$view-muted`), including during hover and
+dragging. Wheel input, scroll keys and cursor movement that scrolls the area
+show only that area's bar. It hides 1.5 seconds after the last scroll, remaining
+visible while hovered or dragged; leaving the bar or ending a drag starts the
+countdown once neither interaction holds it. Follow-mode log appends, item/tab
+switches, saved-position restores and resizing do not show a bar.
+
 ```text
 ╭─ Work · pass complete ─────────────────────╮ ╭─ Log ───────────────────────────────────────────────────────╮
 │                                            │ │                                                             │

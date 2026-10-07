@@ -39,6 +39,15 @@ and text shortened with `…` end inside the right padding.
 Tab labels have one space on either side, so labels sit one column right of the
 shared header and the inverted active tab has equal padding on both sides.
 
+Scrollbars stay hidden at rest in Work, Log output, Issue, Runs, Unblock and the
+`p`/`?` overlays. Scrolling with the wheel or keys, moving the cursor enough to
+scroll, or dragging a visible bar shows only that area's muted, one-column bar.
+It hides 1.5 seconds after the last scroll. Hovering or dragging keeps it visible;
+the countdown starts when neither holds it. An overflowing area reserves the
+column even while hidden, so content never moves or rewraps when the bar appears.
+Follow-mode log appends, switching items or tabs, restoring log positions and
+resizing do not show a bar.
+
 An ordinary mouse click on the shared header's `#N` or `⌥N` reference opens that
 issue or PR in the default browser, using the attached session's repository.
 This works on Log, Issue, Runs and Unblock, including the narrow item view and
