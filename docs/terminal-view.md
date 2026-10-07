@@ -194,6 +194,11 @@ before Recent activity. The cursor highlights only the item's lines. Arrow keys
 skip headers, the idle line and blank rows, and either item line can be clicked
 to select it; blank rows have no cursor or hover highlight and clicking them
 changes no selection or cursor.
+Polls keep the highlight on its item when rows are added, removed or reordered,
+including when the item moves sections or changes to a related row. If the
+highlighted item leaves the Work list, the highlight returns to the item shown
+in the right pane when that item is still in the list. The right pane keeps its
+item, active tab, focus and log reading position while that item remains available.
 In the narrow Work list, live and Recent activity rows use only their first line:
 glyph, item reference, title shortened with `…`, and right-aligned waiting time
 for Needs attention or state for other live rows. Detail

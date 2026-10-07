@@ -2362,6 +2362,111 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def poll_keeps_cursor(self, before, after):
+        for size in ((110, 32), (80, 24)):
+            with self.subTest(size=size):
+                self.state['latest_pass'] = {'state': 'complete', 'rows': [
+                    {'item': item, 'agent': 'worker', 'state': 'ready'} for item in before]}
+                publish_snapshot(self.path, self.state)
+                with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+                    app = View(self.root, self.path)
+                    async with app.run_test(size=size) as pilot:
+                        await self.ready(app, pilot)
+                        key = 'plan:21'
+                        app.select(key)
+                        tree = app.query_one('#work', Tree)
+                        node = app.nodes[key]
+                        tree.move_cursor(node)
+                        await self.ready(app, pilot, lambda: app.pane.selected == key)
+                        app.worker.close()
+                        app.worker.thread.join(2)
+                        tick.side_effect = None
+                        await self.settled(app, tree)
+                        line = node._line
+                        reading = app.reading
+                        reading.follow, reading.raw = False, True
+                        tabs = app.query_one(TabbedContent)
+                        focus, tab = app.focused, tabs.active
+                        output = app.query_one(LogPane)
+                        anchor = output.anchor()
+                        self.state['latest_pass']['rows'] = [
+                            {'item': item, 'agent': 'worker', 'state': 'ready'} for item in after]
+                        app.session = Session(self.path, self.state)
+                        pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                        app.populate(pane)
+                        # Check before yielding to Textual, then after its refresh.
+                        for refreshed in (False, True):
+                            if refreshed:
+                                await self.settled(app, tree)
+                            self.assertIs(tree.cursor_node, app.nodes[key])
+                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.nodes[key])
+                            self.assertEqual(app.selected, key)
+                            self.assertIs(app.reading, reading)
+                            self.assertFalse(reading.follow)
+                            self.assertTrue(reading.raw)
+                            self.assertEqual(output.anchor(), anchor)
+                            self.assertIs(app.focused, focus)
+                            self.assertEqual(tabs.active, tab)
+                        self.assertIs(app.nodes[key], node)
+                        self.assertNotEqual(node._line, line)
+                        await pilot.press('q')
+                    app.worker.thread.join(2)
+                    self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_poll_adds_row_above_highlight_without_changing_right_pane(self):
+        await self.poll_keeps_cursor([20, 21, 22], [19, 20, 21, 22])
+
+    async def test_poll_removes_row_above_highlight_without_changing_right_pane(self):
+        await self.poll_keeps_cursor([20, 21, 22], [21, 22])
+
+    async def test_poll_keeps_independent_highlight_and_falls_back_when_it_disappears(self):
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': item, 'agent': 'worker', 'state': 'ready'} for item in (20, 21, 22)]}
+        publish_snapshot(self.path, self.state)
+        with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
+            app = View(self.root, self.path)
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                selected = app.selected
+                app.select(selected)
+                await pilot.press('f', 'home', 'pagedown', '3')
+                app.worker.close()
+                app.worker.thread.join(2)
+                tick.side_effect = None
+                tree = app.query_one('#work', Tree)
+                output = app.query_one(LogPane)
+                await self.settled(app, output)
+                reading, page, anchor = app.reading, app.reading.page, output.anchor()
+                focus, tab = app.focused, app.query_one(TabbedContent).active
+                tree.move_cursor(app.nodes['plan:21'])
+                cases = [
+                    ([(22, 'ready'), (21, 'ready'), (20, 'ready')], 'plan:21'),
+                    ([(21, 'blocked'), (20, 'ready'), (22, 'ready')], 'plan:21:worker'),
+                    ([(20, 'ready'), (22, 'ready')], selected),
+                ]
+                for rows, highlighted in cases:
+                    with self.subTest(highlighted=highlighted):
+                        self.state['latest_pass']['rows'] = [
+                            {'item': item, 'agent': 'worker', 'state': state} for item, state in rows]
+                        app.session = Session(self.path, self.state)
+                        pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
+                        app.populate(pane)
+                        for refreshed in (False, True):
+                            if refreshed:
+                                await self.settled(app, tree)
+                            self.assertIs(tree.cursor_node, app.nodes[highlighted])
+                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.nodes[highlighted])
+                            self.assertEqual(app.selected, selected)
+                            self.assertIs(app.reading, reading)
+                            self.assertEqual(reading.page, page)
+                            self.assertFalse(reading.follow)
+                            self.assertEqual(output.anchor(), anchor)
+                            self.assertIs(app.focused, focus)
+                            self.assertEqual(app.query_one(TabbedContent).active, tab)
+                await pilot.press('q')
+            app.worker.thread.join(2)
+            self.assertFalse(app.worker.thread.is_alive())
+
     async def test_cursor_follows_row_when_tree_changes_before_a_render(self):
         self.state['latest_pass']['rows'].append(
             {'item': 21, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'})
