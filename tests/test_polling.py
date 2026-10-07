@@ -380,17 +380,39 @@ class PollingTests(unittest.TestCase):
                 waits.assert_not_called()
                 self.assertEqual(self.github.writes, [])
 
-    def test_once_and_status_exit_one_without_retry(self):
-        for argv in (["launch", "--once"], ["status"]):
+    def test_once_numbered_and_status_exit_one_without_retry(self):
+        for argv in (["launch", "--once"], ["launch", "1"], ["status"]):
             with self.subTest(argv=argv):
-                self.github.read_results["observe"] = [self.http_error(403, "X-RateLimit-Remaining: 0\n")]
+                error = self.http_error(403, "X-RateLimit-Remaining: 0\n", "Rate limit\nsecond gh line")
+                name = "item" if argv == ["launch", "1"] else "observe"
+                self.github.read_results[name] = [error]
+                stderr = io.StringIO()
                 with patch("ub_agents.cli.load_config", return_value=self.config), \
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
-                        patch.object(self.loop.stop_event, "wait") as waits, redirect_stderr(io.StringIO()):
+                        patch("ub_agents.cli.Loop", return_value=self.loop), \
+                        patch.object(self.loop.stop_event, "wait") as waits, redirect_stderr(stderr):
                     self.assertEqual(main(argv), 1)
                 waits.assert_not_called()
                 self.assertEqual(self.github.writes, [])
+                if argv[0] == "launch":
+                    prefix = "Cannot read #1: " if argv == ["launch", "1"] else ""
+                    self.assertEqual(stderr.getvalue(), f"ub-agents: {prefix}{' '.join(str(error).split())}; "
+                                     "Fix the cause and restart ub-agents launch.\n")
+                else:
+                    self.assertEqual(stderr.getvalue(), f"ub-agents: {error}\n")
+
+    def test_launch_startup_github_failure_also_has_one_line_and_next_step(self):
+        error = self.request_error(subprocess.CompletedProcess([], 1, "", "gh: unavailable\nsecond line"))
+        stderr = io.StringIO()
+        with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch_checks", side_effect=error), redirect_stderr(stderr):
+            self.assertEqual(main(["launch", "--once"]), 1)
+        self.assertEqual(stderr.getvalue(), f"ub-agents: {' '.join(str(error).split())}; "
+                         "Fix the cause and restart ub-agents launch.\n")
+        self.assertEqual(self.github.writes, [])
 
     def test_stop_during_wait_prevents_another_poll(self):
         self.github.read_results["observe"] = [self.http_error()]

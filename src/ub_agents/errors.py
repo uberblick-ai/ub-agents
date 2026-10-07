@@ -2,6 +2,14 @@ class AgentError(Exception):
     """An actionable configuration, coordination, or execution failure."""
 
 
+class InstructionError(AgentError):
+    """A configured instruction file is invalid or unreadable."""
+
+
+class CheckoutRefreshError(AgentError):
+    """An actionable control checkout refresh failure."""
+
+
 class GitHubError(AgentError):
     """A named request failure, with conservative poll retry metadata."""
 
@@ -38,3 +46,7 @@ class LostOwnership(AgentError):
 
 class CleanupError(AgentError):
     """Termination is inconclusive: preserve artifacts and stop the loop."""
+
+    def __init__(self, message, *, next_step="confirm owned processes have exited"):
+        super().__init__(message)
+        self.next_step = next_step

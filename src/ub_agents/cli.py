@@ -17,7 +17,7 @@ from . import __version__
 from .config import DEFAULT_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
 from .denials import denial_count
-from .errors import AgentError
+from .errors import AgentError, CheckoutRefreshError, CleanupError, GitHubError, InstructionError
 from .execution import repository_checks
 from .github import GitHub
 from .help import HelpParser
@@ -539,8 +539,35 @@ def run(args):
             signal.signal(sig, handler)
 
 
+def launch_error_message(exc, root):
+    # Request reads and continuous polling can wrap the original failure.
+    # A failed fallback signal can also mask CleanupError with an OSError.
+    errors = []
+    error = exc
+    while error is not None and error not in errors:
+        errors.append(error)
+        error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
+    refresh = next((error for error in errors if isinstance(error, CheckoutRefreshError)), None)
+    cleanup = next((error for error in errors if isinstance(error, CleanupError)), None)
+    if refresh is not None:
+        detail = str(refresh)
+    elif cleanup is not None:
+        detail = f"{cleanup}; {cleanup.next_step}, then launch again"
+    elif any(isinstance(error, GitHubError) for error in errors):
+        detail = str(exc)
+        advice = "Fix the cause and restart ub-agents launch."
+        if not detail.endswith(advice):
+            detail = f"{detail}; {advice}"
+    elif any(isinstance(error, InstructionError) for error in errors):
+        detail = f"{root}: {exc}; restore readable, valid instruction files and launch again"
+    else:
+        return str(exc)
+    return " ".join(detail.split())
+
+
 def main(argv=None):
     with ExitStack() as stack:
+        args = None
         try:
             command_line = parser()
             args = command_line.parse_args(argv)
@@ -587,5 +614,8 @@ def main(argv=None):
             print("Stopped; supervised execution terminated", file=sys.stderr)
             return 130
         except (AgentError, OSError) as exc:
-            print(f"ub-agents: {exc}", file=sys.stderr)
+            detail = str(exc)
+            if args is not None and args.command == "launch" and isinstance(args.config, Path):
+                detail = launch_error_message(exc, args.config.parent)
+            print(f"ub-agents: {detail}", file=sys.stderr)
             return 1
