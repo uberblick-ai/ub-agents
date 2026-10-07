@@ -200,10 +200,10 @@ information remains on the item's tabs, and consecutive single-line items have
 no blank row between them. Sections, counts, the idle line, stopping
 state and the fixed upper/lower split behave the same in both layouts.
 The assignment spinner advances through `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` one frame every
-0.1 seconds, like Runs and the log status line. Stopping and other row glyphs
-remain static. Elapsed time stays in whole seconds, uses the item's cached run
-history and updates while the view is open; the view retains an observed claim
-time when a report updates the history.
+0.1 seconds, like the visible Runs tab and the log status line. Stopping and other
+row glyphs remain static. Elapsed time stays in whole seconds, uses the item's
+cached run history and updates at least once a second while the view is open;
+the view retains an observed claim time when a report updates the history.
 If that claim time is unavailable, the row shows `claiming`.
 Rendering these rows requires no extra GitHub reads.
 

@@ -28,6 +28,7 @@ from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, Rec
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, work_pane
 from ub_agents.view_theme import theme_style
+from ub_agents.view_unblock import ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
@@ -1954,10 +1955,167 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_quiet_ticks_do_not_update_static_content_even_across_seconds(self):
+        self.state['assignment'] = None
+        self.state['activity'] = {'state': 'idle'}
+        self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][1]]
+        self.state['histories']['12']['runs'][0]['result'] = 'success'
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.selected == 'plan:12')
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            # The help footer is also fixed-height; raw_details retains its own behavior.
+            await pilot.press('?')
+            widgets = [app.query_one(selector, Static) for selector in (
+                '#log_mode', '#tab_rule', '#status', '#log_state', '#item_header',
+                '#log_note', '#run_status', '#unblock_note', '#runs_text')]
+            widgets.append(app.screen.query_one('#raw_status', Static))
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                clock.now.return_value = now
+                app._static_values.clear()
+                app.last_runs = None
+                with patch.object(Static, 'update', autospec=True) as update:
+                    app.tick()
+                    self.assertEqual([call.args[0] for call in update.call_args_list],
+                                     [widgets[7], widgets[8], *widgets[:3], widgets[9], *widgets[3:7]])
+                    for call in update.call_args_list:
+                        self.assertEqual(call.kwargs['layout'], call.args[0] in widgets[7:9])
+                    update.reset_mock()
+                    for tick in range(1, 31):
+                        clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                        app.tick()
+                    update.assert_not_called()
+            await pilot.press('?', '3')
+            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                clock.now.return_value = now
+                app.tick()
+                with patch.object(Static, 'update', autospec=True) as update:
+                    for tick in range(1, 31):
+                        clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                        app.tick()
+                    update.assert_not_called()
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_countdown_and_loaded_comment_update_only_when_seconds_change(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        self.state['assignment'] = None
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=60)).isoformat()}
+        self.state['latest_pass']['rows'] = []
+        self.state['outcomes'] = []
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.session is not None)
+            comment = ActionComment(available=True, source='GitHub', observed_at=now.timestamp())
+            status, note = app.query_one('#status', Static), app.query_one('#unblock_note', Static)
+            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
+                  patch.object(app.descriptions, 'clock') as loaded_clock,
+                  patch.object(app, 'current_action', return_value=comment),
+                  patch.object(status, 'update', wraps=status.update) as status_update,
+                  patch.object(note, 'update', wraps=note.update) as note_update):
+                clock.now.return_value = now
+                loaded_clock.return_value = now.timestamp()
+                app.update_status()
+                app.update_unblock()
+                status_update.reset_mock()
+                note_update.reset_mock()
+                for tick in range(1, 20):
+                    clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                    loaded_clock.return_value = clock.now.return_value.timestamp()
+                    app.update_status()
+                    app.update_unblock()
+                self.assertEqual(status_update.call_count, 1)
+                self.assertEqual(note_update.call_count, 2)
+                self.assertFalse(status_update.call_args.kwargs['layout'])
+                self.assertTrue(note_update.call_args.kwargs['layout'])
+                self.assertIn('next poll 59s', status.render().plain)
+                self.assertIn('loaded 2s ago', note.render().plain)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_clock_is_tenths_only_on_active_tab_and_activation_renders_immediately(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            from ub_agents.view_runs import runs_view
+            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
+                  patch('ub_agents.view_ui.runs_view', wraps=runs_view) as render):
+                app.last_runs = None
+                for tick in range(20):
+                    clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                    app.update_runs()
+                self.assertEqual(render.call_count, 2)
+                # Activation must render even if no clock bucket has changed.
+                await pilot.press('3')
+                self.assertGreater(render.call_count, 2)
+                render.reset_mock()
+                app.last_runs = None
+                for tick in range(10):
+                    clock.now.return_value = now + timedelta(milliseconds=100 * tick)
+                    app.update_runs()
+                self.assertEqual(render.call_count, 10)
+                # A cached history change still renders immediately on a hidden tab.
+                await pilot.press('1')
+                app.update_runs()
+                render.reset_mock()
+                app.session.data['histories']['114']['runs'].append({'agent': 'reviewer', 'result': 'success'})
+                runs = app.query_one('#runs_text', Static)
+                with patch.object(runs, 'update', wraps=runs.update) as update:
+                    app.update_runs()
+                    render.assert_called_once()
+                    update.assert_called_once()
+                    self.assertTrue(update.call_args.kwargs['layout'])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_activation_replaces_same_shape_history_before_first_layout(self):
+        self.state['histories']['12']['runs'][0]['result'] = 'success'
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(160, 45)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                clock.now.return_value = now
+                app.select('plan:12')
+                runs = app.query_one('#runs_text', Static)
+                self.assertEqual(runs.content_size.width, 0)
+                app.session.data['histories']['12']['runs'][0]['summary'] = 'ZZZ'
+                app.update_runs()
+                # Activation happens before layout. A frozen clock prevents the
+                # next one-second bucket from masking a stale content write.
+                await pilot.press('3')
+                table = list(runs.content.renderables)[1]
+                self.assertEqual(table.columns[2]._cells[0].plain, 'reviewer · ZZZ')
+                await pilot.pause(0.5)
+                self.assertIn('reviewer · ZZZ', '\n'.join(
+                    runs.render_line(y).text for y in range(runs.size.height)))
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_runs_and_log_spinners_advance_each_tenth_with_static_status_text(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
+            await pilot.press('3')
             app.worker.close()
             app.worker.thread.join(2)
             app.busy = True
@@ -2891,6 +3049,82 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_tick_refreshes_only_spinner_nodes_between_whole_tree_seconds(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            tree = app.query_one('#work', Tree)
+            own = app.nodes['assignment:owned-run']
+            app._tree_second = None
+            with (patch.object(tree, '_refresh_line', wraps=tree._refresh_line) as line_refresh,
+                  patch.object(tree, 'refresh', wraps=tree.refresh) as refresh,
+                  patch('ub_agents.view_ui.time.monotonic') as clock):
+                for tick in range(11):
+                    clock.return_value = 1000 + tick / 10
+                    app.tick()
+                self.assertEqual(line_refresh.call_count, 18)
+                self.assertEqual([call.args[0] for call in line_refresh.call_args_list],
+                                 [own._line, own._line + 1] * 9)
+                full_refreshes = [call for call in refresh.call_args_list if not call.args]
+                self.assertEqual(len(full_refreshes), 2)
+                regions = [call.args[0] for call in refresh.call_args_list if call.args]
+                self.assertEqual(len(regions), 18)  # Both lines of the own-run node.
+                self.assertEqual({region.y for region in regions},
+                                 {own._line - tree.scroll_offset.y, own._line + 1 - tree.scroll_offset.y})
+                self.assertTrue(all(not call.kwargs.get('layout') for call in refresh.call_args_list))
+                app.session.data['activity']['state'] = 'stopping'
+                clock.return_value = 1001.1
+                refresh.reset_mock()
+                line_refresh.reset_mock()
+                app.tick()
+                refresh.assert_not_called()
+                line_refresh.assert_not_called()
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_whole_tree_tick_updates_attention_waiting_time_without_a_snapshot(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        self.state['assignment'] = None
+        self.state['activity'] = {'state': 'idle'}
+        self.state['latest_pass']['rows'] = [
+            {'item': 20, 'agent': 'worker', 'state': 'blocked',
+             'waiting_since': (now - timedelta(seconds=59)).isoformat()}]
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: 'plan:20:worker' in app.nodes)
+            app.worker.close()
+            app.worker.thread.join(2)
+            app.busy = True
+            while not app.worker.results.empty():
+                app.worker.results.get_nowait()
+            tree = app.query_one('#work', Tree)
+            node = app.nodes['plan:20:worker']
+            nodes = tuple(app.nodes.items())
+            def displayed():
+                strips = app.screen._compositor.render_strips()
+                y = tree.region.y + node._line - tree.scroll_offset.y
+                return strips[y].crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
+            # Keep the real Textual clock running while controlling only synchronous ticks.
+            with patch.object(app.descriptions, 'clock', return_value=now.timestamp()) as waiting_clock:
+                with patch('ub_agents.view_ui.time.monotonic', return_value=1000):
+                    app.tick()
+                await pilot.pause(0.1)
+                self.assertTrue(displayed().endswith('0m'), displayed())
+                waiting_clock.return_value = (now + timedelta(seconds=1)).timestamp()
+                with patch('ub_agents.view_ui.time.monotonic', return_value=1001):
+                    app.tick()
+                await pilot.pause(0.1)
+                self.assertTrue(displayed().endswith('1m'), displayed())
+                self.assertEqual(tuple(app.nodes.items()), nodes)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_assignment_spinner_and_timer_refresh_without_rebuilding_or_moving_rows(self):
         self.state['latest_pass']['rows'].extend(
             {'item': item, 'agent': 'worker', 'state': 'ready'} for item in range(20, 40))
@@ -2939,7 +3173,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 static = (displayed(other), displayed(other, detail=True))
                 self.assertTrue(first.startswith('⠋'))
                 clock.now.return_value = now + timedelta(milliseconds=100)
-                # Only the mounted refresh timer drives the next frame.
+                # Only View.tick drives the next frame; WorkTree has no timer.
                 await pilot.pause(0.15)
                 self.assertEqual(displayed(), '⠙' + first[1:])
                 self.assertEqual(displayed(detail=True), detail)
@@ -2962,6 +3196,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause(0.1)
                 self.assertTrue(displayed().endswith('04:13'), displayed())
                 app.session.data['activity']['state'] = 'stopping'
+                tree.refresh()  # Stand in for the new snapshot's populate.
                 await pilot.pause(0.15)
                 stopped = displayed()
                 self.assertTrue(stopped.startswith('■'))

@@ -6,6 +6,7 @@ from math import ceil
 from pathlib import Path
 from queue import Empty
 import time
+from weakref import WeakKeyDictionary
 
 from markdown_it import MarkdownIt
 from rich.control import Control
@@ -449,6 +450,8 @@ class View(App):
         self.busy = False
         self.pending_history = None
         self.last_context = self.last_runs = None
+        self._static_values = WeakKeyDictionary()
+        self._tree_second = None
         self._window_title = None
         self.narrow = False
         self.too_small = False
@@ -686,6 +689,13 @@ class View(App):
         self.update_unblock()
         self.update_runs()
         self.update_status()
+        tree = self.query_one(WorkTree)
+        second = int(time.monotonic())
+        if second != self._tree_second:
+            tree.refresh()
+            self._tree_second = second
+        else:
+            tree.refresh_spinners()
 
     def populate(self, pane):
         tree = self.query_one('#work', Tree)
@@ -800,6 +810,21 @@ class View(App):
             reading.notice = text(result.error)
         self.local_description = result.description
 
+    def update_static(self, widget, value, *, layout=True):
+        """Keep unchanged content from requesting another repaint or layout."""
+        if isinstance(value, Text):
+            signature = (value.copy(), value.style, value.justify, value.overflow, value.no_wrap)
+        elif isinstance(value, str):
+            signature = value
+        else:
+            # Rich Groups and Tables compare by identity. Compare their rendered
+            # cells, including styles, so a clock tick with unchanged text is inert.
+            options = self.console.options.update(width=max(1, widget.content_size.width))
+            signature = tuple(self.console.render(value, options))
+        if signature != self._static_values.get(widget):
+            widget.update(value, layout=layout)
+            self._static_values[widget] = signature
+
     def update_runs(self):
         if self.session is None:
             return
@@ -807,9 +832,11 @@ class View(App):
         history = item_history(row, self.session)
         now = datetime.now().astimezone()
         active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
-        signature = (row.key if row else None, repr(history), int(now.timestamp() * (SPINNER_FPS if active else 1)))
+        visible = self.query_one(ItemTabs).active == 'runs'
+        signature = (row.key if row else None, repr(history),
+                     int(now.timestamp() * (SPINNER_FPS if active and visible else 1)))
         if signature != self.last_runs:
-            self.query_one('#runs_text', Static).update(runs_view(row, self.session, now=now, app=self))
+            self.update_static(self.query_one('#runs_text', Static), runs_view(row, self.session, now=now, app=self))
             self.last_runs = signature
 
     def description_key(self):
@@ -917,7 +944,7 @@ class View(App):
             reset = datetime.fromtimestamp(self.descriptions.cooldown, timezone.utc).isoformat()
             extra += f'GitHub cooldown until {reset}; no loads or retries before then.\n'
         details = extra + comment.details(self.descriptions.clock())
-        self.query_one('#unblock_note', Static).update(Text(details))
+        self.update_static(self.query_one('#unblock_note', Static), Text(details))
 
     def raw_details(self):
         row = self.rows.get(self.selected)
@@ -1051,9 +1078,9 @@ class View(App):
                                            reverse=reading.raw))
         indicator = self.query_one('#log_mode', Static)
         indicator.styles.offset = (sum(tab.region.width for tab in self.query('#panes Tab') if tab.display), 0)
-        indicator.update(mode)
+        self.update_static(indicator, mode, layout=False)
         rule = self.query_one('#tab_rule', Static)
-        rule.update('┄' * rule.content_size.width)
+        self.update_static(rule, '┄' * rule.content_size.width, layout=False)
         page, log = reading.page, reading.log
         unread, lag = self.log_lag()
         keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit' if not reading.follow else
@@ -1070,12 +1097,12 @@ class View(App):
                     keys = '1-4 tabs ' + keys
                 keys = keys.replace('? keys', 'g load ? keys')
         status = self.footer(self.size.width, keys)
-        self.query_one('#status', Static).update(status)
+        self.update_static(self.query_one('#status', Static), status, layout=False)
         if isinstance(self.screen, RawAccess):
             for footer in self.screen.query('#raw_status').results(Static):
                 # Before its first layout the footer has no width; use the width compose used.
                 width = footer.size.width or self.size.width - self.screen.styles.padding.width
-                footer.update(self.footer(width, self.screen.footer_keys))
+                self.update_static(footer, self.footer(width, self.screen.footer_keys), layout=False)
         pill = self.query_one('#log_state', Static)
         pill.display = bool((page or log) and (not reading.follow or unread or lag))
         parts = ['⏸ PAUSED' if not reading.follow else '↓ BEHIND']
@@ -1086,7 +1113,8 @@ class View(App):
         if reading.raw:
             parts.append('RAW')
         parts.append('f follow')
-        pill.update(Text(' ' + ' · '.join(parts) + ' ', style='reverse', no_wrap=True, overflow='ellipsis'))
+        self.update_static(pill, Text(' ' + ' · '.join(parts) + ' ', style='reverse',
+                                     no_wrap=True, overflow='ellipsis'), layout=False)
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
         header = self.query_one('#item_header', Static)
@@ -1112,7 +1140,7 @@ class View(App):
         header_text.append_text(pane_line(title_text, width, 'bold'))
         header_text.append('\n').append_text(pane_line(metadata_text, width, theme_style(self, 'view-muted', dim=True)))
         header_text.append('\n' + '┄' * width, style=theme_style(self, 'view-muted'))
-        header.update(header_text)
+        self.update_static(header, header_text, layout=False)
         width = output.size.width
         notices = []
         if row and row.log:
@@ -1130,7 +1158,8 @@ class View(App):
                 notices.append(f'{reading.runtime}: plain/raw fallback')
         note = self.query_one('#log_note', Static)
         note.display = bool(notices)
-        note.update(pane_line(' · '.join(notices), width, theme_style(self, 'view-warning', bold=True)))
+        self.update_static(note, pane_line(' · '.join(notices), width,
+                                          theme_style(self, 'view-warning', bold=True)), layout=False)
         empty_message = (row.reason if row and mapping(row.data.get('owner')) else
                          'No local log cached for this row.' if not row or not row.log else 'No log output yet.')
         if reading.empty_message != empty_message:
@@ -1146,7 +1175,7 @@ class View(App):
             status_line.append(' ' * max(1, width - left_line.cell_len - right_line.cell_len)).append_text(right_line)
         run_note = Text('┄' * width + '\n', style=theme_style(self, 'view-muted'))
         run_note.append_text(status_line)
-        self.query_one('#run_status', Static).update(run_note)
+        self.update_static(self.query_one('#run_status', Static), run_note, layout=False)
         if isinstance(self.screen, RawAccess) and not isinstance(self.screen, KeyHelp):
             for details in self.screen.query('#raw_details').results(Static):
                 details.update(Text(self.raw_details()))
@@ -1209,6 +1238,12 @@ class View(App):
         if event.pane.id == 'log' and self.is_mounted:
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
         if self.is_mounted:
+            if event.pane.id == 'runs':
+                self.last_runs = None
+                # Before its first layout a hidden table has no width, so
+                # rendered-cell comparisons can hide changed history.
+                self._static_values.pop(self.query_one('#runs_text', Static), None)
+                self.update_runs()
             self.update_status()
 
     def get_theme_variable_defaults(self):
