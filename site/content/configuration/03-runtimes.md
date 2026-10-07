@@ -8,11 +8,12 @@ runtime: "claude:claude-opus-5-5:high"
 
 ## CLI, model and effort
 
-Written as `cli:model:effort`. The CLI is `claude` or `codex`.
+Written as `cli:model:effort`. The CLI is `claude` or `codex`. Local models through `ollama` are planned and not supported yet.
 
 ```yaml
 runtime: "claude:claude-opus-5-5:high"
 runtime: "codex:gpt-6.1-sol:high"
+runtime: "ollama:qwen3.8:high"   # planned, not supported yet
 ```
 
 ## Alternatives
