@@ -10,7 +10,7 @@ from textual.strip import Strip
 from textual.widgets import Static, Tree
 
 from .view_data import item_handoff, mapping, outcomes_today, rows, text
-from .view_spinner import SPINNER_FPS, spinner_frame
+from .view_spinner import spinner_frame
 from .attention import attention_state, waiting_time
 from .view_theme import SECTION_COLORS, item_reference, theme_style
 
@@ -138,8 +138,18 @@ class WorkTree(Tree):
             return False
         return super().check_action(action, parameters)
 
-    def on_mount(self):
-        self.set_interval(1 / SPINNER_FPS, self.refresh)
+    def refresh_spinners(self):
+        if (self.app.session is None
+                or mapping(self.app.session.data.get('activity')).get('state') == 'stopping'):
+            return
+        for key, node in self.app.nodes.items():
+            row = self.app.rows[key]
+            if key.startswith('assignment:') and row.state != 'earlier observation':
+                # _refresh_node also sees inert spacer copies of the node in our
+                # line cache. Invalidate only the item's one or two actual lines.
+                if node._line >= 0:
+                    for line in range(node._line, node._line + self.row_height):
+                        self._refresh_line(line)
 
     def remember_claims(self, work):
         self.claim_times = {key: stamp for key, stamp in self.claim_times.items() if key in work}
