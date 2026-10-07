@@ -226,7 +226,10 @@ class InitTests(unittest.TestCase):
                     '`candidate_sha` or the SHA of the base merge you pushed yourself; '
                     'any other change reports blocked',
                     'merge exactly the verified head',
-                    'Only if the candidate conflicts with the base branch or a declared check fails',
+                    'Only if the candidate conflicts with the base branch, a declared check fails for a '
+                    "cause that code or tests in the repository can fix, or the project's shared guidance "
+                    'asks PRs to carry changelog entries and the entry for a user-facing change is missing '
+                    'or inaccurate, send it back to the implementer:',
                 ):
                     self.assertIn(expected, integrator)
 
