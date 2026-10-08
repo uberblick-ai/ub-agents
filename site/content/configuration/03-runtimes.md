@@ -43,4 +43,6 @@ claude usage limit reached; pausing claude runs until 2026-10-04T12:01:00Z
 
 ## Not allowed
 
-`runtime-args` must not change the model or effort, resume a session, set Claude's `--output-format` or Codex's `--ephemeral`. `ub-agents check` rejects them.
+`runtime-args` must not change the model or effort or resume a session. Claude arguments must not set `-c` (continue a session) or `--output-format`; Codex arguments must not set `--ephemeral`. `ub-agents check` rejects them.
+
+Declare [per-CLI arguments](/docs/configuration/permissions.html#arguments-for-alternatives) once with a top-level `runtime-args` mapping. Agents inherit it unless they provide their own list or mapping, which replaces all defaults. Each mapping entry follows its CLI's rules and the same placeholder rules as an agent-level list. Codex's `-c` for settings such as MCP servers is accepted in the `codex` entry even when an agent also lists Claude. A shared agent-level list must satisfy every listed CLI's rules.

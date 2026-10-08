@@ -165,15 +165,15 @@ def init_project(args):
     runtime_cli = args.runtime.split(":", 1)[0]
     if runtime_cli == "claude":
         targets[config_path] = targets[config_path].replace(
-            "[--sandbox, danger-full-access]",
-            '[--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
+            "#   codex: [--sandbox, danger-full-access]",
+            '#   claude: [--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
             '"Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)", "Bash({report_command} read *)", --add-dir, "{scratch}"]').replace(
             "Grants full access without the Codex sandbox",
             "Grants unattended edits and git/gh/report commands")
         targets[config_path] = targets[config_path].replace(
-            '    # runtime-args:',
-            '    # Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".\n'
-            '    # runtime-args:')
+            '# runtime-args:',
+            '# Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".\n'
+            '# runtime-args:')
     for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
         targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
     guidance = runtime_guidance(root, runtime_cli, fallback=True)
@@ -201,7 +201,8 @@ def init_project(args):
             answer = ""
         permissions_enabled = answer.strip().casefold() in {"y", "yes"}
     if permissions_enabled:
-        targets[config_path] = targets[config_path].replace("    # runtime-args:", "    runtime-args:")
+        targets[config_path] = targets[config_path].replace("# runtime-args:", "runtime-args:").replace(
+            f"#   {runtime_cli}:", f"  {runtime_cli}:")
     for target, content in targets.items():
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("x") as stream:

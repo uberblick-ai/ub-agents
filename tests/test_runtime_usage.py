@@ -13,7 +13,7 @@ from unittest.mock import patch
 import uuid
 
 from ub_agents.cli import main
-from ub_agents.config import Runtime
+from ub_agents.config import Runtime, load_config
 from ub_agents.execution import supervise
 from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.loop import Loop, _GracefulStop
@@ -387,6 +387,40 @@ class UsageLoopTests(unittest.TestCase):
         loop.coordinator.clock = lambda: self.now
         loop.usage.limit("claude", self.now + 100)
         self.assertEqual(loop.plans()[0].state, "waiting")
+
+    def test_usage_pause_switches_to_alternative_with_its_top_level_runtime_args(self):
+        arguments = {"claude": ("--permission-mode", "acceptEdits"),
+                     "codex": ("-c", "mcp_servers.example.enabled=true")}
+        path = self.root / "ub-agents.yaml"
+        (self.root / "instructions.md").write_text("Do the task")
+        path.write_text('''repository: org/project
+runtime-args:
+  claude: [--permission-mode, acceptEdits]
+  codex: [-c, mcp_servers.example.enabled=true]
+agents:
+  worker:
+    runtime: [claude:opus:high, codex:other:high]
+    instructions: instructions.md
+    kind: issue
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        self.loop.config = load_config(path)
+        role = self.loop.config.agents[0]
+        with patch("ub_agents.loop.supervise", side_effect=self.runtime(claude(self.now + 300))) as run:
+            self.assertTrue(self.loop.tick())
+        first = run.call_args.args[0]
+        self.assertEqual(first[1], "--print")
+        self.assertEqual(first[-2:], list(arguments["claude"]))
+        self.assertNotIn("-c", first)
+        with patch("ub_agents.loop.supervise", return_value=1) as run:
+            self.assertTrue(self.loop.tick())
+        second = run.call_args.args[0]
+        self.assertEqual(second[1], "exec")
+        self.assertEqual(second[-2:], list(arguments["codex"]))
+        self.assertNotIn("--permission-mode", second)
+        self.assertEqual([r["runtime"] for r in self.loop.coordinator.history(1) if r["kind"] == "lease"],
+                         [role.runtimes[0].name, role.runtimes[1].name])
 
     def test_paused_independent_runtime_cannot_fall_back_to_authors_cli(self):
         author = replace(self.role, name="author", kind="pr", runtimes=(Runtime("codex", "author-model", "high"),))

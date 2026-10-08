@@ -10,7 +10,7 @@ implementer:
 
 ## Starter permissions
 
-In a terminal, `ub-agents init` asks once whether to turn on the examples below for all four starter agents. Otherwise they stay commented out in `ub-agents.yaml`.
+`ub-agents init` writes one commented top-level `runtime-args` mapping entry for the selected CLI. In a terminal it asks once whether to enable that entry for all four starter agents. Otherwise it stays commented out in `ub-agents.yaml`. The list examples below belong inside individual agent definitions.
 
 ## Codex
 
@@ -50,13 +50,34 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 runtime-args: [--add-dir, "{scratch}"]
 ```
 
-## Alternatives share arguments
+## Arguments for alternatives
 
-`runtime-args` apply to every runtime in a list. Use CLI-specific flags only on agents with a single runtime.
+Declare a top-level `runtime-args` mapping to give Claude and Codex their own arguments once, independent of the agents:
+
+```yaml
+runtime-args:
+  codex: [--sandbox, danger-full-access, -c, 'mcp_servers.example.enabled=true']
+  claude: [--permission-mode, acceptEdits, --permission-prompts, none,
+           --allowedTools, "Bash(git *)", "Bash(gh *)",
+           "Bash({report_command} report *)", "Bash({report_command} read *)",
+           --add-dir, "{scratch}"]
+agents:
+  reviewer:
+    runtime: ["codex:gpt-6.1-sol:xhigh", "claude:claude-opus-5-5:xhigh"]
+    instructions: .agents/reviewer.md
+    trigger: needs-review
+    outcomes: {approved: {add: [ready-to-merge]}}
+```
+
+Runtime agents inherit the top-level mapping when they omit their own `runtime-args`; command agents do not inherit it. Only the selected CLI's arguments are appended, including when a later run switches alternatives. A missing or empty CLI entry adds no arguments. Top-level keys must be `codex` or `claude`; values must be lists of strings. Every entry is validated, including CLIs no agent currently uses.
+
+An agent's own `runtime-args` replaces the entire top-level mapping. It can be a list applying to every alternative or a mapping whose keys also appear in the agent's runtime list. An omitted CLI key in an agent mapping receives no arguments from the top level. An explicit `[]` or `{}` disables the defaults. YAML aliases can selectively reuse argument lists.
+
+Upgrade every launcher before adopting top-level `runtime-args` or agent mappings. Older builds reject these forms.
 
 ## Check
 
-`ub-agents doctor` warns about runtime agents without `runtime-args`. It does not test whether the arguments grant enough.
+`ub-agents doctor` warns when a runtime agent's effective arguments, after inheritance or replacement, leave any listed CLI with missing or empty arguments. Configure the top-level mapping or agent overrides to cover those CLIs. It does not test whether the arguments grant enough.
 
 ```sh
 ub-agents doctor
