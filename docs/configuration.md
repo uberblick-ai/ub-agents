@@ -26,7 +26,7 @@ The launcher pins its repository and input configuration; worktree edits and
 | `agents` | The agents, by name. |
 | `shared-instructions` | Optional project policy file, relative to the configuration file and inside the project; read before every role's instructions. |
 | `limits` | Default clocks and retry limits for every agent. |
-| `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
+| `poll-seconds` | Minimum gap between discovery-pass starts, except immediately after running or recovering work (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `checkout-setup` | Optional control-checkout setup command, run after refresh when watched files change. |
@@ -131,14 +131,14 @@ Snapshots are never read for claims, coordination or recovery.
 
 `poll-seconds` measures the minimum time between the starts of successful
 continuous discovery passes, including observation passes during a run.
-A run's report, transitions and cleanup finish
-immediately; after a pass that ran or recovered work, the launcher waits for the
-part of that interval still remaining since the latest pass started. If that
-pass already took the interval, the
-next pass starts immediately. See
+A run's report, transitions and cleanup finish immediately. After a pass that ran
+or recovered work, the next claiming pass starts immediately, whether the run
+ended as success, retry or blocked. The interval then counts from that new pass's
+start; the latest in-run observation does not delay it. Rate-limit waits, runtime
+usage pauses, failed-poll retry backoff and graceful stops still apply. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 waits. Failed-poll retry delays below are independent of this interval, and
-`launch --once` never waits after its pass.
+`launch --once` and `launch N` never wait after their pass.
 
 When no open issue or PR has a configured trigger label, `launch` and
 `launch --once` list the trigger labels and say to add one to start. Continuous
@@ -163,7 +163,8 @@ queue without claiming, recovering, approval-parking or printing plan or idle li
 Only completed observation passes replace the snapshot's queue rows; a failed or
 rate-limited pass retains the previous rows and cannot interrupt execution,
 heartbeats, reporting, transitions or cleanup, or stop the launcher.
-After the run, the next claiming pass returns to normal `poll-seconds` pacing.
+After the run, fresh claiming discovery starts immediately, retaining any active
+observation rate-limit wait. An empty claiming pass resumes the budget pacing above.
 
 The launcher retains `X-RateLimit-Remaining`, `X-RateLimit-Limit` and
 `X-RateLimit-Reset` from the latest response for each `X-RateLimit-Resource`
@@ -255,8 +256,9 @@ wait metadata falls back to **one minute**. Each wait is capped at **one hour**;
 afterward the read is retried, and another rate limit starts another wait.
 
 Time spent waiting for a rate limit counts toward the `poll-seconds` or empty-pass
-budget gap between discovery-pass starts. A completed pass waits only for any gap
-still left; if the wait or run already used that time, the next pass starts immediately.
+budget gap between discovery-pass starts. An empty pass waits only for any gap
+still left. A pass that ran or recovered work starts the next pass immediately
+after any active rate-limit wait.
 
 Rate-limited reads do not count toward the poll failure limit or an item's attempts.
 Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)`

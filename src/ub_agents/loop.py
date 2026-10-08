@@ -64,6 +64,7 @@ class Loop:
         self._observer_lock = threading.RLock()
         self._continuous = False
         self._run_planning = None
+        self._planning_rate_until = None
         self._planning_workers = []
         self.poll_now = None
         self.updates = None
@@ -706,7 +707,7 @@ class Loop:
 
     def _stop_planning(self):
         if self._run_planning is not None:
-            self._pass_started = self._run_planning.cancel()
+            self._planning_rate_until = self._run_planning.cancel()
             self._run_planning = None
 
     def github_ready(self):
@@ -1356,6 +1357,7 @@ class Loop:
 
     def _launch(self, once):
         self.usage.reset()
+        self._planning_rate_until = None
         self._continuous = not once
         self.github.discovery = not once
         self._observe("configure", self.config, self.coordinator.actor, self.config_path)
@@ -1409,21 +1411,30 @@ class Loop:
                 if not worked and self._launch_number is None and self._has_trigger is False:
                     self.output(self.idle_message())
                 return (0 if worked else 1) if self._launch_number is not None else None
-            elapsed = monotonic() - self._pass_started
-            interval = self.config.poll_seconds
             if worked:
                 idle_state = None
-            else:
-                requests = self.github.quota_requests - requests_before
-                interval, low = idle_interval(requests, interval,
-                                              self.github.resource_quotas,
-                                              self.coordinator.clock(), elapsed)
-                interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
-                message = self.idle_message()
-                if idle_state != (low, message):
-                    self.output(f"{message}; next poll in {poll_delay(max(0, interval - elapsed))} "
-                                f"({requests} requests last poll)")
-                idle_state = (low, message)
+                # Start fresh claiming discovery as soon as work settles. An
+                # observation's quota pacing must not delay the next claim, but
+                # its actual rate-limit wait still applies after cancellation.
+                until = self._planning_rate_until
+                self._planning_rate_until = None
+                delay = max(0, until - self.coordinator.clock()) if until is not None else 0
+                if delay:
+                    self.output(f"GitHub rate limit reached; waiting until {iso(until)} ({delay / 60:g} min)")
+                    with self.poll_now.rate_limit(until) if self.poll_now is not None else nullcontext():
+                        self._wait(self.stop_event, delay, "rate-limit reset")
+                continue
+            elapsed = monotonic() - self._pass_started
+            requests = self.github.quota_requests - requests_before
+            interval, low = idle_interval(requests, self.config.poll_seconds,
+                                          self.github.resource_quotas,
+                                          self.coordinator.clock(), elapsed)
+            interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
+            message = self.idle_message()
+            if idle_state != (low, message):
+                self.output(f"{message}; next poll in {poll_delay(max(0, interval - elapsed))} "
+                            f"({requests} requests last poll)")
+            idle_state = (low, message)
             delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
                 self._wait(self.stop_event, delay, "next poll or runtime pause")

@@ -130,9 +130,11 @@ Claim order puts existing work first, then milestone, priority, age and number.
 Continuous launch refreshes the queue with complete read-only planning passes
 while an assignment runs; a failed pass keeps the previous rows.
 
-With no assignment, Running shows one dim placeholder line,
-`Idle · nothing eligible for this launcher`. It is not a work item and has no
-log, Issue or Runs content. The line truncates to the pane width when needed.
+With no assignment, Running shows one dim placeholder line: `Idle · polling`
+while a pass is in progress, including the immediate pass after a run. It reads
+`Idle · nothing eligible for this launcher` only after a complete pass found
+nothing this launcher can claim. It is not a work item and has no log, Issue or
+Runs content. The line truncates to the pane width when needed.
 When no row is selected, the Log status line reads
 `○ Idle · waiting for the next poll`. Plans claimed by other launchers do not
 appear in the Work pane; their runs remain in an item's Runs tab.

@@ -2144,6 +2144,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_idle_placeholder_is_one_dim_inert_line_and_running_stays_first(self):
         assignment = self.state['assignment']
         self.state['assignment'] = None
+        self.state['latest_pass']['state'] = 'complete'
         self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][2]]
         self.state['outcomes'] = []
         publish_snapshot(self.path, self.state)
@@ -2176,6 +2177,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app.reading.page)
             self.assertIsNone(app.pane.selected)
             self.assertIn('○ Idle · waiting for the next poll', app.query_one('#run_status', Static).render().plain)
+            self.state['latest_pass']['state'] = 'partial'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.idle_node.label.plain == '    Idle · polling')
+            self.assertIs(app.idle_node, idle)
+            self.state['latest_pass']['state'] = 'complete'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: 'nothing eligible' in app.idle_node.label.plain)
             await pilot.press('2', '3', '1')
             self.assertEqual(transport.calls, [])
             self.state['latest_pass']['rows'].append(
@@ -2192,6 +2200,19 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([node.label.plain for node in tree.root.children],
                              ['Running · 1', 'Needs attention · 1'])
             self.assertEqual([node.data for node in app.groups['Running'].children], ['assignment:owned-run'])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_completed_observation_with_next_item_keeps_idle_polling(self):
+        self.state['assignment'] = None
+        self.state['latest_pass']['state'] = 'complete'
+        self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][1]]
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.idle_node is not None)
+            self.assertEqual(app.idle_node.label.plain, '    Idle · polling')
+            self.assertEqual(app.pane.next, 'plan:12')
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -2880,7 +2901,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
                                  len(app.groups['Eligible'].children) == 10 and
-                                 tree.virtual_size.height > tree.size.height)
+                                 tree.virtual_size.height > tree.size.height and tree.max_scroll_y > 0)
                 tree.get_node_at_line(0)
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
                 self.assertTrue(separators <= tree._spacer_lines)

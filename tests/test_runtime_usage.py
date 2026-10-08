@@ -405,6 +405,33 @@ class UsageLoopTests(unittest.TestCase):
         loop.usage.limit("claude", self.now + 100)
         self.assertEqual(next(p for p in loop.plans() if p.agent.name == "reviewer").state, "waiting")
 
+    def test_post_run_discovery_preserves_usage_pause_before_next_claim(self):
+        self.loop.config = replace(self.loop.config, poll_seconds=120)
+        runs, waits = [], []
+        limited = self.runtime(claude(self.start + 30))
+
+        def run(*args, **kwargs):
+            runs.append(self.now)
+            if len(runs) == 1:
+                return limited(*args, **kwargs)
+            self.assertIsNone(self.loop.usage.paused('claude'))
+            self.loop.coordinator.report(self.loop.github.lease, 'success', 'Completed', outcome='done')
+            self.loop.stop_event.set()
+            return 0
+
+        def wait(delay):
+            waits.append(delay)
+            self.assertEqual(runs, [self.start])
+            self.assertEqual(self.loop.plans()[0].state, 'waiting')
+            self.now += delay
+
+        with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
+                patch('ub_agents.loop.supervise', side_effect=run), \
+                patch.object(self.loop.stop_event, 'wait', side_effect=wait):
+            self.loop.launch()
+        self.assertEqual(runs, [self.start, self.start + 90])
+        self.assertEqual(waits, [90])
+
     def test_all_paused_keeps_polling_and_wakes_by_earliest_expiry(self):
         self.loop.config = replace(self.loop.config, poll_seconds=5000)
         starts, waits = [], []

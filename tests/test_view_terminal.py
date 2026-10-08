@@ -1193,7 +1193,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 idle = terminal.checkpoint(lambda value: value['sections'] == ['Running · 0'] and value['idle'])
                 self.assertIsNone(idle['selected'])
                 self.assertEqual(idle['nodes'], [])
-                self.assertEqual(idle['idle'], '    Idle · nothing eligible for this launcher')
+                self.assertEqual(idle['idle'], '    Idle · polling')
                 self.assertTrue(idle['idle_dim'])
                 self.assertIn('○ Idle · waiting for the next poll', idle['run_status'])
                 self.assertIn(b'Idle', transcript)
@@ -1201,7 +1201,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertIsNone(terminal.checkpoint()['selected'])
                 state.update(latest_pass={'state': 'complete', 'rows': []}, outcomes=outcomes)
                 publish_snapshot(path, state)
-                newest = terminal.checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
+                newest = terminal.checkpoint(lambda value: value['idle'] == '    Idle · nothing eligible for this launcher'
+                                     and value['selected'] == 'outcome:previous-run'
                                     and value['anchor'] is not None)
                 self.assertEqual(newest['sections'], ['Running · 0'])
                 self.assertEqual(newest['focus'], 'recent')
