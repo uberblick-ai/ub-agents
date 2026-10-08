@@ -8,6 +8,15 @@ While a new run's log file has not appeared yet, Log shows `No log output yet.`
 without a read error and follows output automatically once it appears. Other read
 failures, including a log that disappears after being read, still show `Read error`.
 
+Open Issue with `2`, a tab click, or select another item while Issue is active to
+load its missing title and description from GitHub. It shows `Loading #N…` while
+the read is pending, then caches the result. Reopening a cached item makes no read;
+press `g` to retry a failure. Descriptions are limited to 2,048 characters with a
+shortening notice. The session snapshot carries no description text and keeps
+Running, Needs attention and the first ten Eligible items ahead of hidden plans
+and older history; Eligible's heading keeps the full count when hidden plans are
+left out to fit the size limit.
+
 Pane and overlay scrollbars stay hidden until you scroll. Each muted bar uses
 one reserved column, so appearing or disappearing never shifts the content.
 It hides after 1.5 seconds of inactivity; hovering or dragging keeps it visible.

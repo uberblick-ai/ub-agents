@@ -15,7 +15,7 @@ from .github import closing_issues
 from .eligibility import AgentMatches
 from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from .run_config import run_directory
-from .view_data import omitted_plan, plan_group
+from .view_data import ELIGIBLE_LIMIT, Session, work_rows
 from . import __version__
 from .launcher_code import descriptors, helper_command
 
@@ -24,15 +24,10 @@ MAX_PLANS = 100
 MAX_OUTCOMES = 20
 MAX_ADVISORIES = 128
 MAX_TEXT = 2048
-DESCRIPTION_PREVIEW = 256
 MAX_BYTES = 64 * 1024
 HEARTBEAT_SECONDS = 5
 STALE_SECONDS = 30
 RETAINED_SESSIONS = 20
-
-
-def unavailable(reason):
-    return {"available": False, "reason": reason}
 
 
 class Publisher:
@@ -219,6 +214,17 @@ class Observations:
                 for key in shortened:
                     shortened[key] += row.get("shortened", {}).get(key, 0)
         state["shortened"] = shortened
+        # Use the view's grouping and order, including merged Eligible items and
+        # ready/recovery plans before delayed plans. Pass order alone is not the
+        # order of the rows a person sees.
+        work = work_rows(Session(self.root / ".ub-agents/sessions/observation.json", state), self.root)
+        eligible = [row for row in work if row.group == "Eligible"]
+        if state["latest_pass"]:
+            state["latest_pass"]["eligible_count"] = len(eligible)
+        visible = [row for row in work if row.group == "Needs attention"] + eligible[:ELIGIBLE_LIMIT]
+        protected = {(plan["item"], plan["agent"]) for row in visible
+                     for plan in (row.eligible_plans or (row.data,))}
+        attention = {str(row.item) for row in visible if row.group == "Needs attention"}
         while True:
             data = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             if len(data) <= MAX_BYTES:
@@ -228,29 +234,10 @@ class Observations:
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
-            assignment = state["assignment"] or {}
-            attention = {str(row["item"]) for row in rows
-                         if not omitted_plan(row) and plan_group(row) == "Needs attention"
-                         and (row.get("item"), row.get("agent")) !=
-                         (assignment.get("item"), assignment.get("agent"))}
-            # Preserve notices for visible attention rows before previews and
-            # surplus history. Only this publication's copy loses text.
+            # Preserve notices for visible attention rows before surplus
+            # history. Only this publication's copy loses text.
             notices = state["action_needed"]
             excess = self.omit_notices(notices, (key for key in notices if key not in attention), excess)
-            # Prefer a shorter, still-available description over losing history.
-            # Work on this publication's copy, never the retained launcher state.
-            previews = [row["description"] for row in rows if row.get("description", {}).get("available")
-                        and len(row["description"].get("text", "")) > DESCRIPTION_PREVIEW]
-            for description in sorted(previews, key=lambda d: self.byte_size(d), reverse=True):
-                if excess <= 0:
-                    break
-                before = self.byte_size(description)
-                omitted = len(description["text"]) - DESCRIPTION_PREVIEW
-                description["text"] = description["text"][:DESCRIPTION_PREVIEW]
-                description["omitted_characters"] += omitted
-                state["shortened"]["fields"] += 1
-                state["shortened"]["characters"] += omitted
-                excess -= before - self.byte_size(description)
             # Omit globally oldest surplus runs, preserving the newest run of
             # every referenced item, including the current assignment.
             while excess > 0:
@@ -264,22 +251,62 @@ class Observations:
                 row = history["runs"].pop(0)
                 excess -= self.byte_size(row) + 1
                 history["omitted_runs"] += 1
+            # Older outcomes and plans outside the visible sections go before
+            # any visible plan, together with their unreferenced histories.
+            while excess > 0 and state["outcomes"]:
+                excess = self.omit_row(state, "outcomes", state["outcomes"], 0, excess)
+            for row in reversed(tuple(rows)):
+                if excess <= 0:
+                    break
+                if (row["item"], row["agent"]) not in protected:
+                    excess = self.omit_row(state, "plans", rows, rows.index(row), excess)
             excess = self.omit_notices(notices, (key for key in notices if key in attention), excess)
-            # If even one run per item cannot fit, omit later plans and older
-            # session outcomes together with histories no longer referenced.
-            for key, group, index in (("plans", rows, -1), ("outcomes", state["outcomes"], 0)):
-                while excess > 0 and group:
-                    row = group.pop(index)
-                    excess -= len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
-                    state["omitted"][key] += 1
-                    for history in self.prune_histories(state):
-                        excess -= len(json.dumps(history, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+            # Long visible titles and reasons can themselves fill the envelope.
+            # Shorten display text before losing a visible item or its newest run.
+            for limit in (512, 128, 32):
+                if excess <= 0:
+                    break
+                excess = self.shorten_visible(state, limit, excess)
+            # If even the remaining metadata cannot fit, keep the earliest
+            # visible items longest and never drop the assignment.
+            for work_row in reversed(visible):
+                for plan in reversed(work_row.eligible_plans or (work_row.data,)):
+                    index = next((i for i, row in enumerate(rows)
+                                  if (row["item"], row["agent"]) == (plan["item"], plan["agent"])), None)
+                    if excess > 0 and index is not None:
+                        excess = self.omit_row(state, "plans", rows, index, excess)
             if excess > 0:
                 raise ValueError("Observation envelope exceeds its size limit")
 
     @staticmethod
     def byte_size(value):
         return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+    @classmethod
+    def omit_row(cls, state, kind, group, index, excess):
+        excess -= cls.byte_size(group.pop(index)) + 1
+        state["omitted"][kind] += 1
+        for history in cls.prune_histories(state):
+            excess -= cls.byte_size(history) + 1
+        return excess
+
+    @classmethod
+    def shorten_visible(cls, state, limit, excess):
+        rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+        for row in [*rows, *state["histories"].values()]:
+            before = cls.byte_size(row)
+            counts = row.setdefault("shortened", {"fields": 0, "characters": 0})
+            for entry in [row, *row.get("runs", ())]:
+                for field in ("title", "reason", "attention_reason", "summary", "rejection"):
+                    value = entry.get(field)
+                    if isinstance(value, str) and len(value) > limit:
+                        omitted = len(value) - limit
+                        entry[field] = value[:limit]
+                        for total in (counts, state["shortened"]):
+                            total["fields"] += 1
+                            total["characters"] += omitted
+            excess -= before - cls.byte_size(row)
+        return excess
 
     @classmethod
     def omit_notices(cls, notices, keys, excess):
@@ -504,10 +531,7 @@ class Observations:
                "priority": plan.priority.rsplit(":", 1)[-1] if plan.priority else None,
                "runtime": plan.runtime.name if plan.runtime else None,
                "failures": plan.attempt - 1, "max_attempts": plan.agent.max_attempts,
-               "observed_at": iso(self.clock()), "description": (
-                   {"available": True, "text": plan.item.body,
-                    "omitted_characters": max(0, len(plan.item.body) - MAX_TEXT)}
-                   if isinstance(plan.item.body, str) else unavailable("Description was not read")),
+               "observed_at": iso(self.clock()),
                "owner": None}
         row.update(attention_details(plan, self.stop_labels, notice))
         summary = row.get("attention_reason")
