@@ -565,10 +565,10 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(replay.returncode, 0)
 
     # One test per quit key, so a parallel run spreads them over cores.
-    def test_real_terminal_explicit_load_cache_and_q_during_hung_request(self):
+    def test_real_terminal_load_on_open_cache_and_q_during_hung_request(self):
         self.check_load_cache_and_quit_during_hung_request(b'q')
 
-    def test_real_terminal_explicit_load_cache_and_interrupt_during_hung_request(self):
+    def test_real_terminal_load_on_open_cache_and_interrupt_during_hung_request(self):
         self.check_load_cache_and_quit_during_hung_request(b'\x03')
 
     def check_load_cache_and_quit_during_hung_request(self, quit_key):
@@ -629,12 +629,10 @@ raise SystemExit(main())
                     terminal.send(b'2')
                     terminal.checkpoint(lambda value: value['tab'] == 'issue'
                                         and value['key'] == ['example/repo', 114]
-                                        and 'Press g on Issue' in value['note'])
-                    self.assertEqual(recorded(), [])
-                    terminal.send(b'g')
-                    terminal.expect(b'Loading title/body', lambda _: len(recorded()) == 1)
+                                        and 'Loading #114' in value['note'])
+                    terminal.expect(b'Loading #114', lambda _: len(recorded()) == 1)
                     terminal.checkpoint(lambda value: value['pending'] == ['example/repo', 114]
-                                        and 'Loading title/body' in value['note'])
+                                        and 'Loading #114' in value['note'])
                     def cached_keys(keys, pending):
                         tab = 'issue'
                         for key in keys:
@@ -670,16 +668,15 @@ raise SystemExit(main())
                                         and 'Description shortened' in value['note'])
                     self.assertEqual(len(recorded()), 1)
                     # A new selected item has no local or in-memory description.
+                    mode.write_text('hang')
                     state['assignment']['item'] = 116
                     publish_snapshot(path, state)
-                    # The old item's prompt can still be in the PTY transcript.
+                    # Selection while Issue is active starts the next read.
                     terminal.checkpoint(lambda value: value['key'] == ['example/repo', 116]
-                                        and value['tab'] == 'issue' and 'Press g on Issue' in value['note'])
-                    mode.write_text('hang')
-                    terminal.send(b'g')
-                    terminal.expect(b'Loading title/body', lambda _: len(recorded()) == 2)
+                                        and value['tab'] == 'issue' and 'Loading #116' in value['note'])
+                    terminal.expect(b'Loading #116', lambda _: len(recorded()) == 2)
                     terminal.checkpoint(lambda value: value['pending'] == ['example/repo', 116]
-                                        and 'Loading title/body' in value['note'])
+                                        and 'Loading #116' in value['note'])
                     owned_pid = recorded()[-1]['pid']
                     os.kill(owned_pid, 0)
                     terminal.resize(120, 36)

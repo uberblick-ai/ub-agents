@@ -142,6 +142,7 @@ class CompletedItemTests(unittest.TestCase):
         github.change(1, state="closed")
         self.assertFalse(loop.tick())
         self.assertEqual(memory.snapshots[-1]["latest_pass"],
-                         {"started_at": observer.state["latest_pass"]["started_at"], "state": "complete", "rows": []})
+                         {"started_at": observer.state["latest_pass"]["started_at"], "state": "complete",
+                          "rows": [], "eligible_count": 0})
         self.assertEqual(memory.snapshots[-1]["outcomes"], [])
         self.assertEqual(github.writes, before)
