@@ -7,7 +7,7 @@ import time
 
 from .view_data import Description, description_text, mapping, text
 from .attention import attention_state, stamp, waiting_time
-from .notices import retry_command
+from .notices import outcome_resume, retry_command
 
 ACTION_MARKER = '<!-- ub-agents:action-needed '
 LINKS = re.compile(r'^\[Claim\]\(.*?\) · (?:\[Outcome\]\(.*?\)|No outcome was reported\.)$')
@@ -34,6 +34,17 @@ def comment_sections(body):
     if details.endswith('\n\n</details>'):
         details = details[:-len('\n\n</details>')]
     return visible.strip(), details.strip()
+
+
+def resume_section(body):
+    """Extract the separate PR resume fold from the visible notice portion."""
+    wrapper = re.search(r'<details>\n<summary>(To send it back to [^<\n]+ instead)</summary>\n\n', body)
+    if not wrapper:
+        return body, '', ''
+    steps = body[wrapper.end():].rstrip()
+    if steps.endswith('\n\n</details>'):
+        steps = steps[:-len('\n\n</details>')]
+    return body[:wrapper.start()].strip(), wrapper[1], steps.strip()
 
 
 def trust_reason(author, authors):
@@ -100,11 +111,12 @@ def unblock_body(row, comment):
         return comment.body
     if row and row.state == 'blocked' and needs_attention(row):
         reason = description_text(row.reason)
-        return (f"{reason}\n\nThen resume {text(row.agent)}:\n\n```sh\n"
-                f"{retry_command(row.item, row.agent)}\n```\n\n"
-                "Restore a matching trigger if absent; remove any stop label. "
-                "Use these steps only when resuming the same role; follow the project's "
-                "correction or handoff route if a different role must act next.")
+        steps = (f"```sh\n{retry_command(row.item, row.agent)}\n```\n\n"
+                 "Restore a matching trigger if absent; remove any stop label. "
+                 "Use these steps only when resuming the same role; follow the project's "
+                 "correction or handoff route if a different role must act next.")
+        resume = outcome_resume(row.item, text(row.agent), steps, is_pr=row.data.get('kind') == 'pr')
+        return f"{reason}\n\n{resume}"
     return ''
 
 
