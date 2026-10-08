@@ -623,18 +623,24 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual(snapshot['action_needed'].get('1'), previous['action_needed']['1'])
         self.assertEqual(snapshot['histories']['1'], previous['histories']['1'])
 
-    def test_after_run_wait_uses_latest_observation_start_and_only_poll_seconds(self):
+    def test_after_run_starts_next_pass_immediately_then_paces_empty_pass(self):
+        self.loop.config = replace(self.cfg, poll_seconds=120)
         waits = []
         ticks = []
 
         def tick():
             ticks.append(self.now)
-            if len(ticks) == 2:
+            if len(ticks) == 3:
                 self.loop.stop_event.set()
                 return False
+            if len(ticks) == 2:
+                self.now += 5
+                return False
             self.now = 1144  # A costly observation starts during the run.
-            self.loop._pass_started = self.now
-            self.now += 7  # Reporting and cleanup take seven seconds.
+            worker = RunPlanning(self.loop, self.now)
+            self.loop._run_planning = worker
+            self.now += 5  # Reporting and cleanup take five seconds.
+            self.loop._stop_planning()
             return True
 
         def wait(event, delay, reason):
@@ -645,5 +651,114 @@ class RunPlanningTests(unittest.TestCase):
                 patch.object(self.loop, 'tick', side_effect=tick), \
                 patch.object(self.loop, '_wait', side_effect=wait):
             self.loop.launch()
-        self.assertEqual(ticks, [1000, 1174])
-        self.assertEqual(waits, [23])
+        self.assertEqual(ticks, [1000, 1149, 1269])
+        self.assertEqual(waits, [115])
+
+    def test_post_run_pass_claims_next_ready_item_for_every_result(self):
+        for result in ('success', 'retry', 'blocked'):
+            with self.subTest(result=result):
+                self.setUp()
+                role = replace(self.cfg.agents[0], max_attempts=1, lease_seconds=LEASE_SECONDS,
+                               outcomes={'done': {'add': (), 'remove': ('ready',)}})
+                self.loop.config = replace(self.cfg, poll_seconds=120, agents=(role,))
+                runs = []
+
+                def supervise(*args, **kwargs):
+                    lease = self.loop.github.lease
+                    runs.append((lease['assignment'], self.now))
+                    if len(runs) == 1:
+                        # Publish the same ready queue an in-run refresh sees.
+                        self.now = 1144
+                        worker = self.loop._run_planning
+                        with worker.lock:
+                            worker.started = self.now
+                        events = PassEvents()
+                        worker.planner.observer = events
+                        list(worker.planner.iter_plans())
+                        self.observer.observation_pass(self.now, events.events)
+                        self.now += 5
+                        fields = {'outcome': 'done'} if result == 'success' else {}
+                        if result == 'blocked':
+                            fields['action'] = 'Maintainer: resolve the blocked item before retrying.'
+                        self.loop.coordinator.report(lease, result, 'Finished', **fields)
+                    else:
+                        self.loop.coordinator.report(lease, 'success', 'Next item', outcome='done')
+                        self.loop.stop_event.set()
+                    return 0
+
+                with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
+                        patch('ub_agents.loop.supervise', side_effect=supervise), \
+                        patch.object(self.loop.stop_event, 'wait') as wait:
+                    self.loop.launch()
+                self.assertEqual(runs, [(1, 1000), (2, 1149)])
+                wait.assert_not_called()
+                self.assertEqual(self.loop.coordinator.history(1)[0]['result'], result)
+
+    def test_observation_rate_limit_wait_survives_run_completion(self):
+        self.loop.enable_poll_now()
+        waits, ticks = [], []
+
+        def tick():
+            ticks.append(self.now)
+            if len(ticks) == 2:
+                self.loop.stop_event.set()
+                return False
+            worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+            self.loop._run_planning = worker
+            limited = GitHubError('GET', 'items', 'rate limit', rate_limited=True, reset_at=1200)
+
+            def waiting(delay, rate_until):
+                if rate_until is not None:
+                    self.now += 5
+                    return True
+                self.now += delay
+                return False
+
+            with patch.object(worker, '_wait', side_effect=waiting), \
+                    patch.object(worker.planner, 'iter_plans', side_effect=limited):
+                worker._run()
+            self.loop._stop_planning()
+            return True
+
+        def wait(event, delay, reason):
+            waits.append((delay, reason))
+            self.assertEqual(self.memory.snapshots[-1]['poll_now']['rate_limit_until'], iso(1200))
+            self.loop.request_poll()
+            self.now += delay
+
+        with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
+                patch.object(self.loop, 'tick', side_effect=tick), \
+                patch.object(self.loop, '_wait', side_effect=wait):
+            self.loop.launch()
+        self.assertEqual(ticks, [1000, 1200])
+        self.assertEqual(waits, [(165, 'rate-limit reset')])
+
+    def test_recovered_work_starts_next_claiming_pass_immediately(self):
+        self.loop.config = replace(self.cfg, poll_seconds=120)
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan, self.cfg.stop_labels)
+        self.loop.coordinator.update(lease, state='running', started=True)
+        self.loop.coordinator.report(lease, 'success', 'Recover me', outcome='done')
+        self.now += LEASE_SECONDS + 1
+        started = self.now
+        ticks = []
+        tick = self.loop.tick
+
+        def discover():
+            ticks.append(self.now)
+            if len(ticks) == 2:
+                self.loop.stop_event.set()
+                return False
+            worked = tick()
+            self.now += 5
+            return worked
+
+        with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
+                patch.object(self.loop, 'tick', side_effect=discover), \
+                patch.object(self.loop.stop_event, 'wait') as wait, \
+                patch('ub_agents.loop.supervise') as supervise:
+            self.loop.launch()
+        self.assertEqual(ticks, [started, started + 5])
+        self.assertTrue(any('recovered durable outcome' in line for line in self.lines))
+        wait.assert_not_called()
+        supervise.assert_not_called()

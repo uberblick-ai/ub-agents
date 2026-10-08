@@ -853,9 +853,14 @@ class View(App):
                 if not section.idle and self.idle_node is not None:
                     self.idle_node.remove()
                     self.idle_node = None
-                elif section.idle and self.idle_node is None:
-                    self.idle_node = group.add_leaf(
-                        Text('    Idle · nothing eligible for this launcher', style='dim'))
+                elif section.idle:
+                    complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
+                    reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
+                    label = Text(f'    Idle · {reason}', style='dim')
+                    if self.idle_node is None:
+                        self.idle_node = group.add_leaf(label)
+                    elif self.idle_node.label != label:
+                        self.idle_node.set_label(label)
             for index, row in enumerate(section.rows):
                 value = (row, row.key == pane.next, stopping, tree.claim_times.get(row.key))
                 old_value = self._work_values.get(row.key)

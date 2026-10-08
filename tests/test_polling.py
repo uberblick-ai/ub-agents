@@ -150,13 +150,13 @@ class PollingTests(unittest.TestCase):
 
         def wait(delay):
             delays.append(delay)
-            if len(delays) == 3:
+            if len(delays) == 2:
                 self.loop.stop_event.set()
 
         with patch("ub_agents.loop.supervise", side_effect=execute), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(delays, [5, self.config.poll_seconds, 5])
+        self.assertEqual(delays, [5, 5])
 
     def test_poll_retries_preserve_item_failures_and_success_resets_them(self):
         lease = self.loop.coordinator.claim(self.loop.plans()[0])
@@ -196,7 +196,7 @@ class PollingTests(unittest.TestCase):
         with patch("ub_agents.loop.supervise", side_effect=execute), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(delays, [5, self.config.poll_seconds, 5])
+        self.assertEqual(delays, [5, 5])
         self.assertEqual(executions, [2, 3])
         self.assertEqual(count(), 0)
 
@@ -746,15 +746,22 @@ class PollingTests(unittest.TestCase):
                             patch.object(self.loop.stop_event, "wait", side_effect=wait), \
                             self.assertRaises(KeyboardInterrupt):
                         self.loop.launch()
-                    self.assertEqual(starts, [100, 100 + max(30, duration)])
-                    self.assertEqual(waits, [30 - duration] if duration < 30 else [])
+                    gap = duration if worked else max(30, duration)
+                    self.assertEqual(starts, [100, 100 + gap])
+                    self.assertEqual(waits, [30 - duration] if not worked and duration < 30 else [])
 
-    def test_stop_wakes_gap_wait_after_work(self):
+    def test_graceful_stop_after_work_prevents_immediate_next_pass(self):
         self.loop.interrupt_event = threading.Event()
-        with patch.object(self.loop, "tick", return_value=True) as tick, \
-                patch.object(self.loop.stop_event, "wait", side_effect=lambda _: self.loop.stop_event.set()):
+
+        def finish():
+            self.loop.stop_event.set()
+            return True
+
+        with patch.object(self.loop, "tick", side_effect=finish) as tick, \
+                patch.object(self.loop.stop_event, "wait") as wait:
             self.loop.launch()
         tick.assert_called_once()
+        wait.assert_not_called()
 
     def test_once_never_waits_after_work(self):
         with patch.object(self.loop, "tick", return_value=True), \

@@ -2,6 +2,12 @@
 
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
+After a run or recovery finishes, continuous launch immediately checks for the
+next item, including after retry or blocked results. Rate-limit waits, runtime
+usage pauses and graceful stops still apply. With no assignment, Running shows
+`Idle · polling` during a pass, then `Idle · nothing eligible for this launcher`
+only after a complete pass with nothing claimable.
+
 Configured [agent health checks](/docs/configuration/agents.html#health-check) make otherwise-ready items wait in Eligible without spending attempts. The terminal view shows the latest failure, changed error or recovery in one line above the panes, also printed in plain launch output and `.ub-agents/launch.log`. Claiming resumes automatically when the check passes; other agents keep claiming while it fails.
 
 While a new run's log file has not appeared yet, Log shows `No log output yet.`

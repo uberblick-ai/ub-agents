@@ -23,8 +23,9 @@ delay rounded to whole seconds below a minute or whole minutes otherwise.
 Empty polls back off according to their REST quota cost, excluding unchanged
 reads confirmed by HTTP 304 and reserving half the common account quota for busy
 work when ten idle launchers share it. Low quota
-adds a wait bounded by the reset. A pass that runs or recovers work returns to
-normal `poll-seconds` pacing. The continuous loop retries transient GitHub
+adds a wait bounded by the reset. A pass that runs or recovers work starts the next
+claiming pass immediately, while retaining rate-limit waits and runtime usage pauses.
+The continuous loop retries transient GitHub
 discovery failures with bounded waits.
 Continuous launch waits out GitHub rate limits without charging poll failures or
 item attempts. Owned runs retry rate-limited reads while the lease permits; writes
