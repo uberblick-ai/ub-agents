@@ -249,6 +249,11 @@ completes. A new plan for the same item and agent, including recovery, replaces 
 prior row. Each re-planned item and agent updates in
 place, moving sections if its state changes; new rows follow the kept rows in
 their section, with ready/recovery rows always preceding delayed rows in Eligible.
+After a supervised run's outcome lands, the launcher re-plans that item for every
+configured agent before claiming again. Its matching rows appear immediately,
+including during a partial pass, and obsolete agent rows disappear. This display-only
+refresh reads that item's inputs without repository discovery or claims; a failed
+read leaves the run's result unchanged and the next pass proceeds normally.
 Completion removes omitted plans and applies the new planned order within each
 Eligible subgroup before merging plans for the same item. A selected removed
 Needs attention row leaves the Work list and count; its Issue and Runs details

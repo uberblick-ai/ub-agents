@@ -39,7 +39,7 @@ from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
 from .trust import LauncherTrust
-from .run_planning import RunPlanning
+from .run_planning import ObservationReads, RunPlanning
 from .run_config import run_config, run_directory
 
 POLL_RETRY_BASE_SECONDS = 5
@@ -98,6 +98,7 @@ class Loop:
         self._launch_agent = None
         self._launcher_reason = None
         self._has_trigger = None
+        self._active_milestone = None
         self._maintaining = False
         self._github_waiting = False
         self._github_reservation = None
@@ -260,12 +261,7 @@ class Loop:
         self._has_trigger = any(item.state == "open" and item.labels.intersection(triggers)
                                 for item in items.values())
         self._observe("discovered", items, self.config.agents, True)
-        coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
-                                  queue=self.config.queue, output=self.output,
-                                  runtime_available=self.maintenance.available,
-                                  runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role, trusted_bots=self.config.trusted_bots,
-                                  on_author=lambda *args: self._observe("coordination_author", *args))
+        coordinator = self._planning_coordinator(github)
         history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
         latest = latest_leases(history_index)
@@ -277,6 +273,7 @@ class Loop:
                 items[item.number] = item
         active_milestone = (self.github.active_milestone()
                             if self.config.queue.milestones == "gate" else None)
+        self._active_milestone = active_milestone
         milestones = (self.github.milestone_order()
                       if self.config.queue.milestones == "order" else ())
         milestone_ranks = {number: rank for rank, number in enumerate(milestones)}
@@ -380,14 +377,10 @@ class Loop:
             raise AgentError(f"Cannot read #{number}: {exc}") from exc
         self._observe("discovered", {item.number: item}, self.config.agents)
         agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
-        coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
-                                  queue=self.config.queue, output=self.output,
-                                  runtime_available=self.maintenance.available,
-                                  runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role, trusted_bots=self.config.trusted_bots,
-                                  on_author=lambda *args: self._observe("coordination_author", *args))
+        coordinator = self._planning_coordinator(github)
         active = (self.github.active_milestone() if item.kind == "issue" and item.state == "open"
                   and self.config.queue.milestones == "gate" else None)
+        self._active_milestone = active
         blockers = self._open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
         plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, active, blockers, agents,
@@ -400,13 +393,52 @@ class Loop:
                 yield plan
         return item, observed_plans()
 
-    def _observe_plan(self, plan, github):
+    def _planning_coordinator(self, github, observe=None):
+        observe = observe or self._observe
+        return Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
+                           queue=self.config.queue, output=self.output,
+                           runtime_available=self.maintenance.available,
+                           runtime_paused=self.usage.paused, launchers=self.config.launchers,
+                           role=github.current_role, trusted_bots=self.config.trusted_bots,
+                           on_author=lambda *args: observe("coordination_author", *args))
+
+    def _observe_plan(self, plan, github, observe=None):
         closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
         filing = github.observed_item(closing[0]) if closing else None
         authors = {login: role in {"write", "maintain", "admin"} and
                    (self.config.launchers is None or login in {a.casefold() for a in self.config.launchers})
                    for login, role in github.pass_roles.items()}
-        self._observe("plan", plan, filing, github.observed_comments(plan.item.number), authors)
+        (observe or self._observe)("plan", plan, filing, github.observed_comments(plan.item.number), authors)
+
+    def _replan_finished_item(self, plan):
+        # A cancelled worker cannot publish an older pass over this item's update.
+        self._stop_planning()
+        if self.observer is None:
+            return
+        events = []
+        def observe(method, *args):
+            events.append((method, args))
+        # Bypass in-run rate-limit retries and forbid writes. Failure here must
+        # neither change the settled verdict nor defer the next claiming pass.
+        github = Discovery(ObservationReads(self.github.github, self.interrupt_event))
+        github.scope = plan.item.number
+        try:
+            item = github.item(plan.item.number, plan.item.kind)
+            matches = AgentMatches.for_item(item, self.config.agents)
+            coordinator = self._planning_coordinator(github, observe)
+            blockers = self._open_blockers(item, github)
+            priority = self.config.queue.priority.effective(item.labels)
+            if plan.priority is not None and (plan.priority_source or plan.priority_from_issue):
+                labels = self.config.queue.priority.labels
+                if priority is None or labels.index(plan.priority) < labels.index(priority):
+                    priority = plan.priority  # Retain already-observed inheritance without a graph read.
+            for refreshed in self._item_plans(item, coordinator.clock(), github, coordinator,
+                                              matches, self._active_milestone, blockers, checked={}):
+                refreshed = replace(refreshed, priority=priority)
+                self._observe_plan(refreshed, github, observe)
+        except Exception:
+            return  # Discard incomplete observations; the normal pass retries.
+        self._observe("replanned_item", item.number, events)
 
     def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None,
                     *, reconcile_notices=False, checked=None, health_notices=False):
@@ -1115,6 +1147,7 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
                     completed=completing)
+        self._replan_finished_item(plan)
         diagnostic("released", result=result, summary=summary)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
