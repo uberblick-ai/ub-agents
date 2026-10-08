@@ -29,7 +29,7 @@ The launcher pins its repository and input configuration; worktree edits and
 | `poll-seconds` | Minimum gap between discovery-pass starts, except immediately after running or recovering work (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
-| `checkout-setup` | Optional control-checkout setup command, run after refresh when watched files change. |
+| `checkout-setup` | Optional setup command, run after watched control-checkout files change and when creating private worktrees. |
 | `runtime-updates` | Optional daily maintenance policy for Claude Code, Codex and the launcher's GitHub CLI (`gh`). |
 | `runtime-args` | Optional mapping from CLI (`codex`, `claude`) to default argument lists, inherited by runtime agents that omit their own `runtime-args`. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
@@ -334,14 +334,15 @@ checkout-setup:
 ```
 
 Use this to reinstall the control checkout's dependencies when a launcher pulls
-a lockfile or tool configuration change. Without `checkout-setup`, no command runs.
-`command` is a nonempty argv list, run without a shell in the control checkout.
+a lockfile or tool configuration change, and install dependencies in new private
+worktrees. Without `checkout-setup`, no command runs.
+`command` is a nonempty argv list, run without a shell in the checkout being set up.
 `when-changed` is a nonempty list of literal repository-relative file paths;
 absolute paths, directories and `..` components are rejected. Paths can name files added or
 deleted by the pull. `timeout-seconds` is a positive number, defaults to 600,
 and cannot exceed 3600. Unknown keys are errors.
 
-Before each new run, after fetching, fast-forwarding and reloading configuration,
+In the control checkout, before each new run, after fetching, fast-forwarding and reloading configuration,
 the launcher compares these files with the last commit where setup succeeded.
 Until the first successful setup, it uses the HEAD before the fast-forward.
 That baseline is saved before the fast-forward, so stopping launch or failing
@@ -358,11 +359,29 @@ or `~/.local/state/ub-agents/checkouts/`), keyed by the control checkout's path.
 The command should keep tracked files unchanged and use ignored paths for installed
 dependencies so the next refresh still has a clean checkout.
 
-A nonzero exit, start failure, timeout or interruption stops launch before a claim,
+A nonzero exit, start failure, timeout or interruption in control-checkout setup stops launch before a claim,
 without spending an attempt or marking the item blocked or retrying. The message
 names the cause, log and next step. Failed setup remains pending and runs again on
 the next launch, even with nothing to pull, until it succeeds. See
 [operations](operations.md#when-things-go-wrong) for recovery.
+
+For an agent with `worktree: true`, the launcher also runs the command once in
+each private worktree immediately after creating it, before the agent starts.
+`when-changed` applies only to the control checkout; a new worktree always needs
+its own dependencies. Shared-checkout agents run no additional setup command.
+Private setup uses the same environment and timeout as control-checkout setup.
+The terminal view and plain output say setup is running in the worktree; its
+output goes to `checkout-setup/process.log` in the run's log directory, separately
+from the agent's `process.log`.
+
+For a PR reviewer, setup installs the PR head's lockfile, so its install scripts
+run before the agent does; the agent would run them anyway to test the PR.
+A failure ends the run before the agent starts, cleans up the private worktree,
+and reports the cause and log as a workspace-preparation failure. Interruption
+terminates setup like an interrupted agent. Timeout and interruption terminate
+and confirm the whole process group; crash recovery requires confirmed termination
+before releasing the item or removing the worktree. The item's stop labels, open
+state, trigger labels and candidate head are checked again after setup finishes.
 
 **Upgrading:** Upgrade every launcher of a project before adding `checkout-setup`
 to its `ub-agents.yaml`; older versions reject the unknown key.

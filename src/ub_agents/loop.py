@@ -18,7 +18,7 @@ from .dependencies import Dependencies
 from .denials import collect_denials
 from .discovery import Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
-from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
+from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
 from .report_command import launcher_report_command
@@ -41,6 +41,7 @@ from .usage_output import UsageOutput
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
 from .run_config import run_config, run_directory
+from .worktree_setup import confirm_worktree_setup_stopped, run_worktree_setup
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -895,6 +896,13 @@ class Loop:
                                        shared_instructions=shared)
 
     def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):
+        def confirm_stopped(history):
+            # An expired setup has no agent outcome to recover. Use the claim's
+            # fresh history to confirm local groups before starting another run.
+            for previous in history:
+                if previous["kind"] == "lease" and previous.get("host") == socket.gethostname():
+                    confirm_worktree_setup_stopped(self.config, previous["run"])
+
         def authorize(current, matches):
             # Discovery may have reused an approval verdict's inputs. Recheck
             # them before the first write as well as after the claim election.
@@ -908,7 +916,8 @@ class Loop:
 
         self._observe("assignment", plan)
         lease = self.coordinator.claim(plan, self.config.stop_labels,
-                                       before_write=self._end_poll, authorize=authorize)
+                                       before_write=self._end_poll, authorize=authorize,
+                                       confirm_stopped=confirm_stopped)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False
@@ -997,13 +1006,20 @@ class Loop:
                     diagnostic("cleanup-unconfirmed", error=str(exc))
                 raise
 
+        def record_process(pid):
+            self.coordinator.assert_owned(lease)
+            self.coordinator.update(lease, process_group=pid)
+            self.coordinator.assert_owned(lease)
+
         def process_started(pid):
             if reservation is not None:
                 reservation.started()
-            self.coordinator.assert_owned(lease)
-            self.coordinator.update(lease, process_group=pid)
+            record_process(pid)
             self._observe("process", "running", "Supervision recorded a live process")
-            self.coordinator.assert_owned(lease)
+
+        def setup_process_started(pid):
+            record_process(pid)
+            self._observe("process", "running", "Checkout setup running in worktree")
 
         interrupted = False
         completing = False
@@ -1021,6 +1037,15 @@ class Loop:
             scratch.prepare()
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
+            if workspace.created and self.config.checkout_setup is not None:
+                run_worktree_setup(self.config, cwd, run_dir, self.interrupt_event, self.output,
+                                   lambda state: self._observe("activity", state),
+                                   expires=lambda: self.coordinator.deadline(lease),
+                                   process_started=setup_process_started,
+                                   pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()),
+                                   observe_output=lambda **_: self._poll_updates())
+                self._observe("process", "exited", "Supervision confirmed worktree setup has ended")
+                self._observe("activity", "running assignment")
             current = self.github.item(plan.item.number, plan.item.kind)
             if current.labels.intersection(self.config.stop_labels):
                 raise TransitionPaused("Stop label added before execution")
@@ -1105,7 +1130,7 @@ class Loop:
             cleanup_workspace(record=False)
             # Do not report, release, or accept after losing ownership.
             raise
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
             if completing:
                 diagnostic("transition-interrupted", outcome=outcome["id"] if outcome else None)
                 cleanup_workspace()
@@ -1116,6 +1141,8 @@ class Loop:
             interrupted = True
             effect = "unchanged"
             summary = "Launcher interrupted; attributable execution terminated"
+            if isinstance(exc, CheckoutSetupInterrupted):
+                summary += f"; {exc}"
             cleanup_workspace()
         except TransitionPaused as exc:
             result, summary, effect = "blocked", str(exc), "unchanged"
@@ -1338,6 +1365,7 @@ class Loop:
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
             return False
+        confirm_worktree_setup_stopped(self.config, outcome["run"])
         self._observe("assignment", plan)
         self._finalizing = True
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
