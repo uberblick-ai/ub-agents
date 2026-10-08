@@ -8,6 +8,12 @@ usage pauses and graceful stops still apply. With no assignment, Running shows
 `Idle · polling` during a pass, then `Idle · nothing eligible for this launcher`
 only after a complete pass with nothing claimable.
 
+When a supervised run's outcome lands, Work immediately refreshes that item's
+rows for every configured agent, even during a partial pass. Rows for its next
+role appear and obsolete rows disappear before the launcher claims again. This
+display refresh reads only that item's inputs; it makes no claims or repository
+discovery, and a failed read leaves the result and next pass unchanged.
+
 Configured [agent health checks](/docs/configuration/agents.html#health-check) make otherwise-ready items wait in Eligible without spending attempts. The terminal view shows the latest failure, changed error or recovery in one line above the panes, also printed in plain launch output and `.ub-agents/launch.log`. Claiming resumes automatically when the check passes; other agents keep claiming while it fails.
 
 While a new run's log file has not appeared yet, Log shows `No log output yet.`

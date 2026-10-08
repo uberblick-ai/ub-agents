@@ -474,6 +474,30 @@ class Observations:
         self.kept_keys.clear()
         self.emit()
 
+    def replanned_item(self, number, events):
+        """Replace one finished run's item rows without completing or sorting a pass."""
+        planned = {(args[0].item.number, args[0].agent.name)
+                   for method, args in events if method == "plan"}
+        latest = self.state["latest_pass"]
+        if latest is None:
+            return
+        removed = {(row["item"], row["agent"]) for row in latest["rows"]
+                   if row["item"] == number and (row["item"], row["agent"]) not in planned}
+        self._batching = True
+        try:
+            latest["rows"] = [row for row in latest["rows"]
+                              if (row["item"], row["agent"]) not in removed]
+            self.kept_keys.difference_update(removed)
+            self.pass_rows = {key: row for key, row in self.pass_rows.items()
+                              if key[0] != number or key in planned}
+            self.pass_histories.pop(str(number), None)
+            for method, args in events:
+                getattr(self, method)(*args)
+            self.prune_histories(self.state)
+        finally:
+            self._batching = False
+        self.emit()
+
     @staticmethod
     def prune_histories(state):
         rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
