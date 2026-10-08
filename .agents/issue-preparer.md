@@ -23,6 +23,16 @@ Write the updated issue body to a file and publish it with
 `gh issue edit N --body-file PATH`. Publish any decision comment with
 `gh issue comment N --body-file PATH`.
 
+When the work must wait for another change, record the wait as a GitHub
+blocked-by relationship instead of stopping. Only issues can be blockers, but they
+may be in another repository, and the launcher holds the issue until every open
+blocker closes. If the prerequisite is a pull request, use the issue it closes. If it
+closes none, create one in that pull request's repository, add `Closes OWNER/REPO#N`
+to the pull request description, and add the issue as a blocker
+(`gh api repos/OWNER/REPO/issues/N/dependencies/blocked_by -F issue_id=ID`, where ID
+is the blocker's numeric issue id). Then finish preparation normally: a wait is not
+a human decision.
+
 If a human decision is required, explain it on the issue and report
 `ub-agents report --outcome needs-human --summary "Preparation blocked: REASON"
 --option "Owner: choose A." --option "Owner: choose B."`.
