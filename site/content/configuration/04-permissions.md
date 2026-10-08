@@ -50,13 +50,27 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 runtime-args: [--add-dir, "{scratch}"]
 ```
 
-## Alternatives share arguments
+## Arguments for alternatives
 
-`runtime-args` apply to every runtime in a list. Use CLI-specific flags only on agents with a single runtime.
+A `runtime-args` list applies to every runtime alternative. Use a mapping keyed by CLI to give Claude and Codex their own arguments:
+
+```yaml
+runtime: ["codex:gpt-6.1-sol:xhigh", "claude:claude-opus-5-5:xhigh"]
+runtime-args:
+  codex: [--sandbox, danger-full-access, -c, 'mcp_servers.example.enabled=true']
+  claude: [--permission-mode, acceptEdits, --permission-prompts, none,
+           --allowedTools, "Bash(git *)", "Bash(gh *)",
+           "Bash({report_command} report *)", "Bash({report_command} read *)",
+           --add-dir, "{scratch}"]
+```
+
+Only the selected CLI's arguments are appended, including when a later run switches alternatives. A CLI without a key gets no extra arguments. Keys must be `codex` or `claude` and appear in the agent's runtime list; values must be lists of strings. YAML aliases such as `codex: *codex-scoped` can reuse argument lists.
+
+Upgrade every launcher to a build supporting mappings before adopting this form. Older builds reject it.
 
 ## Check
 
-`ub-agents doctor` warns about runtime agents without `runtime-args`. It does not test whether the arguments grant enough.
+`ub-agents doctor` warns about runtime agents without `runtime-args`, including mappings with missing or empty arguments for any listed CLI. It does not test whether the arguments grant enough.
 
 ```sh
 ub-agents doctor

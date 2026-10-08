@@ -54,6 +54,31 @@ class ExecutionTests(unittest.TestCase):
         configured = agent(self.root, command=("echo", "{scratch}", "{report_command}", "{other}"))
         self.assertEqual(command_for(configured, None, self.root / "scratch"), list(configured.command))
 
+    def test_runtime_args_mapping_selects_only_the_given_cli_and_expands_placeholders(self):
+        scratch = self.root / "scratch with spaces"
+        report = "/launcher/python -I /launcher/report_command.py"
+        arguments = {
+            "codex": ("-c", "mcp_servers.example.enabled=true", "--add-dir={scratch}"),
+            "claude": ("--allowedTools", "Bash({report_command} report *)", "--add-dir", "{scratch}")}
+        configured = agent(self.root, command=(), runtime_args=arguments)
+        for runtime in (Runtime("codex", "first", "high"), Runtime("claude", "second", "high"),
+                        Runtime("codex", "third", "low")):
+            with self.subTest(runtime=runtime.name):
+                base = command_for(replace(configured, runtime_args=()), runtime, scratch, report)
+                expected = (["-c", "mcp_servers.example.enabled=true", f"--add-dir={scratch}"]
+                            if runtime.cli == "codex" else
+                            ["--allowedTools", f"Bash({report} report *)", "--add-dir", str(scratch)])
+                self.assertEqual(command_for(configured, runtime, scratch, report), base + expected)
+        self.assertEqual(configured.runtime_args, arguments)
+
+    def test_runtime_args_mapping_defaults_missing_cli_to_no_arguments(self):
+        runtime = Runtime("claude", "model", "high")
+        configured = agent(self.root, command=(), runtime_args=())
+        base = command_for(configured, runtime, self.root)
+        for arguments in ({}, {"codex": ("--sandbox", "danger-full-access")}, {"claude": ()}):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(command_for(replace(configured, runtime_args=arguments), runtime, self.root), base)
+
     def test_report_permission_expands_the_exact_command_as_one_runtime_argument(self):
         report = "'/installation with spaces/python' -I '/installation with spaces/report_command.py'"
         extra = ("--allowedTools", "Bash({report_command} report *)", "--add-dir", "{scratch}")

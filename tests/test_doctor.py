@@ -623,6 +623,27 @@ agents:
         self.assertFalse(result["ok"])
         self.assertFalse(any(c[0][0] == "codex" for c in self.runner.calls))
 
+    def test_runtime_permissions_warns_for_uncovered_or_empty_cli_mapping_entries(self):
+        base = self.path.read_text().replace("runtime: codex:model-a:high",
+                                             "runtime: [codex:model-a:high, claude:model-b:high, claude:model-c:low]")
+        for arguments, warns in (
+                ("{}", True), ("{codex: [--sandbox, danger-full-access]}", True),
+                ("{claude: [--permission-mode, acceptEdits]}", True),
+                ("{codex: [--sandbox, danger-full-access], claude: []}", True),
+                ("{codex: [], claude: [--permission-mode, acceptEdits]}", True),
+                ("{codex: [--sandbox, danger-full-access], claude: [--permission-mode, acceptEdits]}", False),
+                ("[--add-dir, '{scratch}']", False)):
+            with self.subTest(arguments=arguments):
+                self.path.write_text(base.replace("[--sandbox, danger-full-access]", arguments))
+                result = self.diagnose()
+                self.assertTrue(result["ok"])
+                checks = self.checks(result, "runtime-permissions")
+                self.assertEqual(len(checks), int(warns))
+                if warns:
+                    check = checks[0]
+                    self.assertEqual((check["status"], check["required"]), ("warn", False))
+                    self.assertIn("Agents without runtime-args: worker;", check["message"])
+
     def test_eligible_alternative_warns_and_exits_zero(self):
         self.path.write_text(self.path.read_text().replace("runtime: codex:model-a:high",
                                                          "runtime: [codex:model-a:high, claude:model-b:high]"))

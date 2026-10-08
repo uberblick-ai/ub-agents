@@ -388,6 +388,27 @@ class UsageLoopTests(unittest.TestCase):
         loop.usage.limit("claude", self.now + 100)
         self.assertEqual(loop.plans()[0].state, "waiting")
 
+    def test_usage_pause_switches_to_alternative_with_its_own_runtime_args(self):
+        arguments = {"claude": ("--permission-mode", "acceptEdits"),
+                     "codex": ("-c", "mcp_servers.example.enabled=true")}
+        role = replace(self.role, runtimes=self.role.runtimes + (Runtime("codex", "other", "high"),),
+                       runtime_args=arguments)
+        self.loop.config = config(self.root, role)
+        with patch("ub_agents.loop.supervise", side_effect=self.runtime(claude(self.now + 300))) as run:
+            self.assertTrue(self.loop.tick())
+        first = run.call_args.args[0]
+        self.assertEqual(first[1], "--print")
+        self.assertEqual(first[-2:], list(arguments["claude"]))
+        self.assertNotIn("-c", first)
+        with patch("ub_agents.loop.supervise", return_value=1) as run:
+            self.assertTrue(self.loop.tick())
+        second = run.call_args.args[0]
+        self.assertEqual(second[1], "exec")
+        self.assertEqual(second[-2:], list(arguments["codex"]))
+        self.assertNotIn("--permission-mode", second)
+        self.assertEqual([r["runtime"] for r in self.loop.coordinator.history(1) if r["kind"] == "lease"],
+                         [role.runtimes[0].name, role.runtimes[1].name])
+
     def test_paused_independent_runtime_cannot_fall_back_to_authors_cli(self):
         author = replace(self.role, name="author", kind="pr", runtimes=(Runtime("codex", "author-model", "high"),))
         reviewer = replace(self.role, name="reviewer", kind="pr", different_from="author",

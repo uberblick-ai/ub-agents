@@ -352,7 +352,8 @@ class Doctor:
 
     def agents(self, config):
         usable = {}
-        without_permissions = [agent.name for agent in config.agents if agent.runtimes and not agent.runtime_args]
+        without_permissions = [agent.name for agent in config.agents
+                               if any(not agent.runtime_args_for(runtime) for runtime in agent.runtimes)]
         if without_permissions:
             self.add("runtime-permissions", "warn",
                      f"Agents without runtime-args: {', '.join(without_permissions)}; unattended edits, commits or pushes may fail",
