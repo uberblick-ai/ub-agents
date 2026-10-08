@@ -1142,7 +1142,7 @@ access, and create no files. Square brackets mean optional: `launch [NUMBER]` ac
 an optional item number, while `retry NUMBER` and `approve NUMBER` require one.
 `retry` also requires `--reason REASON`, as shown in its command help.
 
-`ub-agents -v` and `ub-agents --version` print `ub-agents 0.1.15` and exit 0.
+`ub-agents -v` and `ub-agents --version` print `ub-agents 0.1.16` and exit 0.
 An unknown command, including `ub-agents help NAME`, prints
 `ub-agents: unknown command "NAME"`, a blank line and the overview on stderr, then
 exits 2. Other usage errors exit 2 and print the command's usage line and error on
