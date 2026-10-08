@@ -265,9 +265,9 @@ outcomes or transitions, unconfirmed cleanup and invalid coordination history st
 require resolution. Recent activity contains recorded outcomes only; removing a
 completed item adds no outcome.
 
-**Recent activity · N today** always fills the lower half of the Work pane,
-including `0 today` when there are no outcomes. N counts cached session outcomes
-dated today in the viewer's local timezone. Up to 20 cached outcomes appear
+**Recent activity · showing N** always fills the lower half of the Work pane,
+including `showing 0` when there are no outcomes. N counts every listed outcome,
+including rows outside the viewport, up to 20. Cached session outcomes appear
 newest first, including older outcomes, as dim two-line rows in the combined layout; the selected row
 shows at full brightness. Scroll the lower half with the mouse wheel or trackpad
 to reach every retained outcome. Combined rows have intervening blank lines;
@@ -290,13 +290,10 @@ selected outcome stays selected. Resizing keeps the selected retained outcome
 visible. An outcome evicted from the cache remains selected in the right pane
 as an earlier observation until selection moves.
 
-When older outcomes have been evicted, a line below the header reads
-`N older outcomes not retained`. These outcomes are no longer in the session's
-20-outcome cache; scrolling can reach rows outside the viewport, but cannot
-recover evicted outcomes. The header and notice stay in place above the scrolling
-rows, including at the oldest retained outcome. For one evicted outcome, the
-notice reads `1 older outcome not retained`. The notice uses the snapshot's `omitted.outcomes`
-count and makes no extra GitHub request. It is absent when no outcomes were evicted.
+Rows start directly below the fixed header, including when older outcomes have
+been evicted. No line or header space reports omitted outcomes. Scrolling can
+reach rows outside the viewport, but cannot recover outcomes removed from the
+session's 20-outcome cache.
 
 Recent activity uses `#N` for issues and `⌥N` for PRs, from the cached outcome or
 item history. Its detail line shows `agent · time · opened ⌥N` when the outcome
@@ -822,12 +819,13 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    Local files/GitHub diagnostic line. Open `?`, check every key, and close it with
    both `?` and `Escape` without losing selection or the reading position.
    Show and hide a notice while paused; the reading position must not move.
-   Include today's and older outcomes; check Recent activity's count against the
-   local date and its newest-first, dim two-line rows. Confirm its header cannot
+   Include today's and older outcomes; check Recent activity's count against all
+   listed outcomes and its newest-first, dim two-line rows. Confirm its header cannot
    be selected and there is no collapse key. At 110×32 and a larger size, empty
    and overflow the live sections: the split must remain halfway down the Work
-   pane and upper scrolling must not move Recent activity. Check `0 today` with
-   no outcomes, wheel scrolling to the oldest of 20 retained outcomes and back,
+   pane and upper scrolling must not move Recent activity. Check `showing 0` with
+   no outcomes, the actual count below 20, and `showing 20` with 20 or more outcomes
+   available. Check wheel scrolling to the oldest of 20 retained outcomes and back,
    and the newest outcome selected first with no live work. Check lower scrolling
    leaves the upper half still and vice versa. Use arrows across
    the split and `Enter` to select an outcome; it must show at full brightness.
@@ -837,9 +835,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    selection and visible rows must stay in place. At the top, a new outcome must
    appear first. Resize in both layouts and check the selected retained row stays
    visible. At the oldest retained outcome, check the header stays visible and
-   the older-outcomes-not-retained notice stays below it when `omitted.outcomes`
-   is positive; neither line selects an outcome. Remove a
-   selected plan and
+   cannot be selected. With positive `omitted.outcomes`, check there is no omitted
+   outcome notice or reserved header line; rows start directly below the heading.
+   Remove a selected plan and
    check its earlier observation remains. Remove a selected Needs attention row;
    it must leave the list and count while Issue and Runs keep their cached details,
    without adding Recent activity. Park a selected plan for dependencies

@@ -56,7 +56,7 @@ switches, snapshot refreshes, saved-position restores and resizing do not show a
 │  ● ⌥170 Compact timestamped Claude… ready  │ │  11:42:11 ▸ Edit src/ub_agents/log_format.py +48 -12        │
 │    reviewer                                │ │  11:42:30 ▸ Bash unit suite ✓ 41 passed                     │
 │                                            │ │                                                             │
-│  Recent activity · 4 today ┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │                                                             │
+│  Recent activity · showing 4 ┄┄┄┄┄┄┄┄┄┄┄┄  │ │                                                             │
 │  ✓ ⌥167 Group the work list into … merged  │ │                                                             │
 │    integrator · 11:52 · squash-merged      │ │                                                             │
 │  ✓ ⌥167 Group the work list int… approved  │ │                                                             │
@@ -145,14 +145,14 @@ item headers and dim detail lines alike. `⌥` is in the accent color.
 
 The lower half is always **Recent activity**: up to 20 cached session outcomes,
 including older outcomes, newest first, with
-`N today` in its header. Its rows are dimmed; a selected one shows at full
-brightness. It never collapses. It scrolls vertically independently of the live
+`Recent activity · showing N` in its header, counting all listed outcomes even
+outside the viewport (`showing 0` when empty). Its rows are dimmed; a selected one
+shows at full brightness. It never collapses. It scrolls vertically independently of the live
 sections above it, so wheel input, arrows and clicks can reach all retained rows.
-Both halves keep their sizes. A line below the header says `N older outcomes not
-retained` when the snapshot counts evicted outcomes; rows outside the viewport
-remain reachable by scrolling, while evicted outcomes cannot be recovered.
-The header rule and notice stay fixed above the scrolling rows, so the section
-boundary and retention count remain visible at the oldest retained outcome.
+Both halves keep their sizes. Rows start directly below the fixed, non-selectable
+header rule, with no notice or header space for evicted outcomes. Rows outside
+the viewport remain reachable by scrolling, while evicted outcomes cannot be
+recovered.
 
 | Glyph | Meaning | Right column |
 | --- | --- | --- |

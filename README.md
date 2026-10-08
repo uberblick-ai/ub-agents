@@ -46,7 +46,7 @@ ub-agents is MIT-licensed and early stage. It develops itself with its own loop.
 │                                            │ │            nothing until it is idle.                          │
 │  ● #191 Shorter ub-agents doctor o… ready  │ │   11:09:30 ▸ Edit src/ub_agents/loop.py +5 -2                 │
 │    implementer · 1/5 failures              │ │   11:10:09 ▸ Edit tests/test_loop.py +3 -1                    │
-│  Recent activity · 4 today ┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:10:49 ▸ Bash python -m tests                             │
+│  Recent activity · showing 4 ┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:10:49 ▸ Bash python -m tests                             │
 │  ✓ ⌥269 Send fixable check failur… merged  │ │   11:11:29 ▸ Bash git push -u origin ub-agents/248-implem…    │
 │    integrator · 11:04 · Squash-merged af…  │ │                                                               │
 │                                            │ │                                                               │
@@ -165,8 +165,9 @@ and retries on the next launch without spending an attempt.
 
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of
-live work to reach all 20 retained outcomes. Its header and any notice naming
-older outcomes that were not retained stay in place while the rows scroll.
+live work to reach all 20 retained outcomes. Its fixed header reads
+`Recent activity · showing N`, counting every listed outcome while the rows scroll
+directly below it.
 
 In-run commands and Python helpers use a copy of the launcher's code taken at
 startup, so checkout refreshes and package upgrades leave active runs on the same

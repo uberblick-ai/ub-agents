@@ -2919,7 +2919,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not recent.rows)
                 self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
                 self.assertEqual(recent.region.y, boundary)
-                self.assertTrue(recent.render().plain.startswith('Recent activity · 0 today'))
+                self.assertTrue(recent.render().plain.startswith('Recent activity · showing 0'))
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -3195,7 +3195,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             lines = rendered.plain.splitlines()
             self.assertEqual(len(lines), 60)
             self.assertEqual(recent.virtual_size.height, 60)
-            self.assertTrue(lines[0].startswith('Recent activity · 0 today'))
+            self.assertTrue(lines[0].startswith('Recent activity · showing 20'))
             selected_offset = rendered.plain.index('Outcome 19')
             dim_offset = rendered.plain.index('Outcome 18')
             self.assertFalse(rendered.get_style_at_offset(Console(), selected_offset).dim)
@@ -3727,7 +3727,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('q')
         app.worker.thread.join(2)
 
-    async def test_populate_recent_display_rows_and_today_count_without_work_repaint(self):
+    async def test_populate_recent_display_rows_and_listed_count_without_work_repaint(self):
         with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
             app = View(self.root, self.path)
             async with app.run_test(size=(160, 45)) as pilot:
@@ -3738,11 +3738,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
                 await self.settled(app, tree)
                 outcome = self.state['outcomes'][0]
+                now = datetime.now(timezone.utc)
                 cases = [({'title': 'New outcome'}, 'New outcome'),
                          ({'summary': 'New summary'}, 'New summary'),
                          ({'result': 'blocked'}, 'blocked'),
                          ({'handoff': 42}, 'opened ⌥42'),
-                         ({'time': datetime.now(timezone.utc).isoformat()}, '1 today')]
+                         ({'time': now.isoformat()}, now.astimezone().strftime('%H:%M'))]
                 with patch.object(tree, 'refresh', wraps=tree.refresh) as work_refresh:
                     for changes, expected in cases:
                         with self.subTest(changes=changes):
@@ -3753,14 +3754,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                 refresh.assert_called_once_with(layout=True)
                                 await self.settled(app, recent)
                             self.assertIn(expected, recent.render().plain)
-                    # Count changes independently of the bounded recent rows.
+                    # Session metadata leaves the existing listed rows and count alone.
                     pane = app.pane
                     app.session.data['outcomes'].append(dict(outcome, run='another-run'))
+                    app.session.data['omitted'] = {'outcomes': 22}
                     with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
                         app.populate(pane)
-                        refresh.assert_called_once_with(layout=True)
+                        refresh.assert_not_called()
                         await self.settled(app, recent)
-                    self.assertIn('2 today', recent.render().plain)
+                    self.assertIn('Recent activity · showing 1', recent.render().plain)
+                    # A new listed row updates the heading without repainting live work.
+                    with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
+                        app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                        refresh.assert_any_call(layout=True)
+                        await self.settled(app, recent)
+                    self.assertIn('Recent activity · showing 2', recent.render().plain)
+                    self.assertNotIn('not retained', recent.render().plain)
                     work_refresh.assert_not_called()
                 await pilot.press('q')
         app.worker.thread.join(2)
@@ -3923,7 +3932,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    async def test_recent_activity_today_count_enter_refresh_and_paused_outcome_log(self):
+    async def test_recent_activity_listed_count_enter_refresh_and_paused_outcome_log(self):
         now = datetime.now(timezone.utc)
         self.state['outcomes'][0]['time'] = now.isoformat()
         self.state['outcomes'].insert(0, dict(self.state['outcomes'][0], run='older-run',
@@ -3939,7 +3948,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             recent = app.query_one(RecentActivity)
-            self.assertTrue(recent.render().plain.splitlines()[0].startswith('Recent activity · 1 today'))
+            self.assertTrue(recent.render().plain.splitlines()[0].startswith('Recent activity · showing 2'))
             self.assertEqual([row.key for row in recent.visible_rows], ['outcome:previous-run', 'outcome:older-run'])
             recent.focus()
             await pilot.press('enter')

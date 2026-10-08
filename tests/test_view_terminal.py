@@ -1234,7 +1234,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn('plan:13:reviewer', initial['nodes'])
                 self.assertIsNone(initial['idle'])
                 self.assertIn('partial', initial['title'])
-                self.assertTrue(initial['recent'].splitlines()[0].startswith('Recent activity · 1 today'))
+                self.assertTrue(initial['recent'].splitlines()[0].startswith('Recent activity · showing 2'))
                 self.assertEqual(initial['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
                 self.assertLessEqual(abs(initial['upper_bounds'][1] - initial['recent_bounds'][1]), 1)
                 self.assertEqual(sum(initial['upper_bounds']), initial['recent_bounds'][0])
@@ -1470,7 +1470,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(sum(empty['upper_bounds']), empty['recent_bounds'][0])
                 state['outcomes'] = []
                 publish_snapshot(path, state)
-                zero = terminal.checkpoint(lambda value: value['recent'].startswith('Recent activity · 0 today'))
+                zero = terminal.checkpoint(lambda value: value['recent'].startswith('Recent activity · showing 0'))
                 self.assertEqual(zero['recent_bounds'], empty['recent_bounds'])
                 state['latest_pass']['rows'] = [
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
