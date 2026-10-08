@@ -733,15 +733,27 @@ raise SystemExit(main())
                 'body': '## Cached Markdown\n\nCached description\r\nSecond line\rThird line\n\n'
                         '- **strong** and *emphasis* with `code`\n\n```text\ncode\tline\n```'}))
             # This owned process stands in for a launcher publishing live output.
+            replay_status = root / 'replay-status'
             replay = subprocess.Popen([sys.executable, '-c', '''
 import pathlib, select, sys
 log = pathlib.Path(sys.argv[1])
+status = pathlib.Path(sys.argv[2])
 index = 900
-while not select.select([sys.stdin], [], [], 0.01)[0]:
-    with log.open('ab') as stream:
-        stream.write((f'replay output {index} ' + 'x' * 500 + '\\n').encode())
-    index += 1
-''', str(log)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+paused = False
+while True:
+    if select.select([sys.stdin], [], [], 0.01)[0]:
+        command = sys.stdin.readline().strip()
+        if command == 'stop':
+            break
+        paused = command == 'pause'
+        staging = status.with_suffix('.tmp')
+        staging.write_text(command)
+        staging.replace(status)
+    if not paused:
+        with log.open('ab') as stream:
+            stream.write((f'replay output {index} ' + 'x' * 500 + '\\n').encode())
+        index += 1
+''', str(log), str(replay_status)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             try:
                 proof = root / 'proof.json'
                 script = '''
@@ -804,11 +816,19 @@ raise SystemExit(main())
                                                  and value['anchor'] is not None)
                     terminal.send(b'\x1b[5~')  # Page Up
                     terminal.checkpoint(lambda value: value['scroll'] < paused['scroll'] and not value['bottom'])
+                    # Older-page validation can reject a concurrent append (#370).
+                    # Pause this owned producer only for that disk read.
+                    replay.stdin.write(b'pause\n')
+                    replay.stdin.flush()
+                    terminal.wait_for(lambda: replay_status.exists() and replay_status.read_text() == 'pause')
                     terminal.send(b'h')
                     # Older page or split-record boundary.
                     terminal.checkpoint(lambda value: 'Older page' in value['notice']
                                         or 'Page byte boundary' in value['notice'])
                     terminal.expect(lambda out: b'Older page' in out or b'Page byte boundary' in out)
+                    replay.stdin.write(b'resume\n')
+                    replay.stdin.flush()
+                    terminal.wait_for(lambda: replay_status.read_text() == 'resume')
                     terminal.send(b'u')
                     terminal.expect(b'RAW')
                     terminal.checkpoint(lambda value: value['raw'])
