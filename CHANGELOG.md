@@ -6,6 +6,50 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.16 — 2026-10-08
+
+**Upgrading:** let running agents finish (`q`) or stop the launcher before updating:
+0.1.15 launchers have no startup-code isolation. After installing, restart each
+launcher to enable isolation; no coordinated restart is needed (#361). For Homebrew
+installs, run `brew update && brew upgrade ub-agents` (#337). Upgrade every launcher
+of a project before adding `checkout-setup` (#362) or `runtime-updates.gh` (#352) to
+its `ub-agents.yaml`; older launchers reject these keys. The `ub-agents-ui` command
+is gone; `ub-agents launch` shows the terminal view, and Homebrew formula tests must
+drop the removed command (#348).
+
+### Added
+
+- Launchers can use `checkout-setup` to reinstall control-checkout dependencies when watched files change, with failed setup retried before claiming work ([configuration](docs/configuration.md#checkout-setup), #362).
+- Projects can enable daily GitHub CLI maintenance with `runtime-updates.gh`, deferring updates while launchers or agents use the installation ([configuration](docs/configuration.md#daily-runtime-maintenance), #352).
+- `ub-agents status NUMBER` explains why an individual issue or PR is waiting, without claiming work or changing GitHub state (#333).
+- Terminal-view mouse selections copy on release, and `y` copies the current selection again, with a brief character-count confirmation (#345).
+- Issue and Unblock panes render GitHub tables and strikethrough, wrapping table cells within the pane while keeping links and other source text inert (#343).
+- Installation, configuration and command guides are available at [agents.uberblick.ai](https://agents.uberblick.ai), with search indexing and clearer missing-page responses (#349, #355).
+
+### Changed
+
+- In-run commands and helpers keep using the launcher's startup code, so checkout refreshes and package upgrades preserve active runs (#361).
+- Launcher failures end with one concise recovery step for checkout refresh, process cleanup or GitHub request problems (#340).
+- Homebrew update notices name `brew update && brew upgrade ub-agents`, refreshing the tap before upgrading the installed package (#337).
+- Continuous launch prints unchanged ownership and retry-backoff explanations once per item and agent, repeating them only when the state or reason changes (#336).
+- Terminal status widgets, Work and Recent activity avoid redundant redraws and layout updates when their displayed content has not changed (#334, #342).
+- Terminal panes reveal scrollbars during user scrolling, with Home/End navigation; Recent activity scrolls independently beneath its fixed header and retention notice (#363, #371).
+- The Work pane keeps its highlight on the same item across polls that insert, remove or reorder rows (#346).
+- Clickable terminal-header item numbers are underlined at rest and change to link blue on hover, preserving issue and PR colors (#347).
+- Pressing `r` during a continuous launch's assignment shows immediate polling feedback when a forced queue refresh is accepted (#356).
+- Starter implementers resolve conflicts before handoff, and integrators merge cleanly behind PRs while retaining their review at the resulting head (#329).
+
+### Removed
+
+- The `ub-agents-ui` command is removed; `ub-agents launch` continues to open the terminal view by default, with `--no-ui` available (#348).
+
+### Fixed
+
+- Continuous launch retries transient claim failures, withdrawing uncertain claims before replanning without charging an attempt or adding item backoff (#358).
+- Completed reports survive GitHub finalization failures; expiry recovery finishes stored outcomes and handoffs without rerunning agents and reconciles missing blocked-run notices (#364).
+- Busy snapshots preserve Needs attention notices, and opening Unblock loads missing or omitted trusted notices through the existing cache and cooldown (#341).
+- The Log tab follows new run logs when they appear, avoids initial missing-file errors, and reloads and resumes following with `g` (#344, #365).
+
 ## 0.1.15 — 2026-10-07
 
 **Upgrading:** let running agents finish, or stop the launcher, before updating an
