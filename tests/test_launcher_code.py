@@ -82,7 +82,9 @@ GitHub = lambda repository: fixture
                 result = subprocess.run(helper_command("ub_agents." + module), cwd=shadow, env=env,
                                         pass_fds=descriptors(), capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(Path(result.stdout.strip()), copied / "ub_agents/run_config.py")
+                # helper_command.py resolves its own path, so a symlinked temp
+                # directory (macOS /var -> /private/var) reports the real path.
+                self.assertEqual(Path(result.stdout.strip()), copied.resolve() / "ub_agents/run_config.py")
             with redirect_stdout(io.StringIO()):
                 lazy = importlib.import_module("ub_agents.startup_probe")
             self.addCleanup(sys.modules.pop, "ub_agents.startup_probe", None)
@@ -168,7 +170,7 @@ print(run_config.__file__)
             self.assertTrue(copied.exists())
             output, errors = process.communicate(timeout=10)
             self.assertEqual(process.returncode, 0, errors)
-            self.assertEqual(Path(output.strip()), copied / "ub_agents/run_config.py")
+            self.assertEqual(Path(output.strip()), copied.resolve() / "ub_agents/run_config.py")
             self.assertFalse(copied.exists())
         finally:
             if process.poll() is None:
