@@ -149,6 +149,8 @@ sections above it, so wheel input, arrows and clicks can reach all retained rows
 Both halves keep their sizes. A line below the header says `N older outcomes not
 retained` when the snapshot counts evicted outcomes; rows outside the viewport
 remain reachable by scrolling, while evicted outcomes cannot be recovered.
+The header rule and notice stay fixed above the scrolling rows, so the section
+boundary and retention count remain visible at the oldest retained outcome.
 
 | Glyph | Meaning | Right column |
 | --- | --- | --- |

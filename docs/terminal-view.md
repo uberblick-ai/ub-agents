@@ -260,7 +260,7 @@ As an exception to the muted row color, outcome icons and status labels use the
 theme's green success color for `✓` and red error color for `✗`, retaining row
 dimming and cursor highlighting. Neutral `○` outcomes keep the row style.
 `NO_COLOR=1` keeps these cues monochrome.
-The lower half never collapses, and its header cannot be selected. The live
+The lower half never collapses, and its fixed header cannot be selected. The live
 sections fill the upper half; each half scrolls vertically on its own, with no
 horizontal scrollbar. Unchanged worker results leave Work and Recent activity
 untouched;
@@ -277,7 +277,9 @@ as an earlier observation until selection moves.
 When older outcomes have been evicted, a line below the header reads
 `N older outcomes not retained`. These outcomes are no longer in the session's
 20-outcome cache; scrolling can reach rows outside the viewport, but cannot
-recover evicted outcomes. The notice uses the snapshot's `omitted.outcomes`
+recover evicted outcomes. The header and notice stay in place above the scrolling
+rows, including at the oldest retained outcome. For one evicted outcome, the
+notice reads `1 older outcome not retained`. The notice uses the snapshot's `omitted.outcomes`
 count and makes no extra GitHub request. It is absent when no outcomes were evicted.
 
 Recent activity uses `#N` for issues and `⌥N` for PRs, from the cached outcome or
@@ -801,8 +803,9 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    the restored paused page. Browse older outcomes and add a new outcome; the
    selection and visible rows must stay in place. At the top, a new outcome must
    appear first. Resize in both layouts and check the selected retained row stays
-   visible. Check the older-outcomes-not-retained notice appears only when
-   `omitted.outcomes` is positive, independently of viewport scrolling. Remove a
+   visible. At the oldest retained outcome, check the header stays visible and
+   the older-outcomes-not-retained notice stays below it when `omitted.outcomes`
+   is positive; neither line selects an outcome. Remove a
    selected plan and
    check its earlier observation remains. Remove a selected Needs attention row;
    it must leave the list and count while Issue and Runs keep their cached details,

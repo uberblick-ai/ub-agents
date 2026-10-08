@@ -20,7 +20,9 @@ keeps the selected retained outcome visible. Recent activity follows the same
 scrollbar convention as the other areas.
 
 `N today` counts cached outcomes dated today. When older outcomes have been
-evicted, `N older outcomes not retained` appears below the header. Scrolling
+evicted, `N older outcomes not retained` appears below the header. The header and
+notice stay fixed above the scrolling rows, including at the oldest retained
+outcome. Scrolling
 reaches rows outside the viewport, but cannot recover outcomes removed from the
 20-outcome cache. The notice uses the existing snapshot and needs no extra
 GitHub requests.

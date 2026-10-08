@@ -316,10 +316,10 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
     @property
     def visible_rows(self):
         top = self.scroll_offset.y
-        bottom = top + self.scrollable_content_region.height
+        bottom = top + max(0, self.scrollable_content_region.height - self.header_height)
         return [row for index, row in enumerate(self.rows)
-                if (self.header_height + index * self.row_stride < bottom
-                    and self.header_height + index * self.row_stride + self.row_height > top)]
+                if (index * self.row_stride < bottom
+                    and index * self.row_stride + self.row_height > top)]
 
     @property
     def row_height(self):
@@ -350,8 +350,8 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
     def viewport_anchor(self):
         if not self.rows or self.scroll_y == 0:
             return None
-        index = min(len(self.rows) - 1, max(0, (self.scroll_offset.y - self.header_height) // self.row_stride))
-        return self.rows[index].key, self.scroll_offset.y - self.header_height - index * self.row_stride
+        index = min(len(self.rows) - 1, self.scroll_offset.y // self.row_stride)
+        return self.rows[index].key, self.scroll_offset.y - index * self.row_stride
 
     def restore_viewport(self, anchor):
         keys = [row.key for row in self.rows]
@@ -359,16 +359,19 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
         if anchor is None:
             y = 0
         elif anchor[0] in keys:
-            y = self.header_height + keys.index(anchor[0]) * self.row_stride + anchor[1]
+            y = keys.index(anchor[0]) * self.row_stride + anchor[1]
         self.scroll_to(y=y, animate=False, immediate=True)
 
     def reveal_cursor(self, key=None):
         keys = [row.key for row in self.rows]
         key = self.cursor if key is None else key
         if key in keys:
-            self.scroll_to_region(Region(0, self.header_height + keys.index(key) * self.row_stride,
-                                         self.scrollable_content_region.width, self.row_height),
-                                  animate=False, force=True, immediate=True)
+            top = keys.index(key) * self.row_stride
+            height = max(0, self.scrollable_content_region.height - self.header_height)
+            if top < self.scroll_y:
+                self.scroll_to(y=top, animate=False, immediate=True)
+            elif top + self.row_height > self.scroll_y + height:
+                self.scroll_to(y=top + self.row_height - height, animate=False, immediate=True)
 
     def update_virtual_size(self):
         height = self.header_height + len(self.rows) * self.row_stride
@@ -380,7 +383,8 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
         if self._rendered_lines is None:
             self._rendered_lines = self.render().split('\n')
         lines = self._rendered_lines
-        index = y + self.scroll_offset.y
+        # The section rule and retention notice stay above the scrolling rows.
+        index = y if y < self.header_height else y + self.scroll_offset.y
         width = self.scrollable_content_region.width
         if index >= len(lines) or not lines[index].plain:
             return Strip.blank(width, self.rich_style)
@@ -398,7 +402,8 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
         header = section_rule(f'Recent activity · {self.today} today', width,
                               theme_style(self.app, 'view-muted'))
         if self.omitted:
-            notice = Text(f'{self.omitted} older outcomes not retained', no_wrap=True,
+            noun = 'outcome' if self.omitted == 1 else 'outcomes'
+            notice = Text(f'{self.omitted} older {noun} not retained', no_wrap=True,
                           style=theme_style(self.app, 'view-muted'))
             notice.truncate(width, overflow='ellipsis')
             header.append('\n')
@@ -480,6 +485,8 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
             self.app.select(self.cursor)
 
     def on_click(self, event):
+        if event.y < self.header_height:
+            return
         index, offset = divmod(event.y + self.scroll_offset.y - self.header_height, self.row_stride)
         if 0 <= index < len(self.rows) and offset < self.row_height:
             self.cursor = self.rows[index].key

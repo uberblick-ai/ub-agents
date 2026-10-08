@@ -160,8 +160,8 @@ and retries on the next launch without spending an attempt.
 
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of
-live work to reach all 20 retained outcomes, and names older outcomes that were
-not retained.
+live work to reach all 20 retained outcomes. Its header and any notice naming
+older outcomes that were not retained stay in place while the rows scroll.
 
 In-run commands and Python helpers use a copy of the launcher's code taken at
 startup, so checkout refreshes and package upgrades leave active runs on the same

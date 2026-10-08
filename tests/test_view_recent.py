@@ -102,12 +102,60 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
                         await pilot.press('up')
                         self.assertEqual(recent.cursor, row.key)
                         self.assertIn(row, recent.visible_rows)
+                        y = recent.header_height + recent.rows.index(row) * recent.row_stride - recent.scroll_offset.y
+                        self.assertGreaterEqual(y, recent.header_height)
+                        self.assertLessEqual(y + recent.row_height, recent.scrollable_content_region.height)
                     await pilot.press('up')
                     self.assertIs(app.focused, tree)
                     await pilot.press('down')
                     self.assertIs(app.focused, recent)
                     self.assertEqual(recent.cursor, recent.rows[0].key)
                     self.assertEqual(app.descriptions.transport.calls, [])
+                    await pilot.press('q')
+                app.worker.thread.join(2)
+                self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_header_and_retention_notice_stay_fixed_at_max_scroll(self):
+        for size in ((110, 32), (80, 24)):
+            with self.subTest(size=size):
+                app = View(self.root, self.path)
+                async with app.run_test(size=size) as pilot:
+                    recent = app.query_one(RecentActivity)
+                    await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0)
+                    for omitted in (0, 1, 3, 0):
+                        self.state['omitted'] = {'outcomes': omitted}
+                        publish_snapshot(self.path, self.state)
+                        await self.ready(pilot, lambda: recent.omitted == omitted)
+                        recent.scroll_end(animate=False, immediate=True)
+                        await pilot.pause()
+                        self.assertEqual(recent.scroll_y, recent.max_scroll_y)
+                        strips = app.screen._compositor.render_strips()
+                        lines = [strip.crop(recent.region.x,
+                                            recent.region.x + recent.scrollable_content_region.width).text
+                                 for strip in strips[recent.region.y:recent.region.bottom]]
+                        self.assertTrue(lines[0].startswith(f'Recent activity · {recent.today} today'))
+                        if omitted:
+                            noun = 'outcome' if omitted == 1 else 'outcomes'
+                            self.assertEqual(lines[1].strip(), f'{omitted} older {noun} not retained')
+                        else:
+                            self.assertNotIn('not retained', '\n'.join(lines))
+                        self.assertIn('Outcome 0', '\n'.join(lines[recent.header_height:]))
+                        self.assertEqual(recent.visible_rows[-1], recent.rows[-1])
+                        # Fixed header lines remain inert even above scrolled rows.
+                        cursor, selection = recent.cursor, app.selected
+                        for y in range(recent.header_height):
+                            await pilot.click(recent, offset=(2, y))
+                            self.assertEqual((recent.cursor, app.selected), (cursor, selection))
+                        y = recent.header_height + 19 * recent.row_stride - recent.scroll_offset.y
+                        await pilot.click(recent, offset=(2, y))
+                        self.assertEqual(app.selected, 'outcome:recent-0')
+                        if omitted == 3:
+                            for row in reversed(recent.rows[:-1]):
+                                await pilot.press('up')
+                                y = recent.header_height + recent.rows.index(row) * recent.row_stride - recent.scroll_offset.y
+                                self.assertEqual(recent.cursor, row.key)
+                                self.assertGreaterEqual(y, recent.header_height)
+                                self.assertLessEqual(y + recent.row_height, recent.scrollable_content_region.height)
                     await pilot.press('q')
                 app.worker.thread.join(2)
                 self.assertFalse(app.worker.thread.is_alive())
@@ -142,7 +190,7 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((app.selected, recent.cursor), (selection, cursor))
             self.assertEqual([row.key for row in recent.visible_rows], visible)
             self.assertEqual(len(recent.rows), 20)
-            self.assertIn('1 older outcomes not retained', recent.render().plain)
+            self.assertIn('1 older outcome not retained', recent.render().plain)
             self.assertEqual(recent.styles.scrollbar_visibility, 'hidden')
             for size in ((80, 24), (110, 32), (140, 44)):
                 await pilot.resize_terminal(*size)
@@ -151,7 +199,7 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(selection, [row.key for row in recent.visible_rows])
                 index = [row.key for row in recent.rows].index(selection)
                 y = recent.header_height + index * recent.row_stride - recent.scroll_offset.y
-                self.assertGreaterEqual(y, 0)
+                self.assertGreaterEqual(y, recent.header_height)
                 self.assertLessEqual(y + recent.row_height, recent.scrollable_content_region.height)
                 self.assertEqual(recent.styles.scrollbar_visibility, 'hidden')
             recent.scroll_home(animate=False, immediate=True)
@@ -192,6 +240,8 @@ class RecentActivityTerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, state = recent_fixture(root)
+            state['omitted'] = {'outcomes': 3}
+            publish_snapshot(path, state)
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
@@ -232,6 +282,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     up = f'\x1b[<64;{x + 3};{y + 3}M'.encode()
                     terminal.send(down * 30)
                     bottom = terminal.checkpoint(lambda value: value['lower'] == value['max'])
+                    self.assertTrue(bottom['visible'][0].startswith('Recent activity · '))
+                    self.assertEqual(bottom['visible'][1].strip(), '3 older outcomes not retained')
                     self.assertIn('Outcome 0', '\n'.join(bottom['visible']))
                     self.assertEqual(bottom['upper'], rest['upper'])
                     self.assertTrue(bottom['bar'])
