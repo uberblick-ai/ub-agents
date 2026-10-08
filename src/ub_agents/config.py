@@ -139,6 +139,7 @@ class Agent:
     max_backoff_seconds: float
     outcomes: dict
     retrospectives: int | None = None
+    health_check: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -300,7 +301,7 @@ def load_config(path):
             raise AgentError("Agent names must be lowercase slugs")
         item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
             "command", "runtime-args", "different-runtime-from", "kind",
-            "worktree", "outcomes", "retrospectives"}, f"agent {name}")
+            "worktree", "outcomes", "retrospectives", "health-check"}, f"agent {name}")
         retrospectives = item.get("retrospectives")
         if "retrospectives" in item and (type(retrospectives) is not int or retrospectives <= 0):
             raise AgentError(f"{name} retrospectives must be a positive integer discussion number")
@@ -310,6 +311,9 @@ def load_config(path):
         if command and "/" in command[0] and not Path(command[0]).is_absolute():
             # Relative executables resolve against the operator's checkout, like instructions.
             command = (str(root / command[0]),) + command[1:]
+        health_check = argv(item["health-check"], f"{name} health-check") if "health-check" in item else ()
+        if health_check and "/" in health_check[0] and not Path(health_check[0]).is_absolute():
+            health_check = (str(root / health_check[0]),) + health_check[1:]
         runtimes = []
         for spec in strings(item["runtime"], f"{name} runtime") if "runtime" in item else ():
             parts = spec.split(":")
@@ -381,7 +385,7 @@ def load_config(path):
             tuple(runtimes), command, runtime_args, different, kind, worktree,
             LEASE_SECONDS,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
-            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives))
+            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check))
     for agent in agents:
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")

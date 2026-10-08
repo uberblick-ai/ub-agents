@@ -141,6 +141,29 @@ class ConfigTests(unittest.TestCase):
                     self.assertEqual(main(["--config", str(self.path), "check"]), 1)
                 self.assertIn("launchers", stderr.getvalue())
 
+    def test_health_check_requires_argv_on_command_and_runtime_agents_without_running_it(self):
+        (self.root / 'task.md').write_text('Task')
+        for execution in ('command: [echo]', 'runtime: codex:model:high\n    instructions: task.md'):
+            base = ('repository: org/project\nagents:\n  task:\n    ' + execution +
+                    '\n    trigger: ready\n    outcomes: {done: {}}\n')
+            self.assertEqual(self.load(base).agents[0].health_check, ())
+            configured = self.load(base + '    health-check: [./scripts/check-corpus, --cheap]\n')
+            self.assertEqual(configured.agents[0].health_check,
+                             (str(self.root / 'scripts/check-corpus'), '--cheap'))
+            self.assertEqual(self.load(base + '    health-check: [probe]\n').agents[0].health_check, ('probe',))
+            self.assertEqual(self.load(base + '    health-check: [/check-corpus]\n').agents[0].health_check,
+                             ('/check-corpus',))
+            with patch('ub_agents.agent_health.run_check', side_effect=AssertionError('validation only')):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.path), 'check']), 0)
+                for value in ('null', 'true', '1', 'probe', '{}', '[]', '[false]', '[1]', '[null]',
+                              "['']", "['   ']", "[probe, '']", '["probe\\0"]'):
+                    with self.subTest(execution=execution, value=value):
+                        self.path.write_text(base + f'    health-check: {value}\n')
+                        with redirect_stderr(io.StringIO()) as error:
+                            self.assertEqual(main(['--config', str(self.path), 'check']), 1)
+                        self.assertIn('task health-check', error.getvalue())
+
     def test_direct_command_and_distinct_clock_overrides(self):
         result = self.load('''repository: org/project
 agents:
