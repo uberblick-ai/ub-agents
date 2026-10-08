@@ -27,8 +27,8 @@ header, every tab's content and log status lines; the indicator follows the labe
 on the same row. Right-aligned columns and `…` truncation stay inside the padding.
 Below 110×32 the single full-width pane keeps the same padding, with no gap.
 
-Every scrollable area (Work, Log output, Issue, Runs, Unblock and the `p`/`?`
-overlays) hides its scrollbar at rest (`scrollbar-visibility: hidden`). An
+Every scrollable area (live Work, Recent activity, Log output, Issue, Runs, Unblock
+and the `p`/`?` overlays) hides its scrollbar at rest (`scrollbar-visibility: hidden`). An
 overflowing area reserves one column for its vertical bar; showing or hiding it
 never moves or rewraps content. Log output keeps `scrollbar-gutter: stable`.
 The bar uses the muted theme color (`$view-muted`), including during hover and
@@ -36,7 +36,7 @@ dragging. Wheel input, scroll keys and cursor movement that scrolls the area
 show only that area's bar. It hides 1.5 seconds after the last scroll, remaining
 visible while hovered or dragged; leaving the bar or ending a drag starts the
 countdown once neither interaction holds it. Follow-mode log appends, item/tab
-switches, saved-position restores and resizing do not show a bar.
+switches, snapshot refreshes, saved-position restores and resizing do not show a bar.
 
 ```text
 ╭─ Work · pass complete ─────────────────────╮ ╭─ Log ───────────────────────────────────────────────────────╮
@@ -144,7 +144,11 @@ item headers and dim detail lines alike. `⌥` is in the accent color.
 The lower half is always **Recent activity**: up to 20 cached session outcomes,
 including older outcomes, newest first, with
 `N today` in its header. Its rows are dimmed; a selected one shows at full
-brightness. It never collapses. Rows that do not fit are cut from the oldest end.
+brightness. It never collapses. It scrolls vertically independently of the live
+sections above it, so wheel input, arrows and clicks can reach all retained rows.
+Both halves keep their sizes. A line below the header says `N older outcomes not
+retained` when the snapshot counts evicted outcomes; rows outside the viewport
+remain reachable by scrolling, while evicted outcomes cannot be recovered.
 
 | Glyph | Meaning | Right column |
 | --- | --- | --- |
@@ -153,7 +157,11 @@ brightness. It never collapses. Rows that do not fit are cut from the oldest end
 
 Recent activity rows keep their two-line layout: glyph, item reference, shortened
 title and result; then agent · time · summary. A row keeps its place and selection
-across polls. An item appears once in the live sections.
+across polls. New outcomes leave the visible older rows in place when scrolled
+away from the top; at the top the newest row appears first. Resize keeps the
+selected retained outcome visible without showing its scrollbar. Recent activity
+uses the same reserved-column, user-scroll-only scrollbar convention as live
+Work. An item appears once in the live sections.
 
 The rounded pane border's title shows the pass state: `Work · pass complete` or
 `Work · pass partial`, followed by any omitted count. The tree has no separate

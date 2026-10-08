@@ -11,6 +11,20 @@ one reserved column, so appearing or disappearing never shifts the content.
 It hides after 1.5 seconds of inactivity; hovering or dragging keeps it visible.
 Log follow updates and automatic position changes leave the bar hidden.
 
+Recent activity fills the lower half of Work and scrolls independently of the
+live sections above it. Use the mouse wheel or trackpad to reach all 20 retained
+outcomes; arrow keys keep the cursor visible, and clicking a row selects it.
+`Enter` opens its details and local log. Selection and position survive refreshes;
+new outcomes keep older rows in view when browsing away from the top. Resizing
+keeps the selected retained outcome visible. Recent activity follows the same
+scrollbar convention as the other areas.
+
+`N today` counts cached outcomes dated today. When older outcomes have been
+evicted, `N older outcomes not retained` appears below the header. Scrolling
+reaches rows outside the viewport, but cannot recover outcomes removed from the
+20-outcome cache. The notice uses the existing snapshot and needs no extra
+GitHub requests.
+
 Before each new run, launch refreshes the control checkout and reloads its configuration. Optional [checkout setup](/docs/configuration/checkout-setup.html) reinstalls dependencies when watched files changed. The view names the triggering file; command output stays in the reported log. A failed setup stops launch before a claim or charged attempt and retries on the next launch, even with nothing to pull.
 
 Press `r` to refresh the queue. During a continuous launch's assignment, this

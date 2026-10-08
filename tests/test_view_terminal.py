@@ -1245,7 +1245,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(revisited['starts'], outcome_paused['starts'])
                 self.assertEqual(revisited['anchor'][0], outcome_paused['anchor'][0])
                 self.assertAlmostEqual(revisited['anchor'][1], outcome_paused['anchor'][1], delta=0.05)
-                # New outcomes clip the selected row without changing its pane or paused page.
+                # At the top, new outcomes appear without changing selection or the paused page.
                 original_outcomes = list(state['outcomes'])
                 state['outcomes'] += [dict(state['outcomes'][-1], run=f'new-{n}', item=40 + n)
                                       for n in range(18)]
@@ -1257,7 +1257,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(clipped['starts'], outcome_paused['starts'])
                 self.assertEqual(clipped['anchor'], revisited['anchor'])
                 self.assertEqual(clipped['recent_scroll'], 0)
-                self.assertEqual(len(clipped['recent'].splitlines()), 3 * len(clipped['recent_rows']))
+                self.assertEqual(len(clipped['recent'].splitlines()), 60)
                 state['outcomes'] = original_outcomes
                 path.write_text(json.dumps(state))
                 terminal.checkpoint(lambda value: value['recent_rows'] == initial['recent_rows'])
