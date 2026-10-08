@@ -282,12 +282,9 @@ view comes later; for now the tab is read-only.
 │       └──────────────────────────────────────────────────────────────────────┘   │
 │    2. Maintainer: isolate `UB_AGENTS_RUN_CONFIG` in tests.                         │
 │                                                                                  │
-│  Then resume integrator:                                                         │
-│  ┌────────────────────────────────────────────────────────────────────────────┐  │
-│  │ ub-agents retry 168 --agent integrator --reason "Human resolved…"           │  │
-│  └────────────────────────────────────────────────────────────────────────────┘  │
-│  Restore a matching trigger if absent: `ready-to-merge`; remove any stop label.  │
+│  Merging or closing #168 finishes this item; nothing else is needed.              │
 │                                                                                  │
+│  ▸ To send it back to integrator instead                                          │
 │  ▸ Reasoning and evidence                                                        │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  Source: action-needed comment · 12:12 · snapshot                                │
@@ -327,12 +324,22 @@ characters with `…`. Independent asks follow, then "To unblock, do one of:" wi
 numbered options and "(recommended)" on the first. An option's trailing
 single-backtick command after a colon and space renders in its own code block;
 other single-backtick code stays inline and other ask Markdown is escaped.
-"Then resume AGENT:" stays visible, including retry and trigger instructions,
-or stop-label and trigger steps for outcomes adding a stop label. The summary,
-candidate, review, CI and links stay in a collapsed "Reasoning and evidence"
-section. Without options, asks retain their previous layout with resume steps
-visible. v0.1.13's "Reasoning, evidence and resume instructions" fold and earlier
+PR run-outcome notices show "Merging or closing #N finishes this item; nothing
+else is needed." visibly. Their retry and trigger instructions, or stop-label
+and trigger steps for outcomes adding a stop label, stay in a separate collapsed
+"To send it back to AGENT instead" control. Issue notices and notices whose item
+type could not be read keep visible "Then resume AGENT:" steps. Approval-gate
+notices keep their visible resume steps. The summary, candidate, review, CI and
+links stay in a collapsed "Reasoning and evidence" section. Without options,
+asks retain their previous layout, followed by the same item-specific resume
+structure. v0.1.13's "Reasoning, evidence and resume instructions" fold and earlier
 prose comments still render as written.
+
+When a blocked row has no available notice, Unblock shows its published reason.
+For a PR it also shows the completion line and a collapsed "To send it back to
+AGENT instead" control with the retry command and trigger and stop-label hints.
+Issues and unknown item types keep the fallback resume steps visible. An
+available trusted notice replaces the fallback.
 
 ### Runs
 
