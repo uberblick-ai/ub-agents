@@ -896,11 +896,12 @@ class Loop:
                                        shared_instructions=shared)
 
     def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):
-        # An expired setup has no agent outcome to recover. Confirm local setup
-        # groups before a later run can consume or release the same item.
-        for previous in self.coordinator.history(plan.item.number):
-            if previous["kind"] == "lease" and previous.get("host") == socket.gethostname():
-                confirm_worktree_setup_stopped(self.config, previous["run"])
+        def confirm_stopped(history):
+            # An expired setup has no agent outcome to recover. Use the claim's
+            # fresh history to confirm local groups before starting another run.
+            for previous in history:
+                if previous["kind"] == "lease" and previous.get("host") == socket.gethostname():
+                    confirm_worktree_setup_stopped(self.config, previous["run"])
 
         def authorize(current, matches):
             # Discovery may have reused an approval verdict's inputs. Recheck
@@ -915,7 +916,8 @@ class Loop:
 
         self._observe("assignment", plan)
         lease = self.coordinator.claim(plan, self.config.stop_labels,
-                                       before_write=self._end_poll, authorize=authorize)
+                                       before_write=self._end_poll, authorize=authorize,
+                                       confirm_stopped=confirm_stopped)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False
