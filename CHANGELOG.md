@@ -6,10 +6,6 @@ notes are copied from that section.
 
 ## Unreleased
 
-### Changed
-
-- The issue preparer records a wait on another change, including a pull request or an issue in another repository, as a blocked-by relationship and finishes preparation, instead of stopping for a human. Existing projects can copy the paragraph from the installed `issue-preparer.md` template (uberblick-ai/uberblick-2#1399).
-
 ## 0.1.16 — 2026-10-08
 
 **Upgrading:** let running agents finish (`q`) or stop the launcher before updating:
