@@ -3993,6 +3993,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.descriptions.pending is None)
             markdown = app.query_one('#issue_body', Markdown)
             self.assertEqual(markdown.source, body[:2048])
+            await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
             self.assertEqual(len(markdown.query('MarkdownH1')), 1)
             self.assertIn('#12 GitHub title', app.query_one('#item_header', Static).render().plain)
             note = app.query_one('#issue_note', Static).render().plain
