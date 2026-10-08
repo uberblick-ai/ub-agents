@@ -24,7 +24,7 @@ from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
 from textual.geometry import Size
 from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
-from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
+from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, work_pane
@@ -1014,6 +1014,38 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.selected, selected)
             self.assertIs(app.focused, focus)
             self.assertEqual(transport.calls, [])
+
+    async def test_health_banner_shows_failure_changes_and_recovery_in_one_inert_row(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            banner = app.query_one(HealthBanner)
+            self.assertFalse(banner.display)
+            await pilot.press('2')
+            selected, focus = app.selected, app.focused
+            for line in ('preparer: waiting — health check ./check-corpus: Unreachable',
+                         'preparer: waiting — health check ./check-corpus: Wrong workspace',
+                         'preparer: health check ./check-corpus passed — claiming resumes'):
+                self.state['health_notice'] = line
+                publish_snapshot(self.path, self.state)
+                await self.ready(app, pilot, lambda: banner.banner.get('text') == line
+                                 and banner.size.height == 1)
+                self.assertTrue(banner.display)
+                self.assertEqual(banner.render().plain, line)
+                self.assertEqual(app.query_one('#body').region.y, 1)
+                self.assertFalse(banner.can_focus)
+                self.assertEqual(app.selected, selected)
+                self.assertIs(app.focused, focus)
+            await pilot.resize_terminal(70, 32)
+            await pilot.pause()
+            self.assertEqual(banner.size.height, 1)
+            self.assertLessEqual(banner.render().cell_len, 68)
+            await pilot.resize_terminal(59, 15)
+            await pilot.pause()
+            self.assertFalse(banner.display)
+            await pilot.resize_terminal(110, 32)
+            await pilot.pause()
+            self.assertTrue(banner.display)
 
     async def settled(self, app, pane):
         # A pilot pause can return on a busy machine before the after-refresh

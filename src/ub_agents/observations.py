@@ -155,6 +155,7 @@ class Observations:
             "config_path_reason": None if config_path else "No configuration path supplied",
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
+            "health_notice": None,
             "outcomes": [], "histories": {}, "action_needed": {}, "coordination_authors": {},
             "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
@@ -345,6 +346,10 @@ class Observations:
 
     def activity(self, state, until=None, reason=None):
         self.state["activity"] = {"state": state, "until": until, "reason": reason}
+        self.emit()
+
+    def health_notice(self, line):
+        self.state["health_notice"] = line[:MAX_TEXT]
         self.emit()
 
     def poll_now(self, cooldown_until, rate_limit_until, waiting=False):

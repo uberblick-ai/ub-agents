@@ -85,7 +85,7 @@ class Loop:
         self.default_config = default_config
         self.output = output
         self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output)
-        self.health = AgentHealth(output=lambda line: self.output(line))
+        self.health = AgentHealth(output=self._health_notice)
         self.coordinator.runtime_paused = self.usage.paused
         self.discovery = Discovery(self.github)
         self._shown = {}
@@ -106,6 +106,10 @@ class Loop:
     def _observe(self, method, *args):
         with self._observer_lock:
             self._publish_observation(method, *args)
+
+    def _health_notice(self, line):
+        self.output(line)
+        self._observe("health_notice", line)
 
     def _publish_observation(self, method, *args):
         if self.observer is not None:
@@ -430,18 +434,23 @@ class Loop:
                 raise
             yield from (Plan(item, a, None, "parked", approval.reason, 1, history_read=False) for a in matched)
             return
-        plans = []
+        reconciled = set()
         for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
                                              history, matched, approval):
             plan = self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
-            plans.append(self._health_plan(plan, checked, announce=health_notices))
+            plan = self._health_plan(plan, checked, announce=health_notices)
+            if reconcile_notices:
+                self._before_claim()
+                reconciled.add(plan.agent.name)
+                if not plan.health_wait:
+                    self.reconcile_blocked_notices([r for r in history if r["agent"] == plan.agent.name], coordinator)
+            yield plan
         if reconcile_notices:
             self._before_claim()
-            # A failing check also suppresses older advisory comments for this
-            # agent's ready row. Recorded-outcome recovery remains independent.
-            waiting = {p.agent.name for p in plans if p.health_wait}
-            self.reconcile_blocked_notices([r for r in history if r["agent"] not in waiting], coordinator)
-        yield from plans
+            # Closed items can have a missing advisory without an assignment
+            # row. Keep that recovery, without evaluating later agents before
+            # a reached ready agent's claim or posting for health-waiting rows.
+            self.reconcile_blocked_notices([r for r in history if r["agent"] not in reconciled], coordinator)
 
     def _health_plan(self, plan, checked=None, *, announce=False):
         if plan.state == "ready":

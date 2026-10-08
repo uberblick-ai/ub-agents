@@ -126,6 +126,23 @@ class HealthGateTests(unittest.TestCase):
         self.assertFalse(any(r['kind'] == 'reset' for r in history))
         self.assertEqual(self.lines.count('worker: health check /check-corpus --cheap passed — claiming resumes'), 1)
 
+    def test_other_agent_on_same_item_can_claim_while_first_agents_check_fails(self):
+        self.github.items.pop(2)
+        other = agent(self.root, name='other', kind='issue')
+        self.loop.config = config(self.root, self.agent, other)
+        with patch('ub_agents.loop.supervise', side_effect=self.complete):
+            self.assertTrue(self.loop.tick())
+        history = self.loop.coordinator.history(1)
+        self.assertTrue(all(r['agent'] == 'other' for r in history))
+        self.check.assert_called_once()
+
+    def test_later_agents_check_is_not_run_after_first_agent_claims(self):
+        first = agent(self.root, name='first', kind='issue')
+        self.loop.config = config(self.root, first, self.agent)
+        with patch.object(self.loop, 'execute', return_value=True):
+            self.assertTrue(self.loop.tick())
+        self.check.assert_not_called()
+
     def test_pass_cached_for_five_minutes_then_failure_rechecked(self):
         self.check.return_value = None
         self.assertTrue(all(p.state == 'ready' for p in self.loop.plans()))
@@ -268,6 +285,15 @@ class HealthGateTests(unittest.TestCase):
             self.assertEqual(plan_group(row), 'Eligible')
             self.assertIn('/check-corpus --cheap: Corpus unavailable', row['reason'])
             self.assertEqual(row['failures'], 0)
+        self.assertEqual(publisher.snapshots[-1]['health_notice'], self.lines[0])
+        self.check.return_value = 'Wrong workspace'
+        self.loop.tick()
+        self.assertEqual(publisher.snapshots[-1]['health_notice'], self.lines[-1])
+        self.check.return_value = None
+        with patch('ub_agents.loop.supervise', side_effect=self.complete):
+            self.loop.tick()
+        self.assertEqual(publisher.snapshots[-1]['health_notice'],
+                         'worker: health check /check-corpus --cheap passed — claiming resumes')
 
     def test_status_checks_health_without_launcher_and_keeps_json_and_plain_output_valid(self):
         for scoped in ([], ['1']):
