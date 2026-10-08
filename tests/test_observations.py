@@ -26,7 +26,7 @@ from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
-from ub_agents.view_data import Session, local_description, work_rows
+from ub_agents.view_data import Session, load_session, local_description, work_pane, work_rows
 from ub_agents.view_worker import LocalWorker, Request
 from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
 
@@ -136,7 +136,7 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(len(snapshot['latest_pass']['rows']), 1)
         self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
 
-    def test_size_trimming_preserves_attention_notices_before_previews_and_surplus_history(self):
+    def test_size_trimming_preserves_attention_notices_before_surplus_history(self):
         self.observer.begin_pass()
         plans = [(1, 'parked', 'Needs human'), (2, 'blocked', 'Attempt limit exhausted'),
                  (3, 'failed', 'Read failed'), (4, 'ready', 'Ready'),
@@ -168,7 +168,7 @@ class ObservationTests(unittest.TestCase):
                 self.assertEqual(notice, retained['action_needed'][key])
             else:
                 self.assertEqual(notice, {'omitted': True})
-        self.assertTrue(all(len(row['description']['text']) == 256 for row in snapshot['latest_pass']['rows']))
+        self.assertTrue(all('description' not in row for row in snapshot['latest_pass']['rows']))
         self.assertGreater(sum(history['omitted_runs'] for history in snapshot['histories'].values()), 0)
         for number in ('1', '2', '3'):
             self.assertTrue(snapshot['histories'][number]['runs'])
@@ -189,8 +189,80 @@ class ObservationTests(unittest.TestCase):
         self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
         self.assertEqual(len(snapshot['action_needed']), MAX_PLANS)
         self.assertTrue(all(notice == {'omitted': True} for notice in snapshot['action_needed'].values()))
-        self.assertGreater(snapshot['omitted']['plans'], 0)
+        self.assertEqual(snapshot['omitted']['plans'], 0)
         self.assertEqual(len(snapshot['latest_pass']['rows']) + snapshot['omitted']['plans'], MAX_PLANS)
+        self.assertTrue(all(len(row['title']) < MAX_TEXT for row in snapshot['latest_pass']['rows']))
+        self.assertGreater(snapshot['shortened']['characters'], 0)
+        self.assertEqual(self.observer.state, retained)
+
+    def test_long_issue_bodies_do_not_consume_snapshot_space_or_drop_plans(self):
+        self.observer.begin_pass()
+        for number in range(1, MAX_PLANS + 1):
+            self.observer.plan(Plan(replace(issue(number), body='😀' * 10000),
+                                    self.cfg.agents[0], None, 'ready', 'Ready', 1))
+        self.observer.complete_pass()
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(len(snapshot['latest_pass']['rows']), MAX_PLANS)
+        self.assertEqual(snapshot['omitted']['plans'], 0)
+        self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+        self.assertTrue(all('description' not in row for row in snapshot['latest_pass']['rows']))
+        # Description fields were optional in version 1, so existing views can
+        # still read these rows and offer their explicit GitHub load action.
+        path = self.root / '.ub-agents/sessions/launcher.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(snapshot))
+        session = load_session(path)
+        self.assertIsNone(session.error)
+        self.assertEqual(snapshot['version'], 1)
+        description = local_description(work_rows(session, self.root)[0], session)
+        self.assertFalse(description.available)
+        self.assertFalse(description.error)
+
+    def test_byte_trimming_keeps_visible_rows_and_full_eligible_count(self):
+        self.observer.begin_pass()
+        self.observer._batching = True
+        for number in range(1, 29):
+            state = 'backoff' if number < 23 else 'ready' if number == 23 else 'blocked'
+            reason = 'Reason'
+            if number >= 26:
+                state, reason = 'parked', 'Waiting for blockers #24'
+            history = tuple({'kind': 'lease', 'assignment': number, 'agent': 'worker',
+                             'run': f'run-{number}-{index}', 'created': iso(1000 + index),
+                             'expires': iso(2000 + index), 'state': 'released', 'summary': 'H' * MAX_TEXT}
+                            for index in range(3))
+            plan = Plan(replace(issue(number), title=f'Item {number} ' + 'T' * 500),
+                        self.cfg.agents[0], None, state, reason, 1, history=history,
+                        priority='priority:urgent' if number == 23 else None)
+            self.observer.plan(plan)
+            if number == 23:
+                urgent = plan
+            if number == 25:
+                self.observer.assignment(plan)
+        # Keep both agents of the urgent merged item, even though its plans
+        # come after every delayed item in pass order.
+        self.observer.plan(replace(urgent, agent=replace(urgent.agent, name='reviewer')))
+        self.observer.state['outcomes'] = [
+            {'item': number, 'agent': 'worker', 'run': f'outcome-{number}',
+             'summary': 'O' * MAX_TEXT, 'time': iso(2000)} for number in (26, 27)]
+        self.observer._batching = False
+        self.observer.complete_pass()
+        retained = deepcopy(self.observer.state)
+        self.assertGreater(Observations.byte_size(retained), MAX_BYTES)
+        before = work_pane(Session(self.root / 'launcher.json', retained), self.root)
+        snapshot = self.memory.snapshots[-1]
+        after = work_pane(Session(self.root / 'launcher.json', snapshot), self.root)
+        self.assertEqual([[row.key for row in section.rows] for section in after.sections],
+                         [[row.key for row in section.rows] for section in before.sections])
+        self.assertEqual(after.sections[-1].label, 'Eligible · 23 · showing 10')
+        self.assertEqual(after.sections[-1].rows[0].item, 23)
+        self.assertEqual([plan['agent'] for plan in after.sections[-1].rows[0].eligible_plans],
+                         ['worker', 'reviewer'])
+        self.assertGreater(snapshot['omitted']['plans'], 0)
+        self.assertEqual(snapshot['outcomes'], [])
+        self.assertEqual(snapshot['omitted']['outcomes'], 2)
+        self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+        for number in (23, 24, 25):
+            self.assertEqual(snapshot['histories'][str(number)]['runs'][-1]['time'], iso(1002))
         self.assertEqual(self.observer.state, retained)
 
     def test_author_observations_use_existing_role_reads_and_fail_closed(self):
@@ -250,7 +322,7 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual([row.item for row in work if row.group == 'Eligible'], eligible)
             kept = next(row for row in work if row.item == 4)
             self.assertEqual(kept.data['history'], previous['histories']['4'])
-            self.assertEqual(local_description(kept, result.session).body, 'Body 4')
+            self.assertFalse(local_description(kept, result.session).available)
             self.assertEqual(next(row for row in result.pane.rows if row.item == 4).state, 'blocked')
         self.observer.complete_pass()
         snapshot, work, result = published()
@@ -260,7 +332,7 @@ class ObservationTests(unittest.TestCase):
         earlier = next(row for row in result.pane.rows if row.item == 4)
         self.assertEqual(earlier.state, 'earlier observation')
         self.assertEqual(earlier.data['history'], previous['histories']['4'])
-        self.assertEqual(result.description.body, 'Body 4')
+        self.assertFalse(result.description.available)
         # A later begin also keeps rows from a pass interrupted by execution.
         self.observer.begin_pass()
         self.observer.plan(replace(changes[0], state='waiting'))
@@ -397,8 +469,7 @@ class ObservationTests(unittest.TestCase):
                 order = [(3, 'integrator'), (4, 'reviewer')]
                 self.assertEqual([(row['item'], row['agent']) for row in rows],
                                  order if 'ready-to-merge' in labels else order[::-1])
-                self.assertEqual(next(row for row in rows if row['item'] == 3)['description']['text'],
-                                 'Updated candidate')
+                self.assertNotIn('description', next(row for row in rows if row['item'] == 3))
                 self.assertEqual(next(row for row in rows if row['item'] == 4), previous[-1])
 
     def test_partial_pass_replaces_dropped_row_with_unfinished_run_recovery(self):
@@ -449,7 +520,7 @@ class ObservationTests(unittest.TestCase):
         self.assertFalse(any(name == 'observe' or (name == 'item' and args[0] == 1)
                              for name, args in github.reads))
 
-    def test_kept_agent_uses_its_previous_description_and_item_history(self):
+    def test_kept_agent_uses_its_previous_item_history_without_descriptions(self):
         first = Plan(replace(issue(), body='Previous body'), self.cfg.agents[0], None,
                      'ready', 'Ready', 1)
         second = replace(first, agent=replace(first.agent, name='reviewer'))
@@ -465,9 +536,9 @@ class ObservationTests(unittest.TestCase):
         session = Session(self.root / 'launcher.json', self.memory.snapshots[-1])
         merged, = work_rows(session, self.root)
         refreshed, kept = merged.eligible_plans
-        self.assertEqual(local_description(merged, session).body, 'New body')
+        self.assertFalse(local_description(merged, session).available)
         self.assertEqual([plan['agent'] for plan in merged.eligible_plans], ['worker', 'reviewer'])
-        self.assertEqual(kept['description']['text'], 'Previous body')
+        self.assertNotIn('description', kept)
         self.assertEqual(kept['history'], previous)
         self.assertEqual(len(refreshed['history']['runs']), 1)
         self.observer.complete_pass()
@@ -737,14 +808,13 @@ class ObservationTests(unittest.TestCase):
         self.assertGreater(state["shortened"]["characters"], 0)
         self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode()), MAX_BYTES)
         for row in state["latest_pass"]["rows"]:
-            self.assertEqual(len(row["title"]), MAX_TEXT)
-            self.assertGreaterEqual(row["description"]["omitted_characters"], 100)
-            self.assertEqual(len(row["description"]["text"]) + row["description"]["omitted_characters"],
-                             MAX_TEXT + 100)
+            self.assertLessEqual(len(row["title"]), MAX_TEXT)
+            self.assertNotIn('description', row)
         self.observer.begin_pass()
         plan = Plan(replace(issue(), body=None), self.cfg.agents[0], None, "parked", "reason", 1)
         self.observer.plan(plan)
-        self.assertFalse(self.memory.snapshots[-1]["latest_pass"]["rows"][0]["description"]["available"])
+        self.assertNotIn('description', self.memory.snapshots[-1]['latest_pass']['rows'][0])
+        self.observer.complete_pass()
         for number in range(MAX_OUTCOMES + 3):
             self.observer.assignment(plan)
             self.observer.record({"kind": "lease", "assignment": 1, "agent": "worker", "run": str(number),
@@ -856,7 +926,7 @@ class PublisherTests(unittest.TestCase):
         observer = Observations(config(self.root), "operator", None, self.publisher())
         observer.begin_pass()
         for number in range(MAX_PLANS + 1):
-            plan = Plan(replace(issue(number + 1), body="😀" * (MAX_TEXT + 10)),
+            plan = Plan(replace(issue(number + 1), title="😀" * (MAX_TEXT + 10)),
                         config(self.root).agents[0], None, "parked", "reason", 1)
             observer.plan(plan)
         observer.complete_pass()

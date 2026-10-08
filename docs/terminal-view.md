@@ -11,8 +11,9 @@ an agent's private worktree. A launcher passes its exact session ID; it never
 selects another fresh session. A missing, stale (over 30 seconds), ended or
 incompatible snapshot, or a version mismatch after an upgrade under a running
 launcher, produces a one-line error and plain output continues. The view has no
-workflow controls. Pressing `g` on Issue or Unblock, or activating Unblock with
-a missing snapshot notice and no cached load result, uses the user's existing
+workflow controls. Opening Issue without a cached description, pressing `g` on
+Issue or Unblock, or activating Unblock with a missing snapshot notice and no
+cached load result, uses the user's existing
 authenticated `gh` access.
 
 The target look for upcoming changes is in [design/terminal-view.md](design/terminal-view.md).
@@ -237,7 +238,7 @@ Retry backoff and paused-runtime plans remain in Eligible because this launcher
 can run them once their delay passes. Within Eligible, ready/recovery rows keep
 their planned order, followed by delayed rows in their planned order.
 While a pass is incomplete, the Work border title shows `Work · pass partial`.
-Visible rows from the previous pass remain, with their cached descriptions and item
+Visible rows from the previous pass remain, with their item
 history, until the new pass completes, except when discovery observes that the item
 is closed or merged, or an Eligible row's item no longer carries that agent's trigger.
 Those rows disappear even before planning reaches them. Open Needs attention rows,
@@ -325,8 +326,11 @@ the agent, runtime (`cli model effort`), running assignment's `attempt N` or
 planned work's `F/M failures`, and a session outcome's linked PR (`⌥N`) with
 ` · `. Missing values are omitted. Failure counts and the agent's `max-attempts`
 come from the launcher's existing coordination reads, within the snapshot limits.
-Issue first uses the snapshot description or that session's run `context.json`.
-A shortened or empty cached description is available and needs no GitHub read.
+Plan rows carry no description text. Opening Issue with `2`, a tab click, or a
+selection change while Issue is active loads missing title/body from GitHub through
+the view's description cache. While pending, it shows `Loading #N…`. An available
+run `context.json` or cached GitHub result needs no read, including an empty or
+shortened body. Reopening Issue never retries a cached failure; press `g` to retry.
 
 Unblock shows the latest trusted action-needed comment for a parked or blocked
 item, including an exhausted attempt limit. Its bold header keeps the item
@@ -383,8 +387,9 @@ The session snapshot retains comments this launcher posts or finds in the pass's
 already-read item comments from verified trusted launcher accounts. Claims and resets clear
 them. Text and item counts are bounded. To fit the 64 KiB snapshot, notices for
 items outside Needs attention (including items without a row) are omitted first,
-then description previews are shortened and surplus history runs trimmed. Needs
-attention notices are omitted next, before plans and outcomes are trimmed. Each
+then surplus history runs, older outcomes and plans outside the visible Work
+sections are trimmed. Needs attention notices are omitted next, before visible
+display text is shortened further or visible plans are trimmed as a last resort. Each
 omitted notice keeps an `omitted` marker without text in the published snapshot;
 the retained launcher state keeps its text. GitHub loads accept
 only comments whose body starts with `<!-- ub-agents:action-needed ` and whose
@@ -434,10 +439,13 @@ other hosts are dim, with their domain removed and long names shortened with
 for handoff copies without a claim; older records without either show `unknown`.
 A claim and its outcome, including handoff copies, count as one run. The snapshot
 retains at most 20 runs per item and stays within its shared 64 KiB limit, with
-a notice counting any earlier runs omitted. Under byte pressure, long plan
-descriptions are shortened to 256-character previews before the globally oldest
-runs are omitted. Each item's newest run is retained; if necessary, later plan
-rows and older session outcomes are then omitted with their unreferenced histories.
+a notice counting any earlier runs omitted. Under byte pressure, the globally
+oldest surplus runs go first, followed by older session outcomes and plan rows
+outside Running, Needs attention and the first ten Eligible items in claim order.
+Unreferenced histories leave with their rows. Each retained item's newest run is
+kept, and Eligible's heading still gives the count before trimming. Visible titles,
+reasons and run summaries may be shortened further to keep these rows; only
+remaining metadata that cannot fit forces visible plan omissions.
 The current assignment's history remains. These reductions affect only published
 snapshots; the next snapshot can use the launcher's retained data again.
 Unreadable coordination records preserve an item's cached history from the
@@ -697,28 +705,30 @@ While stopping, selecting the current assignment replaces its Log status with
 their usual process or plan status. The stopping screen uses only the existing
 session snapshot and makes no GitHub reads.
 
-Pressing `g` on Issue or Unblock starts a GitHub read. Activating Unblock with
+Opening Issue with `2`, a tab click, or a selection change while Issue is active
+loads a missing description when that item has no cached result. Pressing `g` on
+Issue or Unblock starts a GitHub read. Activating Unblock with
 `4` or a tab click also loads a missing or omitted snapshot notice when that
-item has no cached load result. Attachment, selection, other tab activations,
-redraws, resizes and timers make no GitHub calls. Each load makes one
+item has no cached load result. Attachment, selection outside Issue, other tab
+activations, redraws, resizes and timers make no GitHub calls. Each load makes one
 `gh api graphql` request: Issue reads only the selected issue or PR's title and
 body; Unblock reads its most recent comments (at most 100), with author, creation
 time and body, without paging. There are no history reads, queue scans, prefetch
-or extra role reads. Automatic loads happen only on Unblock activation and never
-retry a cached failure. There is at most one read in flight: pressing `g` or
-activating Unblock while any read is pending queues nothing. Input and local
+or extra role reads. Automatic loads never retry a cached failure. There is at
+most one read in flight: pressing `g` or opening either tab while any read is
+pending queues nothing. Input and local
 snapshot/log reading continue while it is pending, with a loading notice on the requesting tab.
 Closing the view terminates and reaps its owned request processes. A request
 supervisor also cleans them up if the view is killed. `q` drains an attached
 launcher and Ctrl-C interrupts it; either key closes only a standalone view.
 
-Descriptions show their source and age: snapshot publication time, run context
-file modification time, or GitHub load completion time; missing local timestamps
+Descriptions show their source and age: run context file modification time or
+GitHub load completion time; missing local timestamps
 say age unavailable. Each title/body projection is limited to 2,048 characters
 plus a visible shortening notice. Successful and failed GitHub reads stay only
 in memory, in a 128-item least-recently-used cache shared by Issue and Unblock across rows for the same
 repository/item. Revisiting a cached item never calls GitHub; a failed read needs
-`g` to retry. Evicted items can load again through `g` or Unblock activation.
+`g` to retry. Evicted items can load again through `g` or opening the relevant tab.
 There is no session load
 count limit. Each request has a 10-second time limit and a 512 KiB response limit.
 After a rate-limit response, both tabs show a shared cooldown through the reported
@@ -851,7 +861,8 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    status line must still say `no outcome reported` when no workflow report exists.
 4. Replace or truncate the replay log. Check generation recovery and refusal of
    older reads from the prior generation.
-5. On Issue, select a row with no local description and press `g`. Confirm loading,
+5. Open Issue for a row with no local description using `2`, a tab click, or a
+   selection change while Issue is active. Confirm `Loading #N…`,
    then source/age and the loaded description or a cached failure. Visit other
    tabs/rows and return; confirm no further call. Retry a failure explicitly.
    Use a description with headings, lists, emphasis, inline code, code blocks,

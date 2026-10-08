@@ -74,7 +74,7 @@ control checkout. Publication is always on and has no configuration key.
 Writing the snapshot makes no GitHub requests; continuous launch also runs
 read-only observation passes during assignments to refresh the planned queue.
 `status` and embedded loops without an observer keep their existing
-behavior. Snapshots contain issue titles and descriptions already read by the
+behavior. Snapshots contain issue titles and run summaries already read by the
 launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
 directories have mode `0700`; snapshot and temporary files have mode `0600`.
 
@@ -101,9 +101,9 @@ The version 1 envelope contains:
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
 | `poll_now` | Optional poll control: `cooldown_until` and `rate_limit_until` are UTC ISO 8601 times or `null`; `waiting: true` confirms a poll waiter is installed, allowing immediate feedback on `r` during an assignment unless cooldown or rate limits apply. Missing or false `waiting` gives no such confirmation. `refreshing: true` means an `r`-forced read-only queue refresh is running during an assignment. Missing or false `refreshing` means no forced refresh; scheduled refreshes do not set it. |
 | `assignment` | Current item, kind, title, agent, effective priority word, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
-| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
+| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time, without description text. `eligible_count` counts merged Eligible items before byte trimming, excluding the running agent; older snapshots may omit it. Another launcher's owner includes only actor, host and run, with no log paths. |
 | `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff when reported, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit optional header context. |
-| `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
+| `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. Work's `omitted N` counts dropped plan rows; Eligible's heading uses `eligible_count` even when hidden plans were dropped. |
 
 Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
 `unknown`. Only a process recorded by supervision is shown as running; a lease's
@@ -113,11 +113,17 @@ transition complete). `completed` can be true while `human_blocker` lists stop
 labels such as `needs-human`. Finalized outcomes' blockers carry their last
 observation time and are updated when a later pass reaches that target;
 unfinalized reports have no applicable blocker yet. Missing values are `null` with
-reasons where known; unavailable descriptions explicitly say why.
+reasons where known. The Issue tab loads missing descriptions from GitHub when
+opened; a view from the previous build can still read these snapshots and offers
+`g` to load the description.
 
 Snapshots hold at most 100 latest-pass rows and 20 recent outcomes. Each text
 value is limited to 2,048 characters and the entire UTF-8 JSON file to 64 KiB;
-the size bound can omit additional plan rows or older outcomes. Publication uses
+the size bound trims surplus history runs, older outcomes and plans outside Work's
+visible sections before Running, Needs attention and the first ten Eligible items
+in the view's claim order. Each retained item's newest run is kept. Long visible
+display text is shortened further if necessary; only an envelope whose remaining
+metadata cannot fit loses visible plans. Publication uses
 a bounded mailbox and an isolated worker. A slow or failed writer cannot delay
 claims, outcome acceptance, recovery, configuration reload, signal handling or
 launcher exit; failures produce at most one publication diagnostic per session.

@@ -5,8 +5,9 @@ guides the polish issues (#159–#166). [terminal-view.md](../terminal-view.md)
 describes what the view does today. When an issue lands, update both files.
 
 The view stays read-only. It reads the launcher's local session snapshot and run logs
-and makes no GitHub calls except `g` on the Issue and Unblock tabs or activating
-Unblock with a missing snapshot notice and no cached load result. It has no workflow controls,
+and makes no GitHub calls except opening Issue without a cached description,
+`g` on the Issue and Unblock tabs, or activating Unblock with a missing snapshot
+notice and no cached load result. It has no workflow controls,
 so there is no retry key and no filter. `q` stops the launch after the current run;
 Ctrl-C stops it immediately. The view stays open through launcher cleanup (#287).
 
@@ -252,12 +253,17 @@ Missing values are omitted. The running assignment shows `attempt N`; planned wo
 │  │ <!-- ub-agent:record v1 -->  ignored         │                               │
 │  └──────────────────────────────────────────────┘                               │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
-│  Source: snapshot · 15s old · press g to load from GitHub                       │
+│  Source: GitHub · 15s old                                                        │
 ╰─────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 The body renders as Markdown. Links and HTML show as text and are never opened.
 The source and age line is last.
+Plan snapshots contain no description text. Opening Issue with `2`, a tab click,
+or a selection change while Issue is active loads missing title/body through the
+view's existing GitHub cache and shows `Loading #N…`. Cached reads and run context
+need no repeat request; a cached failure requires `g` to retry. Bodies retain the
+2,048-character limit and separate shortening notice.
 
 ### Unblock
 
@@ -309,8 +315,11 @@ uses the same published start time and minute/hour/day format as the Work row,
 even after a GitHub load. Unknown times are omitted.
 
 To fit the 64 KiB snapshot, notices outside Needs attention are omitted first,
-then description previews are shortened and surplus history runs trimmed, then
-Needs attention notices are omitted, and finally plans and outcomes are trimmed.
+then surplus history runs, older outcomes and plans outside the visible Work
+sections are trimmed. Running, Needs attention and the first ten Eligible items
+in claim order are kept, with Eligible's full count. Needs attention notices are
+omitted next; visible display text is shortened further before visible plans can
+be omitted if the remaining metadata still cannot fit.
 Omitted notices retain an `omitted` marker without text in the published copy;
 the launcher's retained state is unchanged. Their status reads "Comment left out
 of the snapshot to save space; loading from GitHub…" while their read is pending,

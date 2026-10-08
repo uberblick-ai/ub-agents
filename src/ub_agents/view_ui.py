@@ -488,6 +488,7 @@ class View(App):
         self.worker = worker or LocalWorker(root, session_path)
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
+        self.issue_load_requested = False
         self.unblock_visible = False
         self.unblock_details_key = None
         self.session = None
@@ -921,6 +922,7 @@ class View(App):
         self.last_context = None
         self.last_runs = None
         self.local_description = None
+        self.issue_load_requested = False
         self.query_one('#issue_text', Static).update('Reading cached context…')
         self.update_runs()
         self.query_one('#issue_body', Markdown).update('')
@@ -1002,12 +1004,16 @@ class View(App):
             return
         key = self.description_key()
         local = self.local_description
+        if self.query_one(ItemTabs).active == 'issue' and not self.issue_load_requested:
+            self.issue_load_requested = True
+            if not local.available and self.descriptions.get(key) is None:
+                self.descriptions.request(key)
         description = local if local.available else (self.descriptions.get(key) or local)
         row = self.rows.get(self.selected)
         details = description.details()
         extra = ''
         if self.descriptions.pending == key and key is not None and self.descriptions.pending_kind == 'issue':
-            extra += '\n\nLoading title/body from GitHub…'
+            extra += f'\n\nLoading #{row.item}…'
         elif not description.available:
             extra += '\n\nPress g on Issue to ' + ('retry' if description.error else 'load') + ' title/body from GitHub.'
         if self.descriptions.clock() < self.descriptions.cooldown:
@@ -1405,12 +1411,18 @@ class View(App):
         if self.query_one(TabbedContent).active == 'log':
             self.query_one('#output', LogPane).save_anchor()
         self.query_one(TabbedContent).active = tab
+        if tab == 'issue':
+            self.issue_load_requested = False
+            self.update_issue()
         if tab == 'unblock':
             self.load_missing_action()
 
     def on_click(self, event):
         # Clicking an already active tab does not emit TabActivated, but is
         # still an explicit activation after selecting a different item.
+        if event.widget is self.query_one(ItemTabs).get_tab('issue'):
+            self.issue_load_requested = False
+            self.update_issue()
         if self.unblock_visible and event.widget is self.query_one(ItemTabs).get_tab('unblock'):
             self.load_missing_action()
 
@@ -1420,6 +1432,9 @@ class View(App):
         if event.pane.id == 'log' and self.is_mounted:
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
         if self.is_mounted:
+            if event.pane.id == 'issue':
+                self.issue_load_requested = False
+                self.update_issue()
             if event.pane.id == 'unblock':
                 self.load_missing_action()
             if event.pane.id == 'runs':

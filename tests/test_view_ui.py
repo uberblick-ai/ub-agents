@@ -1761,7 +1761,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                                    (header.size.width - 1, 1), (0, 2)):
                                         self.assertTrue(await pilot.click(header, offset=offset))
                                     opened.assert_not_called()
-                        self.assertEqual(transport.calls, [])
+                        # Issue activation starts one read; reference clicks
+                        # add no requests while that read is pending.
+                        self.assertEqual(transport.calls, [('synthetic-owner/consumer-project', 114)])
                         await pilot.press('q')
                 app.worker.thread.join(2)
                 self.assertFalse(app.worker.thread.is_alive())
@@ -2810,8 +2812,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             own, page, anchor = app.selected, app.reading.page, output.anchor()
             key = 'plan:21'
             app.select(key)
+            await pilot.press('2')
+            await self.ready(app, pilot, lambda: app.descriptions.pending is not None)
+            transport.response = Response('Issue 21', 'Cached body 21')
             markdown = app.query_one('#issue_body', Markdown)
             await self.ready(app, pilot, lambda: markdown.source == 'Cached body 21')
+            await pilot.press('1')
             tree = app.query_one('#work', Tree)
             app.move_cursor(app.nodes[key])
             output.focus()
@@ -2852,7 +2858,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.settled(app, output)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
-            self.assertEqual(transport.calls, [])
+            self.assertEqual(transport.calls, [('org/project', 21)])
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -3946,6 +3952,55 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_issue_loads_on_keyboard_click_and_selection_with_cached_markdown(self):
+        self.state['assignment'] = None
+        self.state['outcomes'] = []
+        self.state['latest_pass']['rows'] = [
+            {'item': number, 'agent': 'worker', 'state': 'ready', 'reason': 'Ready',
+             'kind': 'issue', 'title': f'Snapshot title {number}'} for number in (12, 15, 16)]
+        publish_snapshot(self.path, self.state)
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            self.assertEqual(transport.calls, [])
+            await pilot.press('2')
+            self.assertEqual(transport.calls, [('example/repo', 12)])
+            self.assertIn('Loading #12…', app.query_one('#issue_note', Static).render().plain)
+            body = '# Loaded heading\n\n**Loaded body**\n\n' + 'x' * 2100
+            transport.response = Response('GitHub title', body)
+            await self.ready(app, pilot, lambda: app.descriptions.pending is None)
+            markdown = app.query_one('#issue_body', Markdown)
+            self.assertEqual(markdown.source, body[:2048])
+            self.assertEqual(len(markdown.query('MarkdownH1')), 1)
+            self.assertIn('#12 GitHub title', app.query_one('#item_header', Static).render().plain)
+            note = app.query_one('#issue_note', Static).render().plain
+            self.assertIn('Description shortened to 2,048 characters.', note)
+            self.assertNotIn('Description shortened in snapshot.', note)
+            await pilot.press('1', '2', 'g')
+            self.assertEqual(len(transport.calls), 1)
+            await pilot.press('1')
+            app.select('plan:15')
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            self.assertEqual(len(transport.calls), 1)
+            await pilot.click(app.query_one(ItemTabs).get_tab('issue'))
+            self.assertEqual(transport.calls[-1], ('example/repo', 15))
+            self.assertIn('Loading #15…', app.last_context)
+            transport.response = Response('Second title', 'Second body')
+            await self.ready(app, pilot, lambda: app.descriptions.pending is None)
+            app.select('plan:16')
+            await self.ready(app, pilot, lambda: app.descriptions.pending == ('example/repo', 16))
+            self.assertIn('Loading #16…', app.last_context)
+            transport.response = Response('Third title', 'Third body')
+            await self.ready(app, pilot, lambda: app.descriptions.pending is None)
+            app.select('plan:12')
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            await pilot.press('1', '2')
+            self.assertEqual(markdown.source, body[:2048])
+            self.assertEqual(transport.calls, [('example/repo', 12), ('example/repo', 15), ('example/repo', 16)])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_description_requests_local_sources_cache_and_navigation(self):
         self.state['latest_pass']['rows'].append({
             'item': 15, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched',
@@ -3972,10 +4027,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('1', 'g', '3', 'g', '2')
             await pilot.resize_terminal(120, 35)
             await pilot.pause(0.4)  # redraws and local timers
-            self.assertEqual(transport.calls, [])
+            self.assertEqual(transport.calls, [('example/repo', 12)])
             await pilot.press('g')
             self.assertEqual(transport.calls, [('example/repo', 12)])
-            self.assertIn('Loading title/body', app.last_context)
+            self.assertIn('Loading #12…', app.last_context)
             await pilot.press('g', 'g')
             app.select(own_key)
             await self.ready(app, pilot, lambda: app.local_description is not None)
@@ -4024,6 +4079,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.descriptions.pending is None)
             self.assertIn('Access denied', app.last_context)
             self.assertIn('Press g on Issue to retry', app.last_context)
+            await pilot.press('1', '2')
+            self.assertEqual(len(transport.calls), 1)
             app.select(own)
             await pilot.pause(0.3)
             app.select(foreign)
