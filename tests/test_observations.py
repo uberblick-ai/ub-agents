@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from ub_agents.coordination import Plan
 from ub_agents.approvals import ApprovalCheck
-from ub_agents.config import Runtime
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import GitHubError
 from ub_agents.execution import group_members
 from ub_agents.loop import Loop, _GracefulStop
@@ -651,10 +651,12 @@ class ObservationTests(unittest.TestCase):
                          outcomes={'prepared': {'add': ('needs-review',), 'remove': ()}})
         reviewer = agent(self.root, name='issue-reviewer', kind='issue', triggers=('needs-review',))
         auditor = replace(reviewer, name='auditor')
-        self.cfg = config(self.root, preparer, reviewer, auditor, replace(self.cfg.agents[0], kind='either'))
+        self.cfg = config(self.root, preparer, reviewer, auditor, replace(self.cfg.agents[0], kind='either'),
+                          queue=Queue(milestones='gate', priority=Priority(('urgent',))))
         self.observer = Observations(self.cfg, 'operator', None, self.memory)
-        github = PollGitHub(issue(labels=('needs-preparation',)), issue(3),
+        github = PollGitHub(issue(labels=('needs-preparation', 'urgent'), milestone=9), issue(3, milestone=9),
                             pr(labels=(), body='Independent change'))
+        github.milestones = [{'number': 9, 'state': 'open', 'created_at': '2026-01-01T00:00:00Z'}]
         loop = self.loop(github)
         self.observer.begin_pass()
         list(loop.iter_plans())
@@ -689,6 +691,8 @@ class ObservationTests(unittest.TestCase):
                          [(3, 'worker'), (1, 'issue-reviewer'), (1, 'auditor')])
         self.assertEqual(snapshot['latest_pass']['rows'][0], kept)
         self.assertEqual({row['state'] for row in snapshot['latest_pass']['rows']}, {'ready'})
+        self.assertEqual([row['priority'] for row in snapshot['latest_pass']['rows'] if row['item'] == 1],
+                         ['urgent', 'urgent'])
         session = Session(self.root / 'launcher.json', self.memory.snapshots[-1])
         self.assertEqual([row.item for row in work_rows(session, self.root)
                           if row.group == 'Eligible'], [3, 1])

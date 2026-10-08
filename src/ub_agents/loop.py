@@ -427,8 +427,14 @@ class Loop:
             matches = AgentMatches.for_item(item, self.config.agents)
             coordinator = self._planning_coordinator(github, observe)
             blockers = self._open_blockers(item, github)
+            priority = self.config.queue.priority.effective(item.labels)
+            if plan.priority is not None and (plan.priority_source or plan.priority_from_issue):
+                labels = self.config.queue.priority.labels
+                if priority is None or labels.index(plan.priority) < labels.index(priority):
+                    priority = plan.priority  # Retain already-observed inheritance without a graph read.
             for refreshed in self._item_plans(item, coordinator.clock(), github, coordinator,
                                               matches, self._active_milestone, blockers, checked={}):
+                refreshed = replace(refreshed, priority=priority)
                 self._observe_plan(refreshed, github, observe)
         except Exception:
             return  # Discard incomplete observations; the normal pass retries.

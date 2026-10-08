@@ -396,7 +396,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assertEqual((lease["state"], lease["result"], outcome["accepted"]),
                          ("released", "success", True))
         snapshot = self.loop.observer.publisher.snapshots[-1]
-        self.assertEqual([row["item"] for row in snapshot["latest_pass"]["rows"]], [11])
+        self.assertEqual(snapshot["latest_pass"]["rows"], [])
         self.assertEqual(snapshot["latest_pass"]["state"], "partial")
         self.assertEqual(snapshot["outcomes"][0]["acceptance"], "finalized")
         self.assertTrue(snapshot["ended"])
@@ -531,9 +531,11 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assert_scoped()
 
     def test_named_agent_and_default_configuration_order(self):
-        first = agent(self.root, name="first")
-        second = agent(self.root, name="second")
-        self.config = config(self.root, first, second)
+        outcomes = {"done": {"add": ("needs-review",), "remove": ()}}
+        first = agent(self.root, name="first", outcomes=outcomes)
+        second = agent(self.root, name="second", outcomes=outcomes)
+        reviewer = agent(self.root, name="reviewer", triggers=("needs-review",))
+        self.config = config(self.root, first, second, reviewer)
         for args, expected in (((), "first"), (("--agent", "second"), "second")):
             with self.subTest(args=args):
                 self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
@@ -542,7 +544,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 run.assert_called_once()
                 self.assertEqual(self.coordinator().history(11)[0]["agent"], expected)
                 snapshot = self.loop.observer.publisher.snapshots[-1]
-                self.assertEqual([row["agent"] for row in snapshot["latest_pass"]["rows"]], [expected])
+                self.assertEqual([row["agent"] for row in snapshot["latest_pass"]["rows"]], ["reviewer"])
                 self.assertTrue(snapshot["ended"])
                 self.assert_scoped()
 
