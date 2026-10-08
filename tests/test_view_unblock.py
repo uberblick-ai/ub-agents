@@ -20,8 +20,8 @@ from ub_agents.view_github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, 
                                    GhTransport, Response, parse_response)
 from ub_agents.view_ui import ItemTabs, View, WorkTree, description_parser
 from ub_agents.view_unblock import (ACTION_MARKER, ActionComment, comment_body, local_action,
-                                    comment_sections, needs_attention, stamp, unblock_body, unblock_metadata)
-from ub_agents.notices import action_body
+                                    comment_sections, needs_attention, resume_section, stamp, unblock_body, unblock_metadata)
+from ub_agents.notices import action_body, outcome_resume
 
 AUTHORS = {'operator': {'trusted': True, 'reason': None},
            'reader': {'trusted': False, 'reason': 'write or higher is required'}}
@@ -123,6 +123,9 @@ class UnblockDataTests(unittest.TestCase):
         self.assertIn('ub-agents retry 261 --agent integrator', visible)
         self.assertEqual(supporting, '')
         self.assertEqual(comment_sections(comment_body(NOTICE)), (comment_body(NOTICE), ''))
+        for body in (NOTICE, OLD_FOLDED_NOTICE, OLD_PROSE_NOTICE):
+            visible, _ = comment_sections(comment_body(body))
+            self.assertEqual(resume_section(visible), (visible, '', ''))
 
     def test_new_notice_keeps_evidence_links_and_double_digit_option_commands(self):
         evidence = 'CI diagnostics\n\n[Claim](https://x/claim) · [Outcome](https://x/outcome)'
@@ -195,10 +198,42 @@ class UnblockDataTests(unittest.TestCase):
                 self.assertIn('ub-agents retry 178 --agent worker --reason "Human resolved the blocker"', body)
                 self.assertIn('same role', body)
                 self.assertIn('different role', body)
+                visible, title, steps = resume_section(body)
+                self.assertEqual(visible, row.reason + '\n\n'
+                                 'Merging or closing #178 finishes this item; nothing else is needed.')
+                self.assertEqual(title, 'To send it back to worker instead')
+                self.assertIn('ub-agents retry 178', steps)
+                self.assertNotIn('ub-agents retry', visible)
+                self.assertNotIn('<details', visible)
+                self.assertNotIn('<details open', body)
         comment = local_action(self.row, Session(Path('session.json'), {
             'action_needed': {'178': {'text': NOTICE, 'author': 'operator'}}, 'coordination_authors': AUTHORS}))
         self.assertEqual(unblock_body(row, comment), comment.body)
         self.assertEqual(unblock_body(self.row, ActionComment()), '')
+
+    def test_issue_and_unknown_kind_fallback_keep_visible_resume_steps(self):
+        expected = ('Last run blocked: decision pending\n\nThen resume worker:\n\n'
+                    '```sh\nub-agents retry 178 --agent worker --reason "Human resolved the blocker"\n```\n\n'
+                    'Restore a matching trigger if absent; remove any stop label. '
+                    "Use these steps only when resuming the same role; follow the project's "
+                    'correction or handoff route if a different role must act next.')
+        for kind in ('issue', None):
+            with self.subTest(kind=kind):
+                row = replace(self.row, state='blocked', reason='Last run blocked: decision pending',
+                              data={**self.row.data, 'kind': kind})
+                self.assertEqual(unblock_body(row, ActionComment()), expected)
+
+    def test_shortened_pr_notice_still_folds_resume_steps(self):
+        body = action_body(ACTION_MARKER + 'new -->', ['Maintainer: decide.'], 'Evidence',
+                           resume=outcome_resume(178, 'worker', 'Resume evidence. ' * 200, is_pr=True))
+        self.session.data['action_needed']['178']['text'] = body
+        visible, supporting = comment_sections(local_action(self.row, self.session).body)
+        visible, title, steps = resume_section(visible)
+        self.assertIn('Merging or closing #178 finishes this item; nothing else is needed.', visible)
+        self.assertEqual(title, 'To send it back to worker instead')
+        self.assertTrue(steps.startswith('Resume evidence.'))
+        self.assertEqual(supporting, '')
+        self.assertNotIn('<details', visible + steps)
 
     def test_github_uses_latest_trusted_marker_including_approval_notices(self):
         result = parse_response(comments_reply(
@@ -443,6 +478,76 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_pr_notices_and_blocked_fallback_render_separate_resume_fold(self):
+        retry = ('```sh\nub-agents retry 178 --agent worker --reason "Human resolved the blocker"\n```\n\n'
+                 'Restore `ready` if absent; remove any stop label. Use these steps only for the same role.')
+        stop = ('Remove the stop label(s) `needs-human`, then apply a trigger to resume worker: `ready`.\n\n'
+                'Use these steps only for the same role.')
+        supporting = 'Full CI diagnostics.\n\n<details><summary>Nested evidence</summary>\n\nKeep this.\n\n</details>'
+        notices = [action_body(ACTION_MARKER + 'pr -->', ['Maintainer: merge #178.'], supporting,
+                               options=['Maintainer: request a fix.'], reason='Review complete.',
+                               resume=outcome_resume(178, 'worker', steps, is_pr=True))
+                   for steps in (retry, stop)]
+        self.state['action_needed']['178']['text'] = notices[0]
+        publish_snapshot(self.path, self.state)
+        app = self.app
+        async with app.run_test(size=(110, 50)) as pilot:
+            await self.ready(pilot, lambda: app.local_description is not None)
+            app.select('plan:178:worker')
+            await pilot.press('4')
+            resume = app.query_one('#unblock_resume', Collapsible)
+            evidence = app.query_one('#unblock_details', Collapsible)
+            for notice, steps in zip(notices, (retry, stop)):
+                self.state['action_needed']['178']['text'] = notice
+                publish_snapshot(self.path, self.state)
+                await self.ready(pilot, lambda: app.current_action().body == comment_body(notice))
+                lead = app.query_one('#unblock_body', Markdown).source
+                self.assertIn('Review complete.', lead)
+                self.assertIn('Maintainer: merge', lead)
+                self.assertIn('To unblock, do one of:', lead)
+                self.assertIn('Merging or closing #178 finishes this item; nothing else is needed.', lead)
+                self.assertNotIn('<details', lead)
+                self.assertNotIn('Then resume', lead)
+                self.assertNotIn(steps, lead)
+                self.assertTrue(resume.display)
+                self.assertTrue(resume.collapsed)
+                self.assertEqual(resume.title, 'To send it back to worker instead')
+                self.assertEqual(app.query_one('#unblock_resume_body', Markdown).source, steps)
+                self.assertTrue(evidence.display)
+                self.assertTrue(evidence.collapsed)
+                self.assertEqual(evidence.title, 'Reasoning and evidence')
+                self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, supporting)
+                rendered = '\n'.join(strip.text for strip in app.screen._compositor.render_strips())
+                self.assertIn('Merging or closing #178 finishes this item;', rendered)
+                self.assertIn('To send it back to worker instead', rendered)
+                self.assertNotIn('ub-agents retry', rendered)
+                self.assertNotIn('Remove the stop label', rendered)
+                await pilot.click('#unblock_resume CollapsibleTitle')
+                self.assertFalse(resume.collapsed)
+                self.assertTrue(evidence.collapsed)
+                app.update_unblock()
+                self.assertFalse(resume.collapsed)
+                app.select('plan:179:worker')
+                self.assertFalse(resume.display)
+                self.assertIn('Then resume worker:', app.query_one('#unblock_body', Markdown).source)
+                app.select('plan:178:worker')
+                self.assertTrue(resume.collapsed)
+            self.state['action_needed'] = {}
+            self.state['latest_pass']['rows'][-2]['state'] = 'blocked'
+            publish_snapshot(self.path, self.state)
+            await self.ready(pilot, lambda: not app.current_action().available
+                             and app.rows['plan:178:worker'].state == 'blocked')
+            self.assertIn('Merging or closing #178 finishes this item; nothing else is needed.',
+                          app.query_one('#unblock_body', Markdown).source)
+            self.assertNotIn('<details', app.query_one('#unblock_body', Markdown).source)
+            self.assertTrue(resume.display)
+            self.assertTrue(resume.collapsed)
+            self.assertEqual(resume.title, 'To send it back to worker instead')
+            self.assertIn('ub-agents retry 178 --agent worker', app.query_one('#unblock_resume_body', Markdown).source)
+            self.assertFalse(evidence.display)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_options_and_old_notices_render_in_unblock(self):
         summary = 'Local CI is red. Full CI diagnostics.'
         resume = 'Then resume worker:\n\n```sh\nub-agents retry 178 --agent worker\n```\n\nRestore `ready` if absent.'
@@ -479,6 +584,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 expected, details = comment_sections(comment_body(old))
                 self.assertEqual(app.query_one('#unblock_body', Markdown).source, expected)
                 self.assertEqual(fold.display, bool(details))
+                self.assertFalse(app.query_one('#unblock_resume', Collapsible).display)
                 if details:
                     self.assertTrue(fold.collapsed)
                     self.assertEqual(fold.title, 'Reasoning, evidence and resume instructions')
