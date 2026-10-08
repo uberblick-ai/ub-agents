@@ -757,6 +757,7 @@ class ProofView(checkpoint_view(View, proof_path)):
         return {'tab': self.query_one('#panes').active, 'follow': self.reading.follow,
                 'raw': self.reading.raw, 'anchor': output.anchor(), 'saved_anchor': self.reading.anchor,
                 'starts': [ref.start for ref in self.reading.page.refs] if self.reading.page else [],
+                'bottom': output.scroll_y == output.max_scroll_y, 'scroll': output.scroll_y,
                 'notice': self.query_one('#log_note').render().plain,
                 'screen': type(self.screen).__name__, 'context': self.last_context,
                 'footer': self.query_one('#status').render().plain}
@@ -791,13 +792,18 @@ raise SystemExit(main())
                     self.assertNotIn(b'FOLLOW', transcript)
                     self.assertNotIn(b'FORMATTED', transcript)
                     self.assertIsNone(terminal.process.poll(), bytes(transcript[-1000:]))
-                    terminal.checkpoint(lambda value: value['starts'] and value['anchor'] is not None)
+                    terminal.checkpoint(lambda value: value['starts'] and value['anchor'] is not None
+                                        and value['bottom'])
                     terminal.send(b'f')
                     terminal.expect(b'PAUSED')
-                    paused = terminal.checkpoint(lambda value: not value['follow'] and value['anchor'] is not None)
+                    terminal.checkpoint(lambda value: not value['follow'] and value['anchor'] is not None)
+                    # A queued follow reflow can move the viewport after f (#369).
+                    # Establish the paused starting position before Page Up.
+                    terminal.send(b'\x1b[F')  # End
+                    paused = terminal.checkpoint(lambda value: not value['follow'] and value['bottom']
+                                                 and value['anchor'] is not None)
                     terminal.send(b'\x1b[5~')  # Page Up
-                    terminal.checkpoint(lambda value: value['anchor'] != paused['anchor']
-                                        and value['anchor'] == value['saved_anchor'])
+                    terminal.checkpoint(lambda value: value['scroll'] < paused['scroll'] and not value['bottom'])
                     terminal.send(b'h')
                     # Older page or split-record boundary.
                     terminal.checkpoint(lambda value: 'Older page' in value['notice']

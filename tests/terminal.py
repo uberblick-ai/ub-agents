@@ -137,8 +137,13 @@ _ProofPath({str(self._delay_path)!r}).write_text(str(_escape_delay))
         while time.monotonic() < deadline:
             self.proof.unlink(missing_ok=True)
             self.send(b'x')
-            self.wait_for(self.proof.exists, max(0, deadline - time.monotonic()),
-                          'Checkpoint was not written')
+            try:
+                self.wait_for(self.proof.exists, max(0, deadline - time.monotonic()),
+                              'Checkpoint was not written')
+            except AssertionError as error:
+                if value is not None:
+                    error.add_note(f'Last checkpoint value: {value!r}')
+                raise
             proof = json.loads(self.proof.read_text())
             value = proof['value']
             if proof['size'] == list(self.size) and condition(value):
