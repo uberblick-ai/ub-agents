@@ -348,7 +348,12 @@ class TransitionTests(unittest.TestCase):
         new_work = next(p for p in plans if p.item.number == 3)
         self.assertEqual((recovery.state, new_work.state), ('recover', 'ready'))
         self.assertFalse(any(p.item.number == 2 for p in plans))
-        self.assertLess(plans.index(recovery), plans.index(new_work))
+        self.assertLess(plans.index(new_work), plans.index(recovery))
+        with patch.object(restarted, 'execute', return_value=True) as execute:
+            self.assertTrue(restarted.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 3)
+        self.assertFalse(restarted.coordinator.history(1)[1]['accepted'])
+        self.github.change(3, labels=frozenset({'urgent'}))
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
@@ -771,7 +776,12 @@ class TransitionTests(unittest.TestCase):
         new_work = next(p for p in plans if p.item.number == 3)
         self.assertEqual((recovery.state, new_work.state), ('recover', 'ready'))
         self.assertFalse(any(p.item.number == 2 for p in plans))
-        self.assertLess(plans.index(recovery), plans.index(new_work))
+        self.assertLess(plans.index(new_work), plans.index(recovery))
+        with patch.object(restarted, 'execute', return_value=True) as execute:
+            self.assertTrue(restarted.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 3)
+        self.assertFalse(restarted.coordinator.history(1)[1]['accepted'])
+        self.github.change(3, labels=frozenset({'urgent'}))
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)

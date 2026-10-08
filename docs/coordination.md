@@ -74,22 +74,23 @@ issues and unchanged PR heads still need `ub-agents retry`.
    needs a start; outside PRs also need an eligible head. Trusted PRs need no start.
    Outside feedback suspends outside PRs, while issues and trusted PRs only exclude
    uncleared feedback.
-2. PR work before new issue starts: PR assignments, recovery and completion of
-   already-started runs. Neither queue gate holds back this work, and milestone
-   ordering does not change its rank.
+2. Effective priority ranks first: the item's own label, inherited from open local
+   dependents, or for a PR from the open issues it closes. At equal priority,
+   existing work (PR assignments, owned runs and recovery) precedes new issue
+   starts. Neither queue gate holds back existing work, and its rank ignores
+   milestones.
 3. New issues pass the dependency gate and, in milestone `gate` mode, the milestone
    gate, as the [queue reference](configuration.md#queue) defines them. Planning
    and a fresh claim-time read both enforce each gate. Approval parking also
    rechecks them. In milestone `order` mode, milestones never gate eligibility.
-4. In milestone `order` mode, new issues rank first by open milestones with open
-   items, oldest creation time and then milestone number first. Unmilestoned
-   issues and issues whose milestone is outside that list rank last. Open local
-   blockers inherit their dependents' earliest milestone, directly or transitively,
+4. In milestone `order` mode, new issues of equal effective priority rank by open
+   milestones with open items, oldest creation time and then milestone number
+   first. Within one priority, unmilestoned issues and issues whose milestone is
+   outside that list rank last. Open local blockers inherit their dependents'
+   earliest milestone, directly or transitively,
    in dependency `wait` mode, even without priority labels.
-5. Within PR work and within each issue milestone rank: effective priority (the
-   item's own label, inherited from open local dependents, or for a PR from the
-   open issues it closes), then item creation time, then item number. With milestone
-   `gate` or `ignore`, new issues use this priority order without milestone ranks.
+5. Item creation time, then item number break remaining ties. With milestone
+   `gate` or `ignore`, new issues use priority, age and number without milestone ranks.
    Agents on the same item keep YAML order. The launcher never changes priority labels.
 
 `ub-agents status` lists rows in this order with each item's effective priority and

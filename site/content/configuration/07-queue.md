@@ -1,6 +1,6 @@
 # Queue
 
-Decides what runs next. Pull request work always goes first. Without a `queue` block, issues run oldest first and wait for their blockers.
+Decides what runs next. Effective priority goes first, then existing work (pull requests, owned runs and recovery) before new issue starts. Without a `queue` block, existing work goes first, then age and number; issues wait for their blockers.
 
 ```yaml
 queue:
@@ -23,7 +23,7 @@ priority:
 
 ## Milestones
 
-`order` runs earlier milestones first but never holds work back. `gate` holds new issues until the oldest open milestone is done. `ignore` is the default.
+`order` ranks new issues of equal priority by earlier open milestones first, with unmilestoned issues last. Higher priority wins even in a later or no milestone, and milestones never hold work back. `gate` holds new issues until the oldest open milestone is done. `ignore` is the default.
 
 ```yaml
 milestones: order

@@ -494,15 +494,16 @@ milestone. Later and unmilestoned issues wait even when the active milestone has
 no eligible issue. Planning, claiming and approval parking enforce this gate;
 PR work, owned runs and recovery remain eligible.
 
-In `order` mode, new issues rank first by open milestones with open issues or PRs,
-oldest first by creation time and then milestone number. Issues without a milestone,
-or with a milestone outside that list (such as a closed milestone), rank after all
-listed milestones. Within each milestone, effective priority, item creation time
-and item number decide order. An earlier milestone wins even against higher
-priority in a later milestone. Milestones never hold back an otherwise eligible
-issue; later and unmilestoned work can start when earlier work cannot.
-PR work, owned runs and recovery keep their existing priority order before new
-issue starts. Ordering uses the milestone list and each listed issue's milestone;
+In `order` mode, new issues of equal effective priority rank by open milestones
+with open issues or PRs, oldest first by creation time and then milestone number.
+Within one priority, issues without a milestone, or with a milestone outside that
+list (such as a closed milestone), rank after all listed milestones. Item creation
+time and item number break ties. Higher priority in a later or no milestone wins
+against lower priority in an earlier milestone. Milestones never hold back an
+otherwise eligible issue; later and unmilestoned work can start when earlier work
+cannot. PR work, owned runs and recovery precede new issue starts only at equal
+effective priority, and their rank ignores milestones.
+Ordering uses the milestone list and each listed issue's milestone;
 an unreadable milestone list stops selection visibly. In `ignore` mode, planning
 and claiming do not read milestones. `ub-agents check` accepts all three modes.
 This repository explicitly sets `order`; existing `gate` configurations remain
@@ -532,8 +533,10 @@ The claim-time recheck always reads the selected new issue's blocker links.
 `queue` block, priorities are unconfigured, milestones are ignored and dependency
 waits apply.
 
-Priority is followed by item creation time and then item number; milestone `order`
-adds milestone rank first for new issue starts. See
+Rank is effective priority, then existing work (PRs, owned runs and recovery)
+before new issue starts, then milestone rank for new issues in `order` mode, then
+item creation time and item number. Without configured priorities, all items have
+equal priority, so existing work still goes first. See
 [selection order](coordination.md#selection-order) for eligibility and
 PR precedence. `ub-agents status` and `status --json` use the same rank order and
 show each item's effective priority (`none` in text, `null` in JSON when no label

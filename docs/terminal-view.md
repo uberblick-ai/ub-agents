@@ -126,7 +126,8 @@ and selection unchanged.
 Eligible's heading counts all eligible items: `Eligible · 7`, or
 `Eligible · 23 · showing 10` when truncated. While stopping it adds
 ` · not claimed while stopping`; the heading shortens with `…` to fit the pane.
-Claim order puts existing work first, then milestone, priority, age and number.
+Claim order puts effective priority first, then existing work, milestone rank for
+new issues in `order` mode, age and number.
 Continuous launch refreshes the queue with complete read-only planning passes
 while an assignment runs; a failed pass keeps the previous rows.
 
