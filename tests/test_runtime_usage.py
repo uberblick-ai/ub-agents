@@ -13,7 +13,7 @@ from unittest.mock import patch
 import uuid
 
 from ub_agents.cli import main
-from ub_agents.config import Runtime
+from ub_agents.config import Runtime, load_config
 from ub_agents.execution import supervise
 from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.loop import Loop, _GracefulStop
@@ -388,12 +388,25 @@ class UsageLoopTests(unittest.TestCase):
         loop.usage.limit("claude", self.now + 100)
         self.assertEqual(loop.plans()[0].state, "waiting")
 
-    def test_usage_pause_switches_to_alternative_with_its_own_runtime_args(self):
+    def test_usage_pause_switches_to_alternative_with_its_top_level_runtime_args(self):
         arguments = {"claude": ("--permission-mode", "acceptEdits"),
                      "codex": ("-c", "mcp_servers.example.enabled=true")}
-        role = replace(self.role, runtimes=self.role.runtimes + (Runtime("codex", "other", "high"),),
-                       runtime_args=arguments)
-        self.loop.config = config(self.root, role)
+        path = self.root / "ub-agents.yaml"
+        (self.root / "instructions.md").write_text("Do the task")
+        path.write_text('''repository: org/project
+runtime-args:
+  claude: [--permission-mode, acceptEdits]
+  codex: [-c, mcp_servers.example.enabled=true]
+agents:
+  worker:
+    runtime: [claude:opus:high, codex:other:high]
+    instructions: instructions.md
+    kind: issue
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        self.loop.config = load_config(path)
+        role = self.loop.config.agents[0]
         with patch("ub_agents.loop.supervise", side_effect=self.runtime(claude(self.now + 300))) as run:
             self.assertTrue(self.loop.tick())
         first = run.call_args.args[0]

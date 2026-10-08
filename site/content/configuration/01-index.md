@@ -78,6 +78,7 @@ All optional:
 | `cleanup` | [Cleanup hook](/docs/configuration/cleanup.html) |
 | `checkout-setup` | [Checkout setup](/docs/configuration/checkout-setup.html) |
 | `runtime-updates` | [Runtime updates](/docs/configuration/runtime-updates.html) |
+| `runtime-args` | [Per-CLI argument defaults](/docs/configuration/permissions.html#arguments-for-alternatives) |
 
 ## Another file
 

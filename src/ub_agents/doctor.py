@@ -357,7 +357,7 @@ class Doctor:
         if without_permissions:
             self.add("runtime-permissions", "warn",
                      f"Agents without runtime-args: {', '.join(without_permissions)}; unattended edits, commits or pushes may fail",
-                     f"Configure these agents' runtime-args: {PERMISSIONS_URL}", required=False)
+                     f"Configure top-level runtime-args or agent overrides covering every listed CLI: {PERMISSIONS_URL}", required=False)
         for agent in config.agents:
             if agent.command:
                 executable = agent.command[0]

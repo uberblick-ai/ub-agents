@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from ub_agents.config import Runtime
+from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, CleanupError, LostOwnership
 from ub_agents.execution import Workspace, command_for, git, group_members, supervise
 from tests.support import agent, config, issue, pr, FakeGitHub
@@ -78,6 +78,31 @@ class ExecutionTests(unittest.TestCase):
         for arguments in ({}, {"codex": ("--sandbox", "danger-full-access")}, {"claude": ()}):
             with self.subTest(arguments=arguments):
                 self.assertEqual(command_for(replace(configured, runtime_args=arguments), runtime, self.root), base)
+
+    def test_loaded_top_level_arguments_reach_each_cli_with_expanded_placeholders(self):
+        path = self.root / "ub-agents.yaml"
+        (self.root / "instructions.md").write_text("Do the task")
+        path.write_text('''repository: org/project
+runtime-args:
+  codex: [-c, 'mcp_servers.example.enabled=true', --add-dir, "{scratch}"]
+  claude: [--allowedTools, "Bash({report_command} report *)"]
+agents:
+  task:
+    runtime: [codex:model-a:high, claude:model-b:high]
+    instructions: instructions.md
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        configured = load_config(path).agents[0]
+        scratch = self.root / "scratch with spaces"
+        report = "/launcher/python -I /launcher/report_command.py"
+        for runtime in configured.runtimes:
+            with self.subTest(cli=runtime.cli):
+                base = command_for(replace(configured, runtime_args=()), runtime, scratch, report)
+                expected = (["-c", "mcp_servers.example.enabled=true", "--add-dir", str(scratch)]
+                            if runtime.cli == "codex" else
+                            ["--allowedTools", f"Bash({report} report *)"])
+                self.assertEqual(command_for(configured, runtime, scratch, report), base + expected)
 
     def test_report_permission_expands_the_exact_command_as_one_runtime_argument(self):
         report = "'/installation with spaces/python' -I '/installation with spaces/report_command.py'"

@@ -31,6 +31,7 @@ The launcher pins its repository and input configuration; worktree edits and
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
 | `checkout-setup` | Optional control-checkout setup command, run after refresh when watched files change. |
 | `runtime-updates` | Optional daily maintenance policy for Claude Code, Codex and the launcher's GitHub CLI (`gh`). |
+| `runtime-args` | Optional mapping from CLI (`codex`, `claude`) to default argument lists, inherited by runtime agents that omit their own `runtime-args`. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
 `shared-instructions: .agents/ub_agents.md` supplies policy to every run between the
@@ -567,7 +568,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `health-check` | Optional nonempty argv list to check a project dependency before claiming new work for this agent. |
 | `different-runtime-from` | Another agent's name; requires a PR. When an accepted report identifies that agent's runtime for the current head, this agent must run on a different CLI and model; a different effort doesn't count. Wait for a pending handoff to finish. Without such a report or pending handoff, use only the first configured runtime, blocking if its CLI isn't installed. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
-| `runtime-args` | Extra runtime CLI arguments, such as permission flags: a list shared by all alternatives, or a mapping from listed CLI (`codex`, `claude`) to a list. |
+| `runtime-args` | Replaces all top-level runtime argument defaults: a list shared by all alternatives, or a mapping from listed CLI (`codex`, `claude`) to a list. Omit to inherit; `[]` or `{}` disables the defaults. |
 | Limit keys | Override `limits` for this agent. |
 
 ### Project health checks
@@ -784,10 +785,17 @@ context, optional shared policy and role instructions, arrives on stdin:
 - `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
 
-`runtime-args` accepts a list applying to every alternative, or a mapping from CLI
-(`codex`, `claude`) to a list of strings. A mapping appends only the selected
-runtime's CLI arguments, including when a later run switches alternatives; a CLI
-without a key gets no extra arguments. Keys must name a known CLI present in the
+Top-level `runtime-args` accepts a mapping from CLI (`codex`, `claude`) to a list
+of strings. Runtime agents inherit it when they omit their own `runtime-args`;
+command agents do not inherit it. Each run appends only its selected CLI's list,
+including when a later run switches alternatives. A missing or empty CLI entry
+adds no arguments. `check` validates every top-level entry, even for CLIs no agent
+currently uses, and rejects unknown CLI keys.
+
+An agent's `runtime-args` accepts a list applying to every alternative, or a
+per-CLI mapping. Either form replaces the entire top-level mapping, without
+extending it or falling back to it for omitted CLI keys. An explicit `[]` or `{}`
+disables inheritance. Agent mapping keys must name a known CLI present in that
 agent's runtime list. `check` names the agent and key for an invalid entry.
 
 The selected arguments are appended, with `{scratch}` replaced by the run's
@@ -1020,13 +1028,14 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
                --add-dir, "{scratch}"]  # claude
 ```
 
-`init` includes the matching example for every starter agent using the CLI selected
-by `--runtime`, without the optional retrospective rule. In an interactive terminal,
-it explains the grant and asks once whether to enable the examples for all four
-agents; only `y` or `yes` enables them. No, an empty answer or end of input keeps
-them commented out. When `CI` is set or stdin or stdout is not a terminal, it asks
-nothing and keeps them commented out, matching label provisioning. Whenever they
-remain commented out, init prints a next step to uncomment or customize them before
+These list examples belong inside an agent definition. `init` instead includes
+one commented top-level mapping entry for the CLI selected by `--runtime`, inherited
+by all four starter agents, without the optional retrospective rule. In an
+interactive terminal, it explains the grant and asks once whether to enable it
+for all four agents; only `y` or `yes` enables it. No, an empty answer or end of
+input keeps the mapping commented out. When `CI` is set or stdin or stdout is not
+a terminal, it asks nothing and keeps it commented out, matching label provisioning.
+Whenever it remains commented out, init prints a next step to uncomment or customize it before
 unattended work. The Claude starter includes a commented placeholder for project
 check commands: `--allowedTools` denies commands
 that are not listed.
@@ -1049,28 +1058,35 @@ Claude configuration and the Claude example generated by `init` use this rule.
 Upgrade every launcher before adopting it: older builds reject configurations using
 the placeholder.
 
-`doctor` reports runtime agents with no `runtime-args`, or a mapping that leaves
-any listed CLI with missing or empty arguments, in one warning naming them,
-with one remedy linking this guidance. It does not fail or test whether supplied
-arguments grant sufficient permissions.
+`doctor` checks each runtime agent's effective arguments after inheritance or
+replacement. It reports any agent with missing or empty arguments for a listed
+CLI in one warning naming them, with one remedy linking this guidance. Configure
+the top-level mapping or agent overrides to cover those CLIs. It does not fail or
+test whether supplied arguments grant sufficient permissions.
 
-Use a mapping to give each CLI its own permissions and settings when an agent
-mixes runtimes:
+Declare arguments once at the top level to give each CLI its own permissions and
+settings across agents, including agents that mix runtimes:
 
 ```yaml
-runtime: ["codex:gpt-6.1-sol:xhigh", "claude:claude-opus-5-5:xhigh"]
 runtime-args:
   codex: [--sandbox, danger-full-access, -c, 'mcp_servers.example.enabled=true']
   claude: [--permission-mode, acceptEdits, --permission-prompts, none,
            --allowedTools, "Bash(git *)", "Bash(gh *)",
            "Bash({report_command} report *)", "Bash({report_command} read *)",
            --add-dir, "{scratch}"]
+agents:
+  reviewer:
+    runtime: ["codex:gpt-6.1-sol:xhigh", "claude:claude-opus-5-5:xhigh"]
+    instructions: .agents/reviewer.md
+    trigger: needs-review
+    outcomes: {approved: {add: [ready-to-merge]}}
 ```
 
-The list form still applies to every alternative. Mapping values may use YAML
-aliases, such as `codex: *codex-scoped` and `claude: *claude-scoped`, to reuse
-argument lists across roles. Upgrade every launcher to a build supporting this
-form before adopting it: older builds reject mappings.
+An agent-level list still applies to every alternative and replaces all defaults.
+An agent-level mapping also replaces all defaults; an omitted CLI entry receives
+no arguments even when that CLI has top-level defaults. Mapping values may use
+YAML aliases for selective reuse. Upgrade every launcher before adopting top-level
+`runtime-args` or agent mappings: older builds reject these forms.
 
 Codex's `workspace-write` sandbox cannot commit in
 private worktrees, whose Git metadata lives in the main checkout.
@@ -1094,7 +1110,7 @@ Combine this with the role's other permission arguments. The launcher replaces
 in YAML: unquoted `{scratch}` is parsed as a mapping rather than an argument string.
 A placeholder is a single word in braces using letters, digits, `-` or `_`; config
 loading accepts only `{scratch}` and `{report_command}`, rejecting others with the
-agent and placeholder named in the error. Other braces, such as JSON `'{"a": 1}'` or TOML `'x={y=true}'`, pass
+top-level CLI or agent and placeholder named in the error. Other braces, such as JSON `'{"a": 1}'` or TOML `'x={y=true}'`, pass
 through unchanged. There is no other templating or environment-variable expansion;
 placeholders apply only to `runtime-args`, not `command` or other config keys.
 The launcher adds no permission flags of its own.
@@ -1275,8 +1291,8 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   unreadable role, and when the authenticated account is unlisted.
   Use a dedicated account with `write`;
   see [Issue approvals](approvals.md#repository-roles). Runtime agents without
-  `runtime-args`, including mappings with missing or empty arguments for a listed
-  CLI, produce one warning naming them and linking the permission guidance.
+  effective `runtime-args` for any listed CLI, after top-level inheritance or agent
+  replacement, produce one warning naming them and linking the permission guidance.
   After its report, interactive doctor offers to create the missing labels with the
   same explanation and prompt as init; the default is no. It writes labels only after
   a confirmed `y` or `yes` and never changes existing labels. It then reads labels

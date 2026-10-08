@@ -348,6 +348,98 @@ agents:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "check"]), 0)
 
+    def test_top_level_runtime_args_are_inherited_by_runtime_agents_only(self):
+        (self.root / "instructions.md").write_text("Do the task")
+        configured = self.load('''repository: org/project
+runtime-args:
+  codex: [-c, 'mcp_servers.example.enabled=true', --add-dir, "{scratch}"]
+  claude: [--permission-mode, acceptEdits, --allowedTools, "Bash({report_command} report *)"]
+agents:
+  task:
+    runtime: [claude:model-a:high, codex:model-b:low, codex:model-c:high]
+    instructions: instructions.md
+    trigger: ready
+    outcomes: {done: {}}
+  other:
+    runtime: codex:model:high
+    instructions: instructions.md
+    trigger: ready
+    outcomes: {done: {}}
+  command:
+    command: [echo, hello]
+    trigger: ready
+    outcomes: {done: {}}
+''')
+        task, other, command = configured.agents
+        for runtime in task.runtimes:
+            expected = (("-c", "mcp_servers.example.enabled=true", "--add-dir", "{scratch}")
+                        if runtime.cli == "codex" else
+                        ("--permission-mode", "acceptEdits", "--allowedTools", "Bash({report_command} report *)"))
+            self.assertEqual(task.runtime_args_for(runtime), expected)
+        self.assertEqual(other.runtime_args, {"codex": task.runtime_args["codex"]})
+        self.assertEqual(command.runtime_args, ())
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+
+    def test_agent_runtime_args_replace_all_top_level_defaults(self):
+        (self.root / "instructions.md").write_text("Do the task")
+        base = '''repository: org/project
+runtime-args:
+  codex: [--sandbox, danger-full-access]
+  claude: [--permission-mode, acceptEdits]
+agents:
+  task:
+    runtime: [codex:model-a:high, claude:model-b:high]
+    instructions: instructions.md
+    trigger: ready
+    outcomes: {done: {}}
+'''
+        for override, codex_args, claude_args in (
+                ("[--add-dir, '{scratch}']", ("--add-dir", "{scratch}"), ("--add-dir", "{scratch}")),
+                ("{codex: [--sandbox, read-only]}", ("--sandbox", "read-only"), ()),
+                ("{codex: [], claude: [--verbose]}", (), ("--verbose",)),
+                ("[]", (), ()), ("{}", (), ())):
+            with self.subTest(override=override):
+                task = self.load(base + f"    runtime-args: {override}\n").agents[0]
+                self.assertEqual(task.runtime_args_for(task.runtimes[0]), codex_args)
+                self.assertEqual(task.runtime_args_for(task.runtimes[1]), claude_args)
+        # A shared override still has to satisfy both CLIs' restrictions.
+        with self.assertRaisesRegex(AgentError, "task: runtime-args must not change"):
+            self.load(base + "    runtime-args: [-c, mcp_servers.example.enabled=true]\n")
+
+    def test_check_rejects_invalid_top_level_runtime_args(self):
+        base = '''repository: org/project
+runtime-args: ARGS
+agents:
+  task:
+    command: [echo]
+    trigger: ready
+    outcomes: {done: {}}
+'''
+        for args, reason in (
+                ("[]", "runtime-args must be a mapping"),
+                ("null", "runtime-args must be a mapping"),
+                ("--sandbox", "runtime-args must be a mapping"),
+                ("{other: []}", "Unknown runtime-args keys: other"),
+                ("{123: []}", "runtime-args 123: YAML keys must be unique strings"),
+                ("{true: []}", "runtime-args True: YAML keys must be unique strings"),
+                ("{codex: [], codex: []}", "runtime-args 'codex': YAML keys must be unique strings"),
+                ("{codex: null}", "runtime-args codex must be an argv list"),
+                ("{codex: --sandbox}", "runtime-args codex must be an argv list"),
+                ("{claude: {flag: value}}", "runtime-args claude must be an argv list"),
+                ("{claude: [true]}", "runtime-args claude must be a nonempty string"),
+                ("{claude: [123]}", "runtime-args claude must be a nonempty string"),
+                ("{codex: ['']}", "runtime-args codex must be a nonempty string"),
+                ("{codex: [null]}", "runtime-args codex must be a nonempty string")):
+            with self.subTest(args=args):
+                self.path.write_text(base.replace("ARGS", args))
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                self.assertIn(reason, errors.getvalue())
+        for args in ("{}", "{codex: [], claude: []}"):
+            with self.subTest(args=args):
+                self.load(base.replace("ARGS", args))
+
     def test_check_rejects_invalid_runtime_args_mapping_keys_and_values(self):
         (self.root / "instructions.md").write_text("Do the task")
         base = '''repository: org/project
@@ -403,13 +495,17 @@ agents:
         for cli in ("codex", "claude"):
             specific = (("[--ephemeral]", "[--ephemeral=true]") if cli == "codex" else
                         ("[-c]", "[--output-format, text]", "[--output-format=json]"))
-            for args in shared_forbidden + specific:
-                with self.subTest(cli=cli, args=args):
-                    self.path.write_text(base.replace("ARGS", "{" + f"{cli}: {args}" + "}"))
-                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
-                        self.assertEqual(main(["--config", str(self.path), "check"]), 1)
-                    self.assertIn("task:", errors.getvalue())
-                    self.assertIn(f"runtime-args {cli}", errors.getvalue())
+            for level in ("agent", "top"):
+                content = (base if level == "agent" else
+                           base.replace("    runtime-args: ARGS\n", "runtime-args: ARGS\n"))
+                for args in shared_forbidden + specific:
+                    with self.subTest(cli=cli, args=args, level=level):
+                        self.path.write_text(content.replace("ARGS", "{" + f"{cli}: {args}" + "}"))
+                        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+                            self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                        if level == "agent":
+                            self.assertIn("task:", errors.getvalue())
+                        self.assertIn(f"runtime-args {cli}", errors.getvalue())
         # The list retains all listed CLIs' restrictions, including Claude's -c.
         for args in ("[-c, mcp_servers.example.enabled=true]", "[--ephemeral]", "[--output-format=text]"):
             with self.subTest(shared=args), self.assertRaises(AgentError):

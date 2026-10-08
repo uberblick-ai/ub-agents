@@ -93,8 +93,9 @@ Before the first launch:
    questions. Keep build and test commands in the `AGENTS.md` or `CLAUDE.md` your
    agents already read.
 2. Give the agents permissions. `init` offers starter permissions; otherwise
-   uncomment `runtime-args` in `ub-agents.yaml`. Claude agents also need your
-   check commands in `--allowedTools`.
+   uncomment the top-level `runtime-args` mapping in `ub-agents.yaml`. It supplies
+   defaults per CLI; an agent's own `runtime-args` replaces them. Claude agents
+   also need your check commands in `--allowedTools`.
 3. Check the setup, commit and launch:
 
 ```sh

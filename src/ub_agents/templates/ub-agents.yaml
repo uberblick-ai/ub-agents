@@ -12,12 +12,17 @@ queue:
 #   when-changed: [pnpm-lock.yaml, mise.toml]
 #   timeout-seconds: 600
 
+# Default arguments for each CLI; add the other CLI's entry for mixed runtimes.
+# Grants full access without the Codex sandbox: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
+# runtime-args:
+#   codex: [--sandbox, danger-full-access]
+# An agent's runtime-args list or mapping replaces these defaults entirely.
+# Omit the agent key to inherit; an empty list or mapping disables the defaults.
+
 # Customize these outcomes and rules with the project's owners.
 agents:
   issue-preparer:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
-    # runtime-args: [--sandbox, danger-full-access]
     kind: issue
     trigger: needs-preparation
     outcomes:
@@ -29,8 +34,6 @@ agents:
 
   implementer:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
-    # runtime-args: [--sandbox, danger-full-access]
     trigger: [ready, needs-changes]
     outcomes:
       handed-off: {add: [needs-review]}
@@ -40,8 +43,6 @@ agents:
 
   reviewer:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
-    # runtime-args: [--sandbox, danger-full-access]
     kind: pr
     trigger: needs-review
     outcomes:
@@ -57,8 +58,6 @@ agents:
 
   integrator:
     runtime: "codex:gpt-6.1-sol:high"
-    # Grants full access without the Codex sandbox; applies to every runtime alternative: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
-    # runtime-args: [--sandbox, danger-full-access]
     kind: pr
     trigger: ready-to-merge
     outcomes:

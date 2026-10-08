@@ -117,8 +117,13 @@ class InitTests(unittest.TestCase):
                     self.assertIn(grant, output)
                     enabled = answer in ('yes', ' Y ')
                     for agent in load_config(self.path).agents:
-                        self.assertEqual(list(agent.runtime_args), expected if enabled else [])
-                    self.assertEqual(self.path.read_text().count('# runtime-args:'), 0 if enabled else 4)
+                        self.assertEqual(list(agent.runtime_args_for(agent.runtimes[0])), expected if enabled else [])
+                    self.assertEqual(self.path.read_text().count('# runtime-args:'), 0 if enabled else 1)
+                    generated = yaml.safe_load(self.path.read_text())
+                    if enabled:
+                        cli = runtime.split(':', 1)[0] if runtime else 'codex'
+                        self.assertEqual(generated['runtime-args'], {cli: expected})
+                    self.assertTrue(all('runtime-args' not in agent for agent in generated['agents'].values()))
                     self.assertEqual('uncomment or customize' in output, not enabled)
                     if runtime:
                         self.assertIn("the project's check commands must still be added to --allowedTools", output)
@@ -295,7 +300,7 @@ class InitTests(unittest.TestCase):
                 self.assertEqual(self.github.writes, [])
                 prompt.assert_not_called()
                 self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
-                self.assertEqual(self.path.read_text().count('# runtime-args:'), 4)
+                self.assertEqual(self.path.read_text().count('# runtime-args:'), 1)
                 self.assertIn('grant agent permissions: uncomment or customize', output)
 
     def test_unreadable_labels_prints_all_commands_without_label_prompt(self):
@@ -468,17 +473,20 @@ class InitTests(unittest.TestCase):
                 config = load_config(self.path)
                 self.assertTrue(all(not agent.runtime_args for agent in config.agents))
                 text = self.path.read_text()
-                self.assertEqual(text.count('# runtime-args:'), 4)
-                comment = (f'# {grant}; applies to every runtime alternative: '
+                self.assertEqual(text.count('# runtime-args:'), 1)
+                comment = (f'# {grant}: '
                            'https://github.com/uberblick-ai/ub-agents/blob/main/docs/'
                            'configuration.md#runtime-permissions')
-                for agent_text in text.split('\n    runtime: ')[1:]:
-                    self.assertIn(comment, agent_text)
-                    if runtime.startswith('claude:'):
-                        self.assertIn('Add the project\'s check commands to --allowedTools', agent_text)
-                        self.assertIn('"Bash(<project check command>)"', agent_text)
-                enabled = yaml.safe_load(text.replace('# runtime-args:', 'runtime-args:'))
-                for agent in enabled['agents'].values():
-                    self.assertEqual(agent['runtime-args'], expected)
-                self.path.write_text(text.replace('# runtime-args:', 'runtime-args:'))
-                self.assertTrue(all(list(agent.runtime_args) == expected for agent in load_config(self.path).agents))
+                self.assertIn(comment, text)
+                self.assertIn("An agent's runtime-args list or mapping replaces these defaults entirely", text)
+                if runtime.startswith('claude:'):
+                    self.assertIn('Add the project\'s check commands to --allowedTools', text)
+                    self.assertIn('"Bash(<project check command>)"', text)
+                cli = runtime.split(':', 1)[0]
+                uncommented = text.replace('# runtime-args:', 'runtime-args:').replace(f'#   {cli}:', f'  {cli}:')
+                enabled = yaml.safe_load(uncommented)
+                self.assertEqual(enabled['runtime-args'], {cli: expected})
+                self.assertTrue(all('runtime-args' not in agent for agent in enabled['agents'].values()))
+                self.path.write_text(uncommented)
+                for agent in load_config(self.path).agents:
+                    self.assertEqual(list(agent.runtime_args_for(agent.runtimes[0])), expected)

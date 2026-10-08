@@ -58,6 +58,8 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
                 async with app.run_test(size=size) as pilot:
                     tree, recent = app.query_one(WorkTree), app.query_one(RecentActivity)
                     await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0)
+                    # Initial layout defers revealing the selection until refresh.
+                    await pilot.pause()
                     sizes = tree.size, recent.size
                     width = recent.scrollable_content_region.width
                     self.assertEqual(recent.styles.scrollbar_visibility, 'hidden')
