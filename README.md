@@ -148,8 +148,9 @@ attempts. Claiming resumes automatically when the check passes.
 
 Projects can configure [checkout setup](docs/configuration.md#checkout-setup) to
 reinstall dependencies when the launcher pulls changes to a lockfile or tool
-configuration. Setup runs before the role is claimed; failed setup stops launch
-and retries on the next launch without spending an attempt.
+configuration. Control-checkout setup runs before the role is claimed; a failure
+stops launch and retries on the next launch without spending an attempt. Each new
+private worktree also runs setup once before its agent starts.
 
 ## Day to day
 

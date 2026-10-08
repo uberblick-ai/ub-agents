@@ -103,6 +103,11 @@ def confirm_stopped(directory):
         (attempt / "stopped").write_text("confirmed\n")
 
 
+def setup_environment():
+    return {key: value for key, value in os.environ.items()
+            if not key.startswith("UB_AGENTS_")}
+
+
 def run_setup(config, interrupt, output, activity, previous=None):
     root = config.root
     if config.checkout_setup is None:
@@ -143,9 +148,7 @@ def run_setup(config, interrupt, output, activity, previous=None):
             activity(f"checkout setup running: {trigger} changed")
             confirmed = False
             try:
-                env = {key: value for key, value in os.environ.items()
-                       if not key.startswith("UB_AGENTS_")}
-                code = supervise(list(setting.command), root, env, attempt,
+                code = supervise(list(setting.command), root, setup_environment(), attempt,
                                  setting.timeout_seconds, interrupt, pass_fds=(guard.fileno(),))
                 confirmed = True
                 if code:
