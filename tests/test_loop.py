@@ -12,10 +12,12 @@ from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Plan
 from ub_agents.errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
+from ub_agents.observations import Observations
 from ub_agents.prompts import RETROSPECTIVE_PROMPT
 from ub_agents.records import attempts, body, iso, timestamp
 from ub_agents.report_command import launcher_report_command
-from tests.support import stub_refresh, FakeGitHub, agent, config, edit_lease, issue, pr
+from ub_agents.view_data import Session, work_pane
+from tests.support import stub_refresh, FakeGitHub, MemoryPublisher, agent, config, edit_lease, issue, pr
 
 
 class LoopTests(unittest.TestCase):
@@ -460,12 +462,13 @@ class QueueTests(unittest.TestCase):
         self.add(issue(1, ("ready",), iso(1)),
                  issue(2, ("ready", "low"), iso(200)),
                  issue(3, ("ready", "urgent"), iso(300)),
-                 issue(4, ("ready", "other"), iso(2)))
-        self.assertEqual(self.ready("implementer"), [3, 2, 1, 4])
+                 issue(4, ("ready", "other"), iso(2)),
+                 pr(5, ("needs-changes",), body="Unrelated"))
+        self.assertEqual(self.ready("implementer"), [3, 2, 5, 1, 4])
         self.assertEqual([r["priority"] for r in status_rows(self.loop)],
-                         ["urgent", "low", None, None])
+                         ["urgent", "low", None, None, None])
 
-    def test_pr_work_runs_before_issues_and_uses_same_priority_fifo_rank(self):
+    def test_priority_precedes_work_class_and_prs_win_ties(self):
         self.loop = Loop(config(self.root, self.implementer,
                                 queue=Queue("order", Priority(("urgent", "low")))),
                          self.github, "operator", output=lambda *_: None)
@@ -475,11 +478,50 @@ class QueueTests(unittest.TestCase):
                  replace(pr(4, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)),
                  replace(pr(5, ("needs-changes", "urgent"), body="Unrelated"), created_at=iso(300)),
                  replace(pr(6, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)))
-        self.assertEqual(self.ready("implementer"), [5, 4, 6, 3, 1, 2])
+        self.assertEqual(self.ready("implementer"), [5, 1, 2, 4, 6, 3])
         with patch.object(self.loop, "execute", return_value=True) as execute:
             self.assertTrue(self.loop.tick())
         self.assertEqual(execute.call_args.args[0].item.number, 5)
         self.assertIsNotNone(self.loop.coordinator.claim(execute.call_args.args[0]))
+
+    def test_priority_example_orders_inherited_pr_review_new_issue_and_integration(self):
+        priority = Priority(("priority:urgent", "priority:high", "priority:medium", "priority:low"))
+        reviewer = agent(self.root, name="reviewer", kind="pr", triggers=("review",))
+        integrator = agent(self.root, name="integrator", kind="pr", triggers=("merge",))
+        milestones = self.github.milestones
+        for mode in ("ignore", "order", "gate"):
+            with self.subTest(mode=mode):
+                self.github = FakeGitHub(
+                    issue(410, ("prepare", "priority:high"), iso(1), 10),
+                    replace(pr(398, ("review", "priority:low"), body="Closes #410"), created_at=iso(300)),
+                    replace(pr(402, ("merge", "priority:medium"), body="Unrelated"), created_at=iso(400)),
+                    issue(405, ("ready", "priority:medium"), iso(2), 10))
+                self.github.milestones = milestones
+                self.loop = Loop(config(self.root, self.preparer, self.implementer, reviewer, integrator,
+                                        queue=Queue(mode, priority)),
+                                 self.github, "operator", output=lambda *_: None)
+                memory = MemoryPublisher()
+                observer = Observations(self.loop.config, "operator", None, memory)
+                self.loop.observer = observer
+                observer.begin_pass()
+                expected = [398, 410, 402, 405]
+                self.assertEqual([p.item.number for p in self.loop.iter_plans()], expected)
+                observer.complete_pass()
+                pane = work_pane(Session(self.root / "session.json", memory.snapshots[-1]), self.root)
+                eligible = next(section for section in pane.sections if section.name == "Eligible")
+                self.assertEqual([row.item for row in eligible.rows], expected)
+                rows = status_rows(self.loop)
+                self.assertEqual([r["number"] for r in rows], expected)
+                self.assertEqual([r["priority"] for r in rows],
+                                 ["priority:high", "priority:high", "priority:medium", "priority:medium"])
+                self.assertEqual(rows[0]["priority_from_issue"], 410)
+                for number in expected:
+                    with patch.object(self.loop, "execute", return_value=True) as execute:
+                        self.assertTrue(self.loop.tick())
+                    plan = execute.call_args.args[0]
+                    self.assertEqual(plan.item.number, number)
+                    self.assertIsNotNone(self.loop.coordinator.claim(plan))
+                    self.github.change(number, labels=frozenset())
 
     def test_default_queue_is_fifo_with_number_ties_for_both_work_classes(self):
         self.loop = Loop(config(self.root, self.implementer), self.github,
@@ -520,17 +562,19 @@ class QueueTests(unittest.TestCase):
             self.assertTrue(limited.tick())
         self.assertEqual(execute.call_args.args[0].item.number, 2)
 
-    def test_milestone_order_precedes_priority_and_unmilestoned_issues_rank_last(self):
+    def test_priority_precedes_milestones_and_milestones_break_priority_ties(self):
         self.loop = Loop(config(self.root, self.implementer,
                                 queue=Queue("order", Priority(("urgent", "low")))),
                          self.github, "operator", output=lambda *_: None)
         self.add(issue(1, ("ready", "urgent"), iso(1), 20),
                  issue(2, ("ready", "urgent"), iso(2)),
-                 issue(3, ("ready", "low"), iso(300), 10))
-        self.assertEqual(self.ready("implementer"), [3, 1, 2])
+                 issue(3, ("ready", "low"), iso(300), 10),
+                 issue(4, ("ready", "low"), iso(1), 20),
+                 issue(5, ("ready", "low"), iso(1)))
+        self.assertEqual(self.ready("implementer"), [1, 2, 3, 4, 5])
         with patch.object(self.loop, "execute", return_value=True) as execute:
             self.assertTrue(self.loop.tick())
-        self.assertEqual(execute.call_args.args[0].item.number, 3)
+        self.assertEqual(execute.call_args.args[0].item.number, 1)
 
     def test_within_milestone_priority_then_fifo_and_number_apply(self):
         self.loop = Loop(config(self.root, self.implementer,
@@ -555,12 +599,15 @@ class QueueTests(unittest.TestCase):
         self.loop = Loop(settings, self.github, "operator", output=lambda *_: None)
         self.add(issue(1, ("ready", "urgent"), iso(1), 20),
                  issue(2, ("ready",), iso(2)),
-                 issue(3, (), iso(300), 10), pr(4, ("needs-changes", "low"), milestone=20))
+                 issue(3, ("ready", "low"), iso(300), 10),
+                 pr(4, ("needs-changes", "low"), milestone=20),
+                 pr(5, ("needs-changes", "low"), body="Unrelated"))
         rows = status_rows(self.loop)
-        self.assertEqual([r["number"] for r in rows], [4, 1, 2])
-        self.assertEqual([r["priority"] for r in rows], ["urgent", "urgent", "normal"])
+        expected = [4, 1, 2, 5, 3]
+        self.assertEqual([r["number"] for r in rows], expected)
+        self.assertEqual([r["priority"] for r in rows], ["urgent", "urgent", "normal", "low", "low"])
         self.assertEqual(rows[0]["priority_from_issue"], 1)
-        self.assertEqual([r["milestone"] for r in rows], [20, 20, None])
+        self.assertEqual([r["milestone"] for r in rows], [20, 20, None, None, 10])
         for row in rows[1:]:
             self.assertEqual(row["state"], "ready")
             self.assertIsNone(row["milestone_inherited_from"])
@@ -574,9 +621,9 @@ class QueueTests(unittest.TestCase):
             with redirect_stdout(plain):
                 self.assertEqual(main(["status"]), 0)
         output = plain.getvalue()
-        self.assertLess(output.index("#4 implementer"), output.index("#1 implementer"))
-        self.assertLess(output.index("#1 implementer"), output.index("#2 implementer"))
-        for priority in ("urgent", "normal"):
+        for before, after in zip(expected, expected[1:]):
+            self.assertLess(output.index(f"#{before} implementer"), output.index(f"#{after} implementer"))
+        for priority in ("urgent", "normal", "low"):
             self.assertIn(f"priority {priority}", output)
         self.assertIn("urgent (from closed issue #1)", output)
         self.assertIn("priority urgent · milestone #20", output)
@@ -673,9 +720,9 @@ class QueueTests(unittest.TestCase):
             lease = co.claim(co.plan(self.github.item(number), self.implementer, ()))
             co.update(lease, state="running", started=True)
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
-                         [(2, "owned"), (1, "owned"), (3, "ready")])
+                         [(2, "owned"), (3, "ready"), (1, "owned")])
 
-    def test_owned_and_recovery_ranking_ignores_milestones(self):
+    def test_owned_and_recovery_rank_after_higher_priority_and_before_equal_priority(self):
         self.loop = Loop(config(self.root, self.implementer,
                                 queue=Queue("order", Priority(("urgent", "low")))),
                          self.github, "operator", output=lambda *_: None)
@@ -692,11 +739,20 @@ class QueueTests(unittest.TestCase):
         self.github.milestones[1]["state"] = "open"
         co.report(lease, "success", "Existing work completed", outcome="done")
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(1, "ready"), (2, "owned")])
+        self.github.change(1, labels=frozenset({"ready", "low"}))
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
                          [(2, "owned"), (1, "ready")])
-        # Recovery remains ahead of a higher-priority new start after expiry,
-        # even when the old item closed and lost its trigger.
+        self.github.change(1, labels=frozenset({"ready", "urgent"}))
+        # Closing the old item and losing its trigger does not change priority order.
         self.github.change(2, state="closed")
         now += 61
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(1, "ready"), (2, "recover")])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 1)
+        self.github.change(1, labels=frozenset({"ready", "low"}))
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
                          [(2, "recover"), (1, "ready")])
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
@@ -748,7 +804,7 @@ class MilestoneGateTests(unittest.TestCase):
     def ready(self, name):
         return [p.item.number for p in self.loop.plans() if p.state == "ready" and p.agent.name == name]
 
-    def test_pr_work_runs_before_issues_and_uses_same_priority_fifo_rank(self):
+    def test_priority_precedes_work_class_and_prs_win_ties(self):
         self.loop = Loop(config(self.root, self.implementer,
                                 queue=Queue("gate", Priority(("urgent", "low")))),
                          self.github, "operator", output=lambda *_: None)
@@ -758,7 +814,7 @@ class MilestoneGateTests(unittest.TestCase):
                  replace(pr(4, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)),
                  replace(pr(5, ("needs-changes", "urgent"), body="Unrelated"), created_at=iso(300)),
                  replace(pr(6, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)))
-        self.assertEqual(self.ready("implementer"), [5, 4, 6, 3, 1])
+        self.assertEqual(self.ready("implementer"), [5, 1, 4, 6, 3])
         with patch.object(self.loop, "execute", return_value=True) as execute:
             self.assertTrue(self.loop.tick())
         self.assertEqual(execute.call_args.args[0].item.number, 5)
@@ -782,12 +838,15 @@ class MilestoneGateTests(unittest.TestCase):
         self.loop = Loop(settings, self.github, "operator", output=lambda *_: None)
         self.add(issue(1, ("ready", "urgent"), iso(1), 20),
                  issue(2, ("ready",), iso(2)),
-                 issue(3, (), iso(300), 10), pr(4, ("needs-changes", "low"), milestone=20))
+                 issue(3, (), iso(300), 10), pr(4, ("needs-changes", "low"), milestone=20),
+                 pr(5, ("needs-changes", "low"), body="Unrelated"))
         rows = status_rows(self.loop)
-        self.assertEqual([r["number"] for r in rows], [4, 1, 2])
-        self.assertEqual([r["priority"] for r in rows], ["urgent", "urgent", "normal"])
+        expected = [4, 1, 2, 5]
+        self.assertEqual([r["number"] for r in rows], expected)
+        self.assertEqual([r["priority"] for r in rows], ["urgent", "urgent", "normal", "low"])
         self.assertEqual(rows[0]["priority_from_issue"], 1)
-        for row in rows[1:]:
+        self.assertEqual(rows[-1]["state"], "ready")
+        for row in rows[1:3]:
             self.assertEqual(row["state"], "parked")
             self.assertEqual(row["reason"], "Waiting for active milestone #10")
         with patch("ub_agents.cli.load_config", return_value=settings), \
@@ -800,9 +859,9 @@ class MilestoneGateTests(unittest.TestCase):
             with redirect_stdout(plain):
                 self.assertEqual(main(["status"]), 0)
         output = plain.getvalue()
-        self.assertLess(output.index("#4 implementer"), output.index("#1 implementer"))
-        self.assertLess(output.index("#1 implementer"), output.index("#2 implementer"))
-        for priority in ("urgent", "normal"):
+        for before, after in zip(expected, expected[1:]):
+            self.assertLess(output.index(f"#{before} implementer"), output.index(f"#{after} implementer"))
+        for priority in ("urgent", "normal", "low"):
             self.assertIn(f"priority {priority}", output)
         self.assertIn("urgent (from closed issue #1)", output)
         self.assertEqual(output.count("Waiting for active milestone #10"), 2)
@@ -892,11 +951,20 @@ class MilestoneGateTests(unittest.TestCase):
         self.github.milestones[1]["state"] = "open"
         co.report(lease, "success", "Existing work completed", outcome="done")
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(1, "ready"), (2, "owned")])
+        self.github.change(1, labels=frozenset({"ready", "low"}))
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
                          [(2, "owned"), (1, "ready")])
-        # Recovery remains ahead of a higher-priority new start after expiry,
-        # even when the old item closed and lost its trigger.
+        self.github.change(1, labels=frozenset({"ready", "urgent"}))
+        # Recovery remains ungated even after the old item closes and loses its trigger.
         self.github.change(2, state="closed")
         now += 61
+        self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
+                         [(1, "ready"), (2, "recover")])
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 1)
+        self.github.change(1, labels=frozenset({"ready", "low"}))
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
                          [(2, "recover"), (1, "ready")])
         with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):

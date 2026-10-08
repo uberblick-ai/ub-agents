@@ -241,9 +241,9 @@ class Loop:
     @staticmethod
     def _rank(plan, priority):
         existing = plan.item.kind == "pr" or plan.state in {"owned", "recover"}
-        return (0 if existing else 1,
+        return (priority.labels.index(plan.priority) if plan.priority is not None else len(priority.labels),
+                0 if existing else 1,
                 0 if existing else plan.milestone_rank,
-                priority.labels.index(plan.priority) if plan.priority is not None else len(priority.labels),
                 seconds(plan.item.created_at), plan.item.number)
 
     def plans(self):

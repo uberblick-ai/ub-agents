@@ -697,8 +697,8 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual([row.item for row in work_rows(session, self.root)
                           if row.group == 'Eligible'], [3, 1])
         self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
-        # A higher-ranked PR keeps the following pass partial before it reaches #1.
-        github.change(2, labels=frozenset({'needs-changes'}))
+        # An equal-priority PR keeps the following pass partial before it reaches #1.
+        github.change(2, labels=frozenset({'needs-changes', 'urgent'}))
         github.timelines.pop(2, None)
         github.reads.clear()
         with patch.object(loop, 'execute', return_value=True) as execute:
