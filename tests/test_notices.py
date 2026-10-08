@@ -40,6 +40,17 @@ class NoticeTests(unittest.TestCase):
     def notices(self, number=1):
         return [c for c in self.github.comments(number) if c["body"].startswith(ACTION_MARKER)]
 
+    def pr_sections(self, comment, number=2, agent='worker'):
+        visible, resume, evidence = comment.split('<details>', 2)
+        self.assertTrue(visible.rstrip().endswith(
+            f'Merging or closing #{number} finishes this item; nothing else is needed.'))
+        self.assertNotIn('Then resume', visible)
+        self.assertTrue(resume.startswith(f'\n<summary>To send it back to {agent} instead</summary>\n\n'))
+        self.assertTrue(resume.endswith('\n\n</details>\n\n'))
+        self.assertTrue(evidence.startswith('\n<summary>Reasoning and evidence</summary>\n\n'))
+        self.assertNotIn('<details open', comment)
+        return visible, resume, '<details>' + evidence
+
     def retry(self, number=1):
         # Exercise the actual CLI reset, including its advisory notice cleanup.
         cfg = config(self.root, self.worker)
@@ -329,7 +340,7 @@ class NoticeTests(unittest.TestCase):
         notices = self.notices(2)
         self.assertEqual(len(notices), 1)
         comment = notices[0]["body"]
-        visible, details = comment.split('<details>', 1)
+        visible, resume, details = self.pr_sections(comment)
         self.assertIn(f'**Action needed**\n\n**{outcome["action"]}**\n\n', visible)
         self.assertNotIn(outcome['summary'], visible)
         self.assertIn(f'{outcome["summary"]}\n\nCandidate:', details)
@@ -344,6 +355,36 @@ class NoticeTests(unittest.TestCase):
         self.retry(2)
         self.assertIn(self.notices(2)[0]["id"], self.github.minimized_ids)
         self.assertEqual(self.co.plan(self.github.item(2), self.worker, ()).state, "ready")
+
+    def test_issue_and_unreadable_item_notices_keep_visible_resume_text(self):
+        for number in (1, 2):
+            for stops in ((), ('needs-human',)):
+                with self.subTest(number=number, stops=stops):
+                    self.setUp()
+                    lease = self.start(number)
+                    outcome = self.co.report(lease, 'blocked', 'Need a decision.', action='Maintainer: decide.')
+                    if number == 1:
+                        self.co.notices.post_action(number, lease, outcome, outcome['summary'], stops, ('ready',))
+                    else:
+                        with patch.object(self.github, 'item', side_effect=GitHubError('GET', 'item', 'Unavailable')):
+                            self.co.notices.post_action(number, lease, outcome, outcome['summary'], stops, ('ready',))
+                    notice = self.notices(number)[0]['body']
+                    visible, details = notice.split('<details>', 1)
+                    if stops:
+                        steps = 'Remove the stop label(s) `needs-human`, then apply a trigger to resume worker: `ready`.'
+                    else:
+                        trigger = '`ready`' if number == 1 else '`needs-changes`'
+                        steps = (f'```sh\nub-agents retry {number} --agent worker --reason "Human resolved the blocker"\n```'
+                                 f'\n\nRestore a matching trigger if absent: {trigger}; remove any stop label.')
+                    expected = (f"{ACTION_MARKER}{lease['run']} -->\n**Action needed**\n\n"
+                                f'**Maintainer: decide.**\n\nThen resume worker:\n\n{steps}\n\n'
+                                'Use these steps only when resuming the same role (`worker`). '
+                                "If a different role must act next, follow the project's documented correction "
+                                'or handoff route instead.\n\n')
+                    self.assertEqual(visible, expected)
+                    self.assertTrue(details.startswith('\n<summary>Reasoning and evidence</summary>'))
+                    self.assertNotIn('finishes this item', notice)
+                    self.assertNotIn('To send it back', notice)
 
     def test_failed_blocked_notice_retries_after_restart_even_on_a_closed_item(self):
         lease = self.start()
@@ -413,15 +454,16 @@ class NoticeTests(unittest.TestCase):
         outcome = self.co.report(lease, 'blocked', summary, action=asks)
         self.co.release(lease, 'blocked', summary)
         comment = self.notices(2)[0]['body']
-        visible, details = comment.split('<details>', 1)
+        visible, resume, details = self.pr_sections(comment)
         self.assertIn('\n'.join(f'- **{ask}**' for ask in asks), visible)
         self.assertIn(summary.strip(), details)
         for evidence in ('Candidate:', 'Review decision:', 'CI for this SHA:', lease['url'], outcome['url']):
             self.assertNotIn(evidence, visible)
             self.assertIn(evidence, details)
-        for resume in ('Then resume worker:', 'ub-agents retry', 'same role (`worker`)', 'different role'):
-            self.assertIn(resume, visible)
-            self.assertNotIn(resume, details)
+        for step in ('ub-agents retry', 'Restore a matching trigger', 'same role (`worker`)', 'different role'):
+            self.assertIn(step, resume)
+            self.assertNotIn(step, visible)
+            self.assertNotIn(step, details)
         self.assertNotIn('<details open', comment)
 
     def test_options_notice_orders_reason_asks_choices_resume_and_folded_evidence(self):
@@ -433,14 +475,14 @@ class NoticeTests(unittest.TestCase):
         outcome = self.co.report(lease, 'blocked', summary, action=ask, option=options)
         self.co.release(lease, 'blocked', summary)
         notice = self.notices(2)[0]['body']
-        visible, details = notice.split('<details>', 1)
+        visible, resume, details = self.pr_sections(notice)
         ordered = ['**Action needed**', 'Local CI is red on `abcdef`.',
                    '**Owner: authorize the \\*storage\\* change \\& review \\[the PR\\].**',
                    'To unblock, do one of:',
                    '1. Maintainer: run CI outside a supervised session (recommended)',
                    '   ```sh\n   mise run ci abcdef\n   ```',
                    '2. Maintainer: merge a fix isolating `UB_AGENTS_RUN_CONFIG` in tests.',
-                   'Then resume worker:', '```sh\nub-agents retry 2', 'Restore a matching trigger']
+                   'Merging or closing #2 finishes this item; nothing else is needed.']
         positions = [visible.index(text) for text in ordered]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(notice.count('(recommended)'), 1)
@@ -448,6 +490,8 @@ class NoticeTests(unittest.TestCase):
         self.assertIn('<summary>Reasoning and evidence</summary>', details)
         for evidence in (summary, 'Candidate:', 'Review decision:', 'CI for this SHA:', lease['url'], outcome['url']):
             self.assertIn(evidence, details)
+        self.assertIn('```sh\nub-agents retry 2', resume)
+        self.assertIn('Restore a matching trigger', resume)
         self.assertNotIn('ub-agents retry', details)
 
     def test_single_backtick_code_survives_and_other_markdown_is_escaped(self):
@@ -511,12 +555,17 @@ class NoticeTests(unittest.TestCase):
     def test_stop_outcome_notice_and_later_claim_resume(self):
         loop, github = self.parked_loop()
         notice = next(c for c in github.comments(2) if c["body"].startswith(ACTION_MARKER))
-        visible, details = notice['body'].split('<details>', 1)
+        visible, resume, details = self.pr_sections(notice['body'])
         self.assertIn('**Action needed**\n\n**Maintainer: choose A or B; recommend A.**\n\n', visible)
         self.assertIn('Maintainer must merge because docs changed\n\nCandidate:', details)
         for expected in ("**Action needed**", "Maintainer must merge", "a" * 40, "APPROVED", "SUCCESS",
                          "Remove the stop label(s) `needs-human`", "`ready`", "`needs-changes`"):
             self.assertIn(expected, notice["body"])
+        for step in ('Remove the stop label(s) `needs-human`', '`ready`', '`needs-changes`',
+                     'same role (`worker`)', 'different role'):
+            self.assertIn(step, resume)
+            self.assertNotIn(step, visible)
+            self.assertNotIn(step, details)
         self.assertNotIn("ub-agents retry", notice["body"])
         self.assertEqual(loop.plans()[0].state, "parked")  # visible after all triggers were removed
         before = deepcopy(github.writes)
@@ -553,24 +602,27 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(copied['action'], asks[0])
         self.assertEqual(copied['actions'], asks)
         notice = next(c['body'] for c in github.comments(2) if c['body'].startswith(ACTION_MARKER))
-        visible, details = notice.split('<details>', 1)
+        visible, resume, details = self.pr_sections(notice)
         for ask in asks:
             self.assertIn(f'- **{ask}**', visible)
-        self.assertIn('same role (`worker`)', visible)
-        self.assertIn('different role', visible)
+        self.assertIn('same role (`worker`)', resume)
+        self.assertIn('different role', resume)
 
-    def test_options_handoff_keeps_choices_and_stop_label_resume_visible(self):
+    def test_options_handoff_keeps_choices_visible_and_stop_label_resume_folded(self):
         options = ['Maintainer: merge after CI: `mise run ci SHA`', 'Maintainer: request a fix.']
         loop, github = self.parked_loop(handoff=2, action=None, option=options)
         copied = loop.coordinator.history(2)[0]
         self.assertEqual(copied['options'], options)
         self.assertEqual(copied['action'], options[0])
         notice = next(c['body'] for c in github.comments(2) if c['body'].startswith(ACTION_MARKER))
-        visible, details = notice.split('<details>', 1)
+        visible, resume, details = self.pr_sections(notice)
         for text in ('To unblock, do one of:', '1. Maintainer: merge after CI (recommended)',
-                     '   mise run ci SHA', '2. Maintainer: request a fix.', 'Then resume worker:',
-                     'Remove the stop label(s) `needs-human`', '`ready`', '`needs-changes`'):
+                     '   mise run ci SHA', '2. Maintainer: request a fix.'):
             self.assertIn(text, visible)
+            self.assertNotIn(text, details)
+        for text in ('Remove the stop label(s) `needs-human`', '`ready`', '`needs-changes`'):
+            self.assertIn(text, resume)
+            self.assertNotIn(text, visible)
             self.assertNotIn(text, details)
         self.assertNotIn('ub-agents retry', notice)
 

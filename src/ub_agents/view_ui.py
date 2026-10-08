@@ -28,7 +28,7 @@ from .view_data import (context_header, context_text, item_handoff, item_header,
                         related_assignment, related_plan, run_status, text, work_pane)
 from .view_github import DescriptionLoads
 from .view_unblock import (ActionComment, comment_sections, local_action, needs_attention,
-                           trust_reason, unblock_body, unblock_metadata)
+                           resume_section, trust_reason, unblock_body, unblock_metadata)
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
@@ -534,6 +534,9 @@ class View(App):
                 with TabPane('4 Unblock', id='unblock'):
                     with PaneScroll():
                         yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
+                        with Collapsible(title='To send it back instead',
+                                         collapsed=True, id='unblock_resume'):
+                            yield Markdown('', id='unblock_resume_body', parser_factory=description_parser, open_links=False)
                         with Collapsible(title='Reasoning and evidence',
                                          collapsed=True, id='unblock_details'):
                             yield Markdown('', id='unblock_details_body', parser_factory=description_parser, open_links=False)
@@ -1056,9 +1059,16 @@ class View(App):
         comment = self.current_action()
         body = unblock_body(self.rows.get(self.selected), comment) if visible else ''
         lead, supporting = comment_sections(body)
+        lead, resume_title, resume = resume_section(lead)
         markdown = self.query_one('#unblock_body', Markdown)
         if lead != markdown.source:
             markdown.update(lead)
+        resume_fold = self.query_one('#unblock_resume', Collapsible)
+        resume_fold.title = resume_title
+        resume_fold.display = bool(resume)
+        resume_markdown = self.query_one('#unblock_resume_body', Markdown)
+        if resume != resume_markdown.source:
+            resume_markdown.update(resume)
         fold = self.query_one('#unblock_details', Collapsible)
         fold.title = ('Reasoning, evidence and resume instructions'
                       if '<summary>Reasoning, evidence and resume instructions</summary>' in body
@@ -1069,6 +1079,7 @@ class View(App):
             details_markdown.update(supporting)
         details_key = (self.description_key(), comment.comment_id, comment.created_at, comment.author, body)
         if details_key != self.unblock_details_key:
+            resume_fold.collapsed = True
             fold.collapsed = True
             self.unblock_details_key = details_key
         extra = ''

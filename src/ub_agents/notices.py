@@ -39,6 +39,14 @@ def retry_command(number, agent):
             f"--reason {json.dumps('Human resolved the blocker')}")
 
 
+def outcome_resume(number, agent, steps, *, is_pr=False):
+    if is_pr:
+        return (f"Merging or closing #{number} finishes this item; nothing else is needed.\n\n"
+                f"<details>\n<summary>To send it back to {agent} instead</summary>\n\n"
+                f"{steps}\n\n</details>")
+    return f"Then resume {agent}:\n\n{steps}"
+
+
 def action_body(marker, actions, details, *, options=(), reason='', resume=''):
     asks = [ask_markdown(ask.strip()) for ask in actions]
     lead = f"**{asks[0]}**" if len(asks) == 1 else "\n".join(f"- **{ask}**" for ask in asks)
@@ -272,10 +280,11 @@ class Notices:
             resume = f"```sh\n{command}\n```"
             if triggers:
                 resume += f"\n\nRestore a matching trigger if absent: {triggers}; remove any stop label."
-        resume = (f"Then resume {lease['agent']}:\n\n{resume}\n\n"
+        resume = (f"{resume}\n\n"
                   f"Use these steps only when resuming the same role (`{lease['agent']}`). "
                   "If a different role must act next, follow the project's documented correction "
                   "or handoff route instead.")
+        resume = outcome_resume(number, lease['agent'], resume, is_pr=item is not None and item.kind == 'pr')
         extra = ""
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
