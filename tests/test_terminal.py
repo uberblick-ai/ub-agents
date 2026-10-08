@@ -72,6 +72,40 @@ class TerminalHarnessTests(unittest.TestCase):
                 terminal.send(b'q')
                 terminal.wait_exit()
 
+    def test_checkpoint_with_continuous_output_in_a_hidden_pane(self):
+        script = '''
+import sys
+from textual.app import App
+from textual.binding import Binding
+from textual.geometry import Size
+from textual.widgets import Static
+class Stream(Static):
+    def on_mount(self):
+        self.count = 0
+        self.call_after_refresh(self.append)
+    def append(self):
+        self.count += 1
+        self.virtual_size = Size(40, self.count)
+        self.call_after_refresh(self.append)
+class ProofApp(checkpoint_view(App, sys.argv[1])):
+    CSS = 'Stream { display: none; }'
+    BINDINGS = [Binding('q', 'quit', priority=True)]
+    def compose(self):
+        yield Static('visible')
+        yield Stream()
+    def proof_values(self):
+        return {'count': self.query_one(Stream).count, 'visible': self.query_one(Static).render().plain}
+ProofApp().run()
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            proof = Path(directory) / 'proof.json'
+            with Terminal(script, proof, proof=proof) as terminal:
+                initial = terminal.checkpoint(lambda value: value['count'] > 0)
+                later = terminal.checkpoint(lambda value: value['count'] > initial['count'])
+                self.assertEqual(later['visible'], 'visible')
+                terminal.send(b'q')
+                terminal.wait_exit()
+
     def test_failure_drains_transcript_and_closes_owned_process_and_descriptors(self):
         with self.assertRaisesRegex(AssertionError, 'owned marker') as caught:
             with Terminal("import time; print('owned marker', flush=True); time.sleep(60)") as terminal:

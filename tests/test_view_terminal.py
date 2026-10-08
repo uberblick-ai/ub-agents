@@ -158,7 +158,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]),
                 {'tool': 'Bash', 'command': 'pytest'}, {'tool': 'Write', 'command': 'report.md'}]
             state['activity'] = {'state': 'waiting', 'until':
                                  (datetime.now(timezone.utc) + timedelta(seconds=90)).isoformat()}
-            path.write_text(json.dumps(state))
+            publish_snapshot(path, state)
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
@@ -282,7 +282,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         self.assertEqual(value['focus'], 'output')
                         self.assertTrue(value['panes'])
                         self.assertEqual(value['work'], not value['narrow'])
-                terminal.send(b'2?')
+                terminal.send(b'2')
+                terminal.checkpoint(lambda value: value['tab'] == 'issue')
+                terminal.send(b'?')
                 help_view = terminal.checkpoint(lambda value: value['screen'] == 'KeyHelp')
                 self.assertIn('Enter below 110×32', help_view['modal'])
                 self.assertIn('Esc below 110×32', help_view['modal'])
@@ -320,7 +322,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             attention = {'item': 20, 'agent': 'worker', 'state': 'blocked', 'title': 'Attention work'}
             eligible = {'item': 22, 'agent': 'worker', 'state': 'ready', 'title': 'Eligible work'}
             state['latest_pass'] = {'state': 'complete', 'rows': [attention, eligible]}
-            path.write_text(json.dumps(state))
+            publish_snapshot(path, state)
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
@@ -350,7 +352,11 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 for size in ((140, 44), (80, 32), (140, 44)):
                     terminal.resize(*size)
                     current = terminal.checkpoint(lambda value: value['narrow'] == (size[0] < 110)
-                                     and len(value['groups']) == 3 and value['cursor'] == 'assignment:owned-run')
+                                     and len(value['groups']) == 3 and value['cursor'] == 'assignment:owned-run'
+                                     and value['rows'] == (8 if size[0] < 110 else 11)
+                                     and value['spacers'] == sorted(value['groups'][name] - 1
+                                                   for name in ('Needs attention', 'Eligible'))
+                                     and value['upper_bottom'] == value['recent_y'])
                     self.assertEqual(current['selected'], 'assignment:owned-run')
                     self.assertEqual(current['rows'], 8 if current['narrow'] else 11)
                     self.assertEqual(current['groups']['Running'], 0)
@@ -373,8 +379,11 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                                        and value['cursor'] == 'assignment:owned-run')
                 boundary = current['recent_y']
                 state['latest_pass']['rows'] = [eligible]
-                path.write_text(json.dumps(state))
-                hidden = terminal.checkpoint(lambda value: 'Needs attention' not in value['groups'])
+                publish_snapshot(path, state)
+                hidden = terminal.checkpoint(lambda value: value['groups'] == {'Running': 0, 'Eligible': 4}
+                                  and value['rows'] == 7 and value['spacers'] == [3]
+                                  and value['recent_y'] == boundary
+                                  and value['selected'] == 'assignment:owned-run')
                 self.assertEqual(hidden['rows'], 7)
                 self.assertEqual(hidden['spacers'], [3])
                 self.assertEqual(hidden['recent_y'], boundary)
@@ -382,8 +391,11 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.send(b'\x1b[B\r')
                 terminal.checkpoint(lambda value: value['selected'] == 'plan:22')
                 state['assignment'] = None
-                path.write_text(json.dumps(state))
-                idle = terminal.checkpoint(lambda value: value['rows'] == 6)
+                publish_snapshot(path, state)
+                idle = terminal.checkpoint(lambda value: value['rows'] == 6
+                                and value['groups'] == {'Running': 0, 'Eligible': 3}
+                                and value['spacers'] == [2] and 'Idle' in value['live'][1]
+                                and value['live'][2].strip() == '' and value['selected'] == 'plan:22')
                 self.assertEqual(idle['spacers'], [2])
                 self.assertEqual(idle['groups']['Eligible'], 3)
                 self.assertIn('Idle', idle['live'][1])
@@ -391,13 +403,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(idle['selected'], 'plan:22')
                 state['latest_pass']['rows'] = [attention, eligible] + [
                     {'item': item, 'agent': 'worker', 'state': 'ready'} for item in range(30, 60)]
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 # Eligible shows ten of its 31 items, still enough to scroll the upper half.
-                capped = terminal.checkpoint(lambda value: value['rows'] == 37)
+                capped = terminal.checkpoint(lambda value: value['rows'] == 37
+                                  and 'Needs attention' in value['groups'] and 'Eligible' in value['groups']
+                                  and value['live'][value['groups']['Eligible'] - value['scroll']]
+                                      .startswith('Eligible · 31 · showing 10'))
                 self.assertTrue(capped['live'][capped['groups']['Eligible'] - capped['scroll']]
                                 .startswith('Eligible · 31 · showing 10'))
                 terminal.send(b's')
-                scrolled = terminal.checkpoint(lambda value: value['scroll'] > 0)
+                scrolled = terminal.checkpoint(lambda value: value['scroll'] > 0
+                                    and value['recent_y'] == value['upper_bottom'] == boundary
+                                    and value['recent_scroll'] == 0 and value['selected'] == 'plan:22')
                 self.assertEqual(scrolled['recent_y'], boundary)
                 self.assertEqual(scrolled['upper_bottom'], boundary)
                 self.assertEqual(scrolled['recent_scroll'], 0)
@@ -479,7 +496,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         state['update'] = banner
                         # Publish a fresh launcher snapshot even after a slow PTY startup.
                         state['published_at'] = datetime.now(timezone.utc).isoformat()
-                        path.write_text(json.dumps(state))
+                        publish_snapshot(path, state)
                         for width in (110, 70, 170):
                             terminal.resize(width, 32)
                             keys = ('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'
@@ -520,7 +537,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertIn(b'released 2 days ago', transcript)
                     self.assertIn(b'restart the launcher', transcript)
                     state['update'] = None
-                    path.write_text(json.dumps(state))
+                    publish_snapshot(path, state)
                     cleared = terminal.checkpoint(lambda value: not value['display'] and value['body_y'] == 0
                                     and value['anchor'] == paused['anchor'])
                     self.assertFalse(cleared['display'])
@@ -531,7 +548,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertNotIn(b'\x1b]0;\x07', transcript)
                     # Repository controls must remain inert inside the OSC payload.
                     state['repository'] = 'other/repo\x07\x1b]0;injected\x1b\\\n'
-                    path.write_text(json.dumps(state))
+                    publish_snapshot(path, state)
                     changed_title = ('ub-agents launch — ' + r'other/repo\x07\x1b]0;injected\x1b\\n').encode()
                     terminal.checkpoint(lambda _: b'\x1b]0;' + changed_title + b'\x07' in transcript)
                     self.assertNotIn(b'\x1b]0;injected', transcript)
@@ -596,7 +613,11 @@ import ub_agents.view_ui
 from ub_agents.view import main
 class ProofView(checkpoint_view(ub_agents.view_ui.View, {str(proof)!r})):
     def proof_values(self):
-        return {{'tab': self.query_one('#panes').active}}
+        return {{'tab': self.query_one('#panes').active, 'selected': self.selected,
+                 'key': self.description_key(), 'pending': self.descriptions.pending,
+                 'context': self.last_context, 'note': self.query_one('#issue_note').render().plain,
+                 'body': self.query_one('#issue_body').source,
+                 'follow': self.reading.follow}}
 ub_agents.view_ui.View = ProofView
 raise SystemExit(main())
 '''
@@ -606,45 +627,73 @@ raise SystemExit(main())
                     transcript = terminal.transcript
                     terminal.expect(b'running assignment', b'owned replay output')
                     terminal.send(b'2')
-                    terminal.expect(b'Press g on Issue')
+                    terminal.checkpoint(lambda value: value['tab'] == 'issue'
+                                        and value['key'] == ['example/repo', 114]
+                                        and 'Press g on Issue' in value['note'])
                     self.assertEqual(recorded(), [])
                     terminal.send(b'g')
                     terminal.expect(b'Loading title/body', lambda _: len(recorded()) == 1)
-                    terminal.send(b'g3g1g2g')
-                    terminal.checkpoint()
-                    self.assertEqual(len(recorded()), 1)
+                    terminal.checkpoint(lambda value: value['pending'] == ['example/repo', 114]
+                                        and 'Loading title/body' in value['note'])
+                    def cached_keys(keys, pending):
+                        tab = 'issue'
+                        for key in keys:
+                            terminal.send(key)
+                            tab = {b'1': 'log', b'2': 'issue', b'3': 'runs'}.get(key, tab)
+                            terminal.checkpoint(lambda value: value['pending'] == pending
+                                                and value['tab'] == tab)
+                            self.assertEqual(len(recorded()), 1)
+                    cached_keys((b'g', b'3', b'g', b'1', b'g', b'2', b'g'), ['example/repo', 114])
                     release.touch()
                     loaded = terminal.expect(b'Terminal loaded body', b'Terminal Markdown', b'Second line',
                                    b'[bold]literal[/bold]', br'\x1b[31m', b'Source: GitHub')
                     self.assertNotIn(b'\x1b[31m', loaded)
                     self.assertNotIn(b'**strong**', loaded)
                     self.assertNotIn(b'## Terminal Markdown', loaded)
-                    terminal.send(b'3g1g2g')
-                    terminal.checkpoint()
-                    self.assertEqual(len(recorded()), 1)
+                    terminal.checkpoint(lambda value: value['pending'] is None
+                                        and 'Terminal loaded body' in value['body']
+                                        and 'Source: GitHub' in value['note'])
+                    cached_keys((b'3', b'g', b'1', b'g', b'2', b'g'), None)
                     state['latest_pass']['rows'][0]['description'] = {
                         'available': True, 'text': '## Snapshot Markdown\n\nSnapshot body\nSecond line\n\n- **strong**'}
-                    path.write_text(json.dumps(state))
+                    publish_snapshot(path, state)
                     snapshot = terminal.expect(b'Snapshot Markdown', b'Source: snapshot')
                     self.assertNotIn(b'## Snapshot Markdown', snapshot)
+                    terminal.checkpoint(lambda value: value['body'].startswith('## Snapshot Markdown')
+                                        and 'Source: snapshot' in value['note'])
                     state['latest_pass']['rows'][0]['description'] = {
                         'available': True, 'text': '```text\n' + 'x' * 3000,
                         'omitted_characters': 1000}
-                    path.write_text(json.dumps(state))
+                    publish_snapshot(path, state)
                     terminal.expect(b'Description shortened')
+                    terminal.checkpoint(lambda value: value['body'] == ('```text\n' + 'x' * 3000)[:2048]
+                                        and 'Description shortened' in value['note'])
                     self.assertEqual(len(recorded()), 1)
                     # A new selected item has no local or in-memory description.
                     state['assignment']['item'] = 116
-                    path.write_text(json.dumps(state))
-                    terminal.expect(b'Press g on Issue')
+                    publish_snapshot(path, state)
+                    # The old item's prompt can still be in the PTY transcript.
+                    terminal.checkpoint(lambda value: value['key'] == ['example/repo', 116]
+                                        and value['tab'] == 'issue' and 'Press g on Issue' in value['note'])
                     mode.write_text('hang')
                     terminal.send(b'g')
                     terminal.expect(b'Loading title/body', lambda _: len(recorded()) == 2)
+                    terminal.checkpoint(lambda value: value['pending'] == ['example/repo', 116]
+                                        and 'Loading title/body' in value['note'])
                     owned_pid = recorded()[-1]['pid']
                     os.kill(owned_pid, 0)
                     terminal.resize(120, 36)
-                    terminal.send(b'g1f2g')
-                    terminal.checkpoint()
+                    terminal.checkpoint(lambda value: value['pending'] == ['example/repo', 116])
+                    terminal.send(b'g')
+                    terminal.checkpoint(lambda value: value['pending'] == ['example/repo', 116])
+                    terminal.send(b'1')
+                    terminal.checkpoint(lambda value: value['tab'] == 'log')
+                    terminal.send(b'f')
+                    terminal.checkpoint(lambda value: not value['follow'])
+                    terminal.send(b'2')
+                    terminal.checkpoint(lambda value: value['tab'] == 'issue')
+                    terminal.send(b'g')
+                    terminal.checkpoint(lambda value: value['pending'] == ['example/repo', 116])
                     self.assertEqual(len(recorded()), 2)
                     before = log.stat().st_size
                     started = time.monotonic()
@@ -694,16 +743,30 @@ while not select.select([sys.stdin], [], [], 0.01)[0]:
     index += 1
 ''', str(log)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             try:
-                script = 'from ub_agents.view import main; raise SystemExit(main())'
-                arguments = (root, '--session', 'launcher')
-                if quit_key == b'x':
-                    script = '''
+                proof = root / 'proof.json'
+                script = '''
 from pathlib import Path
 import sys
-from textual.binding import Binding
+import ub_agents.view_ui
+from ub_agents.view import main
 from ub_agents.view_ui import LogPane, View
-class BrokenView(View):
-    BINDINGS = [*View.BINDINGS, Binding('x', 'break_render', priority=True)]
+proof_path = sys.argv.pop()
+class ProofView(checkpoint_view(View, proof_path)):
+    def proof_values(self):
+        output = self.query_one(LogPane)
+        return {'tab': self.query_one('#panes').active, 'follow': self.reading.follow,
+                'raw': self.reading.raw, 'anchor': output.anchor(), 'saved_anchor': self.reading.anchor,
+                'starts': [ref.start for ref in self.reading.page.refs] if self.reading.page else [],
+                'notice': self.query_one('#log_note').render().plain,
+                'screen': type(self.screen).__name__, 'context': self.last_context,
+                'footer': self.query_one('#status').render().plain}
+'''
+                arguments = (root, '--session', 'launcher', proof)
+                if quit_key == b'x':
+                    script += '''
+from textual.binding import Binding
+class BrokenView(ProofView):
+    BINDINGS = [Binding('k', 'break_render', priority=True)]
     def action_break_render(self):
         def broken(y):
             raise RuntimeError('Intentional rendering failure')
@@ -714,8 +777,13 @@ app = BrokenView(Path(sys.argv[1]), Path(sys.argv[2]))
 app.run()
 sys.exit(app.return_code or 1)
 '''
-                    arguments = (root, path)
-                with Terminal(script, *arguments, env={'NO_COLOR': None}) as terminal:
+                    arguments = (root, path, proof)
+                else:
+                    script += '''
+ub_agents.view_ui.View = ProofView
+raise SystemExit(main())
+'''
+                with Terminal(script, *arguments, proof=proof, env={'NO_COLOR': None}) as terminal:
                     transcript = terminal.transcript
                     # The page is loaded once live replay output is on screen.
                     terminal.expect(b'running assignment', b'? keys q quit', b'Running', b'partial',
@@ -723,31 +791,49 @@ sys.exit(app.return_code or 1)
                     self.assertNotIn(b'FOLLOW', transcript)
                     self.assertNotIn(b'FORMATTED', transcript)
                     self.assertIsNone(terminal.process.poll(), bytes(transcript[-1000:]))
+                    terminal.checkpoint(lambda value: value['starts'] and value['anchor'] is not None)
                     terminal.send(b'f')
                     terminal.expect(b'PAUSED')
+                    paused = terminal.checkpoint(lambda value: not value['follow'] and value['anchor'] is not None)
                     terminal.send(b'\x1b[5~')  # Page Up
+                    terminal.checkpoint(lambda value: value['anchor'] != paused['anchor']
+                                        and value['anchor'] == value['saved_anchor'])
                     terminal.send(b'h')
                     # Older page or split-record boundary.
+                    terminal.checkpoint(lambda value: 'Older page' in value['notice']
+                                        or 'Page byte boundary' in value['notice'])
                     terminal.expect(lambda out: b'Older page' in out or b'Page byte boundary' in out)
                     terminal.send(b'u')
                     terminal.expect(b'RAW')
+                    terminal.checkpoint(lambda value: value['raw'])
                     terminal.send(b'2')
                     cached = terminal.expect(b'Cached description', b'Cached Markdown', b'Second line', b'Third line')
                     self.assertNotIn(b'## Cached Markdown', cached)
                     self.assertNotIn(b'**strong**', cached)
+                    terminal.checkpoint(lambda value: value['tab'] == 'issue'
+                                        and 'Cached description' in (value['context'] or ''))
                     # Give the Runs table room to show the blocker prefix.
                     terminal.resize(150, 32)
+                    terminal.checkpoint(lambda value: value['tab'] == 'issue')
                     terminal.send(b'3')
                     terminal.expect(b'filed by bk-one', b'build-01', b'BLOCKED:')
+                    terminal.checkpoint(lambda value: value['tab'] == 'runs')
                     terminal.resize(110, 32)
-                    terminal.send(b'1p')
+                    terminal.checkpoint(lambda value: value['tab'] == 'runs')
+                    terminal.send(b'1')
+                    terminal.checkpoint(lambda value: value['tab'] == 'log')
+                    terminal.send(b'p')
                     terminal.expect(b'process.log', b'Displayed bytes', b'evicted', b'Rendered limit 400')
+                    terminal.checkpoint(lambda value: value['screen'] == 'RawAccess')
                     terminal.send(b'\x1b')
+                    terminal.checkpoint(lambda value: value['screen'] == 'Screen')
                     terminal.send(b'f')
                     terminal.expect('↑↓ select'.encode())
+                    terminal.checkpoint(lambda value: value['follow']
+                                        and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
                     self.assertNotIn(b'FOLLOW', transcript)
                     before_size = log.stat().st_size
-                    terminal.send(quit_key)
+                    terminal.send(b'k' if quit_key == b'x' else quit_key)
                     # Keep draining until exit. A rich crash traceback can fill
                     # a small CI PTY buffer and block if wait() stops reading.
                     terminal.wait_exit(1 if quit_key == b'x' else 0)
@@ -780,7 +866,7 @@ class TerminalRetentionTests(unittest.TestCase):
             tail_count = 4 if runtime == 'claude' else 40
             state['assignment'].update(kind='issue', attempt=2)
             state['outcomes'].append({'item': 114, 'run': 'earlier-run', 'handoff': 185})
-            path.write_text(json.dumps(state))
+            publish_snapshot(path, state)
             capture = Path(__file__).parent / f'fixtures/runtime_logs/{runtime}.log'
             proof = root / 'proof.json'
             script = '''
@@ -799,6 +885,9 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
         r = self.reading
         refs = r.page.refs if r.page else []
         value = {'ready': r.page is not None, 'raw': r.raw, 'anchor': pane.anchor(), 'entries': len(refs),
+                 'follow': r.follow, 'tab': self.query_one('#panes').active,
+                 'total': r.log.total_entries if r.log else 0,
+                 'screen': type(self.screen).__name__,
                  'header': self.query_one('#item_header').render().plain,
                  'run_status': self.query_one('#run_status').render().plain,
                  'notice': self.query_one('#log_note').render().plain,
@@ -857,35 +946,40 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertIn('Rendered limit 400', formatted['raw_details'])
                 for tab in (b'2', b'3', b'1'):
                     terminal.send(tab)
-                    self.assertEqual(terminal.checkpoint()['header'], formatted['header'])
+                    self.assertEqual(terminal.checkpoint(lambda value: value['tab'] ==
+                                     {b'1': 'log', b'2': 'issue', b'3': 'runs'}[tab])['header'], formatted['header'])
                 self.assertEqual(terminal.checkpoint()['lines'], formatted['lines'])
                 terminal.send(b'f')
-                terminal.checkpoint()
+                terminal.checkpoint(lambda value: not value['follow'])
                 terminal.send(b'u')
-                terminal.checkpoint()
+                terminal.checkpoint(lambda value: value['raw'])
                 terminal.send(b'\x1b[H')  # Home on a hidden raw record.
-                hidden = terminal.checkpoint()
+                hidden = terminal.checkpoint(lambda value: value['raw'] and value['anchor'] is not None
+                                             and value['anchor'][0] == 0)
                 self.assertTrue(hidden['raw'])
                 self.assertEqual(hidden['anchor'][0], 0)
                 self.assertIn('task_started' if runtime == 'claude' else 'thread.started', '\n'.join(hidden['lines']))
                 terminal.send(b'u')
-                self.assertEqual(terminal.checkpoint()['anchor'], hidden['anchor'])
+                self.assertEqual(terminal.checkpoint(lambda value: not value['raw'])['anchor'], hidden['anchor'])
                 terminal.resize(120, 36)
                 self.assertEqual(terminal.checkpoint()['anchor'], hidden['anchor'])
                 terminal.send(b'u')
-                self.assertEqual(terminal.checkpoint()['anchor'][0], hidden['anchor'][0])
+                self.assertEqual(terminal.checkpoint(lambda value: value['raw'])['anchor'][0], hidden['anchor'][0])
                 terminal.send(b'uy')  # Format and seek the recorded failure.
-                failed = terminal.checkpoint()
+                failed = terminal.checkpoint(lambda value: not value['raw'] and value['anchor'] is not None
+                                  and value['anchor'][0] == next(start for start, kind in value['refs']
+                                                               if kind == 'tool ERROR'))
                 failed_start = next(start for start, kind in failed['refs'] if kind == 'tool ERROR')
                 self.assertEqual(failed['anchor'][0], failed_start)
                 terminal.send(b'u')
-                raw_failed = terminal.checkpoint()
+                raw_failed = terminal.checkpoint(lambda value: value['raw'] and value['anchor'] is not None
+                                                 and value['anchor'][0] == failed_start)
                 self.assertEqual(raw_failed['anchor'][0], failed_start)
                 # Raw JSON wraps at the pane width, including within error text.
                 self.assertIn('No such file' if runtime == 'claude' else 'owned failure',
                               ' '.join(' '.join(raw_failed['lines']).split()))
                 terminal.send(b'u')
-                self.assertEqual(terminal.checkpoint()['anchor'][0], failed_start)
+                self.assertEqual(terminal.checkpoint(lambda value: not value['raw'])['anchor'][0], failed_start)
                 if runtime == 'claude':
                     # Synthetic #192 replay: attach mid-init, then stream several
                     # progress records and verify the actual terminal projection.
@@ -895,7 +989,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     call = record(content=[{**tool(name='Edit'), 'input': {
                         'file_path': 'long/' * 80, 'new_string': 'one\ntwo\n', 'old_string': 'old'}}])
                     terminal.send(b'f')
-                    terminal.checkpoint()
+                    terminal.checkpoint(lambda value: value['follow'])
                     # Replace the file in one step: a reader that sees a half-written
                     # generation stamps later records with live capture times.
                     replacement = log.with_name(log.name + '.new')
@@ -916,13 +1010,15 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertTrue(next(line for line in elapsed['lines'] if '▸ Edit' in line).endswith('… +2 -1 · 45s'))
                     self.assertNotIn('tool_progress', '\n'.join(elapsed['lines']))
                     terminal.send(b'f')
-                    terminal.checkpoint()
+                    terminal.checkpoint(lambda value: not value['follow'])
                     with log.open('ab') as stream:
                         stream.write(progress(60) + progress(119) + record('user', [result()]) +
                                      record(content=[{'type': 'text', 'text': 'captured'}]))
-                    self.assertEqual(terminal.checkpoint()['lines'], elapsed['lines'])
+                    self.assertEqual(terminal.checkpoint(lambda value: value['total'] > elapsed['total'])['lines'],
+                                     elapsed['lines'])
                     terminal.send(b'u')
-                    raw_progress = terminal.checkpoint()
+                    raw_progress = terminal.checkpoint(lambda value: value['raw']
+                                                       and any('tool_progress' in line for line in value['lines']))
                     self.assertIn('tool_progress', '\n'.join(raw_progress['lines']))
                     self.assertIn('private-tool', '\n'.join(raw_progress['lines']))
                     self.assertNotIn('earlier output skipped', '\n'.join(raw_progress['lines']))
@@ -938,14 +1034,14 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     older = terminal.checkpoint(lambda value: bool(value['refs']) and value['refs'][0][0] < finished['refs'][0][0])
                     self.assertEqual(older['lines'], ['          · earlier output skipped · h older'])
                     terminal.send(b'u')
-                    self.assertIn('private-tool', '\n'.join(terminal.checkpoint()['lines']))
+                    self.assertIn('private-tool', '\n'.join(terminal.checkpoint(lambda value: value['raw'])['lines']))
                 terminal.send(b'p')
                 details = terminal.checkpoint(lambda value: bool(value['modal']))['modal']
                 self.assertIn('bytes ', details)
                 self.assertIn('Rendered limit 400:', details)
                 self.assertIn('process.log', details)
                 terminal.send(b'\x1b')
-                terminal.checkpoint()
+                terminal.checkpoint(lambda value: value['screen'] == 'Screen')
                 # A standalone observer restores its terminal and leaves its
                 # owned replay file unchanged on quit.
                 before = log.read_bytes()
@@ -976,7 +1072,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             state['outcomes'][0]['time'] = now.isoformat()
             state['outcomes'].insert(0, dict(state['outcomes'][0], run='older-run',
                                              time=(now - timedelta(days=2)).isoformat()))
-            path.write_text(json.dumps(state))
+            publish_snapshot(path, state)
             previous = root / '.ub-agents' / 'runs' / 'previous-run'
             previous.mkdir()
             outcome_log = previous / 'process.log'
@@ -1010,6 +1106,8 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
         recent = self.query_one(RecentActivity)
         row = self.rows.get(self.selected)
         value = {'follow': r.follow, 'raw': r.raw, 'generation': r.page.generation if r.page else None,
+                 'tab': self.query_one('#panes').active,
+                 'observed_rows': self.session.data.get('latest_pass', {}).get('rows') if self.session else None,
                  'starts': [ref.start for ref in r.page.refs] if r.page else [], 'anchor': pane.anchor(),
                  'saved_anchor': r.anchor,
                  'first_anchor': pane.positions[0] if pane.positions else None,
@@ -1053,7 +1151,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             assignment, latest_pass, outcomes = state['assignment'], state['latest_pass'], state['outcomes']
             state.update(assignment=None, latest_pass={'state': 'partial', 'rows': [latest_pass['rows'][2]]},
                          outcomes=[])
-            path.write_text(json.dumps(state))
+            publish_snapshot(path, state)
             with Terminal(script, root, path, proof, proof=proof,
                           env={'NO_COLOR': None}) as terminal:
                 transcript = terminal.transcript
@@ -1079,14 +1177,14 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.send(b'\x1b[B\x1b[B\r')
                 self.assertIsNone(terminal.checkpoint()['selected'])
                 state.update(latest_pass={'state': 'complete', 'rows': []}, outcomes=outcomes)
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 newest = terminal.checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                     and value['anchor'] is not None)
                 self.assertEqual(newest['sections'], ['Running · 0'])
                 self.assertEqual(newest['focus'], 'recent')
                 self.assertEqual(newest['recent_rows'], ['outcome:previous-run', 'outcome:older-run'])
                 state.update(assignment=assignment, latest_pass=latest_pass)
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 initial = terminal.checkpoint(lambda value: len(value['sections']) == 3 and value['anchor'] is not None
                                      and value['selected'] == 'assignment:owned-run'
                                      and '#114 Cached title' in value['header'] and not value['pill_visible'])
@@ -1122,16 +1220,17 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn('bytes ', initial['notice'])
                 for tab in (b'2', b'3', b'1'):
                     terminal.send(tab)
-                    self.assertEqual(terminal.checkpoint()['header'], initial['header'])
+                    self.assertEqual(terminal.checkpoint(lambda value: value['tab'] ==
+                                     {b'1': 'log', b'2': 'issue', b'3': 'runs'}[tab])['header'], initial['header'])
                 state['activity'] = {'state': 'waiting', 'until': (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()}
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 waiting = terminal.checkpoint(lambda value: re.search(r'next poll (\d+)s', value['footer']))
                 remaining = int(re.search(r'next poll (\d+)s', waiting['footer']).group(1))
                 counted = terminal.checkpoint(lambda value: re.search(r'next poll (\d+)s', value['footer'])
                                      and int(re.search(r'next poll (\d+)s', value['footer']).group(1)) < remaining)
                 self.assertLess(int(re.search(r'next poll (\d+)s', counted['footer']).group(1)), remaining)
                 state['activity'] = {'state': 'stopping'}
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 stopping = terminal.checkpoint(lambda value: '· stopping' in value['footer']
                                       and 'Stopping after this run' in value['run_status'])
                 self.assertEqual(stopping['sections'], ['Running · 1', 'Needs attention · 3',
@@ -1157,12 +1256,14 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.checkpoint(lambda value: value['selected'] == 'assignment:owned-run'
                            and 'Stopping after this run' in value['run_status'])
                 state['published_at'] = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 self.assertIn('· stale', terminal.checkpoint(lambda value: '· stale' in value['footer'])['footer'])
                 state['ended'] = True
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 self.assertIn('· ended', terminal.checkpoint(lambda value: '· ended' in value['footer'])['footer'])
-                path.write_text('{broken')
+                malformed_snapshot = path.with_suffix('.tmp')
+                malformed_snapshot.write_text('{broken')
+                malformed_snapshot.replace(path)
                 malformed = terminal.checkpoint(lambda value: 'malformed: Expecting property' in value['footer'])
                 self.assertIn('malformed: Expecting property', malformed['footer'])
                 terminal.resize(80, 24)
@@ -1173,7 +1274,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 state['ended'] = False
                 state['published_at'] = datetime.now(timezone.utc).isoformat()
                 state['activity'] = {'state': 'running assignment'}
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 terminal.checkpoint(lambda value: value['terminal_size'] == [110, 32]
                            and '· running assignment' in value['footer']
                            and 'malformed' not in value['footer'])
@@ -1200,7 +1301,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 with log.open('ab') as stream:
                     stream.write(b''.join(event(i, size=800) for i in range(1200)))
                 terminal.checkpoint(lambda value: value['entries'] - paused['entries'] > 200)
-                terminal.send(b'231')
+                for key, tab in ((b'2', 'issue'), (b'3', 'runs'), (b'1', 'log')):
+                    terminal.send(key)
+                    terminal.checkpoint(lambda value: value['tab'] == tab)
                 retained = terminal.checkpoint(lambda value: value['anchor'] is not None
                                       and value['anchor'][0] == paused['anchor'][0]
                                       and abs(value['anchor'][1] - paused['anchor'][1]) <= 0.05)
@@ -1214,13 +1317,13 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertIn('B lag', retained['pill'])
                 self.assertNotIn('evicted', retained['notice'])
                 terminal.send(b'p')
-                raw = terminal.checkpoint()
+                raw = terminal.checkpoint(lambda value: value['screen'] == 'RawAccess' and value['modal'])
                 self.assertEqual(raw['screen'], 'RawAccess')
                 for diagnostic in (str(log), 'Displayed bytes', 'Page bytes', 'evicted', 'skipped',
                                    'shortened', 'Rendered limit 400', 'entries hidden'):
                     self.assertIn(diagnostic, raw['modal'])
                 terminal.send(b'\x1b')
-                terminal.checkpoint()
+                terminal.checkpoint(lambda value: value['screen'] == 'Screen')
                 terminal.send(b'r\r')  # Focus the newest outcome, then real Enter.
                 self.assertEqual(terminal.checkpoint(lambda value: value['selected'] == 'outcome:previous-run'
                                             and value['anchor'] is not None)['selected'], 'outcome:previous-run')
@@ -1249,7 +1352,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 original_outcomes = list(state['outcomes'])
                 state['outcomes'] += [dict(state['outcomes'][-1], run=f'new-{n}', item=40 + n)
                                       for n in range(18)]
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 clipped = terminal.checkpoint(lambda value: value['recent_rows'][:1] == ['outcome:new-17'])
                 self.assertNotIn('outcome:previous-run', clipped['recent_rows'])
                 self.assertEqual(clipped['selected'], 'outcome:previous-run')
@@ -1259,14 +1362,15 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(clipped['recent_scroll'], 0)
                 self.assertEqual(len(clipped['recent'].splitlines()), 3 * len(clipped['recent_rows']))
                 state['outcomes'] = original_outcomes
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 terminal.checkpoint(lambda value: value['recent_rows'] == initial['recent_rows'])
                 terminal.send(b's\r')
-                plan = terminal.checkpoint()
+                plan = terminal.checkpoint(lambda value: value['selected'] == 'plan:21'
+                                           and value['cursor'] == 'plan:21')
                 state['latest_pass']['state'] = 'complete'
                 state['latest_pass']['rows'] = [
                     {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required'}]
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 moved = terminal.checkpoint(lambda value: value['group'] == 'Needs attention' and value['cursor'] == 'plan:21:worker')
                 self.assertEqual(moved['group'], 'Needs attention')
                 self.assertEqual(moved['selected'], 'plan:21:worker')
@@ -1275,15 +1379,16 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertEqual(moved['sections'], ['Running · 1', 'Needs attention · 1'])
                 self.assertNotIn('partial', moved['title'])
                 state['latest_pass']['rows'][0]['reason'] = 'Waiting for blockers #31'
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 hidden = terminal.checkpoint(lambda value: value['sections'] == ['Running · 1']
                                     and value['state'] == 'earlier observation')
                 self.assertNotIn(moved['selected'], hidden['nodes'])
                 self.assertEqual(hidden['selected'], moved['selected'])
                 self.assertEqual(hidden['focus'], plan['focus'])
                 state['latest_pass']['rows'] = []
-                path.write_text(json.dumps(state))
-                self.assertEqual(terminal.checkpoint(lambda value: value['state'] == 'earlier observation')['state'],
+                publish_snapshot(path, state)
+                self.assertEqual(terminal.checkpoint(lambda value: value['state'] == 'earlier observation'
+                                                     and value['observed_rows'] == [])['state'],
                                  'earlier observation')
                 terminal.send(b'a\r')
                 restored = terminal.checkpoint(lambda value: value['starts'] == paused['starts'] and value['anchor'] is not None
@@ -1296,7 +1401,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 older = terminal.checkpoint(lambda value: value['starts'] and value['starts'][0] < paused['starts'][0])
                 self.assertLess(older['starts'][0], paused['starts'][0])
                 terminal.send(b'p')
-                raw = terminal.checkpoint()['raw_details']
+                raw = terminal.checkpoint(lambda value: value['screen'] == 'RawAccess' and value['modal'])['raw_details']
                 self.assertIn('bytes ', raw)
                 self.assertIn('evicted ', raw)
                 self.assertIn('skipped ', raw)
@@ -1305,7 +1410,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertIn('process.log', raw)
                 self.assertIn(b'Rendered limit 400:', transcript)
                 terminal.send(b'\x1b')
-                terminal.checkpoint()
+                terminal.checkpoint(lambda value: value['screen'] == 'Screen')
                 terminal.send(b'u')
                 raw_mode = terminal.checkpoint(lambda value: value['raw'])
                 self.assertTrue(raw_mode['raw'])
@@ -1335,18 +1440,18 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.checkpoint(lambda value: value['selected'] == 'outcome:previous-run')
                 state['assignment'] = None
                 state['latest_pass'] = {'state': 'complete', 'rows': []}
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 empty = terminal.checkpoint(lambda value: value['sections'] == ['Running · 0'])
                 self.assertLessEqual(abs(empty['upper_bounds'][1] - empty['recent_bounds'][1]), 1)
                 self.assertEqual(sum(empty['upper_bounds']), empty['recent_bounds'][0])
                 state['outcomes'] = []
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 zero = terminal.checkpoint(lambda value: value['recent'].startswith('Recent activity · 0 today'))
                 self.assertEqual(zero['recent_bounds'], empty['recent_bounds'])
                 state['latest_pass']['rows'] = [
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 overflow = terminal.checkpoint(lambda value: value['sections'] == ['Running · 0', 'Eligible · 49 · showing 10'])
                 self.assertEqual(len(overflow['eligible']), 10)
                 self.assertEqual(overflow['recent_bounds'], empty['recent_bounds'])
@@ -1355,7 +1460,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                                      and value['recent_bounds'] == initial['recent_bounds'])
                 self.assertEqual(minimum['recent_bounds'], initial['recent_bounds'])
                 state['latest_pass']['rows'] = []
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 minimum_empty = terminal.checkpoint(lambda value: value['sections'] == ['Running · 0'])
                 self.assertEqual(minimum_empty['recent_bounds'], initial['recent_bounds'])
                 terminal.send(b'q')
