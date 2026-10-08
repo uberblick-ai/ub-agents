@@ -38,6 +38,7 @@ class Plan:
     history_read: bool = field(default=True, compare=False, repr=False)
     owner: dict | None = field(default=None, compare=False, repr=False)
     matches: AgentMatches | None = field(default=None, compare=False, repr=False)
+    health_wait: bool = False
 
 
 class Coordinator:

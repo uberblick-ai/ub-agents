@@ -141,6 +141,10 @@ The launcher removes the trigger label and applies the outcome's labels only aft
 it has checked the agent's report on GitHub. The
 [configuration reference](docs/configuration.md) lists every key.
 
+An optional per-agent [health check](docs/configuration.md#project-health-checks)
+pauses new claims while a project dependency is unavailable, without spending
+attempts. Claiming resumes automatically when the check passes.
+
 Projects can configure [checkout setup](docs/configuration.md#checkout-setup) to
 reinstall dependencies when the launcher pulls changes to a lockfile or tool
 configuration. Setup runs before the role is claimed; failed setup stops launch

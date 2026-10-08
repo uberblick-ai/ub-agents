@@ -73,6 +73,7 @@ class RunPlanning:
             setattr(self.planner.discovery, name, deepcopy(getattr(loop.discovery, name)))
         self.planner.coordinator.clock = loop.coordinator.clock
         self.planner.usage = loop.usage
+        self.planner.health = loop.health
         self.planner.maintenance = loop.maintenance
         self.thread = threading.Thread(target=self._run, name="run-planning")
 

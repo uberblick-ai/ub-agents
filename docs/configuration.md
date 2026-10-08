@@ -556,10 +556,51 @@ Each agent has exactly one of `runtime` or `command`.
 | `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. Validated and reread from the refreshed control checkout before each new run. |
 | `command` | An argv list to run instead of an LLM session. A relative executable resolves against the configuration's directory. |
+| `health-check` | Optional nonempty argv list to check a project dependency before claiming new work for this agent. |
 | `different-runtime-from` | Another agent's name; requires a PR. When an accepted report identifies that agent's runtime for the current head, this agent must run on a different CLI and model; a different effort doesn't count. Wait for a pending handoff to finish. Without such a report or pending handoff, use only the first configured runtime, blocking if its CLI isn't installed. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
 | `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
 | Limit keys | Override `limits` for this agent. |
+
+### Project health checks
+
+An agent can wait for a project dependency, such as a corpus MCP server, before
+claiming work:
+
+```yaml
+agents:
+  issue-preparer:
+    health-check: [./scripts/check-corpus]
+    # runtime, trigger, instructions and outcomes as usual
+```
+
+The launcher runs this command without a shell in the control checkout, only when
+the agent has otherwise-ready work and before claiming it or writing new assignment
+records. Relative executables resolve like an agent `command`. The project decides
+what to check; ub-agents only runs the configured command. The timeout is fixed at
+60 seconds. A successful check is reused for up to five minutes within the launcher;
+a failure is checked again on the next poll with ready work for that agent.
+
+A nonzero exit, start failure or timeout makes the agent's ready rows `waiting`,
+naming the command and the last nonempty stderr line, falling back to stdout or
+the start or timeout error. The launcher emits one line when the check starts
+failing or its error line changes, and one when it passes again; launch output
+also goes to `.ub-agents/launch.log`. Waiting rows appear in the terminal view's
+Eligible section, outside Needs attention. There are no claims, attempts, label
+changes or item comments for new work while the check fails. Other agents keep
+claiming, and `launch --once` exits normally.
+
+`ub-agents status` runs the check itself, including without a launcher on the same
+machine. When the check passes, claiming resumes automatically without `retry`.
+Checks do not interrupt active runs or prevent recovery of recorded outcomes, and
+they do not reset previously parked items. `check` validates the argv list without
+running it; `doctor` does not run it either. These project checks are separate from
+[daily runtime maintenance](#daily-runtime-maintenance).
+
+**Upgrading:** Upgrade every launcher of a project before adding `health-check`;
+older versions reject the unknown agent key.
+
+### Retrospectives
 
 Set `retrospectives: 203` on an agent to enable its supervised posting command:
 
@@ -581,6 +622,8 @@ nonzero. Success and failure write no coordination records, labels or outcome.
 Only agents with this key receive a prompt line with the literal command and when
 to post: the run lost something, and the agent can name the change that would have
 prevented it. Agents without the key receive no retrospective prompt line.
+
+### Pickup and refresh
 
 Approval enforcement is mandatory for `issue`, `pr` and `either` agents, including
 preparation and direct `command` runs. The launcher uses the union of issue/either

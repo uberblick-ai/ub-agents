@@ -86,6 +86,13 @@ result without delaying work. The result is included in the session snapshot;
 the view makes no GitHub reads for updates. Plain launch output prints each new
 banner text once. Restart with the current code to clear the notice.
 
+Configured [agent health checks](configuration.md#project-health-checks) also show
+their latest transition in a one-line banner above the panes. A failure names the
+agent, command and error line; a recovery says claiming resumes. The banner takes
+no focus. Ready rows whose check fails show `waiting` in Eligible, outside Needs
+attention. Each failure, changed error or recovery also appears in plain launch
+output and `.ub-agents/launch.log`.
+
 At **110 columns × 32 rows** and above, the combined view shows both panes. At that size
 and above, the Work pane's outer width, including its border, is one third of the
 terminal width, rounded down and clamped to 46–64 columns. A one-column gap
@@ -109,7 +116,7 @@ section's row count. Running always appears first; other empty sections are hidd
 | --- | --- |
 | Running | Only this launcher's current assignment, with a count of 0 or 1 |
 | Needs attention | Blocked plans and parked plans with stop labels or approval gates |
-| Eligible | At most ten items in claim order, merging ready/recovery plans before retry backoff and paused-runtime plans |
+| Eligible | At most ten items in claim order, merging ready/recovery plans before retry backoff, runtime pauses and project health waits |
 
 Work sections stay expanded and cannot be collapsed. Their headers and Running's
 idle line cannot be selected or take the cursor; clicking them leaves the cursor
