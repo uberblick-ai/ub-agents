@@ -219,8 +219,11 @@ def checkpoint_view(base, path):
                     refreshed()
 
         def _checkpoint_geometry(self):
-            return (self.size, tuple((widget.region, widget.virtual_size)
-                                     for widget in self.query('*')))
+            # Hidden tabs can ingest live output throughout the barrier. Their
+            # virtual size need not settle to prove the displayed layout.
+            return (self.size, tuple((widget, region, clip, widget.virtual_size)
+                                     for screen in self.screen_stack
+                                     for widget, (region, clip) in screen._compositor.visible_widgets.items()))
 
         def _write_checkpoint(self, geometry):
             # Reflow may request another layout (e.g. a scrollbar). Include

@@ -68,7 +68,7 @@ def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
                'runs': [{'agent': 'reviewer', 'run': 'foreign-run', 'state': 'running',
                          'host': 'other-host', 'time': state['published_at']}]},
     }
-    path.write_text(json.dumps(state))
+    publish_snapshot(path, state)
     if count:
         log.write_bytes(b''.join(event(i) for i in range(count)))
     return path, log, state

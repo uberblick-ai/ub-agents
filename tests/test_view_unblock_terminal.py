@@ -1,12 +1,11 @@
 """Unblock acceptance in an owned real PTY with scripted read-only sources."""
 
-import json
 from pathlib import Path
 import tempfile
 import unittest
 
 from tests.terminal import Terminal
-from tests.test_view_data import fixture
+from tests.test_view_data import fixture, publish_snapshot
 from tests.test_view_unblock import AUTHORS, NOTICE
 
 
@@ -29,7 +28,7 @@ class UnblockTerminalTests(unittest.TestCase):
                 state['coordination_authors'] = AUTHORS
                 state['action_needed'] = {'178': {'text': NOTICE, 'author': 'operator',
                                                  'created_at': '2026-10-05T12:12:00Z'}}
-                path.write_text(json.dumps(state))
+                publish_snapshot(path, state)
                 proof = root / 'proof.json'
                 script = '''
 import pathlib, sys
@@ -105,7 +104,9 @@ pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
                     self.assertTrue(advanced['work'].endswith('25m'), advanced['work'])
                     # Real resize and Enter/Esc navigation at the minimum width.
                     terminal.resize(60, 16)
-                    narrow_work = terminal.checkpoint(lambda value: value['size'] == [60, 16])
+                    narrow_work = terminal.checkpoint(lambda value: value['size'] == [60, 16]
+                                            and value['work'].startswith('? ⌥178 ')
+                                            and value['work'].endswith('25m') and value['detail'] == '')
                     self.assertTrue(narrow_work['work'].startswith('? ⌥178 '))
                     self.assertTrue(narrow_work['work'].endswith('25m'))
                     self.assertEqual(narrow_work['detail'], '')
@@ -134,14 +135,16 @@ pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
                     terminal.send(b'g')
                     self.assertEqual(terminal.checkpoint()['calls'], 1)
                     terminal.send(b'e4')
-                    eligible = terminal.checkpoint(lambda value: value['selected'] == 'plan:180')
+                    eligible = terminal.checkpoint(lambda value: value['selected'] == 'plan:180'
+                                                   and not value['attention'] and value['tab'] == 'log')
                     self.assertFalse(eligible['attention'])
                     self.assertEqual(eligible['tab'], 'log')
                     terminal.send(b'a4')
-                    terminal.checkpoint(lambda value: value['tab'] == 'unblock')
+                    terminal.checkpoint(lambda value: value['selected'] == 'plan:178:worker'
+                                        and value['tab'] == 'unblock' and value['attention'])
                     state['latest_pass']['rows'][0]['state'] = 'ready'
-                    path.write_text(json.dumps(state))
-                    resumed = terminal.checkpoint(lambda value: not value['attention'])
+                    publish_snapshot(path, state)
+                    resumed = terminal.checkpoint(lambda value: not value['attention'] and value['tab'] == 'log')
                     self.assertEqual(resumed['tab'], 'log')
                     terminal.send(quit_key)
                     terminal.wait_exit()
