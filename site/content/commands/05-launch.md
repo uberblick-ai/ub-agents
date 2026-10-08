@@ -42,13 +42,12 @@ new outcomes keep older rows in view when browsing away from the top. Resizing
 keeps the selected retained outcome visible. Recent activity follows the same
 scrollbar convention as the other areas.
 
-`N today` counts cached outcomes dated today. When older outcomes have been
-evicted, `N older outcomes not retained` appears below the header. The header and
-notice stay fixed above the scrolling rows, including at the oldest retained
-outcome. Scrolling
-reaches rows outside the viewport, but cannot recover outcomes removed from the
-20-outcome cache. The notice uses the existing snapshot and needs no extra
-GitHub requests.
+The fixed, non-selectable header reads `Recent activity · showing N`, counting
+all listed outcomes, including those outside the viewport, up to 20. It reads
+`showing 0` when empty. Rows start directly below the header; there is no notice
+or reserved header line for older outcomes. Scrolling reaches rows outside the
+viewport, but cannot recover outcomes removed from the
+20-outcome cache.
 
 Before each new run, launch refreshes the control checkout and reloads its configuration. Optional [checkout setup](/docs/configuration/checkout-setup.html) reinstalls dependencies when watched files changed. The view names the triggering file; command output stays in the reported log. A failed setup stops launch before a claim or charged attempt and retries on the next launch, even with nothing to pull.
 

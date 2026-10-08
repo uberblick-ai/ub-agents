@@ -808,7 +808,7 @@ class View(App):
     def populate(self, pane):
         tree = self.query_one('#work', Tree)
         recent = self.query_one(RecentActivity)
-        recent.populate(pane.recent, self.session)
+        recent.populate(pane.recent)
         cursor = tree.cursor_node
         cursor_row = self.rows.get(cursor.data) if cursor else None
         if pane.selected != self.selected:
