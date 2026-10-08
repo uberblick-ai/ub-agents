@@ -39,14 +39,14 @@ and text shortened with `…` end inside the right padding.
 Tab labels have one space on either side, so labels sit one column right of the
 shared header and the inverted active tab has equal padding on both sides.
 
-Scrollbars stay hidden at rest in Work, Log output, Issue, Runs, Unblock and the
-`p`/`?` overlays. Scrolling with the wheel or keys, moving the cursor enough to
+Scrollbars stay hidden at rest in live Work, Recent activity, Log output, Issue,
+Runs, Unblock and the `p`/`?` overlays. Scrolling with the wheel or keys, moving the cursor enough to
 scroll, or dragging a visible bar shows only that area's muted, one-column bar.
 It hides 1.5 seconds after the last scroll. Hovering or dragging keeps it visible;
 the countdown starts when neither holds it. An overflowing area reserves the
 column even while hidden, so content never moves or rewraps when the bar appears.
-Follow-mode log appends, switching items or tabs, restoring log positions and
-resizing do not show a bar.
+Follow-mode log appends, snapshot refreshes, switching items or tabs, restoring
+positions and resizing do not show a bar.
 
 An ordinary mouse click on the shared header's `#N` or `⌥N` reference opens that
 issue or PR in the default browser, using the attached session's repository.
@@ -253,19 +253,34 @@ completed item adds no outcome.
 including `0 today` when there are no outcomes. N counts cached session outcomes
 dated today in the viewer's local timezone. Up to 20 cached outcomes appear
 newest first, including older outcomes, as dim two-line rows in the combined layout; the selected row
-shows at full brightness. Only whole items with their intervening blank rows fit;
-items that do not fit are cut from the oldest end. Narrow lists have no blank rows.
+shows at full brightness. Scroll the lower half with the mouse wheel or trackpad
+to reach every retained outcome. Combined rows have intervening blank lines;
+narrow lists use one line per outcome with no blank rows.
 As an exception to the muted row color, outcome icons and status labels use the
 theme's green success color for `✓` and red error color for `✗`, retaining row
 dimming and cursor highlighting. Neutral `○` outcomes keep the row style.
 `NO_COLOR=1` keeps these cues monochrome.
-The lower half does not scroll or collapse, and its header cannot be selected.
-The live sections fill the upper half and scroll vertically, with no horizontal
-scrollbar. Unchanged worker results leave Work and Recent activity untouched;
+The lower half never collapses, and its fixed header cannot be selected. The live
+sections fill the upper half; each half scrolls vertically on its own, with no
+horizontal scrollbar. Unchanged worker results leave Work and Recent activity
+untouched;
 the running spinner and elapsed times continue to update on the view's clock.
 Arrow keys move between the two halves; `Enter` selects an outcome with the same
 local log access as other own runs. With no live rows, the newest outcome is selected first.
-A selected outcome pushed out of view remains selected in the right pane.
+Arrow navigation scrolls the cursor's outcome into view. Snapshot refreshes keep
+the selection and scroll position. New outcomes appear at the top when already
+there; while browsing older outcomes, the visible rows stay in place and the
+selected outcome stays selected. Resizing keeps the selected retained outcome
+visible. An outcome evicted from the cache remains selected in the right pane
+as an earlier observation until selection moves.
+
+When older outcomes have been evicted, a line below the header reads
+`N older outcomes not retained`. These outcomes are no longer in the session's
+20-outcome cache; scrolling can reach rows outside the viewport, but cannot
+recover evicted outcomes. The header and notice stay in place above the scrolling
+rows, including at the oldest retained outcome. For one evicted outcome, the
+notice reads `1 older outcome not retained`. The notice uses the snapshot's `omitted.outcomes`
+count and makes no extra GitHub request. It is absent when no outcomes were evicted.
 
 Recent activity uses `#N` for issues and `⌥N` for PRs, from the cached outcome or
 item history. Its detail line shows `agent · time · opened ⌥N` when the outcome
@@ -779,13 +794,19 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    be selected and there is no collapse key. At 110×32 and a larger size, empty
    and overflow the live sections: the split must remain halfway down the Work
    pane and upper scrolling must not move Recent activity. Check `0 today` with
-   no outcomes, whole-row clipping from the oldest end without lower scrolling,
-   and the newest outcome selected first with no live work. Use arrows across
+   no outcomes, wheel scrolling to the oldest of 20 retained outcomes and back,
+   and the newest outcome selected first with no live work. Check lower scrolling
+   leaves the upper half still and vice versa. Use arrows across
    the split and `Enter` to select an outcome; it must show at full brightness.
    Pause its log, publish refreshes and move a selected plan between sections;
    check selection, focus and paused positions. Revisit the outcome and check
-   the restored paused page. Add newer outcomes until the selected outcome is
-   clipped; its right pane must keep showing it. Remove a selected plan and
+   the restored paused page. Browse older outcomes and add a new outcome; the
+   selection and visible rows must stay in place. At the top, a new outcome must
+   appear first. Resize in both layouts and check the selected retained row stays
+   visible. At the oldest retained outcome, check the header stays visible and
+   the older-outcomes-not-retained notice stays below it when `omitted.outcomes`
+   is positive; neither line selects an outcome. Remove a
+   selected plan and
    check its earlier observation remains. Remove a selected Needs attention row;
    it must leave the list and count while Issue and Runs keep their cached details,
    without adding Recent activity. Park a selected plan for dependencies

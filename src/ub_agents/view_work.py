@@ -1,4 +1,4 @@
-"""Independent live-work scrolling and a fixed, bounded outcome viewport."""
+"""Independent live-work and retained-outcome scrolling."""
 
 from datetime import datetime, timezone
 
@@ -6,8 +6,9 @@ from rich.style import Style
 from rich.text import Text
 from textual.binding import Binding
 from textual.geometry import Region, Size
+from textual.scroll_view import ScrollView
 from textual.strip import Strip
-from textual.widgets import Static, Tree
+from textual.widgets import Tree
 
 from .view_data import item_handoff, mapping, outcomes_today, rows, text
 from .view_scroll import ScrollbarVisibility
@@ -272,9 +273,11 @@ class WorkTree(ScrollbarVisibility, Tree):
         line = node._line + self.row_height if node else 0
         while line <= self.last_line and self._get_node(line) is None:
             line += 1
-        if line > self.last_line and recent.visible_rows:
-            recent.cursor = recent.visible_rows[0].key
+        if line > self.last_line and recent.rows:
+            recent.cursor = recent.rows[0].key
             self.screen.set_focus(recent, scroll_visible=False)
+            with recent.user_scroll():
+                recent.reveal_cursor()
             recent.refresh()
         elif line <= self.last_line:
             self.move_cursor(self._get_node(line))
@@ -292,21 +295,31 @@ class WorkTree(ScrollbarVisibility, Tree):
         self.scroll_to_line(self.cursor_line, animate=False)
 
 
-class RecentActivity(Static, can_focus=True):
-    BINDINGS = [Binding('up', 'previous', show=False),
-                Binding('down', 'next', show=False),
+class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
+    BINDINGS = [Binding('up', 'cursor_up', show=False),
+                Binding('down', 'cursor_down', show=False),
                 Binding('enter', 'select', show=False)]
 
     def __init__(self):
-        super().__init__('', id='recent', markup=False)
+        super().__init__(id='recent')
         self.rows = []
         self.cursor = None
         self.today = 0
+        self.omitted = 0
+        self._viewport_size = None
+        self._rendered_lines = None
+
+    @property
+    def header_height(self):
+        return 1 + bool(self.omitted)
 
     @property
     def visible_rows(self):
-        available = max(0, self.content_size.height - 1)
-        return self.rows[:(available + self.row_spacing) // self.row_stride]
+        top = self.scroll_offset.y
+        bottom = top + max(0, self.scrollable_content_region.height - self.header_height)
+        return [row for index, row in enumerate(self.rows)
+                if (index * self.row_stride < bottom
+                    and index * self.row_stride + self.row_height > top)]
 
     @property
     def row_height(self):
@@ -323,17 +336,79 @@ class RecentActivity(Static, can_focus=True):
     def populate(self, rows, session):
         rows = list(rows)
         today = outcomes_today(session)
+        omitted = mapping(session.data.get('omitted')).get('outcomes', 0)
+        omitted = omitted if type(omitted) is int and omitted > 0 else 0
         cursor = rows[0].key if self.cursor is None and rows else self.cursor
-        changed = (self.rows, self.cursor, self.today) != (rows, cursor, today)
-        self.rows, self.cursor, self.today = rows, cursor, today
+        changed = (self.rows, self.cursor, self.today, self.omitted) != (rows, cursor, today, omitted)
+        anchor = self.viewport_anchor()
+        self.rows, self.cursor, self.today, self.omitted = rows, cursor, today, omitted
         if changed:
-            self.refresh()
+            self.update_virtual_size()
+            self.restore_viewport(anchor)
+            self.refresh(layout=True)
+
+    def viewport_anchor(self):
+        if not self.rows or self.scroll_y == 0:
+            return None
+        index = min(len(self.rows) - 1, self.scroll_offset.y // self.row_stride)
+        return self.rows[index].key, self.scroll_offset.y - index * self.row_stride
+
+    def restore_viewport(self, anchor):
+        keys = [row.key for row in self.rows]
+        y = self.scroll_y
+        if anchor is None:
+            y = 0
+        elif anchor[0] in keys:
+            y = keys.index(anchor[0]) * self.row_stride + anchor[1]
+        self.scroll_to(y=y, animate=False, immediate=True)
+
+    def reveal_cursor(self, key=None):
+        keys = [row.key for row in self.rows]
+        key = self.cursor if key is None else key
+        if key in keys:
+            top = keys.index(key) * self.row_stride
+            height = max(0, self.scrollable_content_region.height - self.header_height)
+            if top < self.scroll_y:
+                self.scroll_to(y=top, animate=False, immediate=True)
+            elif top + self.row_height > self.scroll_y + height:
+                self.scroll_to(y=top + self.row_height - height, animate=False, immediate=True)
+
+    def update_virtual_size(self):
+        height = self.header_height + len(self.rows) * self.row_stride
+        if self.rows:
+            height -= self.row_spacing
+        self.virtual_size = Size(self.scrollable_content_region.width, height)
+
+    def render_line(self, y):
+        if self._rendered_lines is None:
+            self._rendered_lines = self.render().split('\n')
+        lines = self._rendered_lines
+        # The section rule and retention notice stay above the scrolling rows.
+        index = y if y < self.header_height else y + self.scroll_offset.y
+        width = self.scrollable_content_region.width
+        if index >= len(lines) or not lines[index].plain:
+            return Strip.blank(width, self.rich_style)
+        value = lines[index].copy()
+        # Rich's direct Text.render needs a span to preserve a base style.
+        value.stylize_before(value.style or self.rich_style)
+        return Strip(list(value.render(self.app.console))).extend_cell_length(width, self.rich_style)
+
+    def refresh(self, *regions, **kwargs):
+        self._rendered_lines = None
+        return super().refresh(*regions, **kwargs)
 
     def render(self):
-        width = self.content_size.width
+        width = self.scrollable_content_region.width
         header = section_rule(f'Recent activity · {self.today} today', width,
                               theme_style(self.app, 'view-muted'))
-        for index, row in enumerate(self.visible_rows):
+        if self.omitted:
+            noun = 'outcome' if self.omitted == 1 else 'outcomes'
+            notice = Text(f'{self.omitted} older {noun} not retained', no_wrap=True,
+                          style=theme_style(self.app, 'view-muted'))
+            notice.truncate(width, overflow='ellipsis')
+            header.append('\n')
+            header.append_text(notice)
+        for index, row in enumerate(self.rows):
             style = theme_style(self.app, 'foreground' if row.key == self.app.selected else 'view-muted',
                                 dim=row.key != self.app.selected)
             if self.has_focus and row.key == self.cursor:
@@ -381,39 +456,58 @@ class RecentActivity(Static, can_focus=True):
                 header.append_text(detail)
         return header
 
-    def action_previous(self):
-        keys = [row.key for row in self.visible_rows]
+    def action_cursor_up(self):
+        keys = [row.key for row in self.rows]
         index = keys.index(self.cursor) if self.cursor in keys else 0
         if index:
             self.cursor = keys[index - 1]
+            self.reveal_cursor()
             self.refresh()
         else:
             tree = self.app.query_one(WorkTree)
             tree.get_node_at_line(0)
             node = tree._get_node(tree.last_line)
             if node is not None:
-                tree.move_cursor(node)
+                with tree.user_scroll():
+                    tree.move_cursor(node)
                 self.screen.set_focus(tree, scroll_visible=False)
 
-    def action_next(self):
-        keys = [row.key for row in self.visible_rows]
+    def action_cursor_down(self):
+        keys = [row.key for row in self.rows]
         if keys:
             index = keys.index(self.cursor) + 1 if self.cursor in keys else 0
             self.cursor = keys[min(index, len(keys) - 1)]
+            self.reveal_cursor()
             self.refresh()
 
     def action_select(self):
-        if self.cursor in {row.key for row in self.visible_rows}:
+        if self.cursor in {row.key for row in self.rows}:
             self.app.select(self.cursor)
 
     def on_click(self, event):
-        index, offset = divmod(event.y - 1, self.row_stride)
-        if 0 <= index < len(self.visible_rows) and offset < self.row_height:
-            self.cursor = self.visible_rows[index].key
+        if event.y < self.header_height:
+            return
+        index, offset = divmod(event.y + self.scroll_offset.y - self.header_height, self.row_stride)
+        if 0 <= index < len(self.rows) and offset < self.row_height:
+            self.cursor = self.rows[index].key
             self.action_select()
+            self.refresh()
 
     def on_resize(self):
-        self.refresh()
+        size = (self.size, self.row_stride)
+        if size == self._viewport_size:
+            return
+        self._viewport_size = size
+        self.update_virtual_size()
+        self.refresh(layout=True)
+        self.call_after_refresh(self.reveal_selection)
+
+    def reveal_selection(self):
+        key = self.app.selected
+        if key in {row.key for row in self.rows}:
+            self.reveal_cursor(key)
+        elif self.has_focus:
+            self.reveal_cursor()
 
     def on_focus(self):
         self.refresh()

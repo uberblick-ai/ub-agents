@@ -419,7 +419,7 @@ class View(App):
         background: $view-selection; color: $view-accent; text-style: none;
     }
     #work > .tree--highlight { background: $view-selection; }
-    #recent { height: 1fr; overflow: hidden; }
+    #recent { height: 1fr; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
     #panes { width: 1fr; }
     #panes Tabs { height: 1; }
     #panes Underline { display: none; }
@@ -592,7 +592,7 @@ class View(App):
         if changed:
             tree = self.query_one(WorkTree)
             tree._invalidate()
-            self.query_one(RecentActivity).refresh()
+            self.query_one(RecentActivity).refresh(layout=True)
         for screen in self.screen_stack:
             if isinstance(screen, RawAccess) and screen.is_mounted:
                 screen.set_floor(too_small)

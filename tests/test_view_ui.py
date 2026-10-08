@@ -3028,7 +3028,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     for index, row in enumerate(recent.visible_rows):
                         with self.subTest(size=size, width=width, result=row.data['result']):
                             line = lines[1 + index * recent.row_stride]
-                            self.assertEqual(line.cell_len, recent.content_size.width)
+                            self.assertEqual(line.cell_len, recent.scrollable_content_region.width)
                             # The title is clipped independently of the right-aligned status.
                             self.assertIn('…', line.plain[:-1])
                             label = line.plain.rsplit(' ', 1)[-1]
@@ -3071,20 +3071,20 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
 
-    async def test_recent_blank_rows_are_inert_and_only_whole_items_fit(self):
+    async def test_recent_blank_rows_are_inert_and_all_items_are_rendered(self):
         self.state['outcomes'] = [dict(self.state['outcomes'][0], run=f'past-{n}') for n in range(8)]
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(140, 44)) as pilot:
             recent = app.query_one(RecentActivity)
             await self.ready(app, pilot, lambda: len(recent.rows) == 8)
-            for height, count in ((1, 0), (2, 0), (3, 1), (5, 1), (6, 2), (8, 2), (9, 3)):
+            for height, count in ((1, 0), (2, 1), (3, 1), (5, 2), (6, 2), (8, 3), (9, 3)):
                 recent.styles.height = height
                 await pilot.pause()
                 self.assertEqual(len(recent.visible_rows), count)
                 lines = recent.render().plain.splitlines()
-                self.assertEqual(len(lines), max(1, 3 * count))
-                self.assertLessEqual(len(lines), height)
+                self.assertEqual(len(lines), 24)
+                self.assertEqual(recent.virtual_size.height, 24)
                 self.assertEqual([row.key for row in recent.visible_rows],
                                  [f'outcome:past-{n}' for n in range(7, 7 - count, -1)])
             recent.focus()
@@ -3114,7 +3114,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    async def test_recent_whole_rows_dim_selection_and_clipped_selected_outcome(self):
+    async def test_recent_rows_dim_selection_and_evicted_selected_outcome(self):
         self.state['assignment'] = None
         self.state['latest_pass'] = {'state': 'complete', 'rows': []}
         old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
@@ -3134,20 +3134,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                              [f'outcome:past-{n}' for n in range(19, 19 - len(visible), -1)])
             rendered = recent.render()
             lines = rendered.plain.splitlines()
-            self.assertEqual(len(lines), 3 * len(visible))
-            self.assertLessEqual(len(lines), recent.size.height)
+            self.assertEqual(len(lines), 60)
+            self.assertEqual(recent.virtual_size.height, 60)
             self.assertTrue(lines[0].startswith('Recent activity · 0 today'))
             selected_offset = rendered.plain.index('Outcome 19')
             dim_offset = rendered.plain.index('Outcome 18')
             self.assertFalse(rendered.get_style_at_offset(Console(), selected_offset).dim)
             self.assertTrue(rendered.get_style_at_offset(Console(), dim_offset).dim)
             recent.cursor = visible[-1].key
+            recent.reveal_cursor()
             await pilot.press('enter', '2')
             selected, focus = app.selected, app.focused
             self.state['outcomes'] = self.state['outcomes'][1:] + [dict(self.state['outcomes'][-1], run='newest')]
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: recent.rows[0].key == 'outcome:newest')
-            self.assertNotIn(selected, [row.key for row in recent.visible_rows])
+            await pilot.pause()
+            self.assertIn(selected, [row.key for row in recent.visible_rows])
             self.assertEqual(app.selected, selected)
             self.assertIs(app.focused, focus)
             await self.ready(app, pilot, lambda: f'Outcome {visible[-1].run.split("-")[-1]}' in
@@ -3689,7 +3691,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             app.session = Session(self.path, json.loads(json.dumps(self.state)))
                             with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
                                 app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
-                                refresh.assert_called_once_with()
+                                refresh.assert_called_once_with(layout=True)
                                 await self.settled(app, recent)
                             self.assertIn(expected, recent.render().plain)
                     # Count changes independently of the bounded recent rows.
@@ -3697,7 +3699,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     app.session.data['outcomes'].append(dict(outcome, run='another-run'))
                     with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
                         app.populate(pane)
-                        refresh.assert_called_once_with()
+                        refresh.assert_called_once_with(layout=True)
                         await self.settled(app, recent)
                     self.assertIn('2 today', recent.render().plain)
                     work_refresh.assert_not_called()
