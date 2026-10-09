@@ -46,12 +46,15 @@ options:
 LAUNCH_HELP = """usage: ub-agents launch [NUMBER] [options]
 
 Run the queue in the foreground under the configured gates. Without a number,
-watch the queue; with a number, handle only that issue or PR, then exit. Queue
-priority and milestone policy do not apply to an explicit item; all other gates
-do. An agent still needs a matching trigger label, including with --agent.
+watch the queue; with a number, handle only that issue or PR, then exit. Use
+--agent NAME to serve only one configured agent; without a number, the queue
+keeps polling until you stop it. For preparation, run --agent issue-preparer,
+stop to resolve human decisions, then launch the normal queue. Queue priority
+and milestone policy do not apply to an explicit item; all other gates do. An
+agent still needs a matching trigger label, including with --agent.
 
 options:
-  --agent NAME           evaluate only this configured agent (needs NUMBER)
+  --agent NAME           serve only this configured agent (queue or NUMBER)
   --once                 observe once, run at most one assignment, then exit
   --no-ui                plain lines instead of the terminal view
   --config PATH          project configuration (default: ub-agents.yaml)
@@ -59,7 +62,7 @@ options:
 
 examples:
   ub-agents launch
-  ub-agents launch --once
+  ub-agents launch --agent issue-preparer
   ub-agents launch 143 --agent implementer
 """
 
@@ -281,7 +284,6 @@ class HelpTests(unittest.TestCase):
                            (["approve", "143", "--number", "143"], "approve"),
                            (["--config", "x.yaml", "check", "--config", "x.yaml"], "check"),
                            (["report"], "report"), (["read"], "read"),
-                           (["launch", "--agent", "implementer"], "launch"),
                            (["launch", "--bogus"], "launch"),
                            (["launch", "not-a-number"], "launch"),
                            (["launch", "--agent"], "launch"),

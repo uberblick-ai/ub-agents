@@ -128,7 +128,10 @@ class ArgumentTests(unittest.TestCase):
             with self.subTest(number=number):
                 self.assertEqual(main(["launch", *number, "--config", str(self.path)]), 0)
                 self.assertEqual(self.run.call_args.args[0].number, expected)
-        self.usage_error(["launch", "--agent", "worker"], "launch --agent requires an item number")
+        for options in ([], ["--once"]):
+            self.assertEqual(main(["launch", "--agent", "worker", *options, "--config", str(self.path)]), 0)
+            self.assertIsNone(self.run.call_args.args[0].number)
+            self.assertEqual(self.run.call_args.args[0].agent, "worker")
         for number in ("0", "-1"):
             self.usage_error(["launch", number], "launch requires a positive item number")
 

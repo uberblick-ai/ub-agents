@@ -322,6 +322,14 @@ class Observations:
     def warning(self, detail):
         self.publisher.warning(detail)
 
+    def queue_scope(self, agent_name):
+        self.state["queue_agent"] = agent_name
+        self.emit()
+
+    def queue_idle(self, message):
+        self.state["queue_idle"] = message
+        self.emit()
+
     def configure(self, config, actor, path):
         self.stop_labels = config.stop_labels
         self.state["coordination_authors"] = {}

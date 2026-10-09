@@ -71,6 +71,7 @@ class RunPlanning:
         from .loop import Loop
         self.planner = Loop(loop.config, ObservationReads(github, self.stop),
                             loop.coordinator.actor, output=lambda *_: None)
+        self.planner._launch_agent = loop._launch_agent
         self.planner.discovery_budget = loop.discovery_budget
         # Retain discovery inputs, not the launcher's client or pass-local state.
         for name in ("items", "closed_items", "comments_index", "cache", "comment_store",

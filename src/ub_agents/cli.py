@@ -65,12 +65,15 @@ def parser():
     launch = commands.add_parser("launch", help="run the queue in the foreground, or handle one item",
                                  description="Run the queue in the foreground under the configured gates. Without a number, "
                                  "watch the queue; with a number, handle only that issue or PR, then exit. "
+                                 "Use --agent NAME to serve only one configured agent; without a number, "
+                                 "the queue keeps polling until you stop it. For preparation, run "
+                                 "--agent issue-preparer, stop to resolve human decisions, then launch the normal queue. "
                                  "Queue priority and milestone policy do not apply to an explicit item; all other gates do. "
                                  "An agent still needs a matching trigger label, including with --agent.",
-                                 examples=("ub-agents launch", "ub-agents launch --once",
+                                 examples=("ub-agents launch", "ub-agents launch --agent issue-preparer",
                                            "ub-agents launch 143 --agent implementer"))
     launch.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="run only this item, then exit (optional)")
-    launch.add_argument("--agent", metavar="NAME", help="evaluate only this configured agent (needs NUMBER)")
+    launch.add_argument("--agent", metavar="NAME", help="serve only this configured agent (queue or NUMBER)")
     launch.add_argument("--once", action="store_true", help="observe once, run at most one assignment, then exit")
     launch.add_argument("--no-ui", action="store_true", help="plain lines instead of the terminal view")
     status = commands.add_parser("status", help="matching work, owners, attempts and why items wait",
@@ -383,7 +386,8 @@ def run(args):
     config = load_config(args.config)
     if args.command == "launch" and args.agent is not None:
         if not any(agent.name == args.agent for agent in config.agents):
-            parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}")
+            names = ', '.join(agent.name for agent in config.agents)
+            parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}; configured agents: {names}")
     if args.command == "check":
         from .config import instruction_text
         instruction_text(config.root, config.shared_instructions, "shared-instructions")
@@ -530,6 +534,8 @@ def run(args):
         if args.number is not None:
             loop.refusal_output = args.launch_output.refusals
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
+        if args.agent is not None:
+            return loop.launch(once=args.once, agent_name=args.agent)
         loop.launch(once=args.once)
     except _GracefulStop:
         return
@@ -600,8 +606,6 @@ def main(argv=None):
             if args.command == "status" and args.number is not None and args.number < 1:
                 command_parser.error("status requires a positive item number")
             if args.command == "launch":
-                if args.agent is not None and args.number is None:
-                    command_parser.error("launch --agent requires an item number")
                 if args.number is not None and args.number < 1:
                     command_parser.error("launch requires a positive item number")
             args.config = (Path(args.config or DEFAULT_CONFIG).resolve()

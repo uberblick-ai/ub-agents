@@ -777,6 +777,8 @@ class View(App):
                 self.poll_feedback = {}
             self.session = result.session
             self.title = 'ub-agents launch — ' + text(self.session.data.get('repository'), 'unknown')
+            if self.session.data.get('queue_agent'):
+                self.title += ' · agent ' + text(self.session.data['queue_agent'])
             # App.title only updates Header widgets in the pinned Textual.
             if self._driver is not None and not self.is_headless and self.title != self._window_title:
                 self._driver.write(str(Control.title(self.title)))
@@ -860,6 +862,9 @@ class View(App):
                 elif section.idle:
                     complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
                     reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
+                    if self.session.data.get('queue_agent'):
+                        reason = (text(self.session.data.get('queue_idle'), reason) if complete and pane.next is None
+                                  else 'polling for agent ' + text(self.session.data['queue_agent']))
                     label = Text(f'    Idle · {reason}', style='dim')
                     if self.idle_node is None:
                         self.idle_node = group.add_leaf(label)
@@ -1200,6 +1205,8 @@ class View(App):
             if version:
                 parts[0] += ('' if self.narrow else ' ') + f'v{version}'
         if self.session:
+            if self.session.data.get('queue_agent'):
+                parts.append('agent ' + text(self.session.data['queue_agent']))
             state = self.session.state()
             if state == 'malformed':
                 parts.append('malformed: ' + text(self.session.error))
