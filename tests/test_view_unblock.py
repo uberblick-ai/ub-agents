@@ -683,6 +683,9 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         self.state['action_needed']['178'] = {'omitted': True}
         publish_snapshot(self.path, self.state)
         app = self.app
+        # Crossing Issue uses its cached result; this test exercises Unblock's
+        # independent activation and explicit retry behavior.
+        app.descriptions.remember(('example/repo', 178), Response('Issue title', 'Issue body'))
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
             app.select('plan:178:worker')
@@ -769,6 +772,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         self.state['action_needed']['178']['author'] = 'reader'
         publish_snapshot(self.path, self.state)
         app = self.app
+        app.descriptions.remember(('example/repo', 178), Response('Issue title', 'Issue body'))
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
             app.select('plan:178:worker')

@@ -10,7 +10,7 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import Tree
 
-from .view_data import item_handoff, mapping, outcomes_today, rows, text
+from .view_data import item_handoff, mapping, rows, text
 from .view_scroll import ScrollbarVisibility
 from .view_spinner import spinner_frame
 from .attention import attention_state, waiting_time
@@ -299,19 +299,14 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
     BINDINGS = [Binding('up', 'cursor_up', show=False),
                 Binding('down', 'cursor_down', show=False),
                 Binding('enter', 'select', show=False)]
+    header_height = 1
 
     def __init__(self):
         super().__init__(id='recent')
         self.rows = []
         self.cursor = None
-        self.today = 0
-        self.omitted = 0
         self._viewport_size = None
         self._rendered_lines = None
-
-    @property
-    def header_height(self):
-        return 1 + bool(self.omitted)
 
     @property
     def visible_rows(self):
@@ -333,15 +328,12 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
     def row_stride(self):
         return self.row_height + self.row_spacing
 
-    def populate(self, rows, session):
+    def populate(self, rows):
         rows = list(rows)
-        today = outcomes_today(session)
-        omitted = mapping(session.data.get('omitted')).get('outcomes', 0)
-        omitted = omitted if type(omitted) is int and omitted > 0 else 0
         cursor = rows[0].key if self.cursor is None and rows else self.cursor
-        changed = (self.rows, self.cursor, self.today, self.omitted) != (rows, cursor, today, omitted)
+        changed = (self.rows, self.cursor) != (rows, cursor)
         anchor = self.viewport_anchor()
-        self.rows, self.cursor, self.today, self.omitted = rows, cursor, today, omitted
+        self.rows, self.cursor = rows, cursor
         if changed:
             self.update_virtual_size()
             self.restore_viewport(anchor)
@@ -383,7 +375,7 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
         if self._rendered_lines is None:
             self._rendered_lines = self.render().split('\n')
         lines = self._rendered_lines
-        # The section rule and retention notice stay above the scrolling rows.
+        # The section rule stays above the scrolling rows.
         index = y if y < self.header_height else y + self.scroll_offset.y
         width = self.scrollable_content_region.width
         if index >= len(lines) or not lines[index].plain:
@@ -399,15 +391,8 @@ class RecentActivity(ScrollbarVisibility, ScrollView, can_focus=True):
 
     def render(self):
         width = self.scrollable_content_region.width
-        header = section_rule(f'Recent activity · {self.today} today', width,
+        header = section_rule(f'Recent activity · showing {len(self.rows)}', width,
                               theme_style(self.app, 'view-muted'))
-        if self.omitted:
-            noun = 'outcome' if self.omitted == 1 else 'outcomes'
-            notice = Text(f'{self.omitted} older {noun} not retained', no_wrap=True,
-                          style=theme_style(self.app, 'view-muted'))
-            notice.truncate(width, overflow='ellipsis')
-            header.append('\n')
-            header.append_text(notice)
         for index, row in enumerate(self.rows):
             style = theme_style(self.app, 'foreground' if row.key == self.app.selected else 'view-muted',
                                 dim=row.key != self.app.selected)

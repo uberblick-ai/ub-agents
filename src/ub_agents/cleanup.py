@@ -12,6 +12,7 @@ from .execution import git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
 from .records import seconds
 from .run_config import run_directory
+from .worktree_setup import confirm_worktree_setup_stopped
 
 BRANCH = re.compile(r"ub-agents/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
 RUN = re.compile(r"[A-Za-z0-9_-]+\Z")
@@ -127,6 +128,7 @@ class Cleaner:
             except (OSError, ValueError, AttributeError) as exc:
                 raise AgentError("Run diagnostics are unreadable") from exc
         try:
+            confirm_worktree_setup_stopped(self.config, lease["run"])
             confirm_hook_groups_stopped(self.config, lease["run"])
         except CleanupError as exc:
             raise AgentError(str(exc)) from exc

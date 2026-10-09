@@ -24,7 +24,7 @@ from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
 from textual.geometry import Size
 from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
-from ub_agents.view_ui import (ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
+from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, work_pane
@@ -1015,6 +1015,38 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(app.focused, focus)
             self.assertEqual(transport.calls, [])
 
+    async def test_health_banner_shows_failure_changes_and_recovery_in_one_inert_row(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            banner = app.query_one(HealthBanner)
+            self.assertFalse(banner.display)
+            await pilot.press('2')
+            selected, focus = app.selected, app.focused
+            for line in ('preparer: waiting — health check ./check-corpus: Unreachable',
+                         'preparer: waiting — health check ./check-corpus: Wrong workspace',
+                         'preparer: health check ./check-corpus passed — claiming resumes'):
+                self.state['health_notice'] = line
+                publish_snapshot(self.path, self.state)
+                await self.ready(app, pilot, lambda: banner.banner.get('text') == line
+                                 and banner.size.height == 1)
+                self.assertTrue(banner.display)
+                self.assertEqual(banner.render().plain, line)
+                self.assertEqual(app.query_one('#body').region.y, 1)
+                self.assertFalse(banner.can_focus)
+                self.assertEqual(app.selected, selected)
+                self.assertIs(app.focused, focus)
+            await pilot.resize_terminal(70, 32)
+            await pilot.pause()
+            self.assertEqual(banner.size.height, 1)
+            self.assertLessEqual(banner.render().cell_len, 68)
+            await pilot.resize_terminal(59, 15)
+            await pilot.pause()
+            self.assertFalse(banner.display)
+            await pilot.resize_terminal(110, 32)
+            await pilot.pause()
+            self.assertTrue(banner.display)
+
     async def settled(self, app, pane):
         # A pilot pause can return on a busy machine before the after-refresh
         # callbacks that restore the pane's anchor. Queue behind them and wait.
@@ -1729,7 +1761,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                                    (header.size.width - 1, 1), (0, 2)):
                                         self.assertTrue(await pilot.click(header, offset=offset))
                                     opened.assert_not_called()
-                        self.assertEqual(transport.calls, [])
+                        # Issue activation starts one read; reference clicks
+                        # add no requests while that read is pending.
+                        self.assertEqual(transport.calls, [('synthetic-owner/consumer-project', 114)])
                         await pilot.press('q')
                 app.worker.thread.join(2)
                 self.assertFalse(app.worker.thread.is_alive())
@@ -2110,6 +2144,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_idle_placeholder_is_one_dim_inert_line_and_running_stays_first(self):
         assignment = self.state['assignment']
         self.state['assignment'] = None
+        self.state['latest_pass']['state'] = 'complete'
         self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][2]]
         self.state['outcomes'] = []
         publish_snapshot(self.path, self.state)
@@ -2142,6 +2177,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app.reading.page)
             self.assertIsNone(app.pane.selected)
             self.assertIn('○ Idle · waiting for the next poll', app.query_one('#run_status', Static).render().plain)
+            self.state['latest_pass']['state'] = 'partial'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.idle_node.label.plain == '    Idle · polling')
+            self.assertIs(app.idle_node, idle)
+            self.state['latest_pass']['state'] = 'complete'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: 'nothing eligible' in app.idle_node.label.plain)
             await pilot.press('2', '3', '1')
             self.assertEqual(transport.calls, [])
             self.state['latest_pass']['rows'].append(
@@ -2158,6 +2200,19 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([node.label.plain for node in tree.root.children],
                              ['Running · 1', 'Needs attention · 1'])
             self.assertEqual([node.data for node in app.groups['Running'].children], ['assignment:owned-run'])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_completed_observation_with_next_item_keeps_idle_polling(self):
+        self.state['assignment'] = None
+        self.state['latest_pass']['state'] = 'complete'
+        self.state['latest_pass']['rows'] = [self.state['latest_pass']['rows'][1]]
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.idle_node is not None)
+            self.assertEqual(app.idle_node.label.plain, '    Idle · polling')
+            self.assertEqual(app.pane.next, 'plan:12')
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -2778,8 +2833,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             own, page, anchor = app.selected, app.reading.page, output.anchor()
             key = 'plan:21'
             app.select(key)
+            await pilot.press('2')
+            await self.ready(app, pilot, lambda: app.descriptions.pending is not None)
+            transport.response = Response('Issue 21', 'Cached body 21')
             markdown = app.query_one('#issue_body', Markdown)
             await self.ready(app, pilot, lambda: markdown.source == 'Cached body 21')
+            await pilot.press('1')
             tree = app.query_one('#work', Tree)
             app.move_cursor(app.nodes[key])
             output.focus()
@@ -2820,7 +2879,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.settled(app, output)
             self.assertEqual(app.reading.page, page)
             self.assertEqual(output.anchor(), anchor)
-            self.assertEqual(transport.calls, [])
+            self.assertEqual(transport.calls, [('org/project', 21)])
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -2842,7 +2901,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
                                  len(app.groups['Eligible'].children) == 10 and
-                                 tree.virtual_size.height > tree.size.height)
+                                 tree.virtual_size.height > tree.size.height and tree.max_scroll_y > 0)
                 tree.get_node_at_line(0)
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
                 self.assertTrue(separators <= tree._spacer_lines)
@@ -2860,7 +2919,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not recent.rows)
                 self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
                 self.assertEqual(recent.region.y, boundary)
-                self.assertTrue(recent.render().plain.startswith('Recent activity · 0 today'))
+                self.assertTrue(recent.render().plain.startswith('Recent activity · showing 0'))
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -3136,7 +3195,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             lines = rendered.plain.splitlines()
             self.assertEqual(len(lines), 60)
             self.assertEqual(recent.virtual_size.height, 60)
-            self.assertTrue(lines[0].startswith('Recent activity · 0 today'))
+            self.assertTrue(lines[0].startswith('Recent activity · showing 20'))
             selected_offset = rendered.plain.index('Outcome 19')
             dim_offset = rendered.plain.index('Outcome 18')
             self.assertFalse(rendered.get_style_at_offset(Console(), selected_offset).dim)
@@ -3668,7 +3727,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('q')
         app.worker.thread.join(2)
 
-    async def test_populate_recent_display_rows_and_today_count_without_work_repaint(self):
+    async def test_populate_recent_display_rows_and_listed_count_without_work_repaint(self):
         with patch.object(View, 'tick', autospec=True, side_effect=View.tick) as tick:
             app = View(self.root, self.path)
             async with app.run_test(size=(160, 45)) as pilot:
@@ -3679,11 +3738,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
                 await self.settled(app, tree)
                 outcome = self.state['outcomes'][0]
+                now = datetime.now(timezone.utc)
                 cases = [({'title': 'New outcome'}, 'New outcome'),
                          ({'summary': 'New summary'}, 'New summary'),
                          ({'result': 'blocked'}, 'blocked'),
                          ({'handoff': 42}, 'opened ⌥42'),
-                         ({'time': datetime.now(timezone.utc).isoformat()}, '1 today')]
+                         ({'time': now.isoformat()}, now.astimezone().strftime('%H:%M'))]
                 with patch.object(tree, 'refresh', wraps=tree.refresh) as work_refresh:
                     for changes, expected in cases:
                         with self.subTest(changes=changes):
@@ -3694,14 +3754,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                 refresh.assert_called_once_with(layout=True)
                                 await self.settled(app, recent)
                             self.assertIn(expected, recent.render().plain)
-                    # Count changes independently of the bounded recent rows.
+                    # Session metadata leaves the existing listed rows and count alone.
                     pane = app.pane
                     app.session.data['outcomes'].append(dict(outcome, run='another-run'))
+                    app.session.data['omitted'] = {'outcomes': 22}
                     with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
                         app.populate(pane)
-                        refresh.assert_called_once_with(layout=True)
+                        refresh.assert_not_called()
                         await self.settled(app, recent)
-                    self.assertIn('2 today', recent.render().plain)
+                    self.assertIn('Recent activity · showing 1', recent.render().plain)
+                    # A new listed row updates the heading without repainting live work.
+                    with patch.object(recent, 'refresh', wraps=recent.refresh) as refresh:
+                        app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
+                        refresh.assert_any_call(layout=True)
+                        await self.settled(app, recent)
+                    self.assertIn('Recent activity · showing 2', recent.render().plain)
+                    self.assertNotIn('not retained', recent.render().plain)
                     work_refresh.assert_not_called()
                 await pilot.press('q')
         app.worker.thread.join(2)
@@ -3864,7 +3932,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    async def test_recent_activity_today_count_enter_refresh_and_paused_outcome_log(self):
+    async def test_recent_activity_listed_count_enter_refresh_and_paused_outcome_log(self):
         now = datetime.now(timezone.utc)
         self.state['outcomes'][0]['time'] = now.isoformat()
         self.state['outcomes'].insert(0, dict(self.state['outcomes'][0], run='older-run',
@@ -3880,7 +3948,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
             recent = app.query_one(RecentActivity)
-            self.assertTrue(recent.render().plain.splitlines()[0].startswith('Recent activity · 1 today'))
+            self.assertTrue(recent.render().plain.splitlines()[0].startswith('Recent activity · showing 2'))
             self.assertEqual([row.key for row in recent.visible_rows], ['outcome:previous-run', 'outcome:older-run'])
             recent.focus()
             await pilot.press('enter')
@@ -3914,6 +3982,56 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_issue_loads_on_keyboard_click_and_selection_with_cached_markdown(self):
+        self.state['assignment'] = None
+        self.state['outcomes'] = []
+        self.state['latest_pass']['rows'] = [
+            {'item': number, 'agent': 'worker', 'state': 'ready', 'reason': 'Ready',
+             'kind': 'issue', 'title': f'Snapshot title {number}'} for number in (12, 15, 16)]
+        publish_snapshot(self.path, self.state)
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            self.assertEqual(transport.calls, [])
+            await pilot.press('2')
+            self.assertEqual(transport.calls, [('example/repo', 12)])
+            self.assertIn('Loading #12…', app.query_one('#issue_note', Static).render().plain)
+            body = '# Loaded heading\n\n**Loaded body**\n\n' + 'x' * 2100
+            transport.response = Response('GitHub title', body)
+            await self.ready(app, pilot, lambda: app.descriptions.pending is None)
+            markdown = app.query_one('#issue_body', Markdown)
+            self.assertEqual(markdown.source, body[:2048])
+            await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
+            self.assertEqual(len(markdown.query('MarkdownH1')), 1)
+            self.assertIn('#12 GitHub title', app.query_one('#item_header', Static).render().plain)
+            note = app.query_one('#issue_note', Static).render().plain
+            self.assertIn('Description shortened to 2,048 characters.', note)
+            self.assertNotIn('Description shortened in snapshot.', note)
+            await pilot.press('1', '2', 'g')
+            self.assertEqual(len(transport.calls), 1)
+            await pilot.press('1')
+            app.select('plan:15')
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            self.assertEqual(len(transport.calls), 1)
+            await pilot.click(app.query_one(ItemTabs).get_tab('issue'))
+            self.assertEqual(transport.calls[-1], ('example/repo', 15))
+            self.assertIn('Loading #15…', app.last_context)
+            transport.response = Response('Second title', 'Second body')
+            await self.ready(app, pilot, lambda: app.descriptions.pending is None)
+            app.select('plan:16')
+            await self.ready(app, pilot, lambda: app.descriptions.pending == ('example/repo', 16))
+            self.assertIn('Loading #16…', app.last_context)
+            transport.response = Response('Third title', 'Third body')
+            await self.ready(app, pilot, lambda: app.descriptions.pending is None)
+            app.select('plan:12')
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            await pilot.press('1', '2')
+            self.assertEqual(markdown.source, body[:2048])
+            self.assertEqual(transport.calls, [('example/repo', 12), ('example/repo', 15), ('example/repo', 16)])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_description_requests_local_sources_cache_and_navigation(self):
         self.state['latest_pass']['rows'].append({
             'item': 15, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched',
@@ -3940,10 +4058,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('1', 'g', '3', 'g', '2')
             await pilot.resize_terminal(120, 35)
             await pilot.pause(0.4)  # redraws and local timers
-            self.assertEqual(transport.calls, [])
+            self.assertEqual(transport.calls, [('example/repo', 12)])
             await pilot.press('g')
             self.assertEqual(transport.calls, [('example/repo', 12)])
-            self.assertIn('Loading title/body', app.last_context)
+            self.assertIn('Loading #12…', app.last_context)
             await pilot.press('g', 'g')
             app.select(own_key)
             await self.ready(app, pilot, lambda: app.local_description is not None)
@@ -3992,6 +4110,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.descriptions.pending is None)
             self.assertIn('Access denied', app.last_context)
             self.assertIn('Press g on Issue to retry', app.last_context)
+            await pilot.press('1', '2')
+            self.assertEqual(len(transport.calls), 1)
             app.select(own)
             await pilot.pause(0.3)
             app.select(foreign)

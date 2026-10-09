@@ -623,6 +623,51 @@ agents:
         self.assertFalse(result["ok"])
         self.assertFalse(any(c[0][0] == "codex" for c in self.runner.calls))
 
+    def test_runtime_permissions_warns_for_uncovered_or_empty_cli_mapping_entries(self):
+        base = self.path.read_text().replace("runtime: codex:model-a:high",
+                                             "runtime: [codex:model-a:high, claude:model-b:high, claude:model-c:low]")
+        for arguments, warns in (
+                ("{}", True), ("{codex: [--sandbox, danger-full-access]}", True),
+                ("{claude: [--permission-mode, acceptEdits]}", True),
+                ("{codex: [--sandbox, danger-full-access], claude: []}", True),
+                ("{codex: [], claude: [--permission-mode, acceptEdits]}", True),
+                ("{codex: [--sandbox, danger-full-access], claude: [--permission-mode, acceptEdits]}", False),
+                ("[--add-dir, '{scratch}']", False)):
+            with self.subTest(arguments=arguments):
+                self.path.write_text(base.replace("[--sandbox, danger-full-access]", arguments))
+                result = self.diagnose()
+                self.assertTrue(result["ok"])
+                checks = self.checks(result, "runtime-permissions")
+                self.assertEqual(len(checks), int(warns))
+                if warns:
+                    check = checks[0]
+                    self.assertEqual((check["status"], check["required"]), ("warn", False))
+                    self.assertIn("Agents without runtime-args: worker;", check["message"])
+
+    def test_runtime_permissions_use_top_level_defaults_and_agent_replacements(self):
+        base = self.path.read_text().replace("    runtime-args: [--sandbox, danger-full-access]\n", "").replace(
+            "runtime: codex:model-a:high", "runtime: [codex:model-a:high, claude:model-b:high]")
+        full = "{codex: [--sandbox, danger-full-access], claude: [--permission-mode, acceptEdits]}"
+        for defaults, override, warns in (
+                (full, None, False),
+                ("{codex: [--sandbox, danger-full-access]}", None, True),
+                ("{codex: [--sandbox, danger-full-access], claude: []}", None, True),
+                (full, "[]", True), (full, "{}", True),
+                (full, "{codex: [--sandbox, read-only]}", True),
+                ("{}", full, False), (full, "[--add-dir, '{scratch}']", False)):
+            with self.subTest(defaults=defaults, override=override):
+                content = base.replace("agents:\n", f"runtime-args: {defaults}\nagents:\n")
+                if override is not None:
+                    content += f"    runtime-args: {override}\n"
+                self.path.write_text(content)
+                result = self.diagnose()
+                self.assertTrue(result["ok"])
+                checks = self.checks(result, "runtime-permissions")
+                self.assertEqual(len(checks), int(warns))
+                if warns:
+                    self.assertIn("Agents without runtime-args: worker;", checks[0]["message"])
+                    self.assertIn("top-level runtime-args or agent overrides", checks[0]["remedy"])
+
     def test_eligible_alternative_warns_and_exits_zero(self):
         self.path.write_text(self.path.read_text().replace("runtime: codex:model-a:high",
                                                          "runtime: [codex:model-a:high, claude:model-b:high]"))

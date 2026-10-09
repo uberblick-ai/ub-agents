@@ -9,6 +9,7 @@ from time import monotonic
 from dataclasses import replace
 
 from . import approvals as input_approvals
+from .agent_health import AgentHealth
 from .approvals import ApprovalCheck, resolve_policy
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .checkout_setup import discard_unused_baseline, preserve_baseline, run_setup
@@ -17,7 +18,7 @@ from .dependencies import Dependencies
 from .denials import collect_denials
 from .discovery import Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
-from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
+from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
 from .report_command import launcher_report_command
@@ -38,8 +39,9 @@ from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
 from .trust import LauncherTrust
-from .run_planning import RunPlanning
+from .run_planning import ObservationReads, RunPlanning
 from .run_config import run_config, run_directory
+from .worktree_setup import confirm_worktree_setup_stopped, run_worktree_setup
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -63,6 +65,7 @@ class Loop:
         self._observer_lock = threading.RLock()
         self._continuous = False
         self._run_planning = None
+        self._planning_rate_until = None
         self._planning_workers = []
         self.poll_now = None
         self.updates = None
@@ -84,6 +87,7 @@ class Loop:
         self.default_config = default_config
         self.output = output
         self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output)
+        self.health = AgentHealth(output=self._health_notice)
         self.coordinator.runtime_paused = self.usage.paused
         self.discovery = Discovery(self.github)
         self._shown = {}
@@ -95,6 +99,7 @@ class Loop:
         self._launch_agent = None
         self._launcher_reason = None
         self._has_trigger = None
+        self._active_milestone = None
         self._maintaining = False
         self._github_waiting = False
         self._github_reservation = None
@@ -104,6 +109,10 @@ class Loop:
     def _observe(self, method, *args):
         with self._observer_lock:
             self._publish_observation(method, *args)
+
+    def _health_notice(self, line):
+        self.output(line)
+        self._observe("health_notice", line)
 
     def _publish_observation(self, method, *args):
         if self.observer is not None:
@@ -233,9 +242,9 @@ class Loop:
     @staticmethod
     def _rank(plan, priority):
         existing = plan.item.kind == "pr" or plan.state in {"owned", "recover"}
-        return (0 if existing else 1,
+        return (priority.labels.index(plan.priority) if plan.priority is not None else len(priority.labels),
+                0 if existing else 1,
                 0 if existing else plan.milestone_rank,
-                priority.labels.index(plan.priority) if plan.priority is not None else len(priority.labels),
                 seconds(plan.item.created_at), plan.item.number)
 
     def plans(self):
@@ -243,7 +252,8 @@ class Loop:
         return sorted(self.iter_plans(cached=False),
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
-    def iter_plans(self, cached=True, *, reconcile_notices=False):
+    def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False):
+        checked = {}
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         github = self.discovery if cached else Discovery(self.github)
         lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
@@ -252,12 +262,7 @@ class Loop:
         self._has_trigger = any(item.state == "open" and item.labels.intersection(triggers)
                                 for item in items.values())
         self._observe("discovered", items, self.config.agents, True)
-        coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
-                                  queue=self.config.queue, output=self.output,
-                                  runtime_available=self.maintenance.available,
-                                  runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role, trusted_bots=self.config.trusted_bots,
-                                  on_author=lambda *args: self._observe("coordination_author", *args))
+        coordinator = self._planning_coordinator(github)
         history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
         latest = latest_leases(history_index)
@@ -269,6 +274,7 @@ class Loop:
                 items[item.number] = item
         active_milestone = (self.github.active_milestone()
                             if self.config.queue.milestones == "gate" else None)
+        self._active_milestone = active_milestone
         milestones = (self.github.milestone_order()
                       if self.config.queue.milestones == "order" else ())
         milestone_ranks = {number: rank for rank, number in enumerate(milestones)}
@@ -337,7 +343,8 @@ class Loop:
                 else:
                     blockers = self._open_blockers(item, github)
             plans = self._item_plans(item, now, github, coordinator, matches, active_milestone, blockers,
-                                     reconcile_notices=reconcile_notices)
+                                     reconcile_notices=reconcile_notices, checked=checked,
+                                     health_notices=health_notices or reconcile_notices)
             for plan in plans:
                 observed = replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
@@ -359,7 +366,7 @@ class Loop:
                            approval_gate=None)
         return replace(plan, blockers=blockers)
 
-    def item_plans(self, number, agent_name=None, *, reconcile_notices=False):
+    def item_plans(self, number, agent_name=None, *, reconcile_notices=False, health_notices=False):
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         # Share this item's history and approval reads, without repository
         # discovery, priority inheritance or milestone ordering.
@@ -371,18 +378,15 @@ class Loop:
             raise AgentError(f"Cannot read #{number}: {exc}") from exc
         self._observe("discovered", {item.number: item}, self.config.agents)
         agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
-        coordinator = Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
-                                  queue=self.config.queue, output=self.output,
-                                  runtime_available=self.maintenance.available,
-                                  runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                                  role=github.current_role, trusted_bots=self.config.trusted_bots,
-                                  on_author=lambda *args: self._observe("coordination_author", *args))
+        coordinator = self._planning_coordinator(github)
         active = (self.github.active_milestone() if item.kind == "issue" and item.state == "open"
                   and self.config.queue.milestones == "gate" else None)
+        self._active_milestone = active
         blockers = self._open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
         plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, active, blockers, agents,
-                                 reconcile_notices=reconcile_notices)
+                                 reconcile_notices=reconcile_notices, checked={},
+                                 health_notices=health_notices or reconcile_notices)
 
         def observed_plans():
             for plan in plans:
@@ -390,25 +394,58 @@ class Loop:
                 yield plan
         return item, observed_plans()
 
-    def _observe_plan(self, plan, github):
+    def _planning_coordinator(self, github, observe=None):
+        observe = observe or self._observe
+        return Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
+                           queue=self.config.queue, output=self.output,
+                           runtime_available=self.maintenance.available,
+                           runtime_paused=self.usage.paused, launchers=self.config.launchers,
+                           role=github.current_role, trusted_bots=self.config.trusted_bots,
+                           on_author=lambda *args: observe("coordination_author", *args))
+
+    def _observe_plan(self, plan, github, observe=None):
         closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
         filing = github.observed_item(closing[0]) if closing else None
         authors = {login: role in {"write", "maintain", "admin"} and
                    (self.config.launchers is None or login in {a.casefold() for a in self.config.launchers})
                    for login, role in github.pass_roles.items()}
-        self._observe("plan", plan, filing, github.observed_comments(plan.item.number), authors)
+        (observe or self._observe)("plan", plan, filing, github.observed_comments(plan.item.number), authors)
+
+    def _replan_finished_item(self, plan):
+        # A cancelled worker cannot publish an older pass over this item's update.
+        self._stop_planning()
+        if self.observer is None:
+            return
+        events = []
+        def observe(method, *args):
+            events.append((method, args))
+        # Bypass in-run rate-limit retries and forbid writes. Failure here must
+        # neither change the settled verdict nor defer the next claiming pass.
+        github = Discovery(ObservationReads(self.github.github, self.interrupt_event))
+        github.scope = plan.item.number
+        try:
+            item = github.item(plan.item.number, plan.item.kind)
+            matches = AgentMatches.for_item(item, self.config.agents)
+            coordinator = self._planning_coordinator(github, observe)
+            blockers = self._open_blockers(item, github)
+            priority = self.config.queue.priority.effective(item.labels)
+            if plan.priority is not None and (plan.priority_source or plan.priority_from_issue):
+                labels = self.config.queue.priority.labels
+                if priority is None or labels.index(plan.priority) < labels.index(priority):
+                    priority = plan.priority  # Retain already-observed inheritance without a graph read.
+            for refreshed in self._item_plans(item, coordinator.clock(), github, coordinator,
+                                              matches, self._active_milestone, blockers, checked={}):
+                refreshed = replace(refreshed, priority=priority)
+                self._observe_plan(refreshed, github, observe)
+        except Exception:
+            return  # Discard incomplete observations; the normal pass retries.
+        self._observe("replanned_item", item.number, events)
 
     def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None,
-                    *, reconcile_notices=False):
+                    *, reconcile_notices=False, checked=None, health_notices=False):
         agents = self.config.agents if agents is None else agents
         starts = {a.name: check_start(item, a, matches, self.config.stop_labels,
                                      self.config.queue, active_milestone, blockers) for a in agents}
-        for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
-                                             reconcile_notices=reconcile_notices):
-            yield self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
-
-    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,
-                            *, reconcile_notices=False):
         matched = tuple(a for a in matches.matched if a in agents)
         approval = None
         # The same comments supply coordination history and approval input.
@@ -431,9 +468,33 @@ class Loop:
                 raise
             yield from (Plan(item, a, None, "parked", approval.reason, 1, history_read=False) for a in matched)
             return
+        reconciled = set()
+        for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
+                                             history, matched, approval):
+            plan = self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
+            plan = self._health_plan(plan, checked, announce=health_notices)
+            if reconcile_notices:
+                self._before_claim()
+                reconciled.add(plan.agent.name)
+                if not plan.health_wait:
+                    self.reconcile_blocked_notices([r for r in history if r["agent"] == plan.agent.name], coordinator)
+            yield plan
         if reconcile_notices:
             self._before_claim()
-            self.reconcile_blocked_notices(history, coordinator)
+            # Closed items can have a missing advisory without an assignment
+            # row. Keep that recovery, without evaluating later agents before
+            # a reached ready agent's claim or posting for health-waiting rows.
+            self.reconcile_blocked_notices([r for r in history if r["agent"] not in reconciled], coordinator)
+
+    def _health_plan(self, plan, checked=None, *, announce=False):
+        if plan.state == "ready":
+            reason = self.health.check(self.config.root, plan.agent, checked, announce=announce)
+            if reason is not None:
+                return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True)
+        return plan
+
+    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,
+                            history, matched, approval):
         latest = latest_leases(history)
         for agent in agents:
             record = latest.get((item.number, agent.name))
@@ -520,7 +581,7 @@ class Loop:
                 key, value = (plan.item.number, plan.agent.name), (plan.state, plan.reason)
                 released = self._released_blockers.pop(key, None)
                 announced = plan.state == "blocked" and released is not None and released in plan.reason
-                if not announced and self._shown.get(key) != value:
+                if not plan.health_wait and not announced and self._shown.get(key) != value:
                     self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
                 self._shown[key] = value
         self._shown = {key: value for key, value in self._shown.items() if key in present}
@@ -567,6 +628,9 @@ class Loop:
             if plan.approval_gate:
                 self.coordinator.notices.advisory(f"approval parking on #{number}",
                                                   lambda: self.park_approval(plan))
+            if plan.health_wait:
+                shown = True
+                continue
             state, reason = refusal_reason(plan, self.coordinator.clock(), socket.gethostname())
             self.output(f"#{number} {plan.agent.name}: {state} — {reason}")
             shown = True
@@ -676,7 +740,7 @@ class Loop:
 
     def _stop_planning(self):
         if self._run_planning is not None:
-            self._pass_started = self._run_planning.cancel()
+            self._planning_rate_until = self._run_planning.cancel()
             self._run_planning = None
 
     def github_ready(self):
@@ -729,6 +793,10 @@ class Loop:
         self._before_claim()
 
     def _execute(self, plan):
+        plan = self._health_plan(plan, announce=True)
+        if plan.health_wait:
+            self._observe_plan(plan, self.discovery)
+            return False
         # Between supervised runs and cleanup hooks, before any assignment writes.
         # Refresh errors belong to the operator, not to an assignment attempt.
         self._refreshing_checkout = True
@@ -789,8 +857,8 @@ class Loop:
             self._refreshing_checkout = False
         self._before_claim()
         if self.config_path is not None:
-            plans = (self.iter_plans() if self._launch_number is None else
-                     self.item_plans(self._launch_number, self._launch_agent)[1])
+            plans = (self.iter_plans(health_notices=True) if self._launch_number is None else
+                     self.item_plans(self._launch_number, self._launch_agent, health_notices=True)[1])
             plan = next((p for p in plans if p.item.number == plan.item.number
                          and p.agent.name == plan.agent.name and p.state == "ready"), None)
             if plan is None:
@@ -798,6 +866,12 @@ class Loop:
             instructions = texts[plan.agent.name]
         self.maintain_runtimes()
         if not self.github_ready():
+            return False
+        # A slow refresh or maintenance can outlive the cached pass. Recheck
+        # before reserving a runtime and before the first assignment write.
+        plan = self._health_plan(plan, announce=True)
+        if plan.health_wait:
+            self._observe_plan(plan, self.discovery)
             return False
         # The snapshot runtime may have become guarded/broken since discovery,
         # or a reload may have enabled maintenance. Reapply runtime eligibility.
@@ -822,6 +896,13 @@ class Loop:
                                        shared_instructions=shared)
 
     def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):
+        def confirm_stopped(history):
+            # An expired setup has no agent outcome to recover. Use the claim's
+            # fresh history to confirm local groups before starting another run.
+            for previous in history:
+                if previous["kind"] == "lease" and previous.get("host") == socket.gethostname():
+                    confirm_worktree_setup_stopped(self.config, previous["run"])
+
         def authorize(current, matches):
             # Discovery may have reused an approval verdict's inputs. Recheck
             # them before the first write as well as after the claim election.
@@ -835,7 +916,8 @@ class Loop:
 
         self._observe("assignment", plan)
         lease = self.coordinator.claim(plan, self.config.stop_labels,
-                                       before_write=self._end_poll, authorize=authorize)
+                                       before_write=self._end_poll, authorize=authorize,
+                                       confirm_stopped=confirm_stopped)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False
@@ -924,13 +1006,20 @@ class Loop:
                     diagnostic("cleanup-unconfirmed", error=str(exc))
                 raise
 
+        def record_process(pid):
+            self.coordinator.assert_owned(lease)
+            self.coordinator.update(lease, process_group=pid)
+            self.coordinator.assert_owned(lease)
+
         def process_started(pid):
             if reservation is not None:
                 reservation.started()
-            self.coordinator.assert_owned(lease)
-            self.coordinator.update(lease, process_group=pid)
+            record_process(pid)
             self._observe("process", "running", "Supervision recorded a live process")
-            self.coordinator.assert_owned(lease)
+
+        def setup_process_started(pid):
+            record_process(pid)
+            self._observe("process", "running", "Checkout setup running in worktree")
 
         interrupted = False
         completing = False
@@ -948,6 +1037,15 @@ class Loop:
             scratch.prepare()
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
+            if workspace.created and self.config.checkout_setup is not None:
+                run_worktree_setup(self.config, cwd, run_dir, self.interrupt_event, self.output,
+                                   lambda state: self._observe("activity", state),
+                                   expires=lambda: self.coordinator.deadline(lease),
+                                   process_started=setup_process_started,
+                                   pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()),
+                                   observe_output=lambda **_: self._poll_updates())
+                self._observe("process", "exited", "Supervision confirmed worktree setup has ended")
+                self._observe("activity", "running assignment")
             current = self.github.item(plan.item.number, plan.item.kind)
             if current.labels.intersection(self.config.stop_labels):
                 raise TransitionPaused("Stop label added before execution")
@@ -1032,7 +1130,7 @@ class Loop:
             cleanup_workspace(record=False)
             # Do not report, release, or accept after losing ownership.
             raise
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
             if completing:
                 diagnostic("transition-interrupted", outcome=outcome["id"] if outcome else None)
                 cleanup_workspace()
@@ -1043,6 +1141,8 @@ class Loop:
             interrupted = True
             effect = "unchanged"
             summary = "Launcher interrupted; attributable execution terminated"
+            if isinstance(exc, CheckoutSetupInterrupted):
+                summary += f"; {exc}"
             cleanup_workspace()
         except TransitionPaused as exc:
             result, summary, effect = "blocked", str(exc), "unchanged"
@@ -1074,6 +1174,7 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
                     completed=completing)
+        self._replan_finished_item(plan)
         diagnostic("released", result=result, summary=summary)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
@@ -1264,6 +1365,7 @@ class Loop:
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
             return False
+        confirm_worktree_setup_stopped(self.config, outcome["run"])
         self._observe("assignment", plan)
         self._finalizing = True
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
@@ -1316,6 +1418,7 @@ class Loop:
 
     def _launch(self, once):
         self.usage.reset()
+        self._planning_rate_until = None
         self._continuous = not once
         self.github.discovery = not once
         self._observe("configure", self.config, self.coordinator.actor, self.config_path)
@@ -1369,21 +1472,30 @@ class Loop:
                 if not worked and self._launch_number is None and self._has_trigger is False:
                     self.output(self.idle_message())
                 return (0 if worked else 1) if self._launch_number is not None else None
-            elapsed = monotonic() - self._pass_started
-            interval = self.config.poll_seconds
             if worked:
                 idle_state = None
-            else:
-                requests = self.github.quota_requests - requests_before
-                interval, low = idle_interval(requests, interval,
-                                              self.github.resource_quotas,
-                                              self.coordinator.clock(), elapsed)
-                interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
-                message = self.idle_message()
-                if idle_state != (low, message):
-                    self.output(f"{message}; next poll in {poll_delay(max(0, interval - elapsed))} "
-                                f"({requests} requests last poll)")
-                idle_state = (low, message)
+                # Start fresh claiming discovery as soon as work settles. An
+                # observation's quota pacing must not delay the next claim, but
+                # its actual rate-limit wait still applies after cancellation.
+                until = self._planning_rate_until
+                self._planning_rate_until = None
+                delay = max(0, until - self.coordinator.clock()) if until is not None else 0
+                if delay:
+                    self.output(f"GitHub rate limit reached; waiting until {iso(until)} ({delay / 60:g} min)")
+                    with self.poll_now.rate_limit(until) if self.poll_now is not None else nullcontext():
+                        self._wait(self.stop_event, delay, "rate-limit reset")
+                continue
+            elapsed = monotonic() - self._pass_started
+            requests = self.github.quota_requests - requests_before
+            interval, low = idle_interval(requests, self.config.poll_seconds,
+                                          self.github.resource_quotas,
+                                          self.coordinator.clock(), elapsed)
+            interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
+            message = self.idle_message()
+            if idle_state != (low, message):
+                self.output(f"{message}; next poll in {poll_delay(max(0, interval - elapsed))} "
+                            f"({requests} requests last poll)")
+            idle_state = (low, message)
             delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
                 self._wait(self.stop_event, delay, "next poll or runtime pause")

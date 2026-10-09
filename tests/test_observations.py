@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from ub_agents.coordination import Plan
 from ub_agents.approvals import ApprovalCheck
-from ub_agents.config import Runtime
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import GitHubError
 from ub_agents.execution import group_members
 from ub_agents.loop import Loop, _GracefulStop
@@ -26,7 +26,7 @@ from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
-from ub_agents.view_data import Session, local_description, work_rows
+from ub_agents.view_data import Session, load_session, local_description, work_pane, work_rows
 from ub_agents.view_worker import LocalWorker, Request
 from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
 
@@ -136,7 +136,7 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(len(snapshot['latest_pass']['rows']), 1)
         self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
 
-    def test_size_trimming_preserves_attention_notices_before_previews_and_surplus_history(self):
+    def test_size_trimming_preserves_attention_notices_before_surplus_history(self):
         self.observer.begin_pass()
         plans = [(1, 'parked', 'Needs human'), (2, 'blocked', 'Attempt limit exhausted'),
                  (3, 'failed', 'Read failed'), (4, 'ready', 'Ready'),
@@ -168,7 +168,7 @@ class ObservationTests(unittest.TestCase):
                 self.assertEqual(notice, retained['action_needed'][key])
             else:
                 self.assertEqual(notice, {'omitted': True})
-        self.assertTrue(all(len(row['description']['text']) == 256 for row in snapshot['latest_pass']['rows']))
+        self.assertTrue(all('description' not in row for row in snapshot['latest_pass']['rows']))
         self.assertGreater(sum(history['omitted_runs'] for history in snapshot['histories'].values()), 0)
         for number in ('1', '2', '3'):
             self.assertTrue(snapshot['histories'][number]['runs'])
@@ -189,8 +189,80 @@ class ObservationTests(unittest.TestCase):
         self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
         self.assertEqual(len(snapshot['action_needed']), MAX_PLANS)
         self.assertTrue(all(notice == {'omitted': True} for notice in snapshot['action_needed'].values()))
-        self.assertGreater(snapshot['omitted']['plans'], 0)
+        self.assertEqual(snapshot['omitted']['plans'], 0)
         self.assertEqual(len(snapshot['latest_pass']['rows']) + snapshot['omitted']['plans'], MAX_PLANS)
+        self.assertTrue(all(len(row['title']) < MAX_TEXT for row in snapshot['latest_pass']['rows']))
+        self.assertGreater(snapshot['shortened']['characters'], 0)
+        self.assertEqual(self.observer.state, retained)
+
+    def test_long_issue_bodies_do_not_consume_snapshot_space_or_drop_plans(self):
+        self.observer.begin_pass()
+        for number in range(1, MAX_PLANS + 1):
+            self.observer.plan(Plan(replace(issue(number), body='😀' * 10000),
+                                    self.cfg.agents[0], None, 'ready', 'Ready', 1))
+        self.observer.complete_pass()
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(len(snapshot['latest_pass']['rows']), MAX_PLANS)
+        self.assertEqual(snapshot['omitted']['plans'], 0)
+        self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+        self.assertTrue(all('description' not in row for row in snapshot['latest_pass']['rows']))
+        # Description fields were optional in version 1, so existing views can
+        # still read these rows and offer their explicit GitHub load action.
+        path = self.root / '.ub-agents/sessions/launcher.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(snapshot))
+        session = load_session(path)
+        self.assertIsNone(session.error)
+        self.assertEqual(snapshot['version'], 1)
+        description = local_description(work_rows(session, self.root)[0], session)
+        self.assertFalse(description.available)
+        self.assertFalse(description.error)
+
+    def test_byte_trimming_keeps_visible_rows_and_full_eligible_count(self):
+        self.observer.begin_pass()
+        self.observer._batching = True
+        for number in range(1, 29):
+            state = 'backoff' if number < 23 else 'ready' if number == 23 else 'blocked'
+            reason = 'Reason'
+            if number >= 26:
+                state, reason = 'parked', 'Waiting for blockers #24'
+            history = tuple({'kind': 'lease', 'assignment': number, 'agent': 'worker',
+                             'run': f'run-{number}-{index}', 'created': iso(1000 + index),
+                             'expires': iso(2000 + index), 'state': 'released', 'summary': 'H' * MAX_TEXT}
+                            for index in range(3))
+            plan = Plan(replace(issue(number), title=f'Item {number} ' + 'T' * 500),
+                        self.cfg.agents[0], None, state, reason, 1, history=history,
+                        priority='priority:urgent' if number == 23 else None)
+            self.observer.plan(plan)
+            if number == 23:
+                urgent = plan
+            if number == 25:
+                self.observer.assignment(plan)
+        # Keep both agents of the urgent merged item, even though its plans
+        # come after every delayed item in pass order.
+        self.observer.plan(replace(urgent, agent=replace(urgent.agent, name='reviewer')))
+        self.observer.state['outcomes'] = [
+            {'item': number, 'agent': 'worker', 'run': f'outcome-{number}',
+             'summary': 'O' * MAX_TEXT, 'time': iso(2000)} for number in (26, 27)]
+        self.observer._batching = False
+        self.observer.complete_pass()
+        retained = deepcopy(self.observer.state)
+        self.assertGreater(Observations.byte_size(retained), MAX_BYTES)
+        before = work_pane(Session(self.root / 'launcher.json', retained), self.root)
+        snapshot = self.memory.snapshots[-1]
+        after = work_pane(Session(self.root / 'launcher.json', snapshot), self.root)
+        self.assertEqual([[row.key for row in section.rows] for section in after.sections],
+                         [[row.key for row in section.rows] for section in before.sections])
+        self.assertEqual(after.sections[-1].label, 'Eligible · 23 · showing 10')
+        self.assertEqual(after.sections[-1].rows[0].item, 23)
+        self.assertEqual([plan['agent'] for plan in after.sections[-1].rows[0].eligible_plans],
+                         ['worker', 'reviewer'])
+        self.assertGreater(snapshot['omitted']['plans'], 0)
+        self.assertEqual(snapshot['outcomes'], [])
+        self.assertEqual(snapshot['omitted']['outcomes'], 2)
+        self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+        for number in (23, 24, 25):
+            self.assertEqual(snapshot['histories'][str(number)]['runs'][-1]['time'], iso(1002))
         self.assertEqual(self.observer.state, retained)
 
     def test_author_observations_use_existing_role_reads_and_fail_closed(self):
@@ -250,7 +322,7 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual([row.item for row in work if row.group == 'Eligible'], eligible)
             kept = next(row for row in work if row.item == 4)
             self.assertEqual(kept.data['history'], previous['histories']['4'])
-            self.assertEqual(local_description(kept, result.session).body, 'Body 4')
+            self.assertFalse(local_description(kept, result.session).available)
             self.assertEqual(next(row for row in result.pane.rows if row.item == 4).state, 'blocked')
         self.observer.complete_pass()
         snapshot, work, result = published()
@@ -260,7 +332,7 @@ class ObservationTests(unittest.TestCase):
         earlier = next(row for row in result.pane.rows if row.item == 4)
         self.assertEqual(earlier.state, 'earlier observation')
         self.assertEqual(earlier.data['history'], previous['histories']['4'])
-        self.assertEqual(result.description.body, 'Body 4')
+        self.assertFalse(result.description.available)
         # A later begin also keeps rows from a pass interrupted by execution.
         self.observer.begin_pass()
         self.observer.plan(replace(changes[0], state='waiting'))
@@ -397,8 +469,7 @@ class ObservationTests(unittest.TestCase):
                 order = [(3, 'integrator'), (4, 'reviewer')]
                 self.assertEqual([(row['item'], row['agent']) for row in rows],
                                  order if 'ready-to-merge' in labels else order[::-1])
-                self.assertEqual(next(row for row in rows if row['item'] == 3)['description']['text'],
-                                 'Updated candidate')
+                self.assertNotIn('description', next(row for row in rows if row['item'] == 3))
                 self.assertEqual(next(row for row in rows if row['item'] == 4), previous[-1])
 
     def test_partial_pass_replaces_dropped_row_with_unfinished_run_recovery(self):
@@ -449,7 +520,7 @@ class ObservationTests(unittest.TestCase):
         self.assertFalse(any(name == 'observe' or (name == 'item' and args[0] == 1)
                              for name, args in github.reads))
 
-    def test_kept_agent_uses_its_previous_description_and_item_history(self):
+    def test_kept_agent_uses_its_previous_item_history_without_descriptions(self):
         first = Plan(replace(issue(), body='Previous body'), self.cfg.agents[0], None,
                      'ready', 'Ready', 1)
         second = replace(first, agent=replace(first.agent, name='reviewer'))
@@ -465,9 +536,9 @@ class ObservationTests(unittest.TestCase):
         session = Session(self.root / 'launcher.json', self.memory.snapshots[-1])
         merged, = work_rows(session, self.root)
         refreshed, kept = merged.eligible_plans
-        self.assertEqual(local_description(merged, session).body, 'New body')
+        self.assertFalse(local_description(merged, session).available)
         self.assertEqual([plan['agent'] for plan in merged.eligible_plans], ['worker', 'reviewer'])
-        self.assertEqual(kept['description']['text'], 'Previous body')
+        self.assertNotIn('description', kept)
         self.assertEqual(kept['history'], previous)
         self.assertEqual(len(refreshed['history']['runs']), 1)
         self.observer.complete_pass()
@@ -528,21 +599,29 @@ class ObservationTests(unittest.TestCase):
             github.timelines[1] = []
             loop = self.loop(github, observed)
             loop.coordinator.clock = lambda: 1800000000
+            polling_reads = []
+            replan = loop._replan_finished_item
+            def refresh(plan):
+                polling_reads.extend(github.reads)
+                writes = github.writes[:]
+                replan(plan)
+                self.assertEqual(github.writes, writes)
             with patch("ub_agents.coordination.uuid.uuid4") as uuid:
                 uuid.return_value.hex = "same-run"
                 def finish(*args, **kwargs):
                     lease = next(r for r in loop.coordinator.history(2) if r["kind"] == "lease")
                     loop.coordinator.report(lease, "success", "Finished", outcome="done")
                     return 0
-                with patch("ub_agents.loop.supervise", side_effect=finish):
+                with patch("ub_agents.loop.supervise", side_effect=finish), \
+                        patch.object(loop, '_replan_finished_item', side_effect=refresh):
                     loop.launch(once=True)
-            results.append((github.reads[:], github.writes[:], deepcopy(github.items),
+            results.append((polling_reads, github.writes[:], deepcopy(github.items),
                             records([c for comments in github.store.values() for c in comments])))
             self.assertFalse(any(name in {"timeline", "issue_content", "comments"} and args[0] in {3, 4}
                                  for name, args in github.reads))
         self.assertEqual(results[0], results[1])
         state = self.memory.snapshots[-1]
-        self.assertEqual([r["item"] for r in state["latest_pass"]["rows"]], [1, 2])
+        self.assertEqual([r["item"] for r in state["latest_pass"]["rows"]], [1])
         self.assertEqual(state["latest_pass"]["state"], "partial")
         self.assertEqual(state["outcomes"][0]["acceptance"], "finalized")
         self.assertEqual(state["outcomes"][0]["runtime"], "direct")
@@ -565,6 +644,136 @@ class ObservationTests(unittest.TestCase):
         history = self.memory.snapshots[-1]["histories"]["1"]
         self.assertEqual([run["time"] for run in history["runs"]], [lease["created"]])
         self.assertEqual(history["runs"][0]["host"], socket.gethostname())
+
+    def test_finished_preparer_replans_all_roles_before_another_partial_pass(self):
+        preparer = agent(self.root, name='issue-preparer', kind='issue',
+                         triggers=('needs-preparation',),
+                         outcomes={'prepared': {'add': ('needs-review',), 'remove': ()}})
+        reviewer = agent(self.root, name='issue-reviewer', kind='issue', triggers=('needs-review',))
+        auditor = replace(reviewer, name='auditor')
+        self.cfg = config(self.root, preparer, reviewer, auditor, replace(self.cfg.agents[0], kind='either'),
+                          queue=Queue(milestones='gate', priority=Priority(('urgent',))))
+        self.observer = Observations(self.cfg, 'operator', None, self.memory)
+        github = PollGitHub(issue(labels=('needs-preparation', 'urgent'), milestone=9), issue(3, milestone=9),
+                            pr(labels=(), body='Independent change'))
+        github.milestones = [{'number': 9, 'state': 'open', 'created_at': '2026-01-01T00:00:00Z'}]
+        loop = self.loop(github)
+        self.observer.begin_pass()
+        list(loop.iter_plans())
+        self.observer.complete_pass()
+        kept = deepcopy(self.memory.snapshots[-1]['latest_pass']['rows'][-1])
+        reads, writes, snapshots = [], [], []
+        release = loop.coordinator.release
+        def released(*args, **kwargs):
+            result = release(*args, **kwargs)
+            reads.extend(github.reads)
+            writes.extend(github.writes)
+            snapshots.extend(self.memory.snapshots)
+            return result
+        def finish(*args, **kwargs):
+            loop.coordinator.report(loop.github.lease, 'success', 'Prepared', outcome='prepared')
+            return 0
+        with patch('ub_agents.loop.supervise', side_effect=finish), \
+                patch.object(loop.coordinator, 'release', side_effect=released):
+            self.assertTrue(loop.tick())
+        refreshed_reads = github.reads[len(reads):]
+        self.assertEqual([args for name, args in refreshed_reads if name == 'item'], [(1, 'issue')])
+        self.assertFalse(any(name in {'observe', 'repository_comments', 'dependency_graph',
+                                     'active_milestone', 'milestone_order', 'prs_for_branch'}
+                             for name, _ in refreshed_reads))
+        self.assertTrue(all(args[0] == 1 for name, args in refreshed_reads
+                            if name in {'comments', 'timeline', 'issue_content'}))
+        self.assertEqual(github.writes, writes)
+        # The first published display refresh already contains every matching role.
+        snapshot = self.memory.snapshots[len(snapshots)]
+        self.assertEqual(snapshot['latest_pass']['state'], 'partial')
+        self.assertEqual([(r['item'], r['agent']) for r in snapshot['latest_pass']['rows']],
+                         [(3, 'worker'), (1, 'issue-reviewer'), (1, 'auditor')])
+        self.assertEqual(snapshot['latest_pass']['rows'][0], kept)
+        self.assertEqual({row['state'] for row in snapshot['latest_pass']['rows']}, {'ready'})
+        self.assertEqual([row['priority'] for row in snapshot['latest_pass']['rows'] if row['item'] == 1],
+                         ['urgent', 'urgent'])
+        session = Session(self.root / 'launcher.json', self.memory.snapshots[-1])
+        self.assertEqual([row.item for row in work_rows(session, self.root)
+                          if row.group == 'Eligible'], [3, 1])
+        self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
+        # An equal-priority PR keeps the following pass partial before it reaches #1.
+        github.change(2, labels=frozenset({'needs-changes', 'urgent'}))
+        github.timelines.pop(2, None)
+        github.reads.clear()
+        with patch.object(loop, 'execute', return_value=True) as execute:
+            self.assertTrue(loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 2)
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(snapshot['latest_pass']['state'], 'partial')
+        self.assertEqual([r['agent'] for r in snapshot['latest_pass']['rows'] if r['item'] == 1],
+                         ['issue-reviewer', 'auditor'])
+        self.assertFalse(any(name in {'item', 'comments', 'timeline', 'issue_content'} and args[0] == 1
+                             for name, args in github.reads))
+
+    def test_failed_finished_item_replan_preserves_verdict_and_next_claim_without_waiting(self):
+        self.cfg = config(self.root, agent(self.root))
+        for read in ('item', 'comments'):
+            for rate_limited in (False, True):
+                with self.subTest(read=read, rate_limited=rate_limited):
+                    self.observer = Observations(self.cfg, 'operator', None, self.memory)
+                    github = PollGitHub(issue(), pr(labels=(), body='Independent change'))
+                    loop = self.loop(github)
+                    loop.github.discovery = True
+                    release = loop.coordinator.release
+                    before = []
+                    def released(*args, **kwargs):
+                        result = release(*args, **kwargs)
+                        before.append(deepcopy(self.memory.snapshots[-1]))
+                        github.read_results[read] = [GitHubError('GET', 'item inputs', 'Unavailable',
+                            retryable=True, rate_limited=rate_limited, reset_at=timestamp() + 3600)]
+                        return result
+                    def finish(*args, **kwargs):
+                        loop.coordinator.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                        return 0
+                    with patch('ub_agents.loop.supervise', side_effect=finish), \
+                            patch.object(loop.coordinator, 'release', side_effect=released), \
+                            patch.object(loop.github, 'wait') as wait, patch.object(loop, '_wait') as delay:
+                        self.assertTrue(loop.tick())
+                        github.change(2, labels=frozenset({'needs-changes'}))
+                        github.timelines.pop(2, None)
+                        with patch.object(loop, 'execute', return_value=True) as execute:
+                            self.assertTrue(loop.tick())
+                        self.assertEqual(execute.call_args.args[0].item.number, 2)
+                        wait.assert_not_called()
+                        delay.assert_not_called()
+                    # An input failure publishes no partially replaced item rows.
+                    completed = next(s for s in self.memory.snapshots
+                                     if s['session'] == before[0]['session'] and s['assignment'] is None
+                                     and s['outcomes'])
+                    self.assertEqual(completed['latest_pass']['rows'], before[0]['latest_pass']['rows'])
+                    self.assertEqual(completed['outcomes'], before[0]['outcomes'])
+                    lease, outcome = loop.coordinator.history(1)
+                    self.assertEqual((lease['result'], outcome['accepted']), ('success', True))
+
+    def test_finished_item_replaces_attention_rows_in_place_without_completing_pass(self):
+        first = Plan(issue(), self.cfg.agents[0], None, 'parked', 'Old attention', 1)
+        second = replace(first, agent=replace(first.agent, name='reviewer'))
+        other = replace(first, item=issue(3), state='ready')
+        self.observer.begin_pass()
+        for plan in (first, second, other):
+            self.observer.plan(plan)
+        self.observer.complete_pass()
+        self.observer.begin_pass()
+        self.observer.plan(first)
+        updated = replace(second, state='ready', reason='Ready')
+        added = replace(updated, agent=replace(updated.agent, name='auditor'))
+        count = len(self.memory.snapshots)
+        self.observer.replanned_item(1, [('plan', (updated,)), ('plan', (added,))])
+        self.assertEqual(len(self.memory.snapshots), count + 1)
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(snapshot['latest_pass']['state'], 'partial')
+        self.assertEqual([(r['item'], r['agent']) for r in snapshot['latest_pass']['rows']],
+                         [(1, 'reviewer'), (3, 'worker'), (1, 'auditor')])
+        self.assertNotIn((1, 'worker'), self.observer.pass_rows)
+        self.observer.complete_pass()
+        self.assertEqual([r['agent'] for r in self.memory.snapshots[-1]['latest_pass']['rows']],
+                         ['reviewer', 'auditor'])
 
     def test_pr_filing_uses_only_items_already_read_by_discovery(self):
         self.cfg = config(self.root, agent(self.root, kind="pr", triggers=("needs-changes",)))
@@ -595,19 +804,27 @@ class ObservationTests(unittest.TestCase):
             github = PollGitHub(issue(1), issue(2), issue(3))
             loop = self.loop(github, observed)
             loop.coordinator.clock = lambda: 1800000000
+            polling_reads = []
+            replan = loop._replan_finished_item
+            def refresh(plan):
+                polling_reads.extend(github.reads)
+                writes = github.writes[:]
+                replan(plan)
+                self.assertEqual(github.writes, writes)
             with patch("ub_agents.coordination.uuid.uuid4") as uuid:
                 uuid.return_value.hex = "same-run"
                 def finish(*args, **kwargs):
                     lease = next(r for r in loop.coordinator.history(2) if r["kind"] == "lease")
                     loop.coordinator.report(lease, "success", "Finished", outcome="done")
                     return 0
-                with patch("ub_agents.loop.supervise", side_effect=finish):
+                with patch("ub_agents.loop.supervise", side_effect=finish), \
+                        patch.object(loop, '_replan_finished_item', side_effect=refresh):
                     self.assertEqual(loop.launch(number=2, agent_name="worker"), 0)
-            results.append((github.reads[:], github.writes[:], deepcopy(github.items),
+            results.append((polling_reads, github.writes[:], deepcopy(github.items),
                             records([c for comments in github.store.values() for c in comments])))
         self.assertEqual(results[0], results[1])
         state = self.memory.snapshots[-1]
-        self.assertEqual([r["item"] for r in state["latest_pass"]["rows"]], [2])
+        self.assertEqual(state["latest_pass"]["rows"], [])
         self.assertEqual(state["latest_pass"]["state"], "partial")
         self.assertEqual(state["outcomes"][0]["acceptance"], "finalized")
         self.assertTrue(state["ended"])
@@ -737,14 +954,13 @@ class ObservationTests(unittest.TestCase):
         self.assertGreater(state["shortened"]["characters"], 0)
         self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode()), MAX_BYTES)
         for row in state["latest_pass"]["rows"]:
-            self.assertEqual(len(row["title"]), MAX_TEXT)
-            self.assertGreaterEqual(row["description"]["omitted_characters"], 100)
-            self.assertEqual(len(row["description"]["text"]) + row["description"]["omitted_characters"],
-                             MAX_TEXT + 100)
+            self.assertLessEqual(len(row["title"]), MAX_TEXT)
+            self.assertNotIn('description', row)
         self.observer.begin_pass()
         plan = Plan(replace(issue(), body=None), self.cfg.agents[0], None, "parked", "reason", 1)
         self.observer.plan(plan)
-        self.assertFalse(self.memory.snapshots[-1]["latest_pass"]["rows"][0]["description"]["available"])
+        self.assertNotIn('description', self.memory.snapshots[-1]['latest_pass']['rows'][0])
+        self.observer.complete_pass()
         for number in range(MAX_OUTCOMES + 3):
             self.observer.assignment(plan)
             self.observer.record({"kind": "lease", "assignment": 1, "agent": "worker", "run": str(number),
@@ -856,7 +1072,7 @@ class PublisherTests(unittest.TestCase):
         observer = Observations(config(self.root), "operator", None, self.publisher())
         observer.begin_pass()
         for number in range(MAX_PLANS + 1):
-            plan = Plan(replace(issue(number + 1), body="😀" * (MAX_TEXT + 10)),
+            plan = Plan(replace(issue(number + 1), title="😀" * (MAX_TEXT + 10)),
                         config(self.root).agents[0], None, "parked", "reason", 1)
             observer.plan(plan)
         observer.complete_pass()

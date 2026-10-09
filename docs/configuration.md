@@ -26,11 +26,12 @@ The launcher pins its repository and input configuration; worktree edits and
 | `agents` | The agents, by name. |
 | `shared-instructions` | Optional project policy file, relative to the configuration file and inside the project; read before every role's instructions. |
 | `limits` | Default clocks and retry limits for every agent. |
-| `poll-seconds` | Minimum gap between discovery-pass starts, including after a run (default 30 seconds). |
+| `poll-seconds` | Minimum gap between discovery-pass starts, except immediately after running or recovering work (default 30 seconds). |
 | `stop-labels` | Labels that park an item (default `[needs-human]`). |
 | `cleanup` | Optional project cleanup hook and timeout, run before private worktree removal. |
-| `checkout-setup` | Optional control-checkout setup command, run after refresh when watched files change. |
+| `checkout-setup` | Optional setup command, run after watched control-checkout files change and when creating private worktrees. |
 | `runtime-updates` | Optional daily maintenance policy for Claude Code, Codex and the launcher's GitHub CLI (`gh`). |
+| `runtime-args` | Optional mapping from CLI (`codex`, `claude`) to default argument lists, inherited by runtime agents that omit their own `runtime-args`. |
 | `queue` | Priority ranking, dependency waits and optional milestone gating or ordering (defaults to FIFO, waiting for blockers, with milestones ignored). |
 
 `shared-instructions: .agents/ub_agents.md` supplies policy to every run between the
@@ -74,7 +75,7 @@ control checkout. Publication is always on and has no configuration key.
 Writing the snapshot makes no GitHub requests; continuous launch also runs
 read-only observation passes during assignments to refresh the planned queue.
 `status` and embedded loops without an observer keep their existing
-behavior. Snapshots contain issue titles and descriptions already read by the
+behavior. Snapshots contain issue titles and run summaries already read by the
 launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
 directories have mode `0700`; snapshot and temporary files have mode `0600`.
 
@@ -101,9 +102,9 @@ The version 1 envelope contains:
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
 | `poll_now` | Optional poll control: `cooldown_until` and `rate_limit_until` are UTC ISO 8601 times or `null`; `waiting: true` confirms a poll waiter is installed, allowing immediate feedback on `r` during an assignment unless cooldown or rate limits apply. Missing or false `waiting` gives no such confirmation. `refreshing: true` means an `r`-forced read-only queue refresh is running during an assignment. Missing or false `refreshing` means no forced refresh; scheduled refreshes do not set it. |
 | `assignment` | Current item, kind, title, agent, effective priority word, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
-| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time. Descriptions have `available`, bounded `text` and `omitted_characters`, or an unavailability reason. Another launcher's owner includes only actor, host and run, with no log paths. |
+| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. A supervised run's completed outcome refreshes its item's rows for every configured agent before the next claim, without completing the pass or discovering the repository. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time, without description text. `eligible_count` counts merged Eligible items before byte trimming, excluding the running agent; older snapshots may omit it. Another launcher's owner includes only actor, host and run, with no log paths. |
 | `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff when reported, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit optional header context. |
-| `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. |
+| `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. Work's `omitted N` counts dropped plan rows; Eligible's heading uses `eligible_count` even when hidden plans were dropped. |
 
 Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
 `unknown`. Only a process recorded by supervision is shown as running; a lease's
@@ -113,11 +114,17 @@ transition complete). `completed` can be true while `human_blocker` lists stop
 labels such as `needs-human`. Finalized outcomes' blockers carry their last
 observation time and are updated when a later pass reaches that target;
 unfinalized reports have no applicable blocker yet. Missing values are `null` with
-reasons where known; unavailable descriptions explicitly say why.
+reasons where known. The Issue tab loads missing descriptions from GitHub when
+opened; a view from the previous build can still read these snapshots and offers
+`g` to load the description.
 
 Snapshots hold at most 100 latest-pass rows and 20 recent outcomes. Each text
 value is limited to 2,048 characters and the entire UTF-8 JSON file to 64 KiB;
-the size bound can omit additional plan rows or older outcomes. Publication uses
+the size bound trims surplus history runs, older outcomes and plans outside Work's
+visible sections before Running, Needs attention and the first ten Eligible items
+in the view's claim order. Each retained item's newest run is kept. Long visible
+display text is shortened further if necessary; only an envelope whose remaining
+metadata cannot fit loses visible plans. Publication uses
 a bounded mailbox and an isolated worker. A slow or failed writer cannot delay
 claims, outcome acceptance, recovery, configuration reload, signal handling or
 launcher exit; failures produce at most one publication diagnostic per session.
@@ -125,14 +132,14 @@ Snapshots are never read for claims, coordination or recovery.
 
 `poll-seconds` measures the minimum time between the starts of successful
 continuous discovery passes, including observation passes during a run.
-A run's report, transitions and cleanup finish
-immediately; after a pass that ran or recovered work, the launcher waits for the
-part of that interval still remaining since the latest pass started. If that
-pass already took the interval, the
-next pass starts immediately. See
+A run's report, transitions and cleanup finish immediately. After a pass that ran
+or recovered work, the next claiming pass starts immediately, whether the run
+ended as success, retry or blocked. The interval then counts from that new pass's
+start; the latest in-run observation does not delay it. Rate-limit waits, runtime
+usage pauses, failed-poll retry backoff and graceful stops still apply. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signals during
 waits. Failed-poll retry delays below are independent of this interval, and
-`launch --once` never waits after its pass.
+`launch --once` and `launch N` never wait after their pass.
 
 When no open issue or PR has a configured trigger label, `launch` and
 `launch --once` list the trigger labels and say to add one to start. Continuous
@@ -157,7 +164,8 @@ queue without claiming, recovering, approval-parking or printing plan or idle li
 Only completed observation passes replace the snapshot's queue rows; a failed or
 rate-limited pass retains the previous rows and cannot interrupt execution,
 heartbeats, reporting, transitions or cleanup, or stop the launcher.
-After the run, the next claiming pass returns to normal `poll-seconds` pacing.
+After the run, fresh claiming discovery starts immediately, retaining any active
+observation rate-limit wait. An empty claiming pass resumes the budget pacing above.
 
 The launcher retains `X-RateLimit-Remaining`, `X-RateLimit-Limit` and
 `X-RateLimit-Reset` from the latest response for each `X-RateLimit-Resource`
@@ -249,8 +257,9 @@ wait metadata falls back to **one minute**. Each wait is capped at **one hour**;
 afterward the read is retried, and another rate limit starts another wait.
 
 Time spent waiting for a rate limit counts toward the `poll-seconds` or empty-pass
-budget gap between discovery-pass starts. A completed pass waits only for any gap
-still left; if the wait or run already used that time, the next pass starts immediately.
+budget gap between discovery-pass starts. An empty pass waits only for any gap
+still left. A pass that ran or recovered work starts the next pass immediately
+after any active rate-limit wait.
 
 Rate-limited reads do not count toward the poll failure limit or an item's attempts.
 Each wait prints `GitHub rate limit reached; waiting until <reset UTC> (<n> min)`
@@ -325,14 +334,15 @@ checkout-setup:
 ```
 
 Use this to reinstall the control checkout's dependencies when a launcher pulls
-a lockfile or tool configuration change. Without `checkout-setup`, no command runs.
-`command` is a nonempty argv list, run without a shell in the control checkout.
+a lockfile or tool configuration change, and install dependencies in new private
+worktrees. Without `checkout-setup`, no command runs.
+`command` is a nonempty argv list, run without a shell in the checkout being set up.
 `when-changed` is a nonempty list of literal repository-relative file paths;
 absolute paths, directories and `..` components are rejected. Paths can name files added or
 deleted by the pull. `timeout-seconds` is a positive number, defaults to 600,
 and cannot exceed 3600. Unknown keys are errors.
 
-Before each new run, after fetching, fast-forwarding and reloading configuration,
+In the control checkout, before each new run, after fetching, fast-forwarding and reloading configuration,
 the launcher compares these files with the last commit where setup succeeded.
 Until the first successful setup, it uses the HEAD before the fast-forward.
 That baseline is saved before the fast-forward, so stopping launch or failing
@@ -349,11 +359,29 @@ or `~/.local/state/ub-agents/checkouts/`), keyed by the control checkout's path.
 The command should keep tracked files unchanged and use ignored paths for installed
 dependencies so the next refresh still has a clean checkout.
 
-A nonzero exit, start failure, timeout or interruption stops launch before a claim,
+A nonzero exit, start failure, timeout or interruption in control-checkout setup stops launch before a claim,
 without spending an attempt or marking the item blocked or retrying. The message
 names the cause, log and next step. Failed setup remains pending and runs again on
 the next launch, even with nothing to pull, until it succeeds. See
 [operations](operations.md#when-things-go-wrong) for recovery.
+
+For an agent with `worktree: true`, the launcher also runs the command once in
+each private worktree immediately after creating it, before the agent starts.
+`when-changed` applies only to the control checkout; a new worktree always needs
+its own dependencies. Shared-checkout agents run no additional setup command.
+Private setup uses the same environment and timeout as control-checkout setup.
+The terminal view and plain output say setup is running in the worktree; its
+output goes to `checkout-setup/process.log` in the run's log directory, separately
+from the agent's `process.log`.
+
+For a PR reviewer, setup installs the PR head's lockfile, so its install scripts
+run before the agent does; the agent would run them anyway to test the PR.
+A failure ends the run before the agent starts, cleans up the private worktree,
+and reports the cause and log as a workspace-preparation failure. Interruption
+terminates setup like an interrupted agent. Timeout and interruption terminate
+and confirm the whole process group; crash recovery requires confirmed termination
+before releasing the item or removing the worktree. The item's stop labels, open
+state, trigger labels and candidate head are checked again after setup finishes.
 
 **Upgrading:** Upgrade every launcher of a project before adding `checkout-setup`
 to its `ub-agents.yaml`; older versions reject the unknown key.
@@ -485,15 +513,16 @@ milestone. Later and unmilestoned issues wait even when the active milestone has
 no eligible issue. Planning, claiming and approval parking enforce this gate;
 PR work, owned runs and recovery remain eligible.
 
-In `order` mode, new issues rank first by open milestones with open issues or PRs,
-oldest first by creation time and then milestone number. Issues without a milestone,
-or with a milestone outside that list (such as a closed milestone), rank after all
-listed milestones. Within each milestone, effective priority, item creation time
-and item number decide order. An earlier milestone wins even against higher
-priority in a later milestone. Milestones never hold back an otherwise eligible
-issue; later and unmilestoned work can start when earlier work cannot.
-PR work, owned runs and recovery keep their existing priority order before new
-issue starts. Ordering uses the milestone list and each listed issue's milestone;
+In `order` mode, new issues of equal effective priority rank by open milestones
+with open issues or PRs, oldest first by creation time and then milestone number.
+Within one priority, issues without a milestone, or with a milestone outside that
+list (such as a closed milestone), rank after all listed milestones. Item creation
+time and item number break ties. Higher priority in a later or no milestone wins
+against lower priority in an earlier milestone. Milestones never hold back an
+otherwise eligible issue; later and unmilestoned work can start when earlier work
+cannot. PR work, owned runs and recovery precede new issue starts only at equal
+effective priority, and their rank ignores milestones.
+Ordering uses the milestone list and each listed issue's milestone;
 an unreadable milestone list stops selection visibly. In `ignore` mode, planning
 and claiming do not read milestones. `ub-agents check` accepts all three modes.
 This repository explicitly sets `order`; existing `gate` configurations remain
@@ -523,8 +552,10 @@ The claim-time recheck always reads the selected new issue's blocker links.
 `queue` block, priorities are unconfigured, milestones are ignored and dependency
 waits apply.
 
-Priority is followed by item creation time and then item number; milestone `order`
-adds milestone rank first for new issue starts. See
+Rank is effective priority, then existing work (PRs, owned runs and recovery)
+before new issue starts, then milestone rank for new issues in `order` mode, then
+item creation time and item number. Without configured priorities, all items have
+equal priority, so existing work still goes first. See
 [selection order](coordination.md#selection-order) for eligibility and
 PR precedence. `ub-agents status` and `status --json` use the same rank order and
 show each item's effective priority (`none` in text, `null` in JSON when no label
@@ -556,10 +587,51 @@ Each agent has exactly one of `runtime` or `command`.
 | `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. Validated and reread from the refreshed control checkout before each new run. |
 | `command` | An argv list to run instead of an LLM session. A relative executable resolves against the configuration's directory. |
+| `health-check` | Optional nonempty argv list to check a project dependency before claiming new work for this agent. |
 | `different-runtime-from` | Another agent's name; requires a PR. When an accepted report identifies that agent's runtime for the current head, this agent must run on a different CLI and model; a different effort doesn't count. Wait for a pending handoff to finish. Without such a report or pending handoff, use only the first configured runtime, blocking if its CLI isn't installed. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
-| `runtime-args` | Extra arguments for the runtime CLI, such as permission flags. |
+| `runtime-args` | Replaces all top-level runtime argument defaults: a list shared by all alternatives, or a mapping from listed CLI (`codex`, `claude`) to a list. Omit to inherit; `[]` or `{}` disables the defaults. |
 | Limit keys | Override `limits` for this agent. |
+
+### Project health checks
+
+An agent can wait for a project dependency, such as a corpus MCP server, before
+claiming work:
+
+```yaml
+agents:
+  issue-preparer:
+    health-check: [./scripts/check-corpus]
+    # runtime, trigger, instructions and outcomes as usual
+```
+
+The launcher runs this command without a shell in the control checkout, only when
+the agent has otherwise-ready work and before claiming it or writing new assignment
+records. Relative executables resolve like an agent `command`. The project decides
+what to check; ub-agents only runs the configured command. The timeout is fixed at
+60 seconds. A successful check is reused for up to five minutes within the launcher;
+a failure is checked again on the next poll with ready work for that agent.
+
+A nonzero exit, start failure or timeout makes the agent's ready rows `waiting`,
+naming the command and the last nonempty stderr line, falling back to stdout or
+the start or timeout error. The launcher emits one line when the check starts
+failing or its error line changes, and one when it passes again; launch output
+also goes to `.ub-agents/launch.log`. Waiting rows appear in the terminal view's
+Eligible section, outside Needs attention. There are no claims, attempts, label
+changes or item comments for new work while the check fails. Other agents keep
+claiming, and `launch --once` exits normally.
+
+`ub-agents status` runs the check itself, including without a launcher on the same
+machine. When the check passes, claiming resumes automatically without `retry`.
+Checks do not interrupt active runs or prevent recovery of recorded outcomes, and
+they do not reset previously parked items. `check` validates the argv list without
+running it; `doctor` does not run it either. These project checks are separate from
+[daily runtime maintenance](#daily-runtime-maintenance).
+
+**Upgrading:** Upgrade every launcher of a project before adding `health-check`;
+older versions reject the unknown agent key.
+
+### Retrospectives
 
 Set `retrospectives: 203` on an agent to enable its supervised posting command:
 
@@ -581,6 +653,8 @@ nonzero. Success and failure write no coordination records, labels or outcome.
 Only agents with this key receive a prompt line with the literal command and when
 to post: the run lost something, and the agent can name the change that would have
 prevented it. Agents without the key receive no retrospective prompt line.
+
+### Pickup and refresh
 
 Approval enforcement is mandatory for `issue`, `pr` and `either` agents, including
 preparation and direct `command` runs. The launcher uses the union of issue/either
@@ -733,17 +807,35 @@ context, optional shared policy and role instructions, arrives on stdin:
 - `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
 - `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
 
-`runtime-args` are appended, with `{scratch}` replaced by the run's absolute scratch
-path and `{report_command}` by the launcher's absolute report command
+Top-level `runtime-args` accepts a mapping from CLI (`codex`, `claude`) to a list
+of strings. Runtime agents inherit it when they omit their own `runtime-args`;
+command agents do not inherit it. Each run appends only its selected CLI's list,
+including when a later run switches alternatives. A missing or empty CLI entry
+adds no arguments. `check` validates every top-level entry, even for CLIs no agent
+currently uses, and rejects unknown CLI keys.
+
+An agent's `runtime-args` accepts a list applying to every alternative, or a
+per-CLI mapping. Either form replaces the entire top-level mapping, without
+extending it or falling back to it for omitted CLI keys. An explicit `[]` or `{}`
+disables inheritance. Agent mapping keys must name a known CLI present in that
+agent's runtime list. `check` names the agent and key for an invalid entry.
+
+The selected arguments are appended, with `{scratch}` replaced by the run's
+absolute scratch path and `{report_command}` by the launcher's absolute report command
 (see [Runtime permissions](#runtime-permissions)). They must not change the model
 or effort, or resume a session: `check` rejects those flags, because
 `different-runtime-from` trusts the recorded `cli:model:effort` and every run starts fresh.
-For agents with a Claude runtime, `runtime-args` must not set `--output-format`
-(including `--output-format=…`); `check` rejects it because the launcher owns the
-stream format. A redundant `--verbose` is accepted.
+`check` validates each mapping entry with that CLI's rules; a shared list must
+satisfy every listed CLI's rules. Claude arguments must not set `-c` (its session
+continuation flag) or `--output-format` (including `--output-format=…`), because
+the launcher starts fresh sessions and owns the stream format. A redundant
+`--verbose` is accepted.
 Codex `runtime-args` must not set `--ephemeral`: the launcher may need the fresh
 session's limit signal when it is absent from the JSON stream. A redundant `--json`
 is accepted.
+Codex's `-c` is accepted for configuration settings other than model, effort or
+session overrides, even when the agent also lists Claude, if placed in the
+`codex` mapping entry. Both forms use the same placeholder validation.
 
 `process.log` records each CLI's stdout and stderr directly. Codex runs log their
 JSON event stream. Claude runs log the JSON stream of tool calls, tool results and
@@ -958,13 +1050,14 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
                --add-dir, "{scratch}"]  # claude
 ```
 
-`init` includes the matching example for every starter agent using the CLI selected
-by `--runtime`, without the optional retrospective rule. In an interactive terminal,
-it explains the grant and asks once whether to enable the examples for all four
-agents; only `y` or `yes` enables them. No, an empty answer or end of input keeps
-them commented out. When `CI` is set or stdin or stdout is not a terminal, it asks
-nothing and keeps them commented out, matching label provisioning. Whenever they
-remain commented out, init prints a next step to uncomment or customize them before
+These list examples belong inside an agent definition. `init` instead includes
+one commented top-level mapping entry for the CLI selected by `--runtime`, inherited
+by all four starter agents, without the optional retrospective rule. In an
+interactive terminal, it explains the grant and asks once whether to enable it
+for all four agents; only `y` or `yes` enables it. No, an empty answer or end of
+input keeps the mapping commented out. When `CI` is set or stdin or stdout is not
+a terminal, it asks nothing and keeps it commented out, matching label provisioning.
+Whenever it remains commented out, init prints a next step to uncomment or customize it before
 unattended work. The Claude starter includes a commented placeholder for project
 check commands: `--allowedTools` denies commands
 that are not listed.
@@ -987,12 +1080,37 @@ Claude configuration and the Claude example generated by `init` use this rule.
 Upgrade every launcher before adopting it: older builds reject configurations using
 the placeholder.
 
-`doctor` reports runtime agents with no `runtime-args` in one warning naming them,
-with one remedy linking this guidance. It does not fail or test whether supplied
-arguments grant sufficient permissions.
+`doctor` checks each runtime agent's effective arguments after inheritance or
+replacement. It reports any agent with missing or empty arguments for a listed
+CLI in one warning naming them, with one remedy linking this guidance. Configure
+the top-level mapping or agent overrides to cover those CLIs. It does not fail or
+test whether supplied arguments grant sufficient permissions.
 
-`runtime-args` apply to every alternative in a runtime list, so use CLI-specific flags
-only on agents with a single runtime. Codex's `workspace-write` sandbox cannot commit in
+Declare arguments once at the top level to give each CLI its own permissions and
+settings across agents, including agents that mix runtimes:
+
+```yaml
+runtime-args:
+  codex: [--sandbox, danger-full-access, -c, 'mcp_servers.example.enabled=true']
+  claude: [--permission-mode, acceptEdits, --permission-prompts, none,
+           --allowedTools, "Bash(git *)", "Bash(gh *)",
+           "Bash({report_command} report *)", "Bash({report_command} read *)",
+           --add-dir, "{scratch}"]
+agents:
+  reviewer:
+    runtime: ["codex:gpt-6.1-sol:xhigh", "claude:claude-opus-5-5:xhigh"]
+    instructions: .agents/reviewer.md
+    trigger: needs-review
+    outcomes: {approved: {add: [ready-to-merge]}}
+```
+
+An agent-level list still applies to every alternative and replaces all defaults.
+An agent-level mapping also replaces all defaults; an omitted CLI entry receives
+no arguments even when that CLI has top-level defaults. Mapping values may use
+YAML aliases for selective reuse. Upgrade every launcher before adopting top-level
+`runtime-args` or agent mappings: older builds reject these forms.
+
+Codex's `workspace-write` sandbox cannot commit in
 private worktrees, whose Git metadata lives in the main checkout.
 
 Each run's scratch directory is outside the control checkout and private worktrees,
@@ -1014,7 +1132,7 @@ Combine this with the role's other permission arguments. The launcher replaces
 in YAML: unquoted `{scratch}` is parsed as a mapping rather than an argument string.
 A placeholder is a single word in braces using letters, digits, `-` or `_`; config
 loading accepts only `{scratch}` and `{report_command}`, rejecting others with the
-agent and placeholder named in the error. Other braces, such as JSON `'{"a": 1}'` or TOML `'x={y=true}'`, pass
+top-level CLI or agent and placeholder named in the error. Other braces, such as JSON `'{"a": 1}'` or TOML `'x={y=true}'`, pass
 through unchanged. There is no other templating or environment-variable expansion;
 placeholders apply only to `runtime-args`, not `command` or other config keys.
 The launcher adds no permission flags of its own.
@@ -1195,7 +1313,8 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   unreadable role, and when the authenticated account is unlisted.
   Use a dedicated account with `write`;
   see [Issue approvals](approvals.md#repository-roles). Runtime agents without
-  `runtime-args` produce one warning naming them and linking the permission guidance.
+  effective `runtime-args` for any listed CLI, after top-level inheritance or agent
+  replacement, produce one warning naming them and linking the permission guidance.
   After its report, interactive doctor offers to create the missing labels with the
   same explanation and prompt as init; the default is no. It writes labels only after
   a confirmed `y` or `yes` and never changes existing labels. It then reads labels

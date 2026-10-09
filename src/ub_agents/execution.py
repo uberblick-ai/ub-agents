@@ -26,7 +26,7 @@ def command_for(agent, runtime, scratch, report_command=None):
     # No permission flags, auth stores, or hidden provider fallback; never a shell.
     values = {"{scratch}": str(scratch), "{report_command}": report_command or launcher_report_command()}
     return command + [re.sub(r"\{(?:scratch|report_command)\}", lambda match: values[match[0]], arg)
-                      for arg in agent.runtime_args]
+                      for arg in agent.runtime_args_for(runtime)]
 
 
 def git(root, *arguments, strip=True):

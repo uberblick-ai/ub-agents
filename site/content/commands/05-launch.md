@@ -2,9 +2,32 @@
 
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
+After a run or recovery finishes, continuous launch immediately checks for the
+next item, including after retry or blocked results. Rate-limit waits, runtime
+usage pauses and graceful stops still apply. With no assignment, Running shows
+`Idle · polling` during a pass, then `Idle · nothing eligible for this launcher`
+only after a complete pass with nothing claimable.
+
+When a supervised run's outcome lands, Work immediately refreshes that item's
+rows for every configured agent, even during a partial pass. Rows for its next
+role appear and obsolete rows disappear before the launcher claims again. This
+display refresh reads only that item's inputs; it makes no claims or repository
+discovery, and a failed read leaves the result and next pass unchanged.
+
+Configured [agent health checks](/docs/configuration/agents.html#health-check) make otherwise-ready items wait in Eligible without spending attempts. The terminal view shows the latest failure, changed error or recovery in one line above the panes, also printed in plain launch output and `.ub-agents/launch.log`. Claiming resumes automatically when the check passes; other agents keep claiming while it fails.
+
 While a new run's log file has not appeared yet, Log shows `No log output yet.`
 without a read error and follows output automatically once it appears. Other read
 failures, including a log that disappears after being read, still show `Read error`.
+
+Open Issue with `2`, a tab click, or select another item while Issue is active to
+load its missing title and description from GitHub. It shows `Loading #N…` while
+the read is pending, then caches the result. Reopening a cached item makes no read;
+press `g` to retry a failure. Descriptions are limited to 2,048 characters with a
+shortening notice. The session snapshot carries no description text and keeps
+Running, Needs attention and the first ten Eligible items ahead of hidden plans
+and older history; Eligible's heading keeps the full count when hidden plans are
+left out to fit the size limit.
 
 Pane and overlay scrollbars stay hidden until you scroll. Each muted bar uses
 one reserved column, so appearing or disappearing never shifts the content.
@@ -19,13 +42,12 @@ new outcomes keep older rows in view when browsing away from the top. Resizing
 keeps the selected retained outcome visible. Recent activity follows the same
 scrollbar convention as the other areas.
 
-`N today` counts cached outcomes dated today. When older outcomes have been
-evicted, `N older outcomes not retained` appears below the header. The header and
-notice stay fixed above the scrolling rows, including at the oldest retained
-outcome. Scrolling
-reaches rows outside the viewport, but cannot recover outcomes removed from the
-20-outcome cache. The notice uses the existing snapshot and needs no extra
-GitHub requests.
+The fixed, non-selectable header reads `Recent activity · showing N`, counting
+all listed outcomes, including those outside the viewport, up to 20. It reads
+`showing 0` when empty. Rows start directly below the header; there is no notice
+or reserved header line for older outcomes. Scrolling reaches rows outside the
+viewport, but cannot recover outcomes removed from the
+20-outcome cache.
 
 Before each new run, launch refreshes the control checkout and reloads its configuration. Optional [checkout setup](/docs/configuration/checkout-setup.html) reinstalls dependencies when watched files changed. The view names the triggering file; command output stays in the reported log. A failed setup stops launch before a claim or charged attempt and retries on the next launch, even with nothing to pull.
 

@@ -27,11 +27,20 @@ class UniqueLoader(yaml.SafeLoader):
 
 def _mapping(loader, node, deep=False):
     result = {}
+    path = getattr(loader, "mapping_path", ())
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
         if not isinstance(key, str) or key in result:
+            if path == ("runtime-args",):
+                raise AgentError(f"runtime-args {key!r}: YAML keys must be unique strings")
+            if len(path) == 3 and path[0] == "agents" and path[2] == "runtime-args":
+                raise AgentError(f"{path[1]} runtime-args {key!r}: YAML keys must be unique strings")
             raise AgentError(f"YAML keys must be unique strings: {key!r}")
-        result[key] = loader.construct_object(value_node, deep=deep)
+        loader.mapping_path = (*path, key)
+        try:
+            result[key] = loader.construct_object(value_node, deep=deep)
+        finally:
+            loader.mapping_path = path
         # Preserve exactly these policy spellings, not other YAML booleans.
         if (key == "approvals" and isinstance(value_node, yaml.ScalarNode)
                 and value_node.value in {"on", "off"}):
@@ -128,7 +137,7 @@ class Agent:
     instructions: Path | None
     runtimes: tuple[Runtime, ...]
     command: tuple[str, ...]
-    runtime_args: tuple[str, ...]
+    runtime_args: tuple[str, ...] | dict[str, tuple[str, ...]]
     different_from: str | None
     kind: str
     worktree: bool
@@ -139,6 +148,12 @@ class Agent:
     max_backoff_seconds: float
     outcomes: dict
     retrospectives: int | None = None
+    health_check: tuple[str, ...] = ()
+
+    def runtime_args_for(self, runtime):
+        if isinstance(self.runtime_args, dict):
+            return self.runtime_args.get(runtime.cli, ())
+        return self.runtime_args
 
 
 @dataclass(frozen=True)
@@ -212,8 +227,10 @@ def load_config(path):
     except (OSError, yaml.YAMLError) as exc:
         raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
-                          "checkout-setup", "runtime-updates", "launchers", "approvals", "trusted-bots", "shared-instructions"},
+                          "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots", "shared-instructions"},
                    "configuration")
+    runtime_defaults = runtime_arguments(
+        mapping(data.get("runtime-args", {}), set(CLIS), "runtime-args"), set(CLIS))
     # Keep symlinks in the configured path so each run revalidates their targets.
     shared = (root / string(data["shared-instructions"], "shared-instructions")
               if "shared-instructions" in data else None)
@@ -300,7 +317,7 @@ def load_config(path):
             raise AgentError("Agent names must be lowercase slugs")
         item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
             "command", "runtime-args", "different-runtime-from", "kind",
-            "worktree", "outcomes", "retrospectives"}, f"agent {name}")
+            "worktree", "outcomes", "retrospectives", "health-check"}, f"agent {name}")
         retrospectives = item.get("retrospectives")
         if "retrospectives" in item and (type(retrospectives) is not int or retrospectives <= 0):
             raise AgentError(f"{name} retrospectives must be a positive integer discussion number")
@@ -310,6 +327,9 @@ def load_config(path):
         if command and "/" in command[0] and not Path(command[0]).is_absolute():
             # Relative executables resolve against the operator's checkout, like instructions.
             command = (str(root / command[0]),) + command[1:]
+        health_check = argv(item["health-check"], f"{name} health-check") if "health-check" in item else ()
+        if health_check and "/" in health_check[0] and not Path(health_check[0]).is_absolute():
+            health_check = (str(root / health_check[0]),) + health_check[1:]
         runtimes = []
         for spec in strings(item["runtime"], f"{name} runtime") if "runtime" in item else ():
             parts = spec.split(":")
@@ -326,25 +346,12 @@ def load_config(path):
             project_path(root, str(instruction), f"{name} instructions")
         if runtimes and instruction is None:
             raise AgentError(f"{name}: runtime execution requires instructions")
-        runtime_args = argv(item.get("runtime-args", []), f"{name} runtime-args", empty=True)
-        for arg in runtime_args:
-            for placeholder in re.findall(r"\{[a-zA-Z0-9_-]+\}", arg):
-                if placeholder not in {"{scratch}", "{report_command}"}:
-                    raise AgentError(f"{name}: unknown runtime-args placeholder {placeholder}")
-        # Provenance records cli:model:effort and independence checks trust it; sessions start fresh.
-        forbidden = {"--model", "-m", "--effort", "--resume", "-r", "resume", "--continue",
-                     "model", "model_provider", "model_reasoning_effort"}
-        if any(r.cli == "codex" for r in runtimes):
-            if any(arg.split("=", 1)[0] == "--ephemeral" for arg in runtime_args):
-                raise AgentError(f"{name}: runtime-args must not set --ephemeral; "
-                                 "the launcher reads Codex usage from its fresh session record")
-        if any(r.cli == "claude" for r in runtimes):
-            forbidden.add("-c")  # Claude's --continue; Codex's -c is --config.
-            if any(arg.split("=", 1)[0] == "--output-format" for arg in runtime_args):
-                raise AgentError(f"{name}: runtime-args must not set --output-format; "
-                                 "the launcher requires stream-json for Claude process.log")
-        if any(arg.removeprefix("--config=").split("=", 1)[0] in forbidden for arg in runtime_args):
-            raise AgentError(f"{name}: runtime-args must not change the model, effort or session")
+        clis = {runtime.cli for runtime in runtimes}
+        if "runtime-args" in item:
+            runtime_args = runtime_arguments(item["runtime-args"], clis, name)
+        else:
+            runtime_args = ({cli: args for cli, args in runtime_defaults.items() if cli in clis}
+                            if runtimes and runtime_defaults else ())
         different = item.get("different-runtime-from")
         if different is not None:
             string(different, f"{name} different-runtime-from")
@@ -381,7 +388,7 @@ def load_config(path):
             tuple(runtimes), command, runtime_args, different, kind, worktree,
             LEASE_SECONDS,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
-            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives))
+            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check))
     for agent in agents:
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
@@ -404,3 +411,44 @@ def argv(value, where, empty=False):
     if not isinstance(value, list) or (not empty and not value):
         raise AgentError(f"{where} must be an argv list")
     return tuple(string(v, where) for v in value)
+
+
+def runtime_arguments(value, clis, name=None):
+    prefix = f"{name} " if name is not None else ""
+    if isinstance(value, dict):
+        result = {}
+        for cli, arguments in value.items():
+            where = f"{prefix}runtime-args {cli}"
+            if cli not in CLIS:
+                raise AgentError(f"{where}: key must be one of {', '.join(CLIS)}")
+            if cli not in clis:
+                raise AgentError(f"{where}: key names no CLI in the agent's runtime list")
+            result[cli] = argv(arguments, where, empty=True)
+            validate_runtime_args(result[cli], {cli}, name, key=cli)
+        return result
+    arguments = argv(value, f"{prefix}runtime-args", empty=True)
+    validate_runtime_args(arguments, clis, name)
+    return arguments
+
+
+def validate_runtime_args(arguments, clis, name, *, key=None):
+    label = "runtime-args" + (f" {key}" if key is not None else "")
+    prefix = f"{name}: " if name is not None else ""
+    for arg in arguments:
+        for placeholder in re.findall(r"\{[a-zA-Z0-9_-]+\}", arg):
+            if placeholder not in {"{scratch}", "{report_command}"}:
+                raise AgentError(f"{prefix}unknown {label} placeholder {placeholder}")
+    # Provenance records cli:model:effort and independence checks trust it; sessions start fresh.
+    forbidden = {"--model", "-m", "--effort", "--resume", "-r", "resume", "--continue",
+                 "model", "model_provider", "model_reasoning_effort"}
+    if "codex" in clis:
+        if any(arg.split("=", 1)[0] == "--ephemeral" for arg in arguments):
+            raise AgentError(f"{prefix}{label} must not set --ephemeral; "
+                             "the launcher reads Codex usage from its fresh session record")
+    if "claude" in clis:
+        forbidden.add("-c")  # Claude's --continue; Codex's -c is --config.
+        if any(arg.split("=", 1)[0] == "--output-format" for arg in arguments):
+            raise AgentError(f"{prefix}{label} must not set --output-format; "
+                             "the launcher requires stream-json for Claude process.log")
+    if any(arg.removeprefix("--config=").split("=", 1)[0] in forbidden for arg in arguments):
+        raise AgentError(f"{prefix}{label} must not change the model, effort or session")

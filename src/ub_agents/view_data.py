@@ -314,6 +314,10 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
         if not grouped and name != 'Running':
             continue
         count = len(grouped)
+        if name == 'Eligible':
+            total = mapping(session.data.get('latest_pass')).get('eligible_count')
+            if type(total) is int and total >= count:
+                count = total
         label = f'{name} · {count}'
         next_key = None
         if name == 'Eligible':

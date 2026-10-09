@@ -127,6 +127,20 @@ class WorkPaneTests(unittest.TestCase):
         self.data['latest_pass'] = {}
         self.assertEqual(self.pane().title, 'Work')
 
+    def test_eligible_total_survives_byte_trim_and_older_snapshots_need_no_total(self):
+        latest = self.data['latest_pass']
+        latest['rows'].extend({'item': number, 'agent': 'worker', 'state': 'ready'}
+                              for number in range(20, 29))
+        self.assertEqual(self.pane().sections[-1].label, 'Eligible · 10')
+        latest['eligible_count'] = 23
+        section = self.pane().sections[-1]
+        self.assertEqual(section.label, 'Eligible · 23 · showing 10')
+        self.assertEqual(len(section.rows), 10)
+        for invalid in (True, -1, 4, '23', None):
+            with self.subTest(total=invalid):
+                latest['eligible_count'] = invalid
+                self.assertEqual(self.pane().sections[-1].label, 'Eligible · 10')
+
     def test_eligible_limit_keeps_all_details_rows_and_counts_before_capping(self):
         self.data['assignment'] = None
         order = [30, 18, 42, 15, 9, 31, 22, 13, 37, 5] + list(range(100, 113))

@@ -300,10 +300,10 @@ class DependencyTests(unittest.TestCase):
                  issue(21, ("ready", "priority:urgent")))
         self.github.dependencies[2] = [21]
         plans = self.loop.plans()
-        self.assertEqual([p.item.number for p in plans], [2, 21])
-        self.assertEqual((plans[0].priority, plans[0].priority_source), ("priority:low", None))
+        self.assertEqual([p.item.number for p in plans], [21, 2])
+        self.assertEqual((plans[1].priority, plans[1].priority_source), ("priority:low", None))
         with patch.object(self.github, "blocked_by", side_effect=AssertionError("PR claim is ungated")):
-            self.assertIsNotNone(self.loop.coordinator.claim(plans[0]))
+            self.assertIsNotNone(self.loop.coordinator.claim(plans[1]))
 
     def test_pr_inherits_effective_priority_of_issue_it_closes(self):
         self.add(issue(1, ("priority:low",)), issue(21, ("priority:urgent",)),

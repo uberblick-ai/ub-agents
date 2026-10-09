@@ -59,7 +59,7 @@ ub-agents launch
 
 Then add the `ready` label to an issue. The launcher will:
 
-1. Find the issue among open items whose labels match an agent's trigger, with pull request work ranked first.
+1. Find the issue among open items whose labels match an agent's trigger, ranked by effective priority, then existing work before new issue starts.
 2. Fetch your default branch and reread `ub-agents.yaml` and the instruction files.
 3. Claim the issue with a comment on GitHub, so no other launcher takes it.
 4. Create a private worktree on a fresh branch.

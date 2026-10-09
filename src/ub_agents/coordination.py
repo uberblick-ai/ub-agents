@@ -38,6 +38,7 @@ class Plan:
     history_read: bool = field(default=True, compare=False, repr=False)
     owner: dict | None = field(default=None, compare=False, repr=False)
     matches: AgentMatches | None = field(default=None, compare=False, repr=False)
+    health_wait: bool = False
 
 
 class Coordinator:
@@ -320,7 +321,8 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None):
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
+              confirm_stopped=None):
         reason = self.trust.reason(self.actor)
         if reason:
             self.output(f"{reason}; claiming no work")
@@ -357,6 +359,8 @@ class Coordinator:
                 return None
         if authorize is not None and not authorize(current, matches):
             return None
+        if confirm_stopped is not None:
+            confirm_stopped(history)
         now = self.clock()
         record = {"kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,

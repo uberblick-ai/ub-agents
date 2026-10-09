@@ -284,9 +284,9 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(self.observer.previous_histories, {})
 
     def test_byte_pressure_keeps_each_items_newest_runs_and_exact_omissions(self):
-        # Assignment is inserted first, as in a running launcher. Bodies alone
-        # exceed the byte limit in some cases; compact history must survive.
-        for items, count, summary_length in ((20, 5, 300), (30, 2, 100), (40, 1, 80)):
+        # Assignment is inserted first, as in a running launcher. Surplus
+        # history exceeds the byte limit in some cases; newest runs must survive.
+        for items, count, summary_length in ((20, 5, 700), (30, 2, 800), (40, 1, 80)):
             with self.subTest(items=items, count=count):
                 memory = MemoryPublisher()
                 observer = Observations(config(self.root), 'operator', None, memory)
@@ -307,8 +307,7 @@ class RunsTests(unittest.TestCase):
                 state = memory.snapshots[-1]
                 self.assertLessEqual(observer.byte_size(state), MAX_BYTES)
                 self.assertEqual(state['omitted']['plans'], 0)
-                self.assertTrue(any(row['description']['omitted_characters'] > 0
-                                    for row in state['latest_pass']['rows']))
+                self.assertTrue(all('description' not in row for row in state['latest_pass']['rows']))
                 removed, retained_surplus = [], []
                 for item, history in state['histories'].items():
                     original = observer.state['histories'][item]['runs']
@@ -345,7 +344,7 @@ class RunsTests(unittest.TestCase):
         self.observer.complete_pass()
         state = self.memory.snapshots[-1]
         self.assertEqual(state['omitted']['plans'], 0)
-        self.assertEqual(state['latest_pass']['rows'][0]['description']['text'], 'B' * 2000)
+        self.assertNotIn('description', state['latest_pass']['rows'][0])
         self.assertEqual(state['histories']['20']['runs'][0]['time'], iso(1020))
 
     def test_result_colors_spinner_summary_shortening_and_blockers(self):

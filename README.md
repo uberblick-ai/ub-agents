@@ -46,7 +46,7 @@ ub-agents is MIT-licensed and early stage. It develops itself with its own loop.
 │                                            │ │            nothing until it is idle.                          │
 │  ● #191 Shorter ub-agents doctor o… ready  │ │   11:09:30 ▸ Edit src/ub_agents/loop.py +5 -2                 │
 │    implementer · 1/5 failures              │ │   11:10:09 ▸ Edit tests/test_loop.py +3 -1                    │
-│  Recent activity · 4 today ┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:10:49 ▸ Bash python -m tests                             │
+│  Recent activity · showing 4 ┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:10:49 ▸ Bash python -m tests                             │
 │  ✓ ⌥269 Send fixable check failur… merged  │ │   11:11:29 ▸ Bash git push -u origin ub-agents/248-implem…    │
 │    integrator · 11:04 · Squash-merged af…  │ │                                                               │
 │                                            │ │                                                               │
@@ -93,8 +93,9 @@ Before the first launch:
    questions. Keep build and test commands in the `AGENTS.md` or `CLAUDE.md` your
    agents already read.
 2. Give the agents permissions. `init` offers starter permissions; otherwise
-   uncomment `runtime-args` in `ub-agents.yaml`. Claude agents also need your
-   check commands in `--allowedTools`.
+   uncomment the top-level `runtime-args` mapping in `ub-agents.yaml`. It supplies
+   defaults per CLI; an agent's own `runtime-args` replaces them. Claude agents
+   also need your check commands in `--allowedTools`.
 3. Check the setup, commit and launch:
 
 ```sh
@@ -141,10 +142,15 @@ The launcher removes the trigger label and applies the outcome's labels only aft
 it has checked the agent's report on GitHub. The
 [configuration reference](docs/configuration.md) lists every key.
 
+An optional per-agent [health check](docs/configuration.md#project-health-checks)
+pauses new claims while a project dependency is unavailable, without spending
+attempts. Claiming resumes automatically when the check passes.
+
 Projects can configure [checkout setup](docs/configuration.md#checkout-setup) to
 reinstall dependencies when the launcher pulls changes to a lockfile or tool
-configuration. Setup runs before the role is claimed; failed setup stops launch
-and retries on the next launch without spending an attempt.
+configuration. Control-checkout setup runs before the role is claimed; a failure
+stops launch and retries on the next launch without spending an attempt. Each new
+private worktree also runs setup once before its agent starts.
 
 ## Day to day
 
@@ -160,8 +166,9 @@ and retries on the next launch without spending an attempt.
 
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of
-live work to reach all 20 retained outcomes. Its header and any notice naming
-older outcomes that were not retained stay in place while the rows scroll.
+live work to reach all 20 retained outcomes. Its fixed header reads
+`Recent activity · showing N`, counting every listed outcome while the rows scroll
+directly below it.
 
 In-run commands and Python helpers use a copy of the launcher's code taken at
 startup, so checkout refreshes and package upgrades leave active runs on the same

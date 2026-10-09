@@ -246,7 +246,7 @@ class IdlePollingTests(unittest.TestCase):
             return worked
 
         starts, waits = self.run_passes(tick, count=9)
-        self.assertEqual(waits, [72, 72, 144, 144, 72, 30, 144, 144])
+        self.assertEqual(waits, [72, 72, 144, 144, 72, 144, 144])
         self.assertEqual(self.lines, [
             "No eligible work; next poll in 1 min (5 requests last poll)",
             "No eligible work; next poll in 2 min (5 requests last poll)",

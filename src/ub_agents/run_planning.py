@@ -65,6 +65,7 @@ class RunPlanning:
         self.lock = threading.Lock()
         self.refreshing = False
         self.started = started
+        self.rate_until = None
         from .loop import Loop
         self.planner = Loop(loop.config, ObservationReads(github, self.stop),
                             loop.coordinator.actor, output=lambda *_: None)
@@ -73,6 +74,7 @@ class RunPlanning:
             setattr(self.planner.discovery, name, deepcopy(getattr(loop.discovery, name)))
         self.planner.coordinator.clock = loop.coordinator.clock
         self.planner.usage = loop.usage
+        self.planner.health = loop.health
         self.planner.maintenance = loop.maintenance
         self.thread = threading.Thread(target=self._run, name="run-planning")
 
@@ -83,7 +85,7 @@ class RunPlanning:
         with self.lock:
             self.stop.set()
             self._finish_refresh()
-            return self.started
+            return self.rate_until
 
     def close(self):
         self.cancel()
@@ -127,6 +129,7 @@ class RunPlanning:
                 if self.stop.is_set():
                     return
                 self.started = self.clock()
+                self.rate_until = None
             observed_at = self.planner.coordinator.clock()
             events = PassEvents()
             self.planner.observer = events
@@ -152,6 +155,9 @@ class RunPlanning:
                     reset = exc.reset_at if exc.reset_at is not None else now + RATE_LIMIT_FALLBACK_SECONDS
                     rate_wait = min(RATE_LIMIT_MAX_SECONDS, max(0, reset - now))
                     rate_until = now + rate_wait
+                    with self.lock:
+                        if not self.stop.is_set():
+                            self.rate_until = rate_until
                 # Observation failure cannot stop or change the owned run.
             finally:
                 with self.lock:

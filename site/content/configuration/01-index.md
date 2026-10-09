@@ -47,7 +47,11 @@ shared-instructions: .agents/ub_agents.md
 
 ## Poll interval
 
-The shortest gap, in seconds, between two checks of GitHub. Defaults to 30. When nothing is eligible, the launcher waits longer so that idle launchers leave most of the account's API quota for real work.
+The shortest gap, in seconds, between discovery-pass starts. Defaults to 30.
+After running or recovering work, continuous launch starts the next claiming pass
+immediately; the gap counts from that new pass. Rate-limit waits and runtime usage
+pauses still apply. When nothing is eligible, the launcher waits longer so that
+idle launchers leave most of the account's API quota for real work.
 
 ```yaml
 poll-seconds: 30
@@ -74,6 +78,7 @@ All optional:
 | `cleanup` | [Cleanup hook](/docs/configuration/cleanup.html) |
 | `checkout-setup` | [Checkout setup](/docs/configuration/checkout-setup.html) |
 | `runtime-updates` | [Runtime updates](/docs/configuration/runtime-updates.html) |
+| `runtime-args` | [Per-CLI argument defaults](/docs/configuration/permissions.html#arguments-for-alternatives) |
 
 ## Another file
 

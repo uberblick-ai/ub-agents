@@ -52,8 +52,8 @@ def poll_deadline(value, now):
 
 class UpdateBanner(Static):
     """A single inert row; Rich measures truncation in terminal cells."""
-    def __init__(self):
-        super().__init__('', id='update', markup=False)
+    def __init__(self, *, id='update'):
+        super().__init__('', id=id, markup=False)
         self.banner = {}
 
     def set_banner(self, banner):
@@ -73,6 +73,12 @@ class UpdateBanner(Static):
         if age:
             line.append(' ' * max(2, width - line.cell_len - len(age)) + age)
         return line
+
+
+class HealthBanner(UpdateBanner):
+    """The latest project health transition, including recovery, in one row."""
+    def __init__(self):
+        super().__init__(id='health_notice')
 
 
 def pane_line(value, width, style=''):
@@ -400,7 +406,7 @@ class View(App):
         scrollbar-background-hover: transparent;
         scrollbar-background-active: transparent;
     }
-    #update { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
+    #update, #health_notice { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
     #body { height: 1fr; }
     #size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
     #shutdown { height: 1fr; content-align: center middle; text-align: center; display: none; }
@@ -482,6 +488,7 @@ class View(App):
         self.worker = worker or LocalWorker(root, session_path)
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
+        self.issue_load_key = None
         self.unblock_visible = False
         self.unblock_details_key = None
         self.session = None
@@ -513,6 +520,7 @@ class View(App):
         yield Static('', id='shutdown', markup=False)
         yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='size_warning')
         yield UpdateBanner()
+        yield HealthBanner()
         with Horizontal(id='body'):
             with Vertical(id='work_pane'):
                 yield WorkTree('Work', id='work')
@@ -564,7 +572,7 @@ class View(App):
         if pane is None:
             return
         if self.shutdown is not None:
-            for selector in ('#body', '#status', '#size_warning', '#update'):
+            for selector in ('#body', '#status', '#size_warning', '#update', '#health_notice'):
                 self.query_one(selector).display = False
             self.query_one('#shutdown').display = True
             self.update_shutdown()
@@ -592,6 +600,8 @@ class View(App):
         self.query_one('#size_warning').display = too_small
         banner = self.query_one(UpdateBanner)
         banner.display = not too_small and bool(text(banner.banner.get('text'), ''))
+        health = self.query_one(HealthBanner)
+        health.display = not too_small and bool(text(health.banner.get('text'), ''))
         if changed:
             tree = self.query_one(WorkTree)
             tree._invalidate()
@@ -768,6 +778,7 @@ class View(App):
                 self._driver.write(str(Control.title(self.title)))
                 self._window_title = self.title
             self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
+            self.query_one(HealthBanner).set_banner({'text': self.session.data.get('health_notice')})
             # A person may pick a row while this read is in flight. Retain that
             # selection from the pane we last drew, using the returned snapshot.
             pane = (result.pane if result.token == self.token and result.chosen == self.chosen else
@@ -797,7 +808,7 @@ class View(App):
     def populate(self, pane):
         tree = self.query_one('#work', Tree)
         recent = self.query_one(RecentActivity)
-        recent.populate(pane.recent, self.session)
+        recent.populate(pane.recent)
         cursor = tree.cursor_node
         cursor_row = self.rows.get(cursor.data) if cursor else None
         if pane.selected != self.selected:
@@ -842,9 +853,14 @@ class View(App):
                 if not section.idle and self.idle_node is not None:
                     self.idle_node.remove()
                     self.idle_node = None
-                elif section.idle and self.idle_node is None:
-                    self.idle_node = group.add_leaf(
-                        Text('    Idle · nothing eligible for this launcher', style='dim'))
+                elif section.idle:
+                    complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
+                    reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
+                    label = Text(f'    Idle · {reason}', style='dim')
+                    if self.idle_node is None:
+                        self.idle_node = group.add_leaf(label)
+                    elif self.idle_node.label != label:
+                        self.idle_node.set_label(label)
             for index, row in enumerate(section.rows):
                 value = (row, row.key == pane.next, stopping, tree.claim_times.get(row.key))
                 old_value = self._work_values.get(row.key)
@@ -911,6 +927,7 @@ class View(App):
         self.last_context = None
         self.last_runs = None
         self.local_description = None
+        self.issue_load_key = None
         self.query_one('#issue_text', Static).update('Reading cached context…')
         self.update_runs()
         self.query_one('#issue_body', Markdown).update('')
@@ -992,12 +1009,18 @@ class View(App):
             return
         key = self.description_key()
         local = self.local_description
+        if self.query_one(ItemTabs).active == 'issue' and self.issue_load_key != key:
+            # One attempt per activation/item, including when a cooldown or
+            # another pending request prevents it. Timers do not queue reads.
+            self.issue_load_key = key
+            if not local.available and self.descriptions.get(key) is None:
+                self.descriptions.request(key)
         description = local if local.available else (self.descriptions.get(key) or local)
         row = self.rows.get(self.selected)
         details = description.details()
         extra = ''
         if self.descriptions.pending == key and key is not None and self.descriptions.pending_kind == 'issue':
-            extra += '\n\nLoading title/body from GitHub…'
+            extra += f'\n\nLoading #{row.item}…'
         elif not description.available:
             extra += '\n\nPress g on Issue to ' + ('retry' if description.error else 'load') + ' title/body from GitHub.'
         if self.descriptions.clock() < self.descriptions.cooldown:
@@ -1395,12 +1418,18 @@ class View(App):
         if self.query_one(TabbedContent).active == 'log':
             self.query_one('#output', LogPane).save_anchor()
         self.query_one(TabbedContent).active = tab
+        if tab == 'issue':
+            self.issue_load_key = None
+            self.update_issue()
         if tab == 'unblock':
             self.load_missing_action()
 
     def on_click(self, event):
         # Clicking an already active tab does not emit TabActivated, but is
         # still an explicit activation after selecting a different item.
+        if event.widget is self.query_one(ItemTabs).get_tab('issue'):
+            self.issue_load_key = None
+            self.update_issue()
         if self.unblock_visible and event.widget is self.query_one(ItemTabs).get_tab('unblock'):
             self.load_missing_action()
 
@@ -1410,6 +1439,9 @@ class View(App):
         if event.pane.id == 'log' and self.is_mounted:
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
         if self.is_mounted:
+            if event.pane.id == 'issue':
+                self.issue_load_key = None
+                self.update_issue()
             if event.pane.id == 'unblock':
                 self.load_missing_action()
             if event.pane.id == 'runs':

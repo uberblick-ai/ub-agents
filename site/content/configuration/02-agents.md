@@ -55,6 +55,22 @@ Run in a private checkout: the pull request's exact commit, or a fresh branch fo
 worktree: true
 ```
 
+## Health check
+
+Wait for a project dependency before claiming new work for this agent. Give a nonempty argv list; ub-agents runs it without a shell in the control checkout. Relative executables resolve like an agent `command`. The project decides what the command checks.
+
+```yaml
+health-check: [./scripts/check-corpus]
+```
+
+The check runs only for otherwise-ready work, before the claim or any new assignment write. Its timeout is fixed at 60 seconds. A pass is reused for up to five minutes within the launcher; failures are checked again on the next poll with ready work for that agent.
+
+A nonzero exit, start failure or timeout makes ready items `waiting`, with the command and the last nonempty stderr line, falling back to stdout or the start or timeout error. One notice appears when the check starts failing or its error line changes, and one when it passes again; launch output also goes to `.ub-agents/launch.log`. Waiting items remain in Eligible, outside Needs attention, with no claims, attempts, label changes or item comments for new work. Other agents keep claiming, and `launch --once` exits normally.
+
+`ub-agents status` runs the check itself, so it works without a launcher on the same machine. Claiming resumes automatically when the check passes, without `retry`. Checks do not interrupt active runs, stop recovery of recorded outcomes or reset previously parked items. `check` validates the argv list without running it, and `doctor` does not run it. Project checks are separate from [daily runtime maintenance](/docs/configuration/runtime-updates.html).
+
+**Upgrading:** Upgrade every launcher of a project before adding `health-check`; older versions reject the unknown agent key.
+
 ## Outcomes
 
 The results this agent can report, and the labels each one changes. Required. See [Outcomes](/docs/configuration/outcomes.html).
