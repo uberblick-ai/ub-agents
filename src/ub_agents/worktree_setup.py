@@ -12,12 +12,15 @@ def confirm_worktree_setup_stopped(config, run):
     """Retain a crashed run's ownership and artifacts until setup is known to end."""
     directory = run_directory(config.root, run) / "checkout-setup"
     try:
-        if directory.resolve() != directory:
+        # Compare against the resolved parent, so an aliased root such as macOS
+        # /var -> /private/var is accepted while a redirected record is not.
+        resolved = directory.parent.resolve() / directory.name
+        if directory.resolve() != resolved:
             raise ValueError("redirected setup diagnostics")
         if not directory.exists():
             return
         stopped, pid = directory / "stopped", directory / "pid"
-        if stopped.resolve() != stopped or pid.resolve() != pid:
+        if stopped.resolve() != resolved / "stopped" or pid.resolve() != resolved / "pid":
             raise ValueError("redirected setup process record")
         if stopped.exists():
             if stopped.read_text() != "confirmed\n":
