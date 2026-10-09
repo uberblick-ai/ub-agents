@@ -89,6 +89,49 @@ class PollNowTests(unittest.TestCase):
                     patch.object(wake, 'wait', side_effect=wait):
                 self.loop._wait(self.loop.stop_event, 1, 'next poll or runtime pause')
 
+    def test_repeated_poll_now_passes_bypass_debt_then_idle_wait_repays_it(self):
+        starts, waits = [], []
+        event = threading.Event
+
+        def poll():
+            starts.append(self.now)
+            if len(starts) == 4:
+                self.loop.stop_event.set()
+                return False
+            self.github.quota_requests += 100
+            return False
+
+        def wake_event():
+            wake = event()
+
+            def wait(delay):
+                if len(waits) < 2:
+                    self.now += 10
+                    self.loop.request_poll()
+                else:
+                    self.now += delay
+                return wake.is_set()
+
+            wake.wait = wait
+            return wake
+
+        regular = self.loop.poll_now.wait
+
+        def wait(stop, delay, update=None, on_request=None):
+            result = regular(stop, delay, update, on_request)
+            waits.append(delay)
+            return result
+
+        with patch('ub_agents.poll_now.threading.Event', side_effect=wake_event), \
+                patch.object(self.loop.poll_now, 'wait', side_effect=wait), \
+                patch.object(self.loop, '_discovery_tick', side_effect=poll), \
+                patch('ub_agents.poll_now.monotonic', side_effect=lambda: self.now):
+            self.loop.launch()
+        self.assertEqual(starts[:3], [1000, 1010, 1020])
+        self.assertAlmostEqual(starts[3], 3534.4)
+        self.assertAlmostEqual(waits[-1], 2514.4)
+        self.assertAlmostEqual(self.loop.discovery_budget.balance, 1)
+
     def test_waiter_status_clears_after_request_deadline_cancellation_and_failure(self):
         event = threading.Event
         for ending in ('request', 'deadline', 'cancel', 'failure'):

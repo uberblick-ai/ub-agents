@@ -7,7 +7,7 @@ from time import monotonic
 
 from .errors import GitHubError
 from .github import GitHub, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
-from .polling import idle_interval
+from .polling import IDLE_MAX_SECONDS, idle_interval
 from .rate_limits import READS
 from .request_stats import COUNTERS
 
@@ -71,6 +71,7 @@ class RunPlanning:
         from .loop import Loop
         self.planner = Loop(loop.config, ObservationReads(github, self.stop),
                             loop.coordinator.actor, output=lambda *_: None)
+        self.planner.discovery_budget = loop.discovery_budget
         # Retain discovery inputs, not the launcher's client or pass-local state.
         for name in ("items", "closed_items", "comments_index", "cache", "comment_store",
                      "reconciled_comments", "comment_window_start", "repository_index"):
@@ -122,15 +123,21 @@ class RunPlanning:
 
     def _run(self):
         elapsed = self.clock() - self.started
-        requests = self.loop._discovery_requests
-        if requests is None:
-            requests = self.loop.github.quota_requests - self.loop._requests_before
-        interval, _ = idle_interval(requests,
+        interval, _ = idle_interval(self.loop.discovery_budget.wait_seconds(),
                                     self.planner.config.poll_seconds,
                                     self.loop.github.resource_quotas,
                                     self.planner.coordinator.clock(), elapsed)
         rate_until = None
         while not self._wait(max(0, self.started + interval - self.clock()), rate_until):
+            # Other discovery can debit while this worker sleeps, including a
+            # cancelled predecessor's final response. Forced refreshes bypass
+            # admission, and an hour from the previous start remains the cap.
+            if not self.refreshing:
+                delay = min(self.loop.discovery_budget.wait_seconds(),
+                            max(0, self.started + IDLE_MAX_SECONDS - self.clock()))
+                if delay:
+                    interval = self.clock() - self.started + delay
+                    continue
             with self.lock:
                 if self.stop.is_set():
                     return
@@ -139,7 +146,6 @@ class RunPlanning:
             observed_at = self.planner.coordinator.clock()
             events = PassEvents()
             self.planner.observer = events
-            before = self.planner.github.quota_requests
             rate_wait = 0
             rate_until = None
             try:
@@ -170,7 +176,7 @@ class RunPlanning:
                 with self.lock:
                     self._finish_refresh()
             elapsed = self.clock() - self.started
-            interval, _ = idle_interval(self.planner.github.quota_requests - before,
+            interval, _ = idle_interval(self.loop.discovery_budget.wait_seconds(),
                                         self.planner.config.poll_seconds,
                                         self.planner.github.resource_quotas,
                                         self.planner.coordinator.clock(), elapsed)

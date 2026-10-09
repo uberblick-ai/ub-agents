@@ -147,19 +147,44 @@ launch's idle message rounds its next poll delay to whole seconds below a minute
 or whole minutes otherwise, such as `next poll in 56s` or `next poll in 2 min`.
 Work already carrying a trigger retains its eligibility diagnostics.
 
-Empty passes back off under a fixed budget rule, not a configuration key: **ten
-idle launchers** sharing one account together get at most half the common **5,000
-REST requests/hour** quota. Each launcher's share is **250 REST requests/hour**
-(`5000 × 0.5 / 10`), leaving the other half for busy loops and agents' `gh` calls.
-After an empty pass using `N` quota-counted REST responses, the next pass starts
-`max(poll-seconds, N × 14.4 seconds)` after this pass started, capped at **one hour**.
-REST responses count, including extra pages, rate-limit retries and
-approval-parking writes; HTTP 304 confirmations, GraphQL and transport failures
-without an HTTP response do not. A five-response pass using REST quota waits
-72 seconds; a cold 230-request pass waits 3,312 seconds (about 55 minutes). Time
-already spent in the pass, including rate-limit waits, counts toward the gap.
-Observation passes during a continuous run use the same budget, low-quota doubling,
-one-hour cap and rate-limit waits as empty passes. They evaluate the whole ranked
+Each launcher has one rolling discovery balance shared by its claiming loop and
+observation worker. It starts full at **125 requests**, saves at most 125, and
+refills at **250 REST requests/hour** (`5000 × 0.5 / 10`), or one request every
+14.4 seconds. This fixed rule reserves half the common **5,000 requests/hour**
+account quota for discovery by ten launchers, leaving the other half for work and
+agents' own `gh` calls; it is not a configuration key.
+
+Every discovery pass debits its reported quota-counted REST responses, including
+claiming and poll-now passes, extra pages, failed passes, rate-limit retries and
+approval-parking writes. HTTP 304 confirmations, GraphQL and transport failures
+without an HTTP response do not debit it. The balance can go negative, and later
+refills repay all debt. Successful claims' fresh checks, claim writes, renewals and
+completion belong to the run and do not debit discovery.
+
+Only idle and observation passes wait for admission: `poll-seconds` must have
+passed since the previous pass started, and the balance must be at least **1**.
+The launcher admits a whole pass without predicting its cost. The pass-start gap
+remains capped at **one hour**, even with unpaid debt. Time already spent in the
+pass, including rate-limit waits, counts toward the gap and refills the balance.
+Claiming discovery immediately after work and accepted poll-now passes bypass this
+admission wait and still debit the balance; actual rate-limit waits still apply.
+
+For example, with the default 30 seconds and negligible pass duration:
+
+- A cold 123-request pass leaves 2 requests. Thirty seconds later, refill adds
+  about 2.08; the next one-request pass can start on time. Further one-request
+  passes keep the 30-second gap, rather than inheriting a 29.5-minute wait.
+- A 230-request pass leaves a balance of −105. Reaching 1 requires 106 refilled
+  requests: 1,526.4 seconds, about 25 minutes 26 seconds after the debit.
+- Three consecutive claiming passes spending 100 requests each, ignoring time in
+  their runs, leave −175. They start immediately after each run; a later empty
+  pass waits for 176 requests to refill, about 42 minutes 14 seconds. Poll-now
+  passes add debt in the same way.
+
+Observation passes during a continuous run share this balance, low-quota doubling,
+one-hour cap and rate-limit waits. Their first admission counts from the claiming
+pass's start, using the remaining balance rather than the claiming pass's cost.
+They evaluate the whole ranked
 queue without claiming, recovering, approval-parking or printing plan or idle lines.
 Each pass reports its kind (`claiming`, `empty` or `observation`), wall time,
 attempted `gh` calls, quota-counted REST responses, HTTP 304 responses, GraphQL
@@ -259,13 +284,20 @@ discovery and each `status` invocation; very large dependency lists may
 need extra pages. Fresh claim/recovery reads, approval-parking writes, execution
 heartbeats and completion add their own requests. `status` pays for every row.
 
-For a REST quota discovery cost `R`, the idle interval is at least `R × 14.4` seconds,
-so idle quota usage averages at most 250 requests/hour per loop for passes below the
-one-hour cap. A pass consuming two quota-counted responses at the default 30 seconds
-uses about 240 requests/hour; ten such loops use about 2,400. Cold passes can spend
-requests in a burst, and a pass exceeding 250 requests reaches the cap; this pacing is not
-a strict rolling-hour limiter. Sum all loops using the account, including other
-repositories, and add busy discovery, execution/write costs and agents' calls.
+Discovery pacing targets an **average of at most 250 requests/hour** per launcher,
+not a ceiling in each rolling hour. Apart from the one-hour cap exception, over any
+interval `T`, discovery spend is at most `125 + 250/hour × T`, plus the largest
+admitted pass and exempt spend since the last admitted pass. Later idle waits repay
+exempt claiming and poll-now spend. A default warm pass costing one request every
+30 seconds uses about 120 requests/hour; two-request passes use about 240.
+The initial 125-request balance absorbs a cold burst, while a pass above 125 can
+leave debt. Sustained 300-request passes eventually need more than an hour to repay
+each pass; they start at the one-hour cap with debt still outstanding. Passes that
+keep costing more than 250 are therefore the exception to the average guarantee.
+Sum all launchers using the account, including other repositories, and add
+execution/write costs and agents' calls. See
+[How many launchers one account supports](../site/content/best-practices/08-account-capacity.md)
+for the busy-run estimate and when to use another account.
 GraphQL has a separate point budget; graph-list query cost depends on its
 connections. Long runs reduce discovery frequency.
 

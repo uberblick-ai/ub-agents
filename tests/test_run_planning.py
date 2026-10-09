@@ -14,6 +14,7 @@ from ub_agents.errors import GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import COMMENT_RECOVERY_SECONDS, Loop
 from ub_agents.observations import Observations
+from ub_agents.polling import DiscoveryBudget
 from ub_agents.records import iso, records, seconds
 from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning, _Cancelled
 from tests.support import DiscoveryCostRunner, MemoryPublisher, PollGitHub, config, issue, pr, stub_refresh
@@ -37,6 +38,7 @@ class RunPlanningTests(unittest.TestCase):
         self.loop._requests_before = 0
 
     def passes(self, *, requests=0, duration=0, failure=None, quotas=None):
+        self.loop.discovery_budget = DiscoveryBudget(clock=lambda: self.now)
         worker = RunPlanning(self.loop, self.now)
         starts, waits = [], []
         iterate = worker.planner.iter_plans
@@ -292,15 +294,155 @@ class RunPlanningTests(unittest.TestCase):
 
     def test_observation_spacing_uses_cost_duration_low_quota_and_hour_cap(self):
         for requests, duration, quotas, expected in (
-                (0, 3, {}, 30), (5, 3, {}, 72), (300, 3, {}, 3600),
+                (0, 3, {}, 30), (5, 3, {}, 30), (300, 3, {}, 2537.4),
                 (5, 100, {}, 100),
                 (5, 3, {'core': {'x-ratelimit-limit': '5000', 'x-ratelimit-remaining': '999',
-                                 'x-ratelimit-reset': '9999'}}, 144)):
+                                 'x-ratelimit-reset': '9999'}}, 60)):
             with self.subTest(requests=requests, duration=duration, quotas=quotas):
                 self.setUp()
                 _, starts, _ = self.passes(requests=requests, duration=duration, quotas=quotas)
                 first = 1060 if quotas else 1030
-                self.assertEqual(starts, [first, first + expected])
+                self.assertEqual(starts[0], first)
+                self.assertAlmostEqual(starts[1], first + expected)
+
+    def test_claim_debit_precedes_first_observation_and_run_requests_are_excluded(self):
+        for requests, elapsed, expected in ((123, 10, 30), (230, 10, 1526.4),
+                                             (123, 40, 40)):
+            with self.subTest(requests=requests, elapsed=elapsed):
+                self.setUp()
+                self.loop.discovery_budget = DiscoveryBudget(clock=lambda: self.now)
+                claimed_at = self.now
+                self.loop._continuous = True
+                self.loop._pass_started = claimed_at
+                plan = self.loop.plans()[0]
+
+                with self.loop.discovery_pass():
+                    self.github.quota_requests += requests
+                    boundary = self.loop._claim_boundary()
+                    self.now += elapsed
+                    self.github.quota_requests += 70  # Fresh claim checks and owned-run traffic.
+                    with patch.object(RunPlanning, 'start'):
+                        self.assertIsNotNone(self.loop.coordinator.claim(plan))
+                    worker = self.loop._run_planning
+                    worker.clock = lambda: self.now
+                    self.assertIs(worker.planner.discovery_budget, self.loop.discovery_budget)
+                    waits = []
+
+                    def wait(delay, rate_until):
+                        waits.append(delay)
+                        return True
+
+                    with patch('ub_agents.run_planning.monotonic', side_effect=lambda: self.now), \
+                            patch.object(worker, '_wait', side_effect=wait):
+                        worker._run()  # The claim callback can run this before claim() returns.
+                    self.loop._claimed_pass(boundary)
+                self.assertAlmostEqual(waits[0], max(0, expected - elapsed))
+                self.assertIn(f'REST quota={requests},', self.lines[-1])
+                self.assertAlmostEqual(self.loop.discovery_budget.balance, 125 - requests + elapsed / 14.4)
+
+    def test_observation_debt_is_shared_with_later_claiming_discovery(self):
+        self.loop.discovery_budget = DiscoveryBudget(clock=lambda: self.now)
+        self.loop.discovery_budget.debit(230)
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+        starts = []
+        waits = []
+
+        def wait(delay, rate_until):
+            waits.append(delay)
+            if starts:
+                return True
+            self.now += delay
+            return False
+
+        def observe():
+            starts.append(self.now)
+            self.github.quota_requests += 5
+            return iter(())
+
+        with patch.object(worker, '_wait', side_effect=wait), \
+                patch.object(worker.planner, 'iter_plans', side_effect=observe):
+            worker._run()
+        self.assertAlmostEqual(waits[0], 1526.4)
+        self.assertAlmostEqual(waits[1], 72)
+        self.assertAlmostEqual(self.loop.discovery_budget.balance, -4)
+        # A claiming pass after work is exempt, but adds its discovery to the debt.
+        with self.loop.discovery_pass():
+            self.github.quota_requests += 10
+        self.assertAlmostEqual(self.loop.discovery_budget.wait_seconds(), 216)
+
+    def test_failed_and_cancelled_observation_passes_debit_the_shared_balance(self):
+        for failure in (GitHubError('GET', 'items', 'temporary', retryable=True), _Cancelled()):
+            with self.subTest(failure=failure):
+                self.setUp()
+                self.loop.discovery_budget = DiscoveryBudget(clock=lambda: self.now)
+                worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+
+                def observe():
+                    self.github.quota_requests += 230
+                    raise failure
+
+                def wait(delay, rate_until):
+                    self.now += delay
+                    return self.github.quota_requests > 0
+
+                with patch.object(worker, '_wait', side_effect=wait), \
+                        patch.object(worker.planner, 'iter_plans', side_effect=observe):
+                    worker._run()
+                self.assertIn('REST quota=230,', self.lines[-1])
+                if isinstance(failure, _Cancelled):
+                    self.assertAlmostEqual(self.loop.discovery_budget.wait_seconds(), 1526.4)
+                else:
+                    self.assertAlmostEqual(self.loop.discovery_budget.balance, -105)
+
+    def test_observation_rechecks_shared_debit_while_waiting(self):
+        self.loop.discovery_budget = DiscoveryBudget(clock=lambda: self.now)
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+        starts, waits = [], []
+
+        def wait(delay, rate_until):
+            waits.append(delay)
+            if starts:
+                return True
+            self.now += delay
+            if len(waits) == 1:
+                self.loop.discovery_budget.debit(230)
+            return False
+
+        def observe():
+            starts.append(self.now)
+            return iter(())
+
+        with patch.object(worker, '_wait', side_effect=wait), \
+                patch.object(worker.planner, 'iter_plans', side_effect=observe):
+            worker._run()
+        self.assertAlmostEqual(starts[0], 2556.4)
+        self.assertEqual(waits[0], 30)
+        self.assertAlmostEqual(waits[1], 1526.4)
+
+    def test_repeated_forced_observations_bypass_balance_and_debit_each_pass(self):
+        self.loop.discovery_budget = DiscoveryBudget(clock=lambda: self.now)
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+        starts, waits = [], []
+
+        def wait(delay, rate_until):
+            waits.append(delay)
+            if len(starts) == 3:
+                return True
+            self.now += 10 if starts else 2
+            worker._requested()  # Accepted poll-now wakeup.
+            return False
+
+        def observe():
+            starts.append(self.now)
+            self.github.quota_requests += 100
+            return iter(())
+
+        with patch.object(worker, '_wait', side_effect=wait), \
+                patch.object(worker.planner, 'iter_plans', side_effect=observe):
+            worker._run()
+        self.assertEqual(starts, [1002, 1012, 1022])
+        self.assertAlmostEqual(waits[-1], 2514.4)
+        self.assertAlmostEqual(self.loop.discovery_budget.balance, -175 + 20 / 14.4)
 
     def test_failed_and_rate_limited_passes_keep_previous_rows_and_continue(self):
         for failure, gap in (
