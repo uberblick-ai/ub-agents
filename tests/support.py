@@ -450,7 +450,7 @@ class PollGitHub(FakeGitHub):
 
 
 class RecordingRunner:
-    """Read-only doctor probes: explicit responses, no real tool execution."""
+    """Record commands with explicit responses, without real tool execution."""
     def __init__(self, root):
         import os
         self.root = Path(root)
@@ -471,6 +471,8 @@ class RecordingRunner:
         import subprocess
         self.calls.append((tuple(command), kwargs))
         response = self.responses[tuple(command)]
+        if callable(response):
+            response = response(command, **kwargs)
         if isinstance(response, Exception):
             raise response
         if isinstance(response, subprocess.CompletedProcess):

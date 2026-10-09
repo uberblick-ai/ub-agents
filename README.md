@@ -237,6 +237,11 @@ Tests use fakes for GitHub and never call a model. This repository runs its own
 loop: see [ub-agents.yaml](ub-agents.yaml) and [AGENTS.md](AGENTS.md). The roadmap
 is in the [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
+After a release-prep PR merges, maintainers use `mise run release X.Y.Z` to publish
+the GitHub release and open its tested Homebrew tap PR. The
+[release skill](.agents/skills/release/SKILL.md) handles readiness and confirmation;
+a maintainer merges the tap PR. See [publishing releases](docs/releases.md).
+
 ## License
 
 MIT
