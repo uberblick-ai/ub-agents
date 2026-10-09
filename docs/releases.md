@@ -39,9 +39,9 @@ After opening the tap PR, a separate fresh virtualenv installs the tag tarball
 and only the formula's resource archives, checking their checksums, installed
 versions and dependency compatibility. It runs the formula's four tests:
 
-- `ub-agents --version` must print `ub-agents X.Y.Z`.
+- `ub-agents --version` output must contain `ub-agents X.Y.Z`.
 - `ub-agents init --repository example/project` must succeed.
-- `ub-agents check` must print `Valid configuration: example/project`.
+- `ub-agents check` output must contain `Valid configuration: example/project`.
 - `from ub_agents.view_ui import View` must import successfully.
 
 The task prints the result and comments on the tap PR. These tests replay the

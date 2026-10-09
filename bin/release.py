@@ -240,8 +240,8 @@ def test_formula(run, fetch, python, workspace, archive, formula, version):
                                  ([interpreter, "-c", "from ub_agents.view_ui import View"], None)):
         label = ' '.join(str(arg) for arg in args[1:])
         output = command(run, args, cwd=project).stdout.strip()
-        if expected_output is not None and output != expected_output:
-            raise ReleaseError(f"formula test {label}: expected {expected_output!r}, got {output!r}")
+        if expected_output is not None and expected_output not in output:
+            raise ReleaseError(f"formula test {label}: expected output to contain {expected_output!r}, got {output!r}")
         lines.append(f"- `{label}`: PASS" + (f" — `{output}`" if expected_output else ""))
     return f"Formula tests: PASS (Python 3.14, tag v{version}, exact formula resource versions).\n\n" + '\n'.join(lines) + '\n'
 

@@ -345,7 +345,8 @@ class ReleaseTests(unittest.TestCase):
         cli = venv / "bin/ub-agents"
         self.respond([cli, "--version"], f"ub-agents {VERSION}\n")
         self.respond([cli, "init", "--repository", "example/project"], "Created configuration.\n")
-        self.respond([cli, "check"], "Valid configuration: example/project\n")
+        self.respond([cli, "check"], "Valid configuration: example/project, 4 agents\n"
+                     "Approvals: from repository visibility (public: on; private/internal: off)\n")
         self.respond([interpreter, "-c", "from ub_agents.view_ui import View"])
         self.downloads = []
 
@@ -391,6 +392,18 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(all(kwargs["cwd"] == self.workspace / "test-project" for _, kwargs in test_calls))
         self.assertFalse(any("merge" in call or "--force" in call or "-d" in call for call in args))
 
+    def test_formula_assertions_allow_surrounding_output(self):
+        tool = self.publication()
+        cli = self.workspace / "test-venv/bin/ub-agents"
+        self.respond([cli, "--version"], f"Version:\nub-agents {VERSION}\nAdditional output.\n")
+        self.respond([cli, "check"], "Checking configuration.\nValid configuration: example/project, 4 agents\n"
+                     "Approvals: from repository visibility (public: on; private/internal: off)\n")
+        output = self.publish()
+        self.assertEqual(tool.completed, list(release.STEPS))
+        self.assertIn("Formula tests: PASS", self.comment_body)
+        self.assertIn("Additional output.", output)
+        self.assertIn("Approvals:", output)
+
     def test_release_creation_failure_reports_completed_and_remaining_steps(self):
         tool = self.publication()
         self.respond(self.notes_command, self.result(1, stderr="GitHub unavailable"))
@@ -412,6 +425,14 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(tool.completed, [*release.STEPS[:4], release.STEPS[5]])
         self.assertIn(self.pr_url, tool.failure(raised.exception))
         self.assertIn("Still to do: formula tests passed\n", tool.failure(raised.exception))
+
+    def test_formula_version_assertion_rejects_missing_expected_text(self):
+        self.publication()
+        self.respond([self.workspace / "test-venv/bin/ub-agents", "--version"], "ub-agents 0.1.16\n")
+        with self.assertRaisesRegex(release.ReleaseError, "formula test --version"):
+            self.publish()
+        self.assertIn("Formula tests: FAIL", self.comment_body)
+        self.assertIn("ub-agents 0.1.16", self.comment_body)
 
     def test_exact_version_check_rejects_unlisted_or_wrong_dependencies(self):
         self.publication()
