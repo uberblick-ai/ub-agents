@@ -519,7 +519,8 @@ class Loop:
             self._pass_stats.candidates.add(number)
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         # Share this item's history and approval reads, without repository
-        # discovery, priority inheritance or milestone ordering.
+        # discovery, priority inheritance or milestone selection. An explicit
+        # target still passes every other start gate.
         github = Discovery(self.github)
         github.scope = number
         try:
@@ -529,12 +530,10 @@ class Loop:
         self._observe("discovered", {item.number: item}, self.config.agents)
         agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
         coordinator = self._planning_coordinator(github)
-        active = (self.github.active_milestone() if item.kind == "issue" and item.state == "open"
-                  and self.config.queue.milestones == "gate" else None)
-        self._active_milestone = active
+        self._active_milestone = None
         blockers = self._open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
-        plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, active, blockers, agents,
+        plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, None, blockers, agents,
                                  reconcile_notices=reconcile_notices, checked={},
                                  health_notices=health_notices or reconcile_notices)
 
@@ -863,7 +862,7 @@ class Loop:
                                  start=start, matches=matches).state != "ready":
             return
         active = (self.github.active_milestone() if current.kind == "issue"
-                  and self.config.queue.milestones == "gate" else None)
+                  and not self._targeted_pass and self.config.queue.milestones == "gate" else None)
         if not check_start(current, plan.agent, matches, self.config.stop_labels,
                            self.config.queue, active).allowed:
             return
@@ -1114,7 +1113,8 @@ class Loop:
         lease = self.coordinator.claim(plan, self.config.stop_labels,
                                        before_write=self._end_poll, authorize=authorize,
                                        confirm_stopped=confirm_stopped,
-                                       on_refusal=self.declined if self._targeted_pass else None)
+                                       on_refusal=self.declined if self._targeted_pass else None,
+                                       milestone_gate=not self._targeted_pass)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False

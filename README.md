@@ -157,7 +157,7 @@ private worktree also runs setup once before its agent starts.
 | Command | What it does |
 |---|---|
 | `ub-agents launch` | Watch the queue and run work; `q` stops after the current run, Ctrl-C stops now |
-| `ub-agents launch 214` | Run only issue or PR 214, then exit |
+| `ub-agents launch 214` | Run only issue or PR 214, skipping queue priority and milestone policy while applying all other gates, then exit |
 | `ub-agents status [214]` | Show the queue, or why one item is waiting |
 | `ub-agents retry 214 --reason "…"` | Let an item that failed or blocked run again |
 | `ub-agents approve 214` | Approve outside edits or a contributor's PR as agent input |

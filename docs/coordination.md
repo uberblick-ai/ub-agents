@@ -80,10 +80,10 @@ issues and unchanged PR heads still need `ub-agents retry`.
    owned runs and recovery) keeps priority order, ignores milestones, and precedes
    the next selected new issue at equal or higher priority. Neither queue gate
    holds back existing work.
-3. New issues pass the dependency gate and, in milestone `gate` mode, the milestone
-   gate, as the [queue reference](configuration.md#queue) defines them. Planning
-   and a fresh claim-time read both enforce each gate. Approval parking also
-   rechecks them. In milestone `order` and `prefer` modes, milestones never gate
+3. Automatically selected new issues pass the dependency gate and, in milestone
+   `gate` mode, the milestone gate, as the [queue reference](configuration.md#queue)
+   defines them. Planning and a fresh claim-time read both enforce each gate.
+   Approval parking also rechecks them. In milestone `order` and `prefer` modes, milestones never gate
    eligibility.
 4. In milestone `order` mode, new issues of equal effective priority rank by open
    milestones with open items, oldest creation time and then milestone number
@@ -106,6 +106,13 @@ issues and unchanged PR heads still need `ub-agents retry`.
 7. Item creation time, then item number break remaining ties. With milestone
    `gate` or `ignore`, new issues use priority, age and number without milestone ranks.
    Agents on the same item keep YAML order. The launcher never changes priority labels.
+
+Explicit `launch N [--agent NAME]` and `status N` skip queue priority and milestone
+policy, including the `gate` hold in planning, after checkout refresh, at claim time
+and during approval parking. All other gates and fresh rechecks still apply.
+Later-milestone and unmilestoned issues can run. Agents still need matching trigger
+labels; `--agent` narrows evaluation, and otherwise the first eligible agent in
+configuration order acts. Unnumbered launch and status keep the selection above.
 
 `ub-agents status` lists rows in this order with each item's effective priority and
 its source, adds each issue's milestone and inherited source in `order` and

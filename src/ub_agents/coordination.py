@@ -330,7 +330,7 @@ class Coordinator:
         return None
 
     def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
-              confirm_stopped=None, on_refusal=None):
+              confirm_stopped=None, on_refusal=None, *, milestone_gate=True):
         reason = self.trust.reason(self.actor)
         if reason:
             if on_refusal is not None:
@@ -366,7 +366,7 @@ class Coordinator:
             if fresh.runtime != plan.runtime:
                 return self.decline(plan, "Runtime changed before claim")
             active = (self.github.active_milestone() if current.kind == "issue"
-                      and self.queue.milestones == "gate" else None)
+                      and milestone_gate and self.queue.milestones == "gate" else None)
             start = check_start(current, plan.agent, matches, stop_labels, self.queue, active)
             if not start.allowed:
                 return self.decline(plan, f"Milestone gate: {start.reason}")

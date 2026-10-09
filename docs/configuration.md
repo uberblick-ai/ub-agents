@@ -570,11 +570,14 @@ inheritance, but PRs still inherit their closing issues' own configured priority
 
 `milestones` accepts `gate`, `order`, `prefer` or `ignore` and defaults to `ignore`.
 
-In `gate` mode, new issues wait for the oldest open milestone with open issues or
-PRs to close or empty. Creation time and then milestone number select that active
-milestone. Later and unmilestoned issues wait even when the active milestone has
-no eligible issue. Planning, claiming and approval parking enforce this gate;
-PR work, owned runs and recovery remain eligible.
+In `gate` mode, automatically selected new issues wait for the oldest open milestone
+with open issues or PRs to close or empty. Creation time and then milestone number
+select that active milestone. Later and unmilestoned issues wait even when the
+active milestone has no eligible issue. Queue planning, claiming and approval
+parking enforce this gate; PR work, owned runs and recovery remain eligible.
+Explicit `launch N` and `status N` skip queue priority and milestone policy,
+including this hold, while applying every
+other gate. A numbered launch can start later-milestone or unmilestoned work.
 
 In `order` mode, new issues of equal effective priority rank by open milestones
 with open issues or PRs, oldest first by creation time and then milestone number.
@@ -630,8 +633,8 @@ sources independently.
 Cycles terminate and share the highest reachable priority and earliest milestone.
 With `ignore`, links affect neither eligibility nor priority or milestone rank,
 and dependency reads are skipped. PR work, recovery and completion of started
-runs remain ungated. With milestone `gate`, a new issue must pass both gates;
-blockers inherit priority but keep their own milestone.
+runs remain ungated. With milestone `gate`, an automatically selected new issue
+must pass both gates; blockers inherit priority but keep their own milestone.
 A failed or unreadable dependency read stops selection visibly.
 Planning skips link reads only when the issue list's dependency summary reliably
 reports zero total blockers; missing or malformed summaries require a full read.
@@ -655,8 +658,8 @@ when inherited, such as `milestone #2 (inherited from #21)`. JSON includes
 `milestone` (the effective milestone number, or `null`) and
 `milestone_inherited_from` (the source issue number,
 or `null`). Ready new issues are listed in the order this launcher would start
-them. No `prefer` issue waits for an active milestone. In `gate` mode, waiting
-issues keep the `Waiting for active milestone #N` reason. Waiting issues also name
+them. No `prefer` issue waits for an active milestone. In the `gate` queue listing,
+waiting issues keep the `Waiting for active milestone #N` reason. Waiting issues also name
 open blockers,
 using `owner/repo#N` for external blockers. Inherited priority names its origin,
 for example `priority:urgent (inherited from #21)`. JSON includes
@@ -1434,11 +1437,14 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
 - `ub-agents launch [--once]` runs the loop in the foreground.
 - `ub-agents launch N [--agent NAME]` evaluates only issue or PR N and exits after
   running one assignment or recovering its pending completion. The number implies
-  `--once`; an explicit `--once` is also accepted. All normal eligibility gates
-  apply, including launcher trust, approvals, dependencies, milestone gates,
+  `--once`; an explicit `--once` is also accepted. Queue priority and milestone
+  policy do not apply to N, including the `gate` hold during planning, after refresh,
+  claiming and approval parking. All other eligibility gates apply, including
+  launcher trust, state, matching trigger labels, stop labels, approvals, dependencies,
   ownership, attempts, backoff and runtime availability. Without `--agent`, the
   first eligible agent in configuration order acts; with it, only that configured
-  agent is evaluated.
+  agent is evaluated. `--agent` still requires that agent's trigger label;
+  it does not choose a default role or authorize untriggered work.
   An unknown agent or `--agent` without N is a usage error. If no agent can act,
   it leaves one short refusal line per evaluated agent visible after the terminal
   view closes, or explains closed work and unmatched triggers. Plain output ends
@@ -1446,10 +1452,10 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   account, host and lease end without log paths, and the owning item when another
   item's run holds the branch; stop labels explain the Action needed
   notice and restoring a trigger, even when no trigger remains. A decline during
-  refresh or claiming reports that final verdict. No assignment or recovery exits
-  nonzero; GitHub read failures remain errors. Normal approval parking still applies. Reads are scoped
-  to N's inputs and gates; other work is not discovered or ranked. Priority and
-  milestone ordering do not affect this command. It uses the same launch log,
+  refresh or claiming reports that final verdict. If no assignment or recovery
+  starts, it exits nonzero; GitHub read failures remain errors. Normal approval
+  parking still applies. Reads are scoped to N's inputs and gates; other work is
+  not discovered or ranked. It uses the same launch log,
   signal handling and execution exit codes as `launch --once`.
 - `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
   removes eligible worktrees and local branches, running the project hook first.
@@ -1458,7 +1464,8 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   that open or closed issue or PR under the same gates as `launch NUMBER`, showing
   each evaluated agent's row: `ready` when launch would run it, or `recover` when
   launch would recover its pending completion. Priority and milestone use the
-  item's own values, without inheritance or milestone ordering. When no rows
+  item's own values, without inheritance. Queue priority and milestone policy,
+  including the `gate` hold, do not apply to N; all other gates do. When no rows
   apply, it prints launch's one-line explanation, including trigger labels to add
   or the item's closed state. It makes no GitHub writes and starts no runtime
   maintenance. It exits 0 when it can report, even for parked, blocked or
