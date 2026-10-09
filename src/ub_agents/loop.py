@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import threading
+from collections import deque
 from contextlib import contextmanager, nullcontext
 from time import monotonic
 from dataclasses import replace
@@ -312,8 +313,38 @@ class Loop:
 
     def plans(self):
         # Status evaluates every row, with fresh inputs even on a reused Loop.
-        return sorted(self.iter_plans(cached=False),
+        plans = self.iter_plans(cached=False)
+        if self.config.queue.milestones == "prefer":
+            return list(plans)
+        return sorted(plans,
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
+
+    def _prefer_plans(self, plans, milestones):
+        # Eligibility must be known before choosing a milestone. Merge the
+        # milestone-first queue with unlisted issues one choice at a time: the
+        # exception compares against the next eligible milestone issue, not a
+        # milestone's highest priority before unavailable work is filtered out.
+        priority = self.config.queue.priority
+        rank = lambda plan: self._rank(plan, priority)
+        assigned, unlisted, other = [], [], []
+        for plan in plans:
+            if plan.item.kind == "issue" and plan.state == "ready":
+                (assigned if plan.milestone in milestones else unlisted).append(plan)
+            else:
+                other.append(plan)
+        assigned = deque(sorted(assigned, key=lambda plan: (plan.milestone_rank, rank(plan))))
+        unlisted = deque(sorted(unlisted, key=rank))
+        other = deque(sorted(other, key=rank))
+        while assigned or unlisted:
+            queue = (unlisted if unlisted and
+                     (not assigned or rank(unlisted[0])[0] < rank(assigned[0])[0]) else assigned)
+            next_issue = queue.popleft()
+            # Existing work keeps priority order and wins equal-priority ties
+            # against the new issue selected by the milestone policy.
+            while other and rank(other[0])[0] <= rank(next_issue)[0]:
+                yield other.popleft()
+            yield next_issue
+        yield from other
 
     def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False):
         checked = {}
@@ -339,7 +370,7 @@ class Loop:
                             if self.config.queue.milestones == "gate" else None)
         self._active_milestone = active_milestone
         milestones = (self.github.milestone_order()
-                      if self.config.queue.milestones == "order" else ())
+                      if self.config.queue.milestones in {"order", "prefer"} else ())
         milestone_ranks = {number: rank for rank, number in enumerate(milestones)}
         priority = self.config.queue.priority
         candidates = []
@@ -365,7 +396,7 @@ class Loop:
         # Priority or milestone inheritance requires the open local graph.
         # Otherwise read only a reached item's links for dependency waits.
         inherit = (self.config.queue.dependencies == "wait" and
-                   (priority.labels or self.config.queue.milestones == "order"))
+                   (priority.labels or self.config.queue.milestones in {"order", "prefer"}))
         if inherit:
             github.prepare_dependencies(items.values())
         dependencies = Dependencies(github, items.values(), priority, milestones) if inherit else None
@@ -390,6 +421,7 @@ class Loop:
                                   priority_from_issue=from_issue, milestone=milestone,
                                   milestone_source=milestone_source,
                                   milestone_rank=milestone_ranks.get(milestone, len(milestones))))
+        preferred = [] if self.config.queue.milestones == "prefer" else None
         for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
             item = candidate.item
             if self._pass_stats is not None:
@@ -415,6 +447,13 @@ class Loop:
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
+                if preferred is None:
+                    self._observe_plan(observed, github)
+                    yield observed
+                else:
+                    preferred.append(observed)
+        if preferred is not None:
+            for observed in self._prefer_plans(preferred, milestones):
                 self._observe_plan(observed, github)
                 yield observed
 

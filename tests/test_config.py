@@ -584,6 +584,7 @@ agents:
             with self.subTest(extra=extra):
                 self.assertEqual(self.load(base + extra).queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  milestones: order\n").queue, Queue("order"))
+        self.assertEqual(self.load(base + "queue:\n  milestones: prefer\n").queue, Queue("prefer"))
         self.assertEqual(self.load(base + "queue:\n  milestones: gate\n").queue, Queue("gate"))
         self.assertEqual(self.load(base + "queue:\n  dependencies: wait\n").queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  dependencies: ignore\n").queue,
@@ -593,7 +594,7 @@ agents:
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
 
     def test_check_accepts_all_milestone_modes_and_names_them_for_invalid_values(self):
-        for mode in ("gate", "order", "ignore", "oldest"):
+        for mode in ("gate", "order", "prefer", "ignore", "oldest"):
             with self.subTest(mode=mode):
                 self.path.write_text(f"repository: org/project\nqueue:\n  milestones: {mode}\nagents:\n"
                                      "  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n")
@@ -601,7 +602,7 @@ agents:
                     self.assertEqual(main(["--config", str(self.path), "check"]),
                                      1 if mode == "oldest" else 0)
                 if mode == "oldest":
-                    self.assertIn("milestones must be gate, order or ignore", errors.getvalue())
+                    self.assertIn("milestones must be gate, order, prefer or ignore", errors.getvalue())
 
     def test_queue_validation_through_check(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"

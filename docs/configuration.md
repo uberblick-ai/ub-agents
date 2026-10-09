@@ -568,7 +568,7 @@ PR references and references to other repositories do not contribute. This PR
 rule applies in both dependency modes: `ignore` disables issue dependency
 inheritance, but PRs still inherit their closing issues' own configured priority.
 
-`milestones` accepts `gate`, `order` or `ignore` and defaults to `ignore`.
+`milestones` accepts `gate`, `order`, `prefer` or `ignore` and defaults to `ignore`.
 
 In `gate` mode, new issues wait for the oldest open milestone with open issues or
 PRs to close or empty. Creation time and then milestone number select that active
@@ -585,12 +585,37 @@ against lower priority in an earlier milestone. Milestones never hold back an
 otherwise eligible issue; later and unmilestoned work can start when earlier work
 cannot. PR work, owned runs and recovery precede new issue starts only at equal
 effective priority, and their rank ignores milestones.
-Ordering uses the milestone list and each listed issue's milestone;
-an unreadable milestone list stops selection visibly. In `ignore` mode, planning
-and claiming do not read milestones. `ub-agents check` accepts all three modes.
-This repository explicitly sets `order`; existing `gate` configurations remain
-valid. To let later and unmilestoned work start while earlier work cannot, switch
-`gate` to `order`.
+
+In `prefer` mode, new issues rank by milestone first, then effective priority,
+creation time and number within that milestone. It uses the same milestone list
+as `order`, choosing the earliest milestone with an issue eligible for this
+launcher. Blocked, owned, stop-labelled, untriggered, retry-limited, approval-parked
+or runtime-unavailable work does not hold back independent later work. Every pass
+reconsiders earlier work; no cursor advances or milestone changes state.
+An eligible unmilestoned issue, including one whose milestone is outside the list,
+goes ahead only if its effective priority is **strictly higher** than the selected
+milestone's next eligible issue. Milestone work wins ties. Later assigned milestones
+get no priority exception. When no listed milestone has eligible work here,
+unmilestoned issues run in priority order even while milestones remain open.
+For example, a high-priority unmilestoned issue precedes ten medium-priority issues
+in the selected milestone; a medium-priority unmilestoned issue and a high-priority
+issue in a later milestone wait behind those ten.
+PR work, owned runs and recovery keep priority order, ignoring milestones, and
+precede the next selected new issue at equal or higher effective priority.
+
+Both `order` and `prefer` use the milestone list and each listed issue's milestone;
+an unreadable milestone list or item stops selection visibly, never justifying
+fallback. Neither needs a claim-time or approval-parking milestone recheck;
+fresh-plan, dependency and claim election checks still apply. In `ignore` mode,
+planning and claiming do not read milestones. `ub-agents check` accepts all four
+modes. This repository explicitly sets `order`; existing configurations keep their
+behavior. To let later and unmilestoned work start while earlier work cannot,
+switch `gate` to `prefer` when milestone precedence matters, or to `order` when
+priority should always win.
+
+**Upgrading:** older launchers reject `prefer`. Upgrade every launcher of a project
+to a build supporting it before setting `milestones: prefer` in that project's
+`ub-agents.yaml`.
 
 `dependencies` accepts only `wait` or `ignore` and defaults to `wait`, including
 without a `queue` block. In `wait` mode, an issue cannot start preparation or
@@ -598,9 +623,10 @@ implementation while any GitHub blocked-by issue is open, including blockers
 in other repositories. Closed blockers do not gate it. The gate is rechecked
 before claiming. An open local issue inherits the highest effective priority
 of its open local dependents, directly or transitively, without changing labels.
-In milestone `order` mode, blockers also inherit the earliest milestone from open
-local dependents, directly or transitively, even without configured priority
-labels. Priority and milestone inheritance choose their sources independently.
+In milestone `order` and `prefer` modes, blockers also inherit the earliest
+milestone from open local dependents, directly or transitively, even without
+configured priority labels. Priority and milestone inheritance choose their
+sources independently.
 Cycles terminate and share the highest reachable priority and earliest milestone.
 With `ignore`, links affect neither eligibility nor priority or milestone rank,
 and dependency reads are skipped. PR work, recovery and completion of started
@@ -615,19 +641,23 @@ The claim-time recheck always reads the selected new issue's blocker links.
 `queue` block, priorities are unconfigured, milestones are ignored and dependency
 waits apply.
 
-Rank is effective priority, then existing work (PRs, owned runs and recovery)
-before new issue starts, then milestone rank for new issues in `order` mode, then
-item creation time and item number. Without configured priorities, all items have
-equal priority, so existing work still goes first. See
+Except for the new-issue policy in `prefer`, rank is effective priority, then
+existing work (PRs, owned runs and recovery) before new issue starts, then
+milestone rank for new issues in `order` mode, then item creation time and item
+number. Without configured priorities, all items have equal priority, so existing
+work still goes first. See
 [selection order](coordination.md#selection-order) for eligibility and
 PR precedence. `ub-agents status` and `status --json` use the same rank order and
 show each item's effective priority (`none` in text, `null` in JSON when no label
-or default applies). In `order` mode, each issue also shows its effective milestone
-next to priority (`none` when unmilestoned), with the source when inherited, such
-as `milestone #2 (inherited from #21)`. JSON includes `milestone` (the effective
-milestone number, or `null`) and `milestone_inherited_from` (the source issue number,
-or `null`). In `gate` mode, waiting issues keep the
-`Waiting for active milestone #N` reason. Waiting issues also name open blockers,
+or default applies). In `order` and `prefer` modes, each issue also shows its
+effective milestone next to priority (`none` when unmilestoned), with the source
+when inherited, such as `milestone #2 (inherited from #21)`. JSON includes
+`milestone` (the effective milestone number, or `null`) and
+`milestone_inherited_from` (the source issue number,
+or `null`). Ready new issues are listed in the order this launcher would start
+them. No `prefer` issue waits for an active milestone. In `gate` mode, waiting
+issues keep the `Waiting for active milestone #N` reason. Waiting issues also name
+open blockers,
 using `owner/repo#N` for external blockers. Inherited priority names its origin,
 for example `priority:urgent (inherited from #21)`. JSON includes
 `priority_inherited_from` (the source issue number, or `null`) and `open_blockers`

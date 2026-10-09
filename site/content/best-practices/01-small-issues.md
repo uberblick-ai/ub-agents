@@ -17,9 +17,11 @@ The issue preparer turns a rough idea into clear requirements. Tell it, in its [
 
 ## Ship in milestones
 
-Group related issues in a milestone and [order the queue by it](/docs/configuration/queue.html#milestones). Earlier milestones run first, and nothing waits on a milestone that cannot move.
+Group related issues in a milestone and [prefer earlier milestones](/docs/configuration/queue.html#milestones). Earlier runnable milestone work goes first, with a strict-priority exception for unmilestoned issues. Independent later work can start when earlier work is unavailable to this launcher.
 
 ```yaml
 queue:
-  milestones: order
+  milestones: prefer
 ```
+
+Upgrade every launcher of the project to a build supporting `prefer` before using this value. Use `order` if higher priority should always win, including in later milestones.
