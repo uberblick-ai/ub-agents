@@ -300,13 +300,17 @@ class LaunchOutputTests(unittest.TestCase):
         for _ in range(3):
             self.assertFalse(self.loop.tick())
 
+    def plan_lines(self):
+        return [line for line in self.lines if not line.startswith("Discovery pass ")]
+
     def test_owned_prints_once_and_prints_again_after_claiming(self):
         co = self.loop.coordinator
         lease = co.claim(self.loop.plans()[0])
         writes = list(self.github.writes)
         self.poll()
         line = "#1 worker: owned — An unexpired assignment owns this work item"
-        self.assertEqual(self.lines, [line])
+        self.assertEqual(self.plan_lines(), [line])
+        self.assertEqual(sum(line.startswith("Discovery pass empty:") for line in self.lines), 1)
         self.assertEqual(self.github.writes, writes)
 
         co.release(lease, "retry", "Interrupted", attempt_effect="unchanged")
@@ -325,7 +329,8 @@ class LaunchOutputTests(unittest.TestCase):
         writes = list(self.github.writes)
         self.poll()
         line = "#1 worker: backoff — Durable retry backoff has not elapsed"
-        self.assertEqual(self.lines, [line])
+        self.assertEqual(self.plan_lines(), [line])
+        self.assertEqual(sum(line.startswith("Discovery pass empty:") for line in self.lines), 1)
         self.assertEqual(self.github.writes, writes)
 
         self.now += 60
@@ -349,25 +354,25 @@ class LaunchOutputTests(unittest.TestCase):
                 with patch.object(loop, "iter_plans", side_effect=lambda **kwargs: iter(plans)):
                     for _ in range(3):
                         self.assertFalse(loop.tick())
-                    self.assertEqual(self.lines, [
+                    self.assertEqual(self.plan_lines(), [
                         f"#{plan.item.number} {plan.agent.name}: {state} — {reason}" for plan in plans])
 
                     plans[0] = replace(plans[0], reason=changed)
                     loop.tick()
                     loop.tick()
-                    self.assertEqual(len(self.lines), 5)
+                    self.assertEqual(len(self.plan_lines()), 5)
                     self.assertEqual(self.lines[-1], f"#1 worker: {state} — {changed}")
 
                     plans[0] = replace(plans[0], state="waiting")
                     loop.tick()
                     loop.tick()
-                    self.assertEqual(len(self.lines), 6)
+                    self.assertEqual(len(self.plan_lines()), 6)
                     self.assertEqual(self.lines[-1], f"#1 worker: waiting — {changed}")
 
                     plans[0] = replace(plans[0], state=state)
                     loop.tick()
                     loop.tick()
-                    self.assertEqual(len(self.lines), 7)
+                    self.assertEqual(len(self.plan_lines()), 7)
                     self.assertEqual(self.lines[-1], f"#1 worker: {state} — {changed}")
 
                     absent = plans.pop(0)
@@ -375,7 +380,7 @@ class LaunchOutputTests(unittest.TestCase):
                     plans.insert(0, absent)
                     loop.tick()
                     loop.tick()
-                    self.assertEqual(len(self.lines), 8)
+                    self.assertEqual(len(self.plan_lines()), 8)
                     self.assertEqual(self.lines[-1], f"#1 worker: {state} — {changed}")
 
 

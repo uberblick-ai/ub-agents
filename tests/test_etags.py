@@ -9,10 +9,13 @@ from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 
 from ub_agents.config import Priority, Queue
+from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError
-from ub_agents.github import GitHub
+from ub_agents.github import GitHub, response_parts
 from ub_agents.loop import Loop
 from ub_agents.records import iso, records
+from ub_agents.run_config import run_directory
+from ub_agents.run_planning import RunPlanning
 from tests.support import FakeGitHub, RecordingRunner, agent, config, issue, pr, stub_refresh
 
 
@@ -56,6 +59,9 @@ class ETagTests(unittest.TestCase):
                 self.assertEqual([validator(c) for c, _ in runner.calls], [None, 'W/"old"', '"old"'])
                 self.assertEqual(github.quota_requests, 1)
                 self.assertEqual(github.rest_requests, 3)
+                self.assertEqual(github.gh_calls, len(runner.calls))
+                self.assertEqual(github.not_modified_responses, 2)
+                self.assertEqual(github.graphql_calls, 0)
                 self.assertEqual(github.quota_headers['x-ratelimit-remaining'], '4000')
 
     def test_changed_response_replaces_payload_and_next_validator(self):
@@ -75,6 +81,8 @@ class ETagTests(unittest.TestCase):
         self.assertEqual([validator(c) for c, _ in runner.calls], [None, None, '"new"'])
         self.assertEqual(github.quota_requests, 1)
         self.assertEqual(github.rest_requests, 3)
+        self.assertEqual(github.gh_calls, len(runner.calls))
+        self.assertEqual(github.not_modified_responses, 2)
         repeated = SequenceRunner(response(304), response(304))
         with self.assertRaisesRegex(GitHubError, 'after refetch'):
             GitHub('org/project', repeated).request('resource')
@@ -94,6 +102,8 @@ class ETagTests(unittest.TestCase):
         self.assertEqual([validator(c) for c, _ in runner.calls],
                          [None, None, None, '"page1"', '"page2"', '"closed"'])
         self.assertEqual(github.quota_requests, 3)
+        self.assertEqual(github.gh_calls, len(runner.calls))
+        self.assertEqual(github.not_modified_responses, 3)
 
     def test_discovery_polls_do_not_retain_moving_cursor_responses(self):
         batches = [[{'id': 1, 'body': f'update {poll}', 'updated_at': iso(1000 + poll * 30)}]
@@ -141,6 +151,9 @@ class ETagTests(unittest.TestCase):
         self.assertEqual([validator(c) for c, _ in runner.calls], [None] * 9 + ['"read"'])
         self.assertEqual(github.quota_requests, 5)
         self.assertEqual(github.rest_requests, 6)
+        self.assertEqual(github.gh_calls, len(runner.calls))
+        self.assertEqual(github.graphql_calls, 4)
+        self.assertEqual(github.not_modified_responses, 1)
 
     def test_missing_etag_clears_entry_and_invalid_or_failed_responses_do_not_replace_it(self):
         runner = SequenceRunner(response(payload={'version': 1}, etag='"one"'),
@@ -174,6 +187,26 @@ class ETagTests(unittest.TestCase):
             github.actor()
         self.assertEqual(github.quota_requests, 0)
         self.assertEqual(github.rest_requests, 1)
+        self.assertEqual(github.gh_calls, 1)
+
+    def test_failed_pages_refetches_and_graphql_count_attempts_and_http_responses(self):
+        cases = (
+            ('items', {'paginate': True}, [response(payload=[{}] * 100), response(500, {})], (2, 2, 0, 0)),
+            ('resource', {}, [response(304), response(403, {})], (2, 1, 1, 0)),
+            ('resource', {}, [response(304), response(304)], (2, 0, 2, 0)),
+            ('resource', {}, [OSError('Cannot execute gh')], (1, 0, 0, 0)),
+            ('graphql', {}, [response(500, {})], (1, 0, 0, 1)),
+            ('graphql', {}, [subprocess.TimeoutExpired('gh', 20)], (1, 0, 0, 1)),
+        )
+        for endpoint, options, responses, expected in cases:
+            with self.subTest(endpoint=endpoint, responses=responses):
+                runner = SequenceRunner(*responses)
+                github = GitHub('org/project', runner)
+                with self.assertRaises(GitHubError):
+                    github.request(endpoint, **options)
+                self.assertEqual((github.gh_calls, github.quota_requests,
+                                  github.not_modified_responses, github.graphql_calls), expected)
+                self.assertEqual(github.gh_calls, len(runner.calls))
 
 
 class CoordinationRunner(RecordingRunner):
@@ -272,6 +305,76 @@ class CoordinationRunner(RecordingRunner):
 
 
 class RequestBudgetTests(unittest.TestCase):
+    def test_pass_and_released_event_partition_launcher_requests_at_successful_claim(self):
+        stub_refresh(self)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner = CoordinationRunner(root, True)
+            own = []
+
+            def request(command, **kwargs):
+                result = runner(command, **kwargs)
+                endpoint = command[command.index('--include') + 1]
+                status, _, _ = response_parts(result.stdout)
+                own.append((endpoint == 'graphql', status))
+                return result
+
+            github = GitHub('org/project', request)
+            output = []
+            cfg = config(root, queue=Queue(milestones='gate', priority=Priority(('p1', 'p2'))))
+            loop = Loop(cfg, github, 'operator', output=output.append)
+            claim = loop.coordinator.claim
+            release = loop.coordinator.release
+            boundaries = {}
+
+            def claiming(*args, **kwargs):
+                boundaries['claim'] = len(own)
+                return claim(*args, **kwargs)
+
+            def releasing(*args, **kwargs):
+                result = release(*args, **kwargs)
+                boundaries['release'] = len(own)
+                return result
+
+            def execute(command, cwd, env, run_dir, *args, **kwargs):
+                kwargs['process_started'](12345)
+                loop.coordinator.renew(loop.github.lease, github)
+                worker = RunPlanning(loop, 0)
+                worker.planner.github.github.github.runner = runner
+                with worker.planner.discovery_pass('observation', loop.pass_output):
+                    list(worker.planner.iter_plans())
+                # The agent's separate authenticated client writes the report.
+                agent_co = Coordinator(GitHub('org/project', runner), 'operator', output=output.append)
+                agent_co.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                return 0
+
+            with patch.object(loop.coordinator, 'claim', side_effect=claiming), \
+                    patch.object(loop.coordinator, 'release', side_effect=releasing), \
+                    patch.object(loop, '_replan_finished_item', side_effect=lambda plan: github.comments(1)), \
+                    patch('ub_agents.loop.supervise', side_effect=execute):
+                self.assertTrue(loop.tick())
+
+            def counts(calls):
+                return {'gh_calls': len(calls),
+                        'quota_requests': sum(not gql and status != 304 for gql, status in calls),
+                        'not_modified_responses': sum(status == 304 for _, status in calls),
+                        'graphql_calls': sum(gql for gql, _ in calls)}
+
+            discovery = counts(own[:boundaries['claim']])
+            passes = [line for line in output if line.startswith('Discovery pass claiming:')]
+            self.assertEqual(len(passes), 1)
+            self.assertIn(f"gh calls={discovery['gh_calls']}, REST quota={discovery['quota_requests']}, "
+                          f"HTTP 304={discovery['not_modified_responses']}, "
+                          f"GraphQL calls={discovery['graphql_calls']}; candidates reached=1", passes[0])
+            lease = records(runner.store.comments(1), 'operator')[0]
+            events = [json.loads(line) for line in (run_directory(root, lease['run']) / 'events.jsonl')
+                      .read_text().splitlines()]
+            released = next(event for event in events if event['event'] == 'released')
+            self.assertEqual(released['github_requests'], counts(own[boundaries['claim']:boundaries['release']]))
+            self.assertGreater(released['github_requests']['not_modified_responses'], 0)
+            self.assertGreater(len(runner.calls), len(own))  # Worker and agent traffic is excluded.
+            self.assertEqual(len(own), boundaries['release'] + 1)  # Display refresh is excluded too.
+
     def test_45_item_claim_to_release_uses_at_most_half_the_rest_quota(self):
         self.assert_request_budget('gate')
 

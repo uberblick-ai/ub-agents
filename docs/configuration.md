@@ -161,6 +161,24 @@ already spent in the pass, including rate-limit waits, counts toward the gap.
 Observation passes during a continuous run use the same budget, low-quota doubling,
 one-hour cap and rate-limit waits as empty passes. They evaluate the whole ranked
 queue without claiming, recovering, approval-parking or printing plan or idle lines.
+Each pass reports its kind (`claiming`, `empty` or `observation`), wall time,
+attempted `gh` calls, quota-counted REST responses, HTTP 304 responses, GraphQL
+calls and candidates reached in launch output. Candidates count distinct items
+reached for evaluation, including items that fail evaluation, rather than agent rows.
+Every attempted invocation counts once, including extra pages, failed requests
+and an unconditional refetch after a 304 without a cached response. GraphQL calls
+count invocations, not GraphQL quota points. Consecutive passes with the same kind,
+counts and candidate count print once even when their wall times differ.
+For a successful claim, discovery counts stop immediately before `Coordinator.claim`
+starts its fresh checks; those checks, the claim and subsequent launcher traffic
+through release belong to the run. Unsuccessful claim attempts remain part of an
+empty pass, or of discovery before a later successful claim. Observation passes
+measure their own client. The run's `events.jsonl` `released` event records
+`github_requests` with `gh_calls`, `quota_requests`, `not_modified_responses` and
+`graphql_calls` for the launcher's client, including renewals and finalization.
+It excludes observation-worker and agent requests, and the display refresh after
+release. Use these measured counts when budgeting busy launchers sharing an account;
+agents' own requests still need a separate allowance.
 Only completed observation passes replace the snapshot's queue rows; a failed or
 rate-limited pass retains the previous rows and cannot interrupt execution,
 heartbeats, reporting, transitions or cleanup, or stop the launcher.

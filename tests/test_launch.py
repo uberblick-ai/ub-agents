@@ -74,10 +74,11 @@ class LaunchTests(unittest.TestCase):
                         patch.object(Loop, "_wait") as wait, \
                         redirect_stdout(stdout), redirect_stderr(stderr):
                     self.assertEqual(main(self.argv + ["--once"]), 0)
-                self.assertEqual(stdout.getvalue(),
+                self.assertRegex(stdout.getvalue().splitlines()[0], r'^Discovery pass empty: .*candidates reached=0$')
+                self.assertEqual("\n".join(stdout.getvalue().splitlines()[1:]) + "\n",
                                  "No open issue or PR has a trigger label (ready, needs-changes); add one to start\n")
                 self.assertEqual(stderr.getvalue(), "")
-                self.assertEqual(self.log_lines()[-1], stdout.getvalue().strip())
+                self.assertEqual(self.log_lines()[-2:], stdout.getvalue().splitlines())
                 wait.assert_not_called()
                 self.assertEqual(github.writes, [])
 
@@ -91,7 +92,7 @@ class LaunchTests(unittest.TestCase):
                 patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(main(self.argv + ["--once"]), 0)
-        self.assertEqual(stdout.getvalue(), "No open issue or PR has a trigger label "
+        self.assertEqual("\n".join(stdout.getvalue().splitlines()[1:]) + "\n", "No open issue or PR has a trigger label "
                          "(needs-preparation, ready, needs-changes, needs-review, ready-to-merge); add one to start\n")
 
     def test_triggered_but_parked_work_does_not_suggest_adding_a_trigger(self):
@@ -179,7 +180,8 @@ class LaunchTests(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
 
         def wait(_):
-            self.assertEqual(self.log_lines(), ["No open issue or PR has a trigger label (ready, needs-changes); "
+            self.assertRegex(self.log_lines()[0], r'^Discovery pass empty: .*candidates reached=0$')
+            self.assertEqual(self.log_lines()[1:], ["No open issue or PR has a trigger label (ready, needs-changes); "
                                                "add one to start; next poll in 1s (0 requests last poll)"])
             signal.raise_signal(signal.SIGINT)
 
@@ -190,10 +192,10 @@ class LaunchTests(unittest.TestCase):
                 patch("ub_agents.loop.monotonic", return_value=0), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
-        self.assertEqual(stdout.getvalue(), "No open issue or PR has a trigger label (ready, needs-changes); "
+        self.assertEqual("\n".join(stdout.getvalue().splitlines()[1:]) + "\n", "No open issue or PR has a trigger label (ready, needs-changes); "
                                            "add one to start; next poll in 1s (0 requests last poll)\n")
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
-        self.assertEqual(self.log_lines(), ["No open issue or PR has a trigger label (ready, needs-changes); "
+        self.assertEqual(self.log_lines()[1:], ["No open issue or PR has a trigger label (ready, needs-changes); "
                                            "add one to start; next poll in 1s (0 requests last poll)",
                                            "Stopped; supervised execution terminated"])
 
@@ -289,7 +291,9 @@ class LaunchTests(unittest.TestCase):
                 redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
-        self.assertEqual(self.log_lines(), ["Stopped; supervised execution terminated"])
+        self.assertRegex(self.log_lines()[0], r'^Discovery pass empty: .*gh calls=1, REST quota=0, '
+                         r'HTTP 304=0, GraphQL calls=0; candidates reached=0$')
+        self.assertEqual(self.log_lines()[1:], ["Stopped; supervised execution terminated"])
 
     def test_piped_terminal_output_is_visible_while_launch_is_running(self):
         script = """import sys
@@ -383,6 +387,13 @@ class TargetedLaunchTests(unittest.TestCase):
                         self.github.reads)
         self.assertNotIn(1, self.github.store)
         self.assertEqual(self.github.items[1].labels, frozenset({"ready", "urgent"}))
+
+    def assert_output(self, stdout, expected):
+        passes = [line for line in stdout.splitlines() if line.startswith("Discovery pass ")]
+        self.assertEqual(len(passes), 1)
+        self.assertRegex(passes[0], r'^Discovery pass empty: .*candidates reached=1$')
+        plans = [line for line in stdout.splitlines() if not line.startswith("Discovery pass ")]
+        self.assertEqual("\n".join(plans) + "\n", expected)
 
     def test_eligible_item_runs_once_without_discovering_or_ranking_other_work(self):
         self.config = replace(config(self.root, queue=Queue(milestones="order", priority=Priority(("urgent",)))),
@@ -480,7 +491,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 self.github.timelines[11] = []  # Approval would normally park the item.
                 code, stdout, _, run = self.launch("11")
                 self.assertEqual(code, 1)
-                self.assertEqual(stdout, f"#11 worker: blocked — {reason}\n")
+                self.assert_output(stdout, f"#11 worker: blocked — {reason}\n")
                 self.assertEqual(self.github.writes, [])
                 run.assert_not_called()
                 self.assert_scoped()
@@ -489,7 +500,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.change(11, labels=frozenset({"ready", "needs-human"}))
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 worker: parked — Stop label needs-human is present\n")
+        self.assert_output(stdout, "#11 worker: parked — Stop label needs-human is present\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
         self.assert_scoped()
@@ -498,7 +509,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.dependencies[11] = [1]
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 worker: parked — Waiting for blockers #1\n")
+        self.assert_output(stdout, "#11 worker: parked — Waiting for blockers #1\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
         self.assert_scoped()
@@ -507,7 +518,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.change(11, labels=frozenset())
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n")
+        self.assert_output(stdout, "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
         self.assert_scoped()
@@ -526,7 +537,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.change(11, state="closed")
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11: issue is closed\n")
+        self.assert_output(stdout, "#11: issue is closed\n")
         run.assert_not_called()
         self.assert_scoped()
 
@@ -554,7 +565,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.config = config(self.root, first, second)
         code, stdout, _, run = self.launch("11", "--agent", "first")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 first: blocked — Command is not installed: missing-command-for-test\n")
+        self.assert_output(stdout, "#11 first: blocked — Command is not installed: missing-command-for-test\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
         code, stdout, _, run = self.launch("11")
@@ -571,7 +582,7 @@ class TargetedLaunchTests(unittest.TestCase):
             with self.subTest(name=name):
                 code, stdout, _, run = self.launch("11", "--agent", name)
                 self.assertEqual(code, 1)
-                self.assertEqual(stdout, f"#11: {reason}\n")
+                self.assert_output(stdout, f"#11: {reason}\n")
                 run.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assert_scoped()
@@ -581,7 +592,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.change(11, labels=frozenset({"ready", "needs-human"}))
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 first: parked — Stop label needs-human is present\n"
+        self.assert_output(stdout, "#11 first: parked — Stop label needs-human is present\n"
                                  "#11 second: parked — Stop label needs-human is present\n")
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
@@ -614,7 +625,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.change(1, milestone=3)
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 worker: parked — Waiting for active milestone #3\n")
+        self.assert_output(stdout, "#11 worker: parked — Waiting for active milestone #3\n")
         self.assertIn(("active_milestone", ()), self.github.reads)
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
@@ -625,7 +636,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.dependencies[11] = [1]
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 worker: parked — Waiting for blockers #1\n")
+        self.assert_output(stdout, "#11 worker: parked — Waiting for blockers #1\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
         self.assert_scoped()
@@ -638,7 +649,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 worker: waiting — Waiting for codex: usage limit reached; "
+        self.assert_output(stdout, "#11 worker: waiting — Waiting for codex: usage limit reached; "
                                  "pause ends 2026-10-04T00:00:00Z\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
@@ -650,7 +661,7 @@ class TargetedLaunchTests(unittest.TestCase):
         with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 worker: blocked — No eligible runtime executable is installed, "
+        self.assert_output(stdout, "#11 worker: blocked — No eligible runtime executable is installed, "
                                  "usable and available\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
@@ -672,7 +683,7 @@ class TargetedLaunchTests(unittest.TestCase):
             self.config = config(self.root, role)
             code, stdout, _, run = self.launch("11")
             self.assertEqual(code, 1)
-            self.assertEqual(stdout, f"#11 worker: {reason}\n")
+            self.assert_output(stdout, f"#11 worker: {reason}\n")
             run.assert_not_called()
             self.assertEqual(self.github.writes, writes)
         self.assert_scoped()
@@ -721,7 +732,7 @@ class TargetedLaunchTests(unittest.TestCase):
 
         code, stdout, _, run = self.launch("11", refresh=refresh)
         self.assertEqual(code, 1)
-        self.assertEqual(stdout, "#11 worker: parked — Stop label needs-human is present\n")
+        self.assert_output(stdout, "#11 worker: parked — Stop label needs-human is present\n")
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assert_scoped()
@@ -741,7 +752,7 @@ class TargetedLaunchTests(unittest.TestCase):
 
                 code, stdout, _, run = self.launch("11", refresh=refresh)
                 self.assertEqual(code, 1)
-                self.assertEqual(stdout, f"#11 worker: blocked — {reason}\n")
+                self.assert_output(stdout, f"#11 worker: blocked — {reason}\n")
                 run.assert_not_called()
                 self.assertEqual(self.github.writes, [])
                 self.assert_scoped()
