@@ -207,7 +207,8 @@ their results never choose the next claim. After the run, fresh claiming discove
 again walks the rank order and rechecks authority before any write. Lower-ranked
 rows are announced and approval-parked only by a claiming pass that reaches them.
 The observation worker starts with independent copies of the launcher's discovery
-inputs, REST ETags, repository comment cache and comment cursor. Its first scan
+inputs, REST ETags, repository comment cache and comment cursor, plus the per-item
+comment store, reconciliation state and first successful scan's window start. Its first scan
 continues from that cursor; new claim comments invalidate the claimed item's
 inputs. Later cache changes stay local to each client, and the worker keeps its
 own request counters and rate-limit state.
@@ -217,13 +218,21 @@ Within each pass, an item's comments supply history and approval input, and
 `status` renders the same history. Fresh repository permissions are read once per
 account across all reached items. These shared reads end with the pass; each
 claim-time approval check reads permissions anew.
+Discovery serves issue and PR conversation comments from a separate per-item
+store when the item's creation falls within the first successful scan's window,
+or a per-item read has reconciled it, and its stored row count matches the open
+issue list's valid comment count. Otherwise it reads the item and replaces its
+stored rows exactly. Missing or invalid counts and items absent from the open list
+always require that fallback. PR reviews and inline review comments remain
+per-item reads.
 Each launcher retains per-item discovery inputs in memory: history, approval
 inputs and permissions, PR details, and dependency links. Record authors' roles and
 the launcher's own role are checked freshly each pass, including on unchanged items.
 Changes in the issue list (including `updated_at`) or an item's comment IDs and
-update times invalidate that item's reads. A comment aging out of the discovery
-lookback also invalidates those reads once, including when it was the item's last
-cached comment. A fresh claim-approval denial also drops the item's cached
+update times invalidate that item's reads. Stored comment rows do not age out
+with the repository history's recovery lookback; they leave the store when the
+item is no longer open or referenced by the repository scan. A deleted row causes
+a count mismatch and a per-item repair. A fresh claim-approval denial also drops the item's cached
 inputs so the next reached pass can plan its gate. Claims and approval parking
 always revalidate with fresh reads;
 cached input never authorizes a claim or a write. Restarting a launcher drops its
@@ -237,8 +246,12 @@ author (all marked-record authors when `launchers` is omitted). Checking a ready
 launcher's own account can add one permission read if it was not already read.
 List pages hold up to 100 rows; a full REST page
 also needs a request to check for a following page. A cold pass or changed item adds
-roughly 3–7 reads for each candidate actually reached, plus one permission read per
-distinct account across those candidates, with extra pages for long histories.
+roughly 2–6 reads for each candidate actually reached when the comment store is
+complete, plus one permission read per distinct account across those candidates.
+An older item without reconciliation, a comment-count mismatch, a missing or
+invalid count, or an item absent from the open list adds a per-item conversation
+comment read, with extra pages for long histories. A successful fallback repairs
+the store so later passes with matching valid counts can reuse it.
 Unchanged REST reads with an ETag consume no quota when GitHub confirms freshness
 with HTTP 304; the incremental comment scan's moving `since` cursor skips ETag
 caching. Configured priorities add a paginated dependency-graph list on cold

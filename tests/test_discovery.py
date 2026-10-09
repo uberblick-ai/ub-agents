@@ -74,7 +74,7 @@ class DiscoveryTests(unittest.TestCase):
                         list(loop.iter_plans())
                         self.assertEqual(self.item_reads(loop.github), {2})
 
-    def test_aged_out_comment_invalidates_its_item_once_including_the_last_comment(self):
+    def test_store_retains_comments_after_repository_history_ages_out(self):
         for last in (False, True):
             with self.subTest(last_comment=last):
                 github = GitHub("org/project")
@@ -85,7 +85,9 @@ class DiscoveryTests(unittest.TestCase):
                 other = dict(old, id=3, updated_at=iso(960),
                              issue_url="https://api.github.com/repos/org/project/issues/2")
                 initial = [old, other] if last else [old, recent, other]
-                with patch.object(github, "observe", return_value=[issue(1), issue(2)]), \
+                items = [replace(issue(1), created_at=iso(900), comments_count=len(initial) - 1),
+                         replace(issue(2), created_at=iso(900), comments_count=1)]
+                with patch.object(github, "observe", return_value=items), \
                         patch.object(github, "request", side_effect=[initial, [], []]), \
                         patch.object(github, "comments", return_value=[]) as read, \
                         patch("ub_agents.github.timestamp", side_effect=[1000, 1001, 1002]):
@@ -98,22 +100,140 @@ class DiscoveryTests(unittest.TestCase):
                         discovery.cache[("role", ("operator",), number)] = "write"
                     read.reset_mock()
 
-                    discovery.observe(100)
-                    self.assertNotIn(("role", ("operator",), 1), discovery.cache)
+                    _, history = discovery.observe(100)
+                    self.assertIn(("role", ("operator",), 1), discovery.cache)
                     self.assertIn(("role", ("operator",), 2), discovery.cache)
-                    if last:
-                        self.assertNotIn(1, discovery.comments_index)
-                    else:
-                        self.assertEqual(discovery.comments_index[1], [(2, iso(950))])
+                    self.assertNotIn(old, history)
+                    self.assertEqual(discovery.comments_index[1],
+                                     [(c["id"], c["updated_at"]) for c in initial[:-1]])
                     for number in (1, 2):
                         discovery.comments(number)
-                    read.assert_called_once_with(1)
+                    self.assertEqual(discovery.comments(1), initial[:-1])
+                    read.assert_not_called()
                     read.reset_mock()
 
                     discovery.observe(100)
                     for number in (1, 2):
                         discovery.comments(number)
                     read.assert_not_called()
+
+    def test_cold_scan_serves_issue_and_pr_conversation_comments_and_empty_items(self):
+        for item in (issue(1), pr(1)):
+            with self.subTest(kind=item.kind):
+                github = GitHub("org/project")
+                discovery = Discovery(github)
+                comment = {"id": 1, "body": "Feedback", "updated_at": iso(950),
+                           "issue_url": "https://api.github.com/repos/org/project/issues/1"}
+                items = [replace(item, created_at=iso(900), comments_count=1),
+                         replace(issue(2), created_at=iso(901), comments_count=0)]
+                with patch.object(github, "observe", return_value=items), \
+                        patch.object(github, "request", return_value=[comment]), \
+                        patch.object(github, "comments") as read, \
+                        patch("ub_agents.github.timestamp", return_value=1000):
+                    discovery.observe(100)
+                    self.assertEqual(discovery.comments(1), [comment])
+                    self.assertEqual(discovery.comments(2), [])
+                    self.assertEqual(discovery.observed_comments(1), [comment])
+                    # Callers cannot mutate either cached input or stored rows.
+                    discovery.comments(1)[0]["body"] = "Changed"
+                    self.assertEqual(discovery.comments(1), [comment])
+                    read.assert_not_called()
+
+    def test_older_item_read_repairs_complete_rows_and_invalidation_index(self):
+        github = GitHub("org/project")
+        discovery = Discovery(github)
+        old = {"id": 1, "body": "Older feedback", "updated_at": iso(850),
+               "issue_url": "https://api.github.com/repos/org/project/issues/1"}
+        recent = dict(old, id=2, body="Recent feedback", updated_at=iso(950))
+        item = replace(issue(1), created_at=iso(899), comments_count=2)
+        with patch.object(github, "observe", return_value=[item]) as observe, \
+                patch.object(github, "request", side_effect=[[recent], []]), \
+                patch.object(github, "comments", return_value=[old, recent]) as read, \
+                patch("ub_agents.github.timestamp", side_effect=[1000, 1001]):
+            discovery.observe(100)
+            self.assertEqual(discovery.comments(1), [old, recent])
+            read.assert_called_once_with(1)
+            self.assertEqual(discovery.comments_index[1], [(1, iso(850)), (2, iso(950))])
+            self.assertIn(1, discovery.reconciled_comments)
+            # A changed list input still uses the reconciled store next pass.
+            observe.return_value = [replace(item, updated_at=iso(1001))]
+            discovery.observe(100)
+            self.assertEqual(discovery.comments(1), [old, recent])
+            read.assert_called_once_with(1)
+
+    def test_deleted_comment_is_repaired_without_resurrection_from_repository_cache(self):
+        github = GitHub("org/project")
+        discovery = Discovery(github)
+        deleted = {"id": 1, "body": "Deleted", "updated_at": iso(950),
+                   "issue_url": "https://api.github.com/repos/org/project/issues/1"}
+        retained = dict(deleted, id=2, body="Retained", updated_at=iso(951))
+        item = replace(issue(1), created_at=iso(900), comments_count=2)
+        with patch.object(github, "observe", return_value=[item]) as observe, \
+                patch.object(github, "request", side_effect=[[deleted, retained], [], []]), \
+                patch.object(github, "comments", return_value=[retained]) as read, \
+                patch("ub_agents.github.timestamp", side_effect=[1000, 1001, 1002]):
+            discovery.observe(100)
+            self.assertEqual(discovery.comments(1), [deleted, retained])
+            read.assert_not_called()
+            observe.return_value = [replace(item, comments_count=1)]
+            discovery.observe(100)
+            self.assertEqual(discovery.comments(1), [retained])
+            read.assert_called_once_with(1)
+            self.assertEqual(discovery.comments_index[1], [(2, iso(951))])
+            self.assertEqual(set(discovery.comment_store[1]), {2})
+            discovery.observe(100)
+            self.assertEqual(discovery.comments(1), [retained])
+            self.assertEqual(set(discovery.comment_store[1]), {2})
+            read.assert_called_once_with(1)
+
+    def test_missing_invalid_or_mismatched_counts_never_prove_completeness(self):
+        for count in (None, -1, True, "0", 0.0, 1):
+            with self.subTest(count=count):
+                github = GitHub("org/project")
+                discovery = Discovery(github)
+                item = replace(issue(1), created_at=iso(900), comments_count=count)
+                with patch.object(github, "observe", return_value=[item]), \
+                        patch.object(github, "request", return_value=[]), \
+                        patch.object(github, "comments", return_value=[]) as read, \
+                        patch("ub_agents.github.timestamp", return_value=1000):
+                    for _ in range(2):
+                        discovery.observe(100)
+                        self.assertEqual(discovery.comments(1), [])
+                        self.assertEqual(discovery.comments(1), [])
+                    self.assertEqual(read.call_count, 2)
+
+    def test_closed_and_unlisted_items_read_fresh_and_store_is_pruned_when_unreferenced(self):
+        github = GitHub("org/project")
+        discovery = Discovery(github)
+        comment = {"id": 1, "body": "Feedback", "updated_at": iso(950),
+                   "issue_url": "https://api.github.com/repos/org/project/issues/1"}
+        item = replace(issue(1), created_at=iso(900), comments_count=1)
+        with patch.object(github, "observe", return_value=[item]) as observe, \
+                patch.object(github, "request", side_effect=[[comment], [], []]), \
+                patch.object(github, "comments", return_value=[comment]) as read, \
+                patch("ub_agents.github.timestamp", side_effect=[1000, 1001, 1051]):
+            discovery.observe(100)
+            discovery.comments(1)
+            read.assert_not_called()
+            observe.return_value = []
+            discovery.observe(100)
+            self.assertEqual(discovery.comments(1), [comment])
+            read.assert_called_once_with(1)
+            discovery.observe(100)
+            self.assertNotIn(1, discovery.comment_store)
+            self.assertNotIn(1, discovery.comments_index)
+            self.assertNotIn(1, discovery.reconciled_comments)
+            self.assertEqual(discovery.comments(1), [comment])
+            self.assertEqual(read.call_count, 2)
+
+    def test_claim_after_store_supplied_history_still_reads_fresh_comments(self):
+        loop = self.loop([replace(issue(1), created_at=iso(950))])
+        loop.github.github.comment_window_start = 900
+        plan = next(loop.iter_plans())
+        self.assertEqual(plan.state, "ready")
+        self.assertNotIn(("comments", (1,)), loop.github.reads)
+        self.assertIsNotNone(loop.coordinator.claim(plan, loop.config.stop_labels))
+        self.assertIn(("comments", (1,)), loop.github.reads)
 
     def test_comment_index_tracks_only_ids_and_update_times(self):
         loop = self.loop([issue(1), issue(2)])
@@ -225,7 +345,8 @@ class DiscoveryTests(unittest.TestCase):
                                 self.assertEqual(len(rows), size)
                                 self.assertTrue(all((r["state"] if status else r.state) == "ready" for r in rows))
                                 self.assertEqual(Counter(args[0] for name, args in github.reads
-                                                         if name == "comments"), Counter(range(1, size + 1)))
+                                                         if name == "comments"),
+                                                 Counter(range(1, size + 1)) if status or not observation else Counter())
                                 self.assertEqual(Counter(args[0].casefold() for name, args in github.reads
                                                          if name == "role"), Counter(accounts))
                         self.assertEqual(github.writes, [])

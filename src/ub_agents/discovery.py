@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import replace
 
 from .errors import AgentError
+from .records import seconds
 
 
 class Discovery:
@@ -16,17 +17,36 @@ class Discovery:
         self.items = {}
         self.closed_items = set()
         self.comments_index = {}
+        self.comment_store = {}
+        self.reconciled_comments = set()
+        self.comment_window_start = None
+        self.repository_index = {}
         self.cache = {}
         self.scope = None
         self.graph_loaded = False
         self.pass_roles = {}
         self.pass_errors = {}
+        self.pass_comments = set()
 
     def observe(self, lookback_seconds):
         self.pass_roles = {}
         self.pass_errors = {}
+        self.pass_comments = set()
         items = {item.number: item for item in self.github.observe(details=False)}
         comments = self.github.repository_comments(lookback_seconds=lookback_seconds)
+        if self.repository != self.github.repository:
+            self.cache.clear()
+            self.graph_loaded = False
+            self.closed_items.clear()
+            self.items = {}
+            self.comments_index = {}
+            self.comment_store = {}
+            self.reconciled_comments.clear()
+            self.repository_index = {}
+            self.comment_window_start = None
+            self.repository = self.github.repository
+        if self.comment_window_start is None:
+            self.comment_window_start = getattr(self.github, "comment_window_start", None)
         groups = {}
         for comment in comments:
             # Malformed coordination comments are diagnosed by repository_history.
@@ -34,19 +54,23 @@ class Discovery:
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
             except (KeyError, ValueError, AttributeError, TypeError):
                 continue
-            groups.setdefault(number, []).append((comment["id"], comment.get("updated_at")))
+            groups.setdefault(number, {})[comment["id"]] = comment.get("updated_at")
+            # The bounded cache can still contain a deleted row after a per-item
+            # repair. Only a new ID/update from the scan may change stored rows.
+            previous = self.repository_index.get(number, {})
+            if (number not in self.comment_store or comment["id"] not in previous
+                    or previous[comment["id"]] != comment.get("updated_at")):
+                self.comment_store.setdefault(number, {})[comment["id"]] = deepcopy(comment)
+        retained = items.keys() | groups.keys()
+        self.comment_store = {n: rows for n, rows in self.comment_store.items() if n in retained}
+        self.reconciled_comments.intersection_update(retained)
+        index = {n: self._comment_index(rows.values()) for n, rows in self.comment_store.items() if rows}
         list_changed = {n for n in self.items.keys() | items.keys()
                         if self.items.get(n) != items.get(n)}
         pr_changed = any((self.items.get(n) or items[n]).kind == "pr" for n in list_changed)
         changed = set(list_changed)
-        changed.update(n for n in self.comments_index.keys() | groups.keys()
-                       if self.comments_index.get(n) != groups.get(n))
-        if self.repository != self.github.repository:
-            self.cache.clear()
-            self.graph_loaded = False
-            self.closed_items.clear()
-            self.items = {}
-            self.repository = self.github.repository
+        changed.update(n for n in self.comments_index.keys() | index.keys()
+                       if self.comments_index.get(n) != index.get(n))
         self.cache = {key: value for key, value in self.cache.items()
                       if not (key[0] in self.ITEM_READS and key[1][0] in changed)
                       and not (key[0] == "role" and key[2] in changed)
@@ -54,10 +78,50 @@ class Discovery:
         self.closed_items.update(self.items.keys() - items.keys())
         self.closed_items.difference_update(items)
         self.items = items
-        self.comments_index = groups
+        self.comments_index = index
+        self.repository_index = groups
         return dict(items), comments
 
+    @staticmethod
+    def _comment_index(comments):
+        return sorted((comment["id"], comment.get("updated_at")) for comment in comments)
+
+    def comments(self, number):
+        key = ("comments", (number,), None)
+        if key in self.pass_errors:
+            raise self.pass_errors[key]
+        item = self.items.get(number)
+        rows = self.comment_store.get(number, {})
+        complete = (item is not None and item.state == "open"
+                    and type(item.comments_count) is int and item.comments_count >= 0
+                    and len(rows) == item.comments_count
+                    and (number in self.reconciled_comments
+                         or (self.comment_window_start is not None
+                             and seconds(item.created_at) >= self.comment_window_start)))
+        if complete:
+            if key not in self.cache:
+                self.cache[key] = deepcopy(sorted(rows.values(), key=lambda c: c["id"]))
+        elif number not in self.pass_comments:
+            try:
+                comments = self.github.comments(number)
+            except AgentError as exc:
+                self.pass_errors[key] = exc
+                raise
+            index = self._comment_index(comments)
+            if self.comments_index.get(number, []) != index:
+                self.invalidate(number)
+            self.comment_store[number] = {c["id"]: deepcopy(c) for c in comments}
+            self.reconciled_comments.add(number)
+            if comments:
+                self.comments_index[number] = index
+            else:
+                self.comments_index.pop(number, None)
+            self.cache[key] = deepcopy(comments)
+            self.pass_comments.add(number)
+        return deepcopy(self.cache[key])
+
     def invalidate(self, number):
+        self.pass_comments.discard(number)
         self.cache = {key: value for key, value in self.cache.items()
                       if not (key[0] in self.ITEM_READS and key[1][0] == number)
                       and not (key[0] == "role" and key[2] == number)}

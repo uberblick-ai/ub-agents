@@ -193,7 +193,8 @@ class RunPlanningTests(unittest.TestCase):
         self.loop.discovery.closed_items.add(4)
         worker = RunPlanning(self.loop, self.now)
         source, copied = self.loop.discovery, worker.planner.discovery
-        names = ('items', 'closed_items', 'comments_index', 'cache')
+        names = ('items', 'closed_items', 'comments_index', 'cache', 'comment_store',
+                 'reconciled_comments', 'comment_window_start', 'repository_index')
         snapshot = {name: deepcopy(getattr(copied, name)) for name in names}
         self.assertEqual({name: getattr(source, name) for name in names}, snapshot)
         self.assertIs(copied.github, worker.planner.github)
@@ -201,6 +202,10 @@ class RunPlanningTests(unittest.TestCase):
         source.closed_items.add(5)
         source.comments_index[1][0] = (source.comments_index[1][0][0], 'changed')
         source.cache[('comments', (1,), None)][0]['body'] = 'Changed feedback'
+        source.comment_store[1][1]['user']['login'] = 'launcher'
+        source.reconciled_comments.clear()
+        source.comment_window_start = 100
+        source.repository_index.clear()
         source.invalidate(2)
         self.assertEqual({name: getattr(copied, name) for name in names}, snapshot)
         snapshot = {name: deepcopy(getattr(source, name)) for name in names}
@@ -208,6 +213,10 @@ class RunPlanningTests(unittest.TestCase):
         copied.closed_items.add(6)
         copied.comments_index[1][0] = (copied.comments_index[1][0][0], 'worker')
         copied.cache[('comments', (1,), None)][0]['body'] = 'Worker feedback'
+        copied.comment_store[1][1]['body'] = 'Worker stored feedback'
+        copied.reconciled_comments.add(3)
+        copied.comment_window_start = 200
+        copied.repository_index.clear()
         copied.invalidate(3)
         self.assertEqual({name: getattr(source, name) for name in names}, snapshot)
 
@@ -229,6 +238,7 @@ class RunPlanningTests(unittest.TestCase):
         github._etag_cache = {'user': ('"initial"', '{"login": "operator"}')}
         github._comment_cache = {1: {'id': 1, 'body': 'Feedback', 'user': {'login': 'operator'}}}
         github._comment_since = iso(self.now - 60)
+        github.comment_window_start = self.now - 100
         github.resource_quotas = {'core': {'x-ratelimit-remaining': '1000'}}
         github.rest_requests, github.quota_requests = 12, 8
         github.gh_calls, github.not_modified_responses, github.graphql_calls = 17, 4, 5
@@ -239,7 +249,7 @@ class RunPlanningTests(unittest.TestCase):
         copied = worker.planner.github.github.github
         self.assertIsNot(copied, github)
         self.assertIsNot(worker.planner.github, loop.github)
-        names = ('_etag_cache', '_comment_cache', '_comment_since', 'resource_quotas')
+        names = ('_etag_cache', '_comment_cache', '_comment_since', 'comment_window_start', 'resource_quotas')
         snapshot = {name: deepcopy(getattr(copied, name)) for name in names}
         self.assertEqual({name: getattr(github, name) for name in names}, snapshot)
         self.assertEqual((copied.rest_requests, copied.quota_requests), (0, 0))
@@ -249,12 +259,14 @@ class RunPlanningTests(unittest.TestCase):
         github._etag_cache.clear()
         github._comment_cache[1]['user']['login'] = 'launcher'
         github._comment_since = iso(self.now)
+        github.comment_window_start = self.now
         github.resource_quotas['core']['x-ratelimit-remaining'] = '900'
         self.assertEqual({name: getattr(copied, name) for name in names}, snapshot)
         snapshot = {name: deepcopy(getattr(github, name)) for name in names}
         copied._etag_cache['user'] = ('"worker"', '{}')
         copied._comment_cache[1]['body'] = 'Worker feedback'
         copied._comment_since = iso(self.now + 60)
+        copied.comment_window_start = self.now + 60
         copied.resource_quotas['core']['x-ratelimit-remaining'] = '800'
         self.assertEqual({name: getattr(github, name) for name in names}, snapshot)
 
