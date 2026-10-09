@@ -36,17 +36,17 @@ class GitHubTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for status in (False, True):
-                with self.subTest(status=status):
+                with self.subTest(status=status), patch("ub_agents.github.timestamp", return_value=1000):
                     runner = DiscoveryCostRunner()
                     loop = Loop(config(root, agent(root),
                                        queue=Queue(priority=Priority(("urgent", "low"), "low"))),
                                 GitHub("org/project", runner), "operator")
                     rows = status_rows(loop) if status else list(loop.iter_plans())
                     self.assertEqual(len(rows), 30)
-                    self.assertEqual(len(runner.calls), 96)
+                    self.assertEqual(len(runner.calls), 66)
                     paths = [urlsplit(c[c.index("--include") + 1]).path for c in runner.calls]
                     self.assertEqual(sum(p.endswith("/comments") and not p.endswith("/issues/comments")
-                                         for p in paths), 30)
+                                         for p in paths), 0)
                     self.assertEqual(sum(p.endswith("/permission") for p in paths), 3)
                     self.assertEqual(sum(p.endswith("/dependencies/blocked_by") for p in paths), 0)
 
@@ -380,7 +380,7 @@ class GitHubTests(unittest.TestCase):
                 self.calls = []
                 self.rows = [{"number": n, "title": "Candidate", "body": "", "state": "open",
                               "labels": [{"name": "needs-changes"}], "created_at": iso(n),
-                              "updated_at": iso(1000), "pull_request": {}}
+                              "updated_at": iso(1000), "pull_request": {}, "comments": 0}
                              for n in range(1, size + 1)]
             def __call__(self, command, **kwargs):
                 self.calls.append(command)
@@ -472,6 +472,11 @@ class GitHubTests(unittest.TestCase):
                 self.assertEqual(item.author, "operator")
                 self.assertIsNone(parse_item(dict(raw, milestone=None), kind).milestone)
                 self.assertIsNone(parse_item(dict(raw, user=None), kind).author)
+                self.assertIsNone(item.comments_count)
+                for count in (0, 7):
+                    self.assertEqual(parse_item(raw | {"comments": count}, kind).comments_count, count)
+                for count in (None, -1, True, "7", 7.0):
+                    self.assertIsNone(parse_item(raw | {"comments": count}, kind).comments_count)
         for changes in ({"created_at": None}, {"created_at": "bad"},
                         {"milestone": {}}, {"milestone": {"number": True}}):
             with self.subTest(changes=changes), self.assertRaises(AgentError):
@@ -571,6 +576,19 @@ class GitHubTests(unittest.TestCase):
                 github.repository_comments()
         self.assertIsNone(github._comment_since)
         self.assertEqual(github._comment_cache, {})
+        self.assertIsNone(github.comment_window_start)
+
+    def test_window_start_is_fixed_by_first_successful_scan(self):
+        github = GitHub("org/project")
+        with patch("ub_agents.github.timestamp", side_effect=[1000, 1001, 1100]), \
+                patch.object(github, "request", side_effect=[AgentError("Network failed"), [], []]):
+            with self.assertRaises(AgentError):
+                github.repository_comments(lookback_seconds=100)
+            self.assertIsNone(github.comment_window_start)
+            github.repository_comments(lookback_seconds=100)
+            self.assertEqual(github.comment_window_start, 901)
+            github.repository_comments(lookback_seconds=100)
+            self.assertEqual(github.comment_window_start, 901)
 
     def test_lookback_prunes_old_comments_on_every_scan_but_retains_recent_edits(self):
         github = GitHub("org/project")

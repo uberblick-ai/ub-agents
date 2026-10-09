@@ -637,7 +637,18 @@ and cursor live in memory, and a failed page commits neither. After each success
 discovery scan, cached comments updated before the scan's lookback window are
 dropped; full-history scans without a lookback prune nothing. Claiming discovery
 reuses unchanged per-item reads and evaluates only rows it reaches in rank order;
-`status` evaluates every row. Item comments and approval inputs are always reread
+`status` evaluates every row. A separate per-item store answers discovery's issue
+and PR conversation comment reads when the item's whole lifetime lies within
+the first successful scan's window, or a successful per-item read has reconciled
+it, and its stored row count matches the open issue list's valid comment count.
+Otherwise discovery reads the item's comments and replaces its stored rows
+exactly, removing deleted IDs and repairing its invalidation index. Missing or
+invalid counts, closed items and items absent from the open list always require
+the fallback. Stored rows do not age out with the repository history; they are
+removed once the item is no longer open or referenced by the repository scan.
+Only the bounded repository history decides which closed or untriggered items
+surface for recovery. PR reviews and inline review comments remain per-item reads.
+Item comments and approval inputs are always reread
 before a claim or approval-parking write, so stale cached records never supply
 authority. See [poll timing and request budgeting](configuration.md#top-level).
 

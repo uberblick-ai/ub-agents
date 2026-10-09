@@ -23,7 +23,7 @@ class ObservationReads:
         self.github, self.stop = github, stop
 
     def __getattr__(self, name):
-        if name in {"repository", "resource_quotas", *COUNTERS}:
+        if name in {"repository", "resource_quotas", "comment_window_start", *COUNTERS}:
             return getattr(self.github, name)
         if name not in READS:
             raise AttributeError(name)
@@ -63,6 +63,7 @@ class RunPlanning:
             github._etag_cache = deepcopy(source._etag_cache)
             github._comment_cache = deepcopy(source._comment_cache)
             github._comment_since = source._comment_since
+            github.comment_window_start = source.comment_window_start
         self.lock = threading.Lock()
         self.refreshing = False
         self.started = started
@@ -71,7 +72,8 @@ class RunPlanning:
         self.planner = Loop(loop.config, ObservationReads(github, self.stop),
                             loop.coordinator.actor, output=lambda *_: None)
         # Retain discovery inputs, not the launcher's client or pass-local state.
-        for name in ("items", "closed_items", "comments_index", "cache"):
+        for name in ("items", "closed_items", "comments_index", "cache", "comment_store",
+                     "reconciled_comments", "comment_window_start", "repository_index"):
             setattr(self.planner.discovery, name, deepcopy(getattr(loop.discovery, name)))
         self.planner.coordinator.clock = loop.coordinator.clock
         self.planner.usage = loop.usage

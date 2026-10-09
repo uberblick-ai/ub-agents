@@ -253,9 +253,10 @@ class FakeGitHub:
                 self.change(number, updated_at=iso(seconds("2026-01-02T00:00:00Z") + self.revision))
                 inputs = (self.items[number],) + inputs[1:]
             self.observed_inputs[number] = inputs
+        items = [replace(item, comments_count=len(self.store.get(item.number, [])))
+                 for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
         return [replace(item, head=None, branch=None, draft=False, total_blocked_by=None)
-                if item.kind == "pr" and not details else item
-                for item in sorted(self.items.values(), key=lambda i: i.number) if item.state == "open"]
+                if item.kind == "pr" and not details else item for item in items]
 
     def active_milestone(self):
         milestones = FakeGitHub.milestone_order(self)
@@ -539,6 +540,7 @@ class DiscoveryCostRunner:
                  "created_at": iso(60 + number), "updated_at": iso(60 + number),
                  "issue_url": f"https://api.github.com/repos/org/project/issues/{number}"}
                 for offset, login in enumerate(("maintainer", "operator", "commenter"))] if number <= 30 else []
+            row["comments"] = len(self.comments[number])
 
     def __call__(self, command, **kwargs):
         import subprocess
