@@ -353,18 +353,27 @@ class TargetedLaunchTests(unittest.TestCase):
         co.report(lease, "success", "Completed", outcome="done")
         return 0
 
-    def launch(self, *args, execute=None, refresh=None):
+    def launch(self, *args, execute=None, refresh=None, hidden=False):
         def create(*args, **kwargs):
             self.loop = Loop(*args, **kwargs)
             self.loop.coordinator.clock = lambda: self.now
             self.loop.stop_event.wait = Mock()
             return self.loop
 
+        def open_view(root, session, output, stop, *, no_ui=False, poll=None):
+            if not hidden or no_ui:
+                return None
+            output.hide()
+            view = Mock()
+            view.close.side_effect = lambda: output.resume(final=True)
+            return view
+
         stdout, stderr = io.StringIO(), io.StringIO()
         with patch("ub_agents.cli.load_config", side_effect=lambda *_: self.config), \
                 patch("ub_agents.loop.load_config", side_effect=lambda *_: self.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.Loop", side_effect=create), \
+                patch("ub_agents.launch_ui.open_view", side_effect=open_view), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.loop.refresh_checkout", side_effect=refresh), \
                 patch("ub_agents.loop.supervise", side_effect=execute or self.report_success) as run, \
@@ -394,6 +403,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assertRegex(passes[0], r'^Discovery pass empty: .*candidates reached=1$')
         plans = [line for line in stdout.splitlines() if not line.startswith("Discovery pass ")]
         self.assertEqual("\n".join(plans) + "\n", expected)
+        self.assertTrue(stdout.endswith(expected), stdout)
 
     def test_eligible_item_runs_once_without_discovering_or_ranking_other_work(self):
         self.config = replace(config(self.root, queue=Queue(milestones="order", priority=Priority(("urgent",)))),
@@ -428,7 +438,7 @@ class TargetedLaunchTests(unittest.TestCase):
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertIn("#11 worker: owned — claimed by @operator on remote-host", stdout)
+        self.assertIn("#11 worker: owned — worker claimed by @operator on remote-host", stdout)
         self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)
@@ -445,7 +455,7 @@ class TargetedLaunchTests(unittest.TestCase):
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertIn("#11 worker: owned — claimed by @peer on remote-host", stdout)
+        self.assertIn("#11 worker: owned — worker claimed by @peer on remote-host", stdout)
         self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)
@@ -500,7 +510,9 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.change(11, labels=frozenset({"ready", "needs-human"}))
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assert_output(stdout, "#11 worker: parked — Stop label needs-human is present\n")
+        self.assert_output(stdout, "#11 worker: parked — Stop label needs-human is present; "
+                           "parked until a person acts on its Action needed notice, "
+                           "removes the stop label and restores a trigger\n")
         self.assertEqual(self.github.writes, [])
         run.assert_not_called()
         self.assert_scoped()
@@ -592,10 +604,331 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github.change(11, labels=frozenset({"ready", "needs-human"}))
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assert_output(stdout, "#11 first: parked — Stop label needs-human is present\n"
-                                 "#11 second: parked — Stop label needs-human is present\n")
+        reason = ("parked — Stop label needs-human is present; "
+                  "parked until a person acts on its Action needed notice, "
+                  "removes the stop label and restores a trigger\n")
+        self.assert_output(stdout, f"#11 first: {reason}#11 second: {reason}")
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
+
+    def test_owned_noop_leaves_the_owner_visible_with_and_without_the_view(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+        peer.update(lease, state="running", started=True, host="remote-host", log_dir="private-logs")
+        writes = self.github.writes[:]
+        reasons = []
+        for args, hidden in ((("--no-ui",), False), ((), False), ((), True)):
+            with self.subTest(args=args, hidden=hidden):
+                code, stdout, stderr, run = self.launch("11", *args, hidden=hidden)
+                self.assertEqual(code, 1)
+                self.assertEqual(stderr, "")
+                line = stdout.splitlines()[-1]
+                self.assertIn("#11 worker: owned — worker claimed by @peer on remote-host", line)
+                self.assertIn("lease ends", line)
+                self.assertNotIn("private-logs", line)
+                self.assertEqual(sum("#11 worker:" in row for row in stdout.splitlines()), 1)
+                if hidden:
+                    self.assertEqual(stdout, line + "\n")
+                reasons.append(line)
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, writes)
+                self.assert_scoped()
+        self.assertEqual(len(set(reasons)), 1)
+
+    def test_owned_noop_names_the_owning_role_for_each_evaluated_agent(self):
+        preparer = agent(self.root, name="preparer", kind="issue")
+        implementer = agent(self.root, name="implementer", kind="issue")
+        self.config = replace(config(self.root, preparer, implementer), launchers=("operator", "peer"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[11], preparer, ()))
+        peer.update(lease, state="running", started=True, host="remote-host", log_dir="private-logs")
+        writes = self.github.writes[:]
+        self.github.reads.clear()
+        for hidden in (False, True):
+            for args, names in (((), ("preparer", "implementer")),
+                                (("--agent", "implementer"), ("implementer",))):
+                with self.subTest(hidden=hidden, args=args):
+                    code, stdout, stderr, run = self.launch("11", *args, hidden=hidden)
+                    self.assertEqual(code, 1)
+                    self.assertEqual(stderr, "")
+                    lines = stdout.splitlines()[-len(names):]
+                    for name, line in zip(names, lines):
+                        self.assertIn(f"#11 {name}: owned — preparer claimed by @peer on remote-host", line)
+                        self.assertIn("lease ends", line)
+                        self.assertNotIn("private-logs", line)
+                    expected = "\n".join(lines) + "\n"
+                    if hidden:
+                        self.assertEqual(stdout, expected)
+                    else:
+                        self.assert_output(stdout, expected)
+                    run.assert_not_called()
+                    self.assertEqual(self.github.writes, writes)
+                    self.assertEqual(self.coordinator().history(11), [lease])
+                    self.assert_scoped()
+
+    def test_shared_branch_noop_names_the_owning_item_and_role(self):
+        preparer = agent(self.root, name="preparer", kind="issue")
+        implementer = agent(self.root, name="implementer", kind="pr")
+        self.config = replace(config(self.root, preparer, implementer), launchers=("operator", "peer"))
+        self.github = PollGitHub(issue(1), replace(pr(11), branch="ub-agents/preparer/1/earlier"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[1], preparer, ()))
+        peer.update(lease, state="running", started=True, host="remote-host", log_dir="private-logs")
+        writes = self.github.writes[:]
+        for hidden in (False, True):
+            with self.subTest(hidden=hidden):
+                code, stdout, stderr, run = self.launch("11", "--agent", "implementer", hidden=hidden)
+                self.assertEqual(code, 1)
+                self.assertEqual(stderr, "")
+                line = stdout.splitlines()[-1]
+                self.assertIn("#11 implementer: owned — A live run on #1 owns this item's branch; "
+                              "preparer claimed by @peer on remote-host", line)
+                self.assertIn("lease ends", line)
+                self.assertNotIn("private-logs", line)
+                if hidden:
+                    self.assertEqual(stdout, line + "\n")
+                else:
+                    self.assert_output(stdout, line + "\n")
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, writes)
+                self.assertEqual(self.coordinator().history(1), [lease])
+                self.assertEqual(self.coordinator().history(11), [])
+
+    def test_local_owned_noop_omits_the_running_process_log_path(self):
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
+        co.update(lease, state="running", started=True, host="local-host", process_group=42,
+                  log_dir="private-logs")
+        with patch("ub_agents.loop.socket.gethostname", return_value="local-host"), \
+                patch("ub_agents.status.group_members", return_value=[42]):
+            code, stdout, _, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 1)
+        self.assertIn("#11 worker: running — worker claimed by @operator on local-host", stdout)
+        self.assertIn("lease ends", stdout)
+        self.assertIn("Agent running.", stdout)
+        self.assertNotIn("private-logs", stdout)
+        self.assertNotIn("log:", stdout)
+        run.assert_not_called()
+
+    def test_stop_without_trigger_keeps_each_reason_and_named_agent_selection(self):
+        self.config = config(self.root, agent(self.root, name="first"), agent(self.root, name="second"))
+        self.github.change(11, labels=frozenset({"needs-human"}))
+        reason = ("parked — Stop label needs-human is present; "
+                  "parked until a person acts on its Action needed notice, "
+                  "removes the stop label and restores a trigger\n")
+        for hidden in (False, True):
+            for args, names in (((), ("first", "second")), (("--agent", "second"), ("second",))):
+                with self.subTest(hidden=hidden, args=args):
+                    code, stdout, stderr, run = self.launch("11", *args, hidden=hidden)
+                    self.assertEqual(code, 1)
+                    self.assertEqual(stderr, "")
+                    expected = "".join(f"#11 {name}: {reason}" for name in names)
+                    if hidden:
+                        self.assertEqual(stdout, expected)
+                    else:
+                        self.assert_output(stdout, expected)
+                    self.assertNotIn("No trigger matches", stdout)
+                    run.assert_not_called()
+                    self.assertEqual(self.github.writes, [])
+                    self.assert_scoped()
+
+    def test_stop_refusal_omits_the_previous_outcomes_diagnostic_dump(self):
+        self.config = config(self.root, agent(self.root, outcomes={
+            "done": {"add": ("needs-human",), "remove": ("ready",)}}))
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
+        co.update(lease, state="running", started=True)
+        summary = "Long diagnostic\n" * 100
+        outcome = co.report(lease, "success", summary, outcome="done")
+        co.update_outcome(lease, outcome, accepted=True, transition_complete=True)
+        co.release(lease, "success", summary)
+        self.github.change(11, labels=frozenset({"needs-human"}))
+        code, stdout, _, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: parked — Stop label needs-human is present; "
+                         "parked until a person acts on its Action needed notice, "
+                         "removes the stop label and restores a trigger\n")
+        run.assert_not_called()
+
+    def test_claim_race_reports_the_fresh_owner_after_a_ready_plan(self):
+        original_claim = Coordinator.claim
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        for hidden in (False, True):
+            with self.subTest(hidden=hidden):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.github.roles["peer"] = "write"
+                winner = []
+
+                def claim(co, plan, *args, **kwargs):
+                    self.assertEqual(plan.state, "ready")
+                    peer = self.coordinator(AccountGitHub(self.github, "peer"))
+                    lease = original_claim(peer, peer.plan(self.github.items[11], self.config.agents[0], ()))
+                    peer.update(lease, state="running", started=True, host="race-host")
+                    winner.append(lease.copy())
+                    return original_claim(co, plan, *args, **kwargs)
+
+                with patch.object(Coordinator, "claim", new=claim):
+                    code, stdout, _, run = self.launch("11", hidden=hidden)
+                self.assertEqual(code, 1)
+                reason = stdout.splitlines()[-1]
+                self.assertIn("#11 worker: owned — worker claimed by @peer on race-host", reason)
+                self.assertIn("lease ends", reason)
+                self.assertNotIn("ready", reason)
+                self.assertEqual(sum("#11 worker:" in row for row in stdout.splitlines()), 1)
+                if hidden:
+                    self.assertEqual(stdout, reason + "\n")
+                run.assert_not_called()
+                self.assertEqual(self.coordinator().history(11), winner)
+                self.assert_scoped()
+
+    def test_lost_election_replays_the_winner_and_withdraws_only_our_claim(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        for hidden in (False, True):
+            with self.subTest(hidden=hidden):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.github.roles["peer"] = "write"
+                create_comment = self.github.create_comment
+                winner = []
+
+                def create(number, text, *, login=None):
+                    if login is None:
+                        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+                        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+                        peer.update(lease, state="running", started=True, host="election-host")
+                        winner.append(lease.copy())
+                    return create_comment(number, text, login=login)
+
+                with patch.object(self.github, "create_comment", side_effect=create):
+                    code, stdout, _, run = self.launch("11", hidden=hidden)
+                self.assertEqual(code, 1)
+                reason = stdout.splitlines()[-1]
+                self.assertIn("#11 worker: owned — worker claimed by @peer on election-host", reason)
+                self.assertIn("lease ends", reason)
+                self.assertEqual(sum("#11 worker:" in row for row in stdout.splitlines()), 1)
+                if hidden:
+                    self.assertEqual(stdout, reason + "\n")
+                run.assert_not_called()
+                owner, withdrawn = self.coordinator().history(11)
+                self.assertEqual(owner, winner[0])
+                self.assertEqual((withdrawn["actor"], withdrawn["state"], withdrawn["started"]),
+                                 ("operator", "withdrawn", False))
+                self.assert_scoped()
+
+    def test_refresh_with_no_plan_names_the_final_missing_trigger(self):
+        for hidden in (False, True):
+            with self.subTest(hidden=hidden):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+
+                def refresh(*_, on_fetch=None):
+                    self.github.change(11, labels=frozenset())
+
+                code, stdout, _, run = self.launch("11", refresh=refresh, hidden=hidden)
+                self.assertEqual(code, 1)
+                expected = "#11 worker: declined — No trigger matches; add a trigger label (worker: ready, needs-changes)\n"
+                if hidden:
+                    self.assertEqual(stdout, expected)
+                else:
+                    self.assert_output(stdout, expected)
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assert_scoped()
+
+    def test_authority_lost_at_claim_is_a_visible_final_refusal(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        original_claim = Coordinator.claim
+
+        def claim(co, plan, *args, **kwargs):
+            self.assertEqual(plan.state, "ready")
+            co.trust.reason = lambda _: "Launcher account @operator has repository role read; write or higher is required"
+            return original_claim(co, plan, *args, **kwargs)
+
+        with patch.object(Coordinator, "claim", new=claim):
+            code, stdout, _, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: blocked — Launcher account @operator has repository role read; "
+                         "write or higher is required\n")
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+
+    def test_other_noop_causes_remain_distinct_after_view_close(self):
+        for case, expected in (
+                ("blocker", "#11 worker: parked — Waiting for blockers #1\n"),
+                ("milestone", "#11 worker: parked — Waiting for active milestone #3\n"),
+                ("trigger", "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n"),
+                ("kind", "#11: No evaluated agent applies to this issue\n"),
+                ("closed", "#11: issue is closed\n"),
+                ("merged", "#11: pr is merged\n")):
+            with self.subTest(case=case):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.config = config(self.root)
+                if case == "blocker":
+                    self.github.dependencies[11] = [1]
+                elif case == "milestone":
+                    self.config = config(self.root, queue=Queue(milestones="gate"))
+                    self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+                    self.github.change(1, milestone=3)
+                elif case == "trigger":
+                    self.github.change(11, labels=frozenset())
+                elif case == "kind":
+                    self.config = config(self.root, agent(self.root, kind="pr"))
+                elif case == "closed":
+                    self.github.change(11, state="closed")
+                elif case == "merged":
+                    self.github.items[11] = replace(pr(11), state="merged")
+                code, stdout, _, run = self.launch("11", hidden=True)
+                self.assertEqual(code, 1)
+                self.assertEqual(stdout, expected)
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assert_scoped()
+
+    def test_health_wait_keeps_the_evaluated_agents_reason_after_view_close(self):
+        with patch("ub_agents.agent_health.AgentHealth.check", return_value="Service is offline; retry later"):
+            code, stdout, _, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: waiting — Service is offline; retry later\n")
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+
+    def test_successful_hidden_launch_keeps_the_existing_final_message(self):
+        code, stdout, stderr, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout, "#11 worker: success — Completed\n")
+        self.assertEqual(stderr, "")
+        run.assert_called_once()
+
+    def test_successful_launch_does_not_add_an_earlier_agents_health_refusal(self):
+        self.config = config(self.root, agent(self.root, name="first"), agent(self.root, name="second"))
+        with patch("ub_agents.agent_health.AgentHealth.check",
+                   side_effect=lambda root, role, *args, **kwargs: "Health check unavailable" if role.name == "first" else None):
+            code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        self.assertNotIn("#11 first:", stdout)
+        self.assertIn("#11 second: claimed", stdout)
+        run.assert_called_once()
+
+    def test_read_errors_remain_visible_errors_after_view_close(self):
+        for read in ("item", "comments", "blocked_by", "active_milestone", "timeline", "issue_content"):
+            with self.subTest(read=read):
+                self.github = PollGitHub(issue(11))
+                self.config = config(self.root)
+                if read == "active_milestone":
+                    self.config = config(self.root, queue=Queue(milestones="gate"))
+                if read == "blocked_by":
+                    self.github.dependencies[11] = [1]
+                    self.github.items[1] = issue(1)
+                self.github.read_results[read] = [GitHubError("GET", "repos/org/project/issues/11", "HTTP 500")]
+                code, stdout, stderr, run = self.launch("11", hidden=True)
+                self.assertEqual(code, 1)
+                self.assertIn("ub-agents:", stderr)
+                self.assertIn("HTTP 500", stderr)
+                self.assertNotIn("#11 worker:", stdout)
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, [])
 
     def test_agent_without_number_unknown_agent_and_invalid_numbers_are_usage_errors(self):
         for args in (("--agent", "worker"), ("11", "--agent", "unknown"), ("0",), ("-1",),
@@ -732,7 +1065,9 @@ class TargetedLaunchTests(unittest.TestCase):
 
         code, stdout, _, run = self.launch("11", refresh=refresh)
         self.assertEqual(code, 1)
-        self.assert_output(stdout, "#11 worker: parked — Stop label needs-human is present\n")
+        self.assert_output(stdout, "#11 worker: parked — Stop label needs-human is present; "
+                           "parked until a person acts on its Action needed notice, "
+                           "removes the stop label and restores a trigger\n")
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assert_scoped()
@@ -772,7 +1107,7 @@ class TargetedLaunchTests(unittest.TestCase):
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
             code, stdout, _, run = self.launch("11", refresh=refresh)
         self.assertEqual(code, 1)
-        self.assertIn("#11 worker: owned — claimed by @peer on remote-host", stdout)
+        self.assertIn("#11 worker: owned — worker claimed by @peer on remote-host", stdout)
         self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)

@@ -1440,9 +1440,14 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   first eligible agent in configuration order acts; with it, only that configured
   agent is evaluated.
   An unknown agent or `--agent` without N is a usage error. If no agent can act,
-  it prints each evaluated row's status reason (including live lease and process
-  details), or explains missing/closed work and unmatched triggers, and exits
-  nonzero without a claim. Normal approval parking still applies. Reads are scoped
+  it leaves one short refusal line per evaluated agent visible after the terminal
+  view closes, or explains closed work and unmatched triggers. Plain output ends
+  with the same reasons after discovery counters. Ownership names the owning role,
+  account, host and lease end without log paths, and the owning item when another
+  item's run holds the branch; stop labels explain the Action needed
+  notice and restoring a trigger, even when no trigger remains. A decline during
+  refresh or claiming reports that final verdict. No assignment or recovery exits
+  nonzero; GitHub read failures remain errors. Normal approval parking still applies. Reads are scoped
   to N's inputs and gates; other work is not discovered or ranked. Priority and
   milestone ordering do not affect this command. It uses the same launch log,
   signal handling and execution exit codes as `launch --once`.
