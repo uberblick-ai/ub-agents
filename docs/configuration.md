@@ -624,8 +624,9 @@ in other repositories. Closed blockers do not gate it. The gate is rechecked
 before claiming. An open local issue inherits the highest effective priority
 of its open local dependents, directly or transitively, without changing labels.
 In milestone `order` and `prefer` modes, blockers also inherit the earliest
-milestone from open local dependents, directly or transitively, even without configured priority
-labels. Priority and milestone inheritance choose their sources independently.
+milestone from open local dependents, directly or transitively, even without
+configured priority labels. Priority and milestone inheritance choose their
+sources independently.
 Cycles terminate and share the highest reachable priority and earliest milestone.
 With `ignore`, links affect neither eligibility nor priority or milestone rank,
 and dependency reads are skipped. PR work, recovery and completion of started
@@ -642,20 +643,21 @@ waits apply.
 
 Except for the new-issue policy in `prefer`, rank is effective priority, then
 existing work (PRs, owned runs and recovery) before new issue starts, then
-milestone rank for new issues in `order` mode, then
-item creation time and item number. Without configured priorities, all items have
-equal priority, so existing work still goes first. See
+milestone rank for new issues in `order` mode, then item creation time and item
+number. Without configured priorities, all items have equal priority, so existing
+work still goes first. See
 [selection order](coordination.md#selection-order) for eligibility and
 PR precedence. `ub-agents status` and `status --json` use the same rank order and
 show each item's effective priority (`none` in text, `null` in JSON when no label
 or default applies). In `order` and `prefer` modes, each issue also shows its
-effective milestone next to priority (`none` when unmilestoned), with the source when inherited, such
-as `milestone #2 (inherited from #21)`. JSON includes `milestone` (the effective
-milestone number, or `null`) and `milestone_inherited_from` (the source issue number,
+effective milestone next to priority (`none` when unmilestoned), with the source
+when inherited, such as `milestone #2 (inherited from #21)`. JSON includes
+`milestone` (the effective milestone number, or `null`) and
+`milestone_inherited_from` (the source issue number,
 or `null`). Ready new issues are listed in the order this launcher would start
 them. No `prefer` issue waits for an active milestone. In `gate` mode, waiting
-issues keep the
-`Waiting for active milestone #N` reason. Waiting issues also name open blockers,
+issues keep the `Waiting for active milestone #N` reason. Waiting issues also name
+open blockers,
 using `owner/repo#N` for external blockers. Inherited priority names its origin,
 for example `priority:urgent (inherited from #21)`. JSON includes
 `priority_inherited_from` (the source issue number, or `null`) and `open_blockers`

@@ -110,8 +110,7 @@ issues and unchanged PR heads still need `ub-agents retry`.
 `ub-agents status` lists rows in this order with each item's effective priority and
 its source, adds each issue's milestone and inherited source in `order` and
 `prefer` modes, and names what a waiting issue waits for, including
-`Waiting for active milestone #N`
-in `gate` mode. Concurrent launchers rank the
+`Waiting for active milestone #N` in `gate` mode. Concurrent launchers rank the
 GitHub state each observes and try claims in that order; existing claims resolve
 contention, and there is no global order across machines. Dependency reads skip
 issues whose list summary reliably reports zero blockers; a failed read stops
