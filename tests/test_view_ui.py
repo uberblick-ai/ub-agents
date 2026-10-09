@@ -22,6 +22,7 @@ from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 
+from textual import messages
 from textual.geometry import Size
 from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
@@ -229,6 +230,53 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         self.assertFalse(app._exit)
                         app.exit()
                     app.worker.thread.join(2)
+
+    async def test_shutdown_is_drawn_before_stop_with_pending_widget_refreshes(self):
+        self.state['assignment'] = None
+        publish_snapshot(self.path, self.state)
+        for action, command, title in (('action_quit', 'drain', 'Shutting down the launcher'),
+                                       ('action_stop_now', 'interrupt', 'Stopping the launcher')):
+            with self.subTest(command=command):
+                launcher = Mock()
+                app = View(self.root, self.path, launcher=launcher)
+                async with app.run_test(size=(110, 32)) as pilot:
+                    await self.ready(app, pilot, lambda: app.session is not None)
+                    await self.settled(app, app.query_one('#shutdown'))
+                    frames = []
+                    stopped = asyncio.Event()
+                    at_stop = []
+
+                    def stop():
+                        at_stop.extend(frames)
+                        app.exit()
+                        stopped.set()
+
+                    getattr(launcher, command).side_effect = stop
+                    pending = []
+                    post_message = app.screen.post_message
+
+                    def defer_widget_refresh(message):
+                        if isinstance(message, (messages.Layout, messages.Update)):
+                            pending.append(message)
+                            return True
+                        return post_message(message)
+
+                    def display(screen, renderable):
+                        if renderable is not None:
+                            frames.append(Text.from_ansi(renderable.render_segments(app.console)).plain)
+
+                    # Widget notifications may reach the screen after the app's
+                    # after-refresh callback. Keep them pending to force that order.
+                    with (patch.object(app.screen, 'post_message', side_effect=defer_widget_refresh),
+                          patch.object(app, '_display', side_effect=display)):
+                        getattr(app, action)()
+                        await asyncio.wait_for(stopped.wait(), 5)
+                    for message in pending:
+                        post_message(message)
+                    self.assertIn(title, ''.join(at_stop))
+                    self.assertIn('No run in progress.', ''.join(at_stop))
+                    getattr(launcher, command).assert_called_once_with()
+                app.worker.thread.join(2)
 
     async def test_tick_ignores_pending_result_during_screen_teardown(self):
         for attached in (False, True):
@@ -2906,7 +2954,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
                 self.assertTrue(separators <= tree._spacer_lines)
                 tree.scroll_end(animate=False, immediate=True)
-                await pilot.pause()
+                await self.ready(app, pilot, lambda: tree.scroll_y > 0)
                 self.assertGreater(tree.scroll_y, 0)
                 self.assertEqual(recent.region.y, boundary)
                 self.assertEqual(recent.scroll_y, 0)
