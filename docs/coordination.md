@@ -74,36 +74,53 @@ issues and unchanged PR heads still need `ub-agents retry`.
    needs a start; outside PRs also need an eligible head. Trusted PRs need no start.
    Outside feedback suspends outside PRs, while issues and trusted PRs only exclude
    uncleared feedback.
-2. Effective priority ranks first: the item's own label, inherited from open local
-   dependents, or for a PR from the open issues it closes. At equal priority,
-   existing work (PR assignments, owned runs and recovery) precedes new issue
-   starts. Neither queue gate holds back existing work, and its rank ignores
-   milestones.
+2. Effective priority comes from the item's own label, inherited from open local
+   dependents, or for a PR from the open issues it closes. Except for new issues in
+   milestone `prefer` mode, priority ranks first. Existing work (PR assignments,
+   owned runs and recovery) keeps priority order, ignores milestones, and precedes
+   the next selected new issue at equal or higher priority. Neither queue gate
+   holds back existing work.
 3. New issues pass the dependency gate and, in milestone `gate` mode, the milestone
    gate, as the [queue reference](configuration.md#queue) defines them. Planning
    and a fresh claim-time read both enforce each gate. Approval parking also
-   rechecks them. In milestone `order` mode, milestones never gate eligibility.
+   rechecks them. In milestone `order` and `prefer` modes, milestones never gate
+   eligibility.
 4. In milestone `order` mode, new issues of equal effective priority rank by open
    milestones with open items, oldest creation time and then milestone number
    first. Within one priority, unmilestoned issues and issues whose milestone is
-   outside that list rank last. Open local blockers inherit their dependents'
-   earliest milestone, directly or transitively,
-   in dependency `wait` mode, even without priority labels.
-5. Item creation time, then item number break remaining ties. With milestone
+   outside that list rank last.
+5. In milestone `prefer` mode, select the earliest listed milestone with work
+   eligible for this launcher, then order its issues by effective priority.
+   An eligible unmilestoned issue (including a milestone outside the list) goes
+   first only at strictly higher priority than that milestone's next eligible
+   issue; milestone work wins ties. Higher priority in a later assigned milestone
+   does not jump ahead. If no listed milestone has eligible work here, unmilestoned
+   issues run in priority order even while milestones are open. Owned, blocked,
+   stop-labelled, untriggered, retry-limited, approval-parked and runtime-unavailable
+   issues do not prevent fallback. Each pass re-ranks; no milestone changes state
+   and no cursor advances.
+6. In `order` and `prefer`, open local blockers inherit their dependents' earliest
+   milestone, directly or transitively, in dependency `wait` mode, even without
+   priority labels. Each issue still waits for its own open blockers, including
+   earlier-milestone prerequisites and release-preparation dependencies.
+7. Item creation time, then item number break remaining ties. With milestone
    `gate` or `ignore`, new issues use priority, age and number without milestone ranks.
    Agents on the same item keep YAML order. The launcher never changes priority labels.
 
 `ub-agents status` lists rows in this order with each item's effective priority and
-its source, adds each issue's milestone and inherited source in `order` mode, and
-names what a waiting issue waits for, including `Waiting for active milestone #N`
+its source, adds each issue's milestone and inherited source in `order` and
+`prefer` modes, and names what a waiting issue waits for, including
+`Waiting for active milestone #N`
 in `gate` mode. Concurrent launchers rank the
 GitHub state each observes and try claims in that order; existing claims resolve
 contention, and there is no global order across machines. Dependency reads skip
 issues whose list summary reliably reports zero blockers; a failed read stops
 selection rather than becoming an empty list. An unreadable milestone list also
-stops selection. Gate rechecks are cooperative observation, not an atomic
-snapshot; milestone `order` requires no claim-time or approval-parking milestone
-recheck.
+stops selection, as does an unreadable item; failure never justifies fallback.
+No `prefer` row waits for an active milestone. Gate rechecks are cooperative
+observation, not an atomic snapshot; milestone `order` and `prefer` require no
+claim-time or approval-parking milestone recheck. Fresh plans, blocker rechecks
+and claim elections remain in place; a lost claim moves on to the next choice.
 
 ## Assignment input
 

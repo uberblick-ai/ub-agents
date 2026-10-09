@@ -476,7 +476,7 @@ def run(args):
                 elif row["priority_from_issue"] is not None:
                     priority += f" (from closed issue #{row['priority_from_issue']})"
                 milestone = ""
-                if config.queue.milestones == "order" and row["kind"] == "issue":
+                if config.queue.milestones in {"order", "prefer"} and row["kind"] == "issue":
                     value = f"#{row['milestone']}" if row["milestone"] is not None else "none"
                     milestone = f" · milestone {value}"
                     if row["milestone_inherited_from"] is not None:
