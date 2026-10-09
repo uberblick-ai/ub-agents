@@ -2,6 +2,16 @@
 
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
+`ub-agents launch N [--agent NAME]` exits nonzero when it starts no assignment or
+recovery, leaving one short refusal line per evaluated agent visible after the
+view closes. Plain output ends with the same reasons after discovery counters.
+`--agent NAME` evaluates only that agent. Reasons name the owning account, host
+and lease end, stop labels, open blockers or active milestone, and the next step
+where one exists. A stop label explains acting on the Action needed notice,
+removing the label and restoring a trigger, even if the trigger is already gone.
+A decline during refresh or claiming reports its final cause. GitHub read
+failures remain errors. Eligibility, ownership and exit codes are unchanged.
+
 After a run or recovery finishes, continuous launch immediately checks for the
 next item, including after retry or blocked results. Rate-limit waits, runtime
 usage pauses and graceful stops still apply. With no assignment, Running shows

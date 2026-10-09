@@ -140,6 +140,23 @@ class LaunchSelectionTests(unittest.TestCase):
             self.assertEqual([line.split(' ', 1)[1] for line in (root / '.ub-agents/launch.log').read_text().splitlines()],
                              ['before', 'hidden', 'final'])
 
+    def test_numbered_refusals_survive_normal_and_early_view_close_once(self):
+        for final in (False, True):
+            with self.subTest(final=final), tempfile.TemporaryDirectory() as directory:
+                root, terminal = Path(directory), io.StringIO()
+                lines = ('#11 first: parked — Waiting for blockers #1',
+                         '#11 second: waiting — Runtime unavailable')
+                with redirect_stdout(terminal), launch_output(root) as output:
+                    output.hide()
+                    print('Discovery pass empty: counters')
+                    output.refusals(lines)
+                    print('later launcher message')
+                    output.resume(final=final)
+                    output.resume(final=True)
+                self.assertEqual(terminal.getvalue(), '\n'.join(lines) + '\n')
+                logged = [line.split(' ', 1)[1] for line in (root / '.ub-agents/launch.log').read_text().splitlines()]
+                self.assertEqual(logged, ['Discovery pass empty: counters', *lines, 'later launcher message'])
+
     def test_child_attachment_errors_restore_terminal_and_continue_plain(self):
         for change, expected in (({'version': 42}, 'snapshot version'),
                                  ({'base_version': 'older'}, 'version mismatch'),

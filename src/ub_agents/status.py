@@ -8,13 +8,13 @@ from .execution import group_members
 from .records import live_leases, same_run, seconds
 
 
-def refusal_reason(plan, now, host):
+def refusal_reason(plan, now, host, *, include_log=True):
     """Use status's process verdict and lease details for a scoped refusal."""
     active = live_leases(plan.history, now)
-    if not active:
+    lease = active[0] if active else plan.owner if plan.state == "owned" else None
+    if lease is None:
         return plan.state, plan.reason
-    lease = active[0]
-    process, reason = process_details(lease, plan.history, now, host)
+    process, reason = process_details(lease, plan.history, now, host, include_log=include_log)
     state = "running" if plan.state == "owned" and process == "running" else plan.state
     return state, f"{lease_summary(lease, now)} · {reason}"
 
@@ -34,7 +34,7 @@ def lease_summary(lease, now):
             f"lease ends {display_time(lease['expires'], now)} (in {remaining})")
 
 
-def process_details(lease, history, now, host):
+def process_details(lease, history, now, host, *, include_log=True):
     if lease.get("mode") == "recovery":
         return "recovery", "Outcome recovery in progress; no agent process to check."
     if not lease.get("host"):
@@ -50,6 +50,8 @@ def process_details(lease, history, now, host):
     except CleanupError as exc:
         return "unknown", f"Process state unknown: {exc}"
     if members:
+        if not include_log:
+            return "running", "Agent running."
         log = (f"log: {Path(lease['log_dir']) / 'process.log'}" if lease.get("log_dir")
                else "log directory not recorded")
         return "running", f"Agent running; {log}"

@@ -47,6 +47,7 @@ class LaunchOutput:
         self.lock = threading.RLock()
         self.hidden = False
         self.last = None
+        self.result = ()
         self.stdout = LaunchStream(sys.stdout, log, self)
         self.stderr = LaunchStream(sys.stderr, log, self)
 
@@ -55,16 +56,28 @@ class LaunchOutput:
             self.hidden = True
             self.last = None
 
+    def refusals(self, lines):
+        """Keep a numbered no-op's complete result across terminal restoration."""
+        with self.lock:
+            self.result = tuple(lines) if self.hidden else ()
+            for line in lines:
+                self.stdout.write(line + "\n")
+
     def resume(self, restore=None, final=False):
         with self.lock:
             if restore is not None:
                 restore()
             self.hidden = False
-            if final and self.last is not None:
+            if self.result:
+                for line in self.result:
+                    self.stdout.terminal.write(line + "\n")
+                self.stdout.terminal.flush()
+            elif final and self.last is not None:
                 terminal, line = self.last
                 terminal.write(line + "\n")
                 terminal.flush()
             self.last = None
+            self.result = ()
 
 
 @contextmanager

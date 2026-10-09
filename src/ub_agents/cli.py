@@ -526,6 +526,7 @@ def run(args):
             if view is not None:
                 loop.enable_poll_now()
         if args.number is not None:
+            loop.refusal_output = args.launch_output.refusals
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
         loop.launch(once=args.once)
     except _GracefulStop:

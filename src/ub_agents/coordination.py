@@ -1,6 +1,6 @@
 """Cooperative leases and durable attempts, deliberately not an atomic lock service."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import re
 import shutil
 import threading
@@ -322,9 +322,9 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
-    def decline(self, plan, reason):
+    def decline(self, plan, reason, *, fresh=None):
         if self.on_decline is not None:
-            self.on_decline(plan, reason)
+            self.on_decline(fresh or plan, reason)
         else:
             self.output(f"#{plan.item.number} {plan.agent.name}: declined — {reason}")
         return None
@@ -346,7 +346,9 @@ class Coordinator:
             # Stop labels still reach durable planning: its history reads and
             # precedence for ownership and pending outcomes must stay intact.
             if not start.allowed and start.reason != start.stop_reason:
-                return self.decline(plan, f"Start gate: {start.reason}")
+                return self.decline(plan, f"Start gate: {start.reason}",
+                                    fresh=replace(plan, item=current, state="parked", reason=start.reason,
+                                                  matches=matches, history=(), owner=None))
         history = self.history(current.number)
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, self.clock())
@@ -356,7 +358,8 @@ class Coordinator:
         else:
             fresh = self.plan(current, plan.agent, stop_labels, history, start=start, matches=matches)
             if fresh.state != "ready":
-                return self.decline(plan, f"Fresh plan is no longer ready: {fresh.state} — {fresh.reason}")
+                return self.decline(plan, f"Fresh plan is no longer ready: {fresh.state} — {fresh.reason}",
+                                    fresh=replace(fresh, history=tuple(history)))
             if fresh.runtime != plan.runtime:
                 return self.decline(plan, "Runtime changed before claim")
             active = (self.github.active_milestone() if current.kind == "issue"
@@ -410,7 +413,9 @@ class Coordinator:
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
             self.notices.election_lost(created)
             self.notices.resumed(current.number)
-            return self.decline(plan, "Claim election lost")
+            return self.decline(plan, "Claim election lost",
+                                fresh=replace(plan, state="owned", reason="Claim election lost",
+                                              history=tuple(contenders), owner=contenders[0] if contenders else None))
         if not recovery:
             # Across an issue and a PR on its branch, the lowest live comment id wins too.
             owner = self.shared_branch_owner(current, plan.agent, self.history(current.number))
@@ -418,7 +423,9 @@ class Coordinator:
                 self.update(created, state="withdrawn", summary="Lost the shared-branch election.")
                 self.notices.election_lost(created)
                 self.notices.resumed(current.number)
-                return self.decline(plan, "Claim election lost on shared branch")
+                return self.decline(plan, "Claim election lost on shared branch",
+                                    fresh=replace(plan, state="owned", reason="Claim election lost on shared branch",
+                                                  history=(), owner=owner))
         if self.clock() >= seconds(created["expires"]):
             raise LostOwnership("Lease expired during claiming")
         self.notices.resumed(current.number)

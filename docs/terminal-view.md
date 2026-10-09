@@ -787,9 +787,12 @@ Launcher lines written while the view is open continue to append, with the same
 UTC timestamps, to `.ub-agents/launch.log`. Stopping with `q` lets the current run
 or recovery finish its report, label transitions and cleanup; Ctrl-C interrupts
 and cleans up owned runs. On launcher exit the view closes, the
-terminal is restored, and the final launcher message is visible. A crashed or
-killed view produces one diagnostic and resumes plain output without replaying
-past lines. SIGTERM drains the launcher normally; SIGHUP interrupts it like Ctrl-C.
+terminal is restored, and the final launcher message is visible. For a numbered
+launch that starts no assignment or recovery, all final refusal lines remain
+visible, one per evaluated agent, rather than only the discovery counters. A
+crashed or killed view produces one diagnostic and resumes plain output without
+replaying past progress; a completed numbered refusal is still retained.
+SIGTERM drains the launcher normally; SIGHUP interrupts it like Ctrl-C.
 Reopening a crashed or killed view from a running launcher is not supported.
 
 ## Validation
