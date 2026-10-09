@@ -6,14 +6,15 @@ notes are copied from that section.
 
 ## Unreleased
 
-## 0.1.17 — 2026-10-09
+## 0.2.0 — 2026-10-09
 
 **Upgrading:** Upgrade every launcher of a project before adding `health-check`
 (#380), top-level `runtime-args` or agent-level `runtime-args` mappings (#384, #386)
 to its `ub-agents.yaml`; older launchers reject these keys and forms. Existing
 agent-level lists need no change. Queues with configured priorities now favor
 higher-priority work across pipeline states and milestone ranks; no configuration
-change is required (#389).
+change is required (#389). Existing projects can copy the new blocked-by paragraph
+from the installed `issue-preparer.md` template into their own preparer role file (#376).
 
 ### Added
 
@@ -25,11 +26,14 @@ change is required (#389).
 - Queues rank higher-priority work before lower-priority pipeline states and milestone ranks, using the same order for status, Eligible and claiming (#389).
 - Continuous launch refreshes Work rows and discovers the next claim immediately after supervised work finishes, without waiting for the poll interval (#382, #383).
 - Configured `checkout-setup` runs in every new private worktree before its agent starts, regardless of `when-changed` ([configuration](docs/configuration.md#checkout-setup), #392).
+- Needs attention shows each item once, listing its agents and their distinct reasons comma-separated (#397).
+- Launch output reports each discovery pass's GitHub request counts and names the reason when a ready plan, refresh or claim is declined (#404).
+- Discovery reuses repository-scanned conversation comments instead of reading each item's conversation, cutting a 30-item cold pass from 96 to 66 requests (#405).
+- Discovery paces GitHub requests with a rolling budget, so a costly cold pass no longer delays the cheap passes after it; a new guide covers launcher capacity per account (#406).
 - PR outcome notices explain that merging or closing finishes the item and keep optional resume steps in a separate collapsed section (#375).
+- Issue preparers link a blocker issue as blocked-by and finish preparation, instead of stopping with `needs-human` while the issue waits on another change (#376).
 - Recent activity shows the listed outcome count in its fixed heading, with rows starting directly below it (#390).
 - Opening Issue loads descriptions on demand, reusing cached descriptions and preserving explicit retries for failed loads (#381).
-
-### Removed
 
 ### Fixed
 
