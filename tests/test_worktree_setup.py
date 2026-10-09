@@ -5,6 +5,7 @@ import socket
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -276,6 +277,34 @@ class WorktreeSetupTests(unittest.TestCase):
         (directory / "stopped").write_text("partial")
         with self.assertRaisesRegex(CleanupError, "unreadable setup stop record"):
             confirm_worktree_setup_stopped(loop.config, directory.parent.name)
+
+    def test_stop_check_accepts_an_aliased_root_but_not_redirected_records(self):
+        loop, directory = self.crashed()
+        (directory / "stopped").write_text("confirmed\n")
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        alias = Path(temporary.name) / "alias"
+        alias.symlink_to(self.root)
+        aliased = SimpleNamespace(root=alias)
+        confirm_worktree_setup_stopped(aliased, directory.parent.name)
+        (directory / "stopped").unlink()
+        (directory / "stopped").symlink_to(directory / "pid")
+        with self.assertRaisesRegex(CleanupError, "redirected setup process record"):
+            confirm_worktree_setup_stopped(aliased, directory.parent.name)
+        (directory / "stopped").unlink()
+        target = directory.with_name("elsewhere")
+        directory.rename(target)
+        directory.symlink_to(target)
+        with self.assertRaisesRegex(CleanupError, "redirected setup diagnostics"):
+            confirm_worktree_setup_stopped(aliased, directory.parent.name)
+        directory.unlink()
+        target.rename(directory)
+        run = directory.parent
+        moved = run.with_name("other")
+        run.rename(moved)
+        run.symlink_to(moved)
+        with self.assertRaisesRegex(CleanupError, "redirected setup diagnostics"):
+            confirm_worktree_setup_stopped(aliased, run.name)
 
     def test_cleaner_keeps_crashed_setup_worktree_until_termination_is_confirmed(self):
         loop, directory = self.crashed()
