@@ -522,7 +522,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.action = shutdown
         loop.launch(once=True)
         self.assertEqual(github.writes, [])
-        self.assertIn("shutdown requested", self.lines[-1])
+        self.assertTrue(any("shutdown requested" in line for line in self.lines))
 
     def test_run_crossing_due_time_is_uninterrupted_then_next_boundary_updates(self):
         stub_refresh(self)
@@ -897,7 +897,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                         self.assertFalse(poll())
                     run.assert_not_called()
                     self.assertEqual(github.writes, [])
-                    self.assertIn("gh is unavailable or under maintenance", self.lines[-1])
+                    self.assertTrue(any("gh is unavailable or under maintenance" in line for line in self.lines))
 
     def test_gh_guard_after_ready_blocks_discovery_for_command_and_runtime_agents(self):
         stub_refresh(self)
@@ -923,7 +923,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                         self.assertFalse(loop.tick_item(1) if scoped else loop.tick())
                     run.assert_not_called()
                     self.assertEqual(github.writes, [])
-                    self.assertIn("gh is unavailable or under maintenance", self.lines[-1])
+                    self.assertTrue(any("gh is unavailable or under maintenance" in line for line in self.lines))
 
     def test_gh_updates_defer_during_discovery_and_authentication_without_cooldown(self):
         self.brew("gh", kind="Cellar")

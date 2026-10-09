@@ -305,6 +305,34 @@ class CoordinationRunner(RecordingRunner):
 
 
 class RequestBudgetTests(unittest.TestCase):
+    def test_recovery_release_records_its_own_run_request_counts(self):
+        stub_refresh(self)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner = CoordinationRunner(root, True)
+            github = GitHub('org/project', runner)
+            loop = Loop(config(root), github, 'operator', output=lambda *_: None)
+            now = 1000
+            loop.coordinator.clock = lambda: now
+            plan = loop.coordinator.plan(runner.store.item(1), loop.config.agents[0], ())
+            lease = loop.coordinator.claim(plan)
+            loop.coordinator.update(lease, state='running', started=True)
+            loop.coordinator.report(lease, 'success', 'Ready for recovery', outcome='done')
+            now += 61
+            before = len(runner.calls)
+            with patch('ub_agents.loop.supervise') as execute:
+                self.assertTrue(loop.tick())
+            execute.assert_not_called()
+            recovery = [record for record in records(runner.store.comments(1), 'operator')
+                        if record.get('mode') == 'recovery'][0]
+            events = [json.loads(line) for line in (run_directory(root, recovery['run']) / 'events.jsonl')
+                      .read_text().splitlines()]
+            self.assertEqual([event['event'] for event in events], ['released'])
+            counts = events[0]['github_requests']
+            self.assertGreater(counts['quota_requests'], 0)
+            self.assertGreater(counts['not_modified_responses'], 0)
+            self.assertLess(counts['gh_calls'], len(runner.calls) - before)  # Discovery is excluded.
+
     def test_pass_and_released_event_partition_launcher_requests_at_successful_claim(self):
         stub_refresh(self)
         with tempfile.TemporaryDirectory() as directory:

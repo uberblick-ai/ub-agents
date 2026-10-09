@@ -101,8 +101,9 @@ class PollingTests(unittest.TestCase):
                         patch("ub_agents.loop.supervise") as execute, self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
                 execute.assert_not_called()
-                self.assertEqual(len(self.lines), 1)
-                self.assertTrue(self.lines[0].startswith("Skipped"))
+                self.assertEqual(len(self.lines), 2)
+                self.assertTrue(self.lines[0].startswith("Discovery pass empty:"))
+                self.assertTrue(self.lines[1].startswith("Skipped"))
 
     def test_increasing_capped_delays_and_exhaustion_exit_one(self):
         self.github.read_results["observe"] = [self.http_error()] * POLL_FAILURE_LIMIT
@@ -114,7 +115,8 @@ class PollingTests(unittest.TestCase):
                 patch.object(self.loop.stop_event, "wait") as waits, redirect_stderr(stderr):
             self.assertEqual(main(["launch"]), 1)
         self.assertEqual([call.args[0] for call in waits.call_args_list], [5, 10, 20, 40, 60])
-        self.assertEqual(len(self.lines), POLL_FAILURE_LIMIT - 1)
+        self.assertEqual(len(self.lines), POLL_FAILURE_LIMIT)
+        self.assertEqual(sum(line.startswith("Discovery pass empty:") for line in self.lines), 1)
         self.assertEqual(self.github.writes, [])
         self.assertIn("GET repos/org/project/issues/comments", stderr.getvalue())
         self.assertIn("HTTP 504", stderr.getvalue())
@@ -488,8 +490,9 @@ class PollingTests(unittest.TestCase):
         with patch("ub_agents.coordination.shutil.which", return_value="/synthetic/runtime"), \
                 patch.object(self.loop.stop_event, "wait", side_effect=stop), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(len(self.lines), 1)
-        self.assertTrue(self.lines[0].startswith("Skipped"))
+        self.assertEqual(len(self.lines), 2)
+        self.assertTrue(self.lines[0].startswith("Discovery pass empty:"))
+        self.assertTrue(self.lines[1].startswith("Skipped"))
 
     def test_shared_branch_discovery_and_revalidation_failures_do_not_claim(self):
         for earlier in ([], [None]):
@@ -508,8 +511,9 @@ class PollingTests(unittest.TestCase):
                 with patch.object(self.loop.stop_event, "wait", side_effect=stop), \
                         self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
-                self.assertEqual(len(self.lines), 1)
-                self.assertTrue(self.lines[0].startswith("Skipped"))
+                self.assertEqual(len(self.lines), 2)
+                self.assertTrue(self.lines[0].startswith("Discovery pass empty:"))
+                self.assertTrue(self.lines[1].startswith("Skipped"))
 
     def test_retryable_claim_post_without_comment_skips_then_claims(self):
         failure = self.claim_error()

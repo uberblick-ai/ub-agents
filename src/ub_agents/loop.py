@@ -950,14 +950,13 @@ class Loop:
         except GitHubError:
             raise
         except AgentError as exc:
-            self.output(f"#{plan.item.number} {plan.agent.name}: waiting — {exc}")
+            self.declined(plan, str(exc), "waiting")
             return False
         with self.maintenance.reserve_run(runtime.cli if runtime is not None else None,
                                           github=self._github_reservation) as reservation:
             if reservation is None:
-                self.output(f"#{plan.item.number} {plan.agent.name}: waiting — "
-                            f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
-                            "before the claim; retry next poll")
+                self.declined(plan, f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
+                              "before the claim; retry next poll", "waiting")
                 return False
             self._before_claim()
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation,
@@ -979,7 +978,7 @@ class Loop:
                 # Fresh authority can reveal a permission change that does not
                 # advance item timestamps. Let the next poll plan its gate.
                 self.discovery.invalidate(current.number)
-                self.output(f"#{current.number} {plan.agent.name}: parked — {approval.reason}")
+                self.declined(plan, approval.reason, "parked")
             return approval.allowed
 
         self._observe("assignment", plan)
@@ -1004,7 +1003,7 @@ class Loop:
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, state="withdrawn", started=False, attempt_effect="unchanged",
                                     expires=iso(self.coordinator.clock()), summary=approval.reason)
-            self.output(f"#{plan.item.number} {plan.agent.name}: parked — {approval.reason}")
+            self.declined(plan, approval.reason, "parked")
             return True
         run_dir = run_directory(self.config.root.resolve(), lease["run"])
         scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])

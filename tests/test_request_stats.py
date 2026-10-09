@@ -152,3 +152,29 @@ class RequestStatsTests(unittest.TestCase):
             self.assertIsNone(self.loop.coordinator.claim(plan))
         self.assertEqual(self.lines, ['#1 worker: declined — Claim election lost'])
         self.assertEqual(self.loop.coordinator.history(1)[0]['state'], 'withdrawn')
+
+    def test_replan_after_refresh_explains_missing_ready_row_without_claim(self):
+        path = self.root / 'ub-agents.yaml'
+        self.loop.config_path = path
+        changed = replace(self.loop.config, agents=(agent(self.root, triggers=('other',)),))
+        with patch('ub_agents.loop.refresh_checkout'), \
+                patch('ub_agents.loop.load_config', return_value=changed):
+            self.assertFalse(self.loop.tick())
+        declines = [line for line in self.lines if 'declined' in line]
+        self.assertEqual(declines, ['#1 worker: declined — Re-plan after refresh is no longer ready'])
+        self.assertEqual(self.github.writes, [])
+
+    def test_existing_runtime_wait_coalesces_without_second_decline_message(self):
+        self.loop.config = config(self.root, agent(self.root, runtimes=(Runtime('codex', 'model', 'high'),),
+                                                 command=None))
+        def unavailable(*args):
+            from ub_agents.errors import AgentError
+            raise AgentError('Runtime became unavailable')
+
+        with patch('ub_agents.coordination.shutil.which', return_value='/synthetic/codex'), \
+                patch.object(self.loop.coordinator, 'choose_runtime', side_effect=unavailable):
+            self.assertFalse(self.loop.tick())
+            self.assertFalse(self.loop.tick())
+        waits = [line for line in self.lines if line.startswith('#1 ')]
+        self.assertEqual(waits, ['#1 worker: waiting — Runtime became unavailable'])
+        self.assertEqual(self.github.writes, [])

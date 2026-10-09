@@ -169,8 +169,8 @@ Every attempted invocation counts once, including extra pages, failed requests
 and an unconditional refetch after a 304 without a cached response. GraphQL calls
 count invocations, not GraphQL quota points. Consecutive passes with the same kind,
 counts and candidate count print once even when their wall times differ.
-For a successful claim, discovery counts stop immediately before `Coordinator.claim`
-starts its fresh checks; those checks, the claim and subsequent launcher traffic
+For a successful claim, discovery counts stop before its fresh claim checks
+begin; those checks, the claim and subsequent launcher traffic
 through release belong to the run. Unsuccessful claim attempts remain part of an
 empty pass, or of discovery before a later successful claim. Observation passes
 measure their own client. The run's `events.jsonl` `released` event records

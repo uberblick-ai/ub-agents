@@ -92,17 +92,21 @@ class HealthGateTests(unittest.TestCase):
         self.loop.coordinator.report(lease, 'success', 'Work completed', outcome='done')
         return 0
 
+    def health_lines(self):
+        return [line for line in self.lines if not line.startswith('Discovery pass ')]
+
     def test_failures_recheck_each_poll_without_claims_attempts_or_per_item_notices(self):
         for _ in range(3):
             self.assertFalse(self.loop.tick())
         self.assertEqual(self.check.call_count, 3)
         self.assertEqual(self.github.writes, [])
-        self.assertEqual(self.lines, ['worker: waiting — health check /check-corpus --cheap: Corpus unavailable'])
+        self.assertEqual(self.health_lines(), ['worker: waiting — health check /check-corpus --cheap: Corpus unavailable'])
+        self.assertEqual(sum(line.startswith('Discovery pass empty:') for line in self.lines), 1)
         self.check.return_value = 'Wrong workspace'
         self.loop.tick()
         self.loop.tick()
         self.assertEqual(self.lines[-1], 'worker: waiting — health check /check-corpus --cheap: Wrong workspace')
-        self.assertEqual(len(self.lines), 2)
+        self.assertEqual(len(self.health_lines()), 2)
         rows = status_rows(self.loop)
         self.assertEqual([(r['state'], r['attempts']) for r in rows], [('waiting', 0), ('waiting', 0)])
         self.assertTrue(all('Wrong workspace' in r['reason'] for r in rows))
@@ -258,7 +262,7 @@ class HealthGateTests(unittest.TestCase):
         self.assertNotEqual(self.loop.config, current)
         self.check.assert_called_with(('/new-check',), self.root)
         self.assertEqual(self.github.writes, [])
-        self.assertIn('health check /new-check: Wrong workspace', self.lines[-1])
+        self.assertIn('health check /new-check: Wrong workspace', self.health_lines()[-1])
 
     def test_background_planner_shares_pass_cache_but_does_not_emit_health_notices(self):
         self.check.return_value = None
@@ -272,7 +276,7 @@ class HealthGateTests(unittest.TestCase):
         self.assertTrue(all(p.health_wait for p in planner.planner.iter_plans()))
         self.assertEqual(self.lines, [])
         self.loop.tick()
-        self.assertEqual(len(self.lines), 1)
+        self.assertEqual(len(self.health_lines()), 1)
 
     def test_waiting_rows_in_terminal_view_stay_out_of_needs_attention(self):
         publisher = MemoryPublisher()
@@ -313,7 +317,7 @@ class HealthGateTests(unittest.TestCase):
         self.assertEqual(self.check.call_count, 4)
         self.assertEqual(self.github.writes, [])
 
-    def test_launch_once_exits_normally_and_scoped_launch_refuses_with_one_line_and_launch_log(self):
+    def test_launch_once_and_scoped_launch_log_one_health_notice_and_pass_stats(self):
         path = self.root / 'ub-agents.yaml'
         path.touch()
         for scoped in ([], ['1']):
@@ -325,9 +329,12 @@ class HealthGateTests(unittest.TestCase):
                         patch('ub_agents.cli.launch_checks'), redirect_stdout(stdout):
                     self.assertEqual(main(['--config', str(path), 'launch', *scoped, '--once', '--no-ui']),
                                      1 if scoped else 0)
-                self.assertEqual(stdout.getvalue(),
-                                 'worker: waiting — health check /check-corpus --cheap: Corpus unavailable\n')
+                self.assertEqual(stdout.getvalue().splitlines()[0],
+                                 'worker: waiting — health check /check-corpus --cheap: Corpus unavailable')
+                self.assertEqual(len(stdout.getvalue().splitlines()), 2)
+                self.assertRegex(stdout.getvalue().splitlines()[1], r'^Discovery pass empty: .*candidates reached=[12]$')
         lines = (self.root / '.ub-agents/launch.log').read_text().splitlines()
-        self.assertEqual(len(lines), 2)
-        self.assertTrue(all(line.endswith(stdout.getvalue().strip()) for line in lines))
+        self.assertEqual(len(lines), 4)
+        self.assertEqual(sum('Discovery pass empty:' in line for line in lines), 2)
+        self.assertEqual(sum('worker: waiting — health check' in line for line in lines), 2)
         self.assertEqual(self.github.writes, [])

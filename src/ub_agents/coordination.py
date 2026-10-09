@@ -366,7 +366,7 @@ class Coordinator:
                 return self.decline(plan, f"Milestone gate: {start.reason}")
             blockers = (open_blockers(self.github, current) if current.kind == "issue"
                         and self.queue.dependencies == "wait" else ())
-            if blockers:
+            if not check_start(current, plan.agent, matches, stop_labels, self.queue, active, blockers).allowed:
                 return self.decline(plan, f"Open blockers: {', '.join(blockers)}")
         if authorize is not None and not authorize(current, matches):
             return None
