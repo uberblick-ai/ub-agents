@@ -1,4 +1,5 @@
 from collections import Counter
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -11,9 +12,12 @@ from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import COMMENT_RECOVERY_SECONDS, Loop
-from ub_agents.records import attempts, iso
+from ub_agents.observations import Observations
+from ub_agents.records import attempts, iso, seconds
+from ub_agents.run_planning import PassEvents
+from ub_agents.view_data import Session, work_pane
 from tests.test_approvals import at
-from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -234,6 +238,65 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn(("comments", (1,)), loop.github.reads)
         self.assertIsNotNone(loop.coordinator.claim(plan, loop.config.stop_labels))
         self.assertIn(("comments", (1,)), loop.github.reads)
+
+    def test_retained_store_does_not_extend_recovery_for_closed_or_untriggered_items(self):
+        for closed in (False, True):
+            with self.subTest(closed=closed):
+                loop = self.loop([issue(1)])
+                now = loop.coordinator.clock()
+                loop.coordinator.clock = lambda: now
+                lease = loop.coordinator.claim(next(loop.iter_plans()))
+                loop.coordinator.update(lease, state="running", started=True)
+                loop.github.change(1, labels=frozenset(), state="closed" if closed else "open")
+                scanner = GitHub(loop.github.repository)
+
+                def request(endpoint, **kwargs):
+                    from urllib.parse import parse_qs, urlsplit
+                    since = seconds(parse_qs(urlsplit(endpoint).query)["since"][0])
+                    return sorted((deepcopy(c) for c in loop.github.store[1]
+                                   if seconds(c["updated_at"]) > since), key=lambda c: c["updated_at"])
+
+                with patch.object(scanner, "request", side_effect=request), \
+                        patch.object(loop.github, "repository_comments", side_effect=scanner.repository_comments), \
+                        patch("ub_agents.github.timestamp", side_effect=lambda: now):
+                    self.assertEqual(len(list(loop.iter_plans())), 1)
+                    self.assertIn(1, loop.discovery.comment_store)
+                    now += 8 * 86400
+                    self.assertEqual(list(loop.iter_plans()), [])
+                    self.assertEqual(status_rows(loop), [])
+                    self.assertEqual(1 in loop.discovery.comment_store, not closed)
+
+    def test_store_and_fallback_produce_identical_history_approval_and_display_inputs(self):
+        for item in (issue(1), pr(1, body="")):
+            with self.subTest(kind=item.kind):
+                item = replace(item, created_at=iso(950))
+                seed = self.loop([item])
+                seed.coordinator.clock = lambda: 1000
+                lease = seed.coordinator.claim(next(seed.iter_plans()))
+                seed.coordinator.release(lease, "retry", "Retry later")
+                seed.github.create_comment(1, "Maintainer feedback", login="maintainer")
+                seed.github.create_comment(1, "Outside feedback", login="outsider")
+                results = []
+                for cached in (False, True):
+                    loop = self.loop([item])
+                    loop.github.store.update(deepcopy(seed.github.store))
+                    loop.github.github.comment_window_start = 900 if cached else None
+                    loop.coordinator.clock = lambda: 1000
+                    events = PassEvents()
+                    loop.observer = events
+                    plans = list(loop.iter_plans())
+                    comments_reads = [args for name, args in loop.github.reads if name == "comments"]
+                    self.assertEqual(comments_reads, [] if cached else [(1,)])
+                    approval = loop.input_check(plans[0].item, loop.discovery)
+                    publisher = MemoryPublisher()
+                    observer = Observations(loop.config, "operator", self.root / "ub-agents.yaml",
+                                            publisher, clock=lambda: 1000)
+                    observer.observation_pass(1000, events.events)
+                    pane = work_pane(Session(self.root / "launcher.json", publisher.snapshots[-1]), self.root)
+                    results.append((plans, [p.history for p in plans], approval,
+                                    events.events, pane, status_rows(loop)))
+                    self.assertTrue(approval.snapshot)
+                self.assertEqual(results[0], results[1])
 
     def test_comment_index_tracks_only_ids_and_update_times(self):
         loop = self.loop([issue(1), issue(2)])

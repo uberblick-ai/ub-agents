@@ -208,8 +208,8 @@ again walks the rank order and rechecks authority before any write. Lower-ranked
 rows are announced and approval-parked only by a claiming pass that reaches them.
 The observation worker starts with independent copies of the launcher's discovery
 inputs, REST ETags, repository comment cache and comment cursor, plus the per-item
-comment store, reconciliation state and first successful scan's window start. Its first scan
-continues from that cursor; new claim comments invalidate the claimed item's
+comment store, reconciliation state and first successful scan's window start.
+Its first scan continues from that cursor; new claim comments invalidate the claimed item's
 inputs. Later cache changes stay local to each client, and the worker keeps its
 own request counters and rate-limit state.
 `launch --once` and `launch N` do not start observation passes; `status` still
@@ -232,8 +232,8 @@ Changes in the issue list (including `updated_at`) or an item's comment IDs and
 update times invalidate that item's reads. Stored comment rows do not age out
 with the repository history's recovery lookback; they leave the store when the
 item is no longer open or referenced by the repository scan. A deleted row causes
-a count mismatch and a per-item repair. A fresh claim-approval denial also drops the item's cached
-inputs so the next reached pass can plan its gate. Claims and approval parking
+a count mismatch and a per-item repair. A fresh claim-approval denial also drops
+the item's cached inputs so the next reached pass can plan its gate. Claims and approval parking
 always revalidate with fresh reads;
 cached input never authorizes a claim or a write. Restarting a launcher drops its
 cache. With configured priorities, cold discovery lists the dependency graph in
