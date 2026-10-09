@@ -1442,8 +1442,9 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   An unknown agent or `--agent` without N is a usage error. If no agent can act,
   it leaves one short refusal line per evaluated agent visible after the terminal
   view closes, or explains closed work and unmatched triggers. Plain output ends
-  with the same reasons after discovery counters. Ownership names the account,
-  host and lease end without log paths; stop labels explain the Action needed
+  with the same reasons after discovery counters. Ownership names the owning role,
+  account, host and lease end without log paths, and the owning item when another
+  item's run holds the branch; stop labels explain the Action needed
   notice and restoring a trigger, even when no trigger remains. A decline during
   refresh or claiming reports that final verdict. No assignment or recovery exits
   nonzero; GitHub read failures remain errors. Normal approval parking still applies. Reads are scoped

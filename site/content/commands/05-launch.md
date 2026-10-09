@@ -5,8 +5,9 @@ Run `ub-agents launch` to watch the queue in the foreground. In a terminal it op
 `ub-agents launch N [--agent NAME]` exits nonzero when it starts no assignment or
 recovery, leaving one short refusal line per evaluated agent visible after the
 view closes. Plain output ends with the same reasons after discovery counters.
-`--agent NAME` evaluates only that agent. Reasons name the owning account, host
-and lease end, stop labels, open blockers or active milestone, and the next step
+`--agent NAME` evaluates only that agent. Reasons name the owning role, account,
+host and lease end, including the owning item when another item's run holds the
+branch, plus stop labels, open blockers or active milestone, and the next step
 where one exists. A stop label explains acting on the Action needed notice,
 removing the label and restoring a trigger, even if the trigger is already gone.
 A decline during refresh or claiming reports its final cause. GitHub read

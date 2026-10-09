@@ -16,7 +16,10 @@ def refusal_reason(plan, now, host, *, include_log=True):
         return plan.state, plan.reason
     process, reason = process_details(lease, plan.history, now, host, include_log=include_log)
     state = "running" if plan.state == "owned" and process == "running" else plan.state
-    return state, f"{lease_summary(lease, now)} · {reason}"
+    summary = f"{lease['agent']} {lease_summary(lease, now)}"
+    if lease["assignment"] != plan.item.number:
+        summary = f"{plan.reason}; {summary}"
+    return state, f"{summary} · {reason}"
 
 
 def display_time(value, now):

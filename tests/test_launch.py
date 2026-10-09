@@ -438,7 +438,7 @@ class TargetedLaunchTests(unittest.TestCase):
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertIn("#11 worker: owned — claimed by @operator on remote-host", stdout)
+        self.assertIn("#11 worker: owned — worker claimed by @operator on remote-host", stdout)
         self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)
@@ -455,7 +455,7 @@ class TargetedLaunchTests(unittest.TestCase):
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
-        self.assertIn("#11 worker: owned — claimed by @peer on remote-host", stdout)
+        self.assertIn("#11 worker: owned — worker claimed by @peer on remote-host", stdout)
         self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)
@@ -625,7 +625,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertEqual(stderr, "")
                 line = stdout.splitlines()[-1]
-                self.assertIn("#11 worker: owned — claimed by @peer on remote-host", line)
+                self.assertIn("#11 worker: owned — worker claimed by @peer on remote-host", line)
                 self.assertIn("lease ends", line)
                 self.assertNotIn("private-logs", line)
                 self.assertEqual(sum("#11 worker:" in row for row in stdout.splitlines()), 1)
@@ -637,6 +637,67 @@ class TargetedLaunchTests(unittest.TestCase):
                 self.assert_scoped()
         self.assertEqual(len(set(reasons)), 1)
 
+    def test_owned_noop_names_the_owning_role_for_each_evaluated_agent(self):
+        preparer = agent(self.root, name="preparer", kind="issue")
+        implementer = agent(self.root, name="implementer", kind="issue")
+        self.config = replace(config(self.root, preparer, implementer), launchers=("operator", "peer"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[11], preparer, ()))
+        peer.update(lease, state="running", started=True, host="remote-host", log_dir="private-logs")
+        writes = self.github.writes[:]
+        self.github.reads.clear()
+        for hidden in (False, True):
+            for args, names in (((), ("preparer", "implementer")),
+                                (("--agent", "implementer"), ("implementer",))):
+                with self.subTest(hidden=hidden, args=args):
+                    code, stdout, stderr, run = self.launch("11", *args, hidden=hidden)
+                    self.assertEqual(code, 1)
+                    self.assertEqual(stderr, "")
+                    lines = stdout.splitlines()[-len(names):]
+                    for name, line in zip(names, lines):
+                        self.assertIn(f"#11 {name}: owned — preparer claimed by @peer on remote-host", line)
+                        self.assertIn("lease ends", line)
+                        self.assertNotIn("private-logs", line)
+                    expected = "\n".join(lines) + "\n"
+                    if hidden:
+                        self.assertEqual(stdout, expected)
+                    else:
+                        self.assert_output(stdout, expected)
+                    run.assert_not_called()
+                    self.assertEqual(self.github.writes, writes)
+                    self.assertEqual(self.coordinator().history(11), [lease])
+                    self.assert_scoped()
+
+    def test_shared_branch_noop_names_the_owning_item_and_role(self):
+        preparer = agent(self.root, name="preparer", kind="issue")
+        implementer = agent(self.root, name="implementer", kind="pr")
+        self.config = replace(config(self.root, preparer, implementer), launchers=("operator", "peer"))
+        self.github = PollGitHub(issue(1), replace(pr(11), branch="ub-agents/preparer/1/earlier"))
+        self.github.roles["peer"] = "write"
+        peer = self.coordinator(AccountGitHub(self.github, "peer"))
+        lease = peer.claim(peer.plan(self.github.items[1], preparer, ()))
+        peer.update(lease, state="running", started=True, host="remote-host", log_dir="private-logs")
+        writes = self.github.writes[:]
+        for hidden in (False, True):
+            with self.subTest(hidden=hidden):
+                code, stdout, stderr, run = self.launch("11", "--agent", "implementer", hidden=hidden)
+                self.assertEqual(code, 1)
+                self.assertEqual(stderr, "")
+                line = stdout.splitlines()[-1]
+                self.assertIn("#11 implementer: owned — A live run on #1 owns this item's branch; "
+                              "preparer claimed by @peer on remote-host", line)
+                self.assertIn("lease ends", line)
+                self.assertNotIn("private-logs", line)
+                if hidden:
+                    self.assertEqual(stdout, line + "\n")
+                else:
+                    self.assert_output(stdout, line + "\n")
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, writes)
+                self.assertEqual(self.coordinator().history(1), [lease])
+                self.assertEqual(self.coordinator().history(11), [])
+
     def test_local_owned_noop_omits_the_running_process_log_path(self):
         co = self.coordinator()
         lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
@@ -646,7 +707,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 patch("ub_agents.status.group_members", return_value=[42]):
             code, stdout, _, run = self.launch("11", hidden=True)
         self.assertEqual(code, 1)
-        self.assertIn("#11 worker: running — claimed by @operator on local-host", stdout)
+        self.assertIn("#11 worker: running — worker claimed by @operator on local-host", stdout)
         self.assertIn("lease ends", stdout)
         self.assertIn("Agent running.", stdout)
         self.assertNotIn("private-logs", stdout)
@@ -714,7 +775,7 @@ class TargetedLaunchTests(unittest.TestCase):
                     code, stdout, _, run = self.launch("11", hidden=hidden)
                 self.assertEqual(code, 1)
                 reason = stdout.splitlines()[-1]
-                self.assertIn("#11 worker: owned — claimed by @peer on race-host", reason)
+                self.assertIn("#11 worker: owned — worker claimed by @peer on race-host", reason)
                 self.assertIn("lease ends", reason)
                 self.assertNotIn("ready", reason)
                 self.assertEqual(sum("#11 worker:" in row for row in stdout.splitlines()), 1)
@@ -745,7 +806,7 @@ class TargetedLaunchTests(unittest.TestCase):
                     code, stdout, _, run = self.launch("11", hidden=hidden)
                 self.assertEqual(code, 1)
                 reason = stdout.splitlines()[-1]
-                self.assertIn("#11 worker: owned — claimed by @peer on election-host", reason)
+                self.assertIn("#11 worker: owned — worker claimed by @peer on election-host", reason)
                 self.assertIn("lease ends", reason)
                 self.assertEqual(sum("#11 worker:" in row for row in stdout.splitlines()), 1)
                 if hidden:
@@ -1046,7 +1107,7 @@ class TargetedLaunchTests(unittest.TestCase):
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
             code, stdout, _, run = self.launch("11", refresh=refresh)
         self.assertEqual(code, 1)
-        self.assertIn("#11 worker: owned — claimed by @peer on remote-host", stdout)
+        self.assertIn("#11 worker: owned — worker claimed by @peer on remote-host", stdout)
         self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)
