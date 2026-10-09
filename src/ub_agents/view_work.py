@@ -10,7 +10,7 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import Tree
 
-from .view_data import item_handoff, mapping, rows, text
+from .view_data import attention_agents, item_handoff, mapping, rows, text
 from .view_scroll import ScrollbarVisibility
 from .view_spinner import spinner_frame
 from .attention import attention_state, waiting_time
@@ -87,7 +87,7 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     first = Text(f'{glyph} ', no_wrap=True)
     first.append_text(item_reference(row.item, kind, app=app))
     first.append(f' {title}' if title else '')
-    right = (waiting_time(row.data.get('waiting_since'), now.timestamp() if now is not None else None)
+    right = (waiting_time(row.waiting_since(), now.timestamp() if now is not None else None)
              if attention else text(state, ''))
     status = Text(right if width > 1 else '', no_wrap=True,
                   style=theme_style(app, 'view-attention') if attention else '')
@@ -106,8 +106,13 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
     detail = Text('  ' + ' · '.join(part for part in (text(row.data.get('agent'), ''), ownership, count)
                                  if part), no_wrap=True)
     if attention:
-        detail = Text('  ' + ' · '.join(part for part in
-                      (row.agent, text(state, ''), text(row.data.get('attention_reason'), '')) if part), no_wrap=True)
+        if len(row.attention_rows) > 1:
+            reasons = ', '.join(dict.fromkeys(reason for agent in row.attention_rows
+                               if (reason := text(agent.data.get('attention_reason'), '') or agent.reason)))
+            parts = (attention_agents(row), reasons)
+        else:
+            parts = (row.agent, text(state, ''), text(row.data.get('attention_reason'), ''))
+        detail = Text('  ' + ' · '.join(part for part in parts if part), no_wrap=True)
     elif len(row.eligible_plans) > 1:
         detail = Text('  ' + ', '.join(' '.join(part for part in
                       (text(plan.get('agent'), ''), failure_count(plan)) if part)

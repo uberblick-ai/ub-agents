@@ -15,7 +15,7 @@ from textual.widgets import Collapsible, Markdown, Static, TabbedContent
 
 from tests.support import RecordingDescriptionTransport
 from tests.test_view_data import fixture, publish_snapshot
-from ub_agents.view_data import Description, Session, WorkRow
+from ub_agents.view_data import Description, Session, WorkRow, context_header
 from ub_agents.view_github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, DescriptionLoads,
                                    GhTransport, Response, parse_response)
 from ub_agents.view_ui import ItemTabs, View, WorkTree, description_parser
@@ -80,7 +80,7 @@ class DescriptionParserTests(unittest.TestCase):
 
 class UnblockDataTests(unittest.TestCase):
     def setUp(self):
-        self.row = WorkRow('plan:178:worker', 'Needs attention', 178, 'worker', 'parked', '',
+        self.row = WorkRow('plan:178:attention', 'Needs attention', 178, 'worker', 'parked', '',
                            {'kind': 'pr', 'title': 'Item title', 'failures': 3, 'max_attempts': 3,
                             'waiting_since': '2026-10-05T12:12:00Z'})
         self.session = Session(Path('session.json'), {'coordination_authors': AUTHORS, 'action_needed': {
@@ -222,6 +222,47 @@ class UnblockDataTests(unittest.TestCase):
                 row = replace(self.row, state='blocked', reason='Last run blocked: decision pending',
                               data={**self.row.data, 'kind': kind})
                 self.assertEqual(unblock_body(row, ActionComment()), expected)
+
+    def test_merged_attention_preserves_every_agent_reason_and_retry_fallback(self):
+        first = replace(self.row, agent='reviewer', state='blocked', reason='Earlier review defer',
+                        data={**self.row.data, 'attention_reason': 'Sonner conflicts'})
+        second = replace(self.row, agent='implementer', state='blocked', reason='CI failed',
+                         data={**self.row.data, 'waiting_since': '2026-10-05T11:36:00Z',
+                               'attention_reason': 'Sonner conflicts'})
+        for kind in ('pr', 'issue'):
+            with self.subTest(kind=kind):
+                agents = tuple(replace(agent, data={**agent.data, 'kind': kind}) for agent in (first, second))
+                row = replace(agents[0], attention_rows=agents)
+                self.assertTrue(needs_attention(row))
+                context = context_header(row, Description())
+                for agent in agents:
+                    self.assertIn(agent.agent + ' · blocked', context)
+                    self.assertIn(agent.reason, context)
+                self.assertIn('Sonner conflicts', context)
+                body = unblock_body(row, ActionComment())
+                for agent in agents:
+                    self.assertIn(agent.reason, body)
+                    self.assertEqual(body.count(f'ub-agents retry 178 --agent {agent.agent}'), 1)
+                lead, title, resume = resume_section(body)
+                if kind == 'pr':
+                    self.assertNotIn('ub-agents retry', lead)
+                    self.assertEqual(title, 'To send it back to these agents instead')
+                    for agent in agents:
+                        self.assertIn(f'ub-agents retry 178 --agent {agent.agent}', resume)
+                else:
+                    self.assertEqual(resume, '')
+                notice = local_action(row, self.session)
+                displayed = unblock_body(row, notice)
+                self.assertIn(context, displayed)
+                self.assertIn(notice.body, displayed)
+        metadata, waiting = unblock_metadata(row, ActionComment(), self.session,
+                                             stamp('2026-10-05T12:36:00Z'))
+        self.assertTrue(metadata.startswith('reviewer blocked, implementer blocked'))
+        self.assertEqual(waiting, 'waiting 1h')
+        # A secondary blocked role still enables Unblock if the first role is not actionable.
+        row = replace(row, attention_rows=(replace(first, state='failed', data={}), second))
+        self.assertTrue(needs_attention(row))
+        self.assertFalse(needs_attention(replace(row, hidden=True)))
 
     def test_shortened_pr_notice_still_folds_resume_steps(self):
         body = action_body(ACTION_MARKER + 'new -->', ['Maintainer: decide.'], 'Evidence',
@@ -386,6 +427,57 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 return
         self.fail('View did not become ready')
 
+    async def test_merged_item_keeps_actions_and_selection_when_an_agent_leaves(self):
+        first = self.state['latest_pass']['rows'][-2]
+        first.update(state='blocked', reason='Earlier review defer', attention_reason='Sonner conflicts',
+                     description={'available': True, 'text': 'Item description'})
+        second = {**first, 'agent': 'implementer', 'reason': 'Implementation blocked',
+                  'waiting_since': '2026-10-05T11:36:00Z'}
+        self.state['latest_pass']['rows'].append(second)
+        self.state['action_needed'] = {}
+        publish_snapshot(self.path, self.state)
+        app = self.app
+        async with app.run_test(size=(160, 45)) as pilot:
+            await self.ready(pilot, lambda: 'plan:178:attention' in app.nodes)
+            app.select('plan:178:attention')
+            await pilot.press('2')
+            await self.ready(pilot, lambda: 'ub-agents retry 178 --agent implementer' in
+                             app.query_one('#issue_actions', Markdown).source)
+            for agent in ('worker', 'implementer'):
+                self.assertIn(f'ub-agents retry 178 --agent {agent}',
+                              app.query_one('#issue_actions', Markdown).source)
+            self.assertIn('Earlier review defer', app.query_one('#issue_text', Static).render().plain)
+            self.assertIn('Implementation blocked', app.query_one('#issue_text', Static).render().plain)
+            await pilot.press('4')
+            await self.ready(pilot, lambda: app.query_one(ItemTabs).active == 'unblock')
+            self.assertIn('waiting 1h', app.query_one('#item_header', Static).render().plain)
+            for agent in ('worker', 'implementer'):
+                self.assertIn(f'ub-agents retry 178 --agent {agent}',
+                              app.query_one('#unblock_resume_body', Markdown).source)
+            first['state'] = 'ready'
+            second.update(reason='New implementation blocker', attention_reason='New conflict')
+            self.state['latest_pass']['state'] = 'partial'
+            publish_snapshot(self.path, self.state)
+            await self.ready(pilot, lambda: len(app.rows['plan:178:attention'].attention_rows) == 1)
+            self.assertEqual(app.selected, 'plan:178:attention')
+            self.assertEqual(app.query_one(ItemTabs).active, 'unblock')
+            self.assertTrue(app.unblock_visible)
+            self.assertIn('plan:178', app.nodes)
+            body = app.query_one('#unblock_body', Markdown).source
+            self.assertIn('New implementation blocker', body)
+            self.assertIn('New conflict', body)
+            self.assertNotIn('Earlier review defer', body)
+            self.assertNotIn('--agent worker', app.query_one('#issue_actions', Markdown).source)
+            self.assertIn('--agent implementer', app.query_one('#issue_actions', Markdown).source)
+            second['state'] = 'ready'
+            self.state['latest_pass']['state'] = 'complete'
+            publish_snapshot(self.path, self.state)
+            await self.ready(pilot, lambda: app.selected == 'plan:178' and not app.unblock_visible)
+            self.assertEqual(app.query_one(ItemTabs).active, 'log')
+            self.assertEqual(app.query_one('#issue_actions', Markdown).source, '')
+            app.action_quit()
+        app.worker.thread.join(2)
+
     async def test_github_tables_wrap_and_strikethrough_renders_in_all_description_panes(self):
         body = DESCRIPTION_TABLE + '\n\n~~gone~~\nfirst\nsecond'
         self.state['latest_pass']['rows'][-2]['description'] = {'available': True, 'text': body}
@@ -397,7 +489,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(80, 40)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
             tree = app.query_one(WorkTree)
-            tree.move_cursor(app.nodes['plan:178:worker'])
+            tree.move_cursor(app.nodes['plan:178:attention'])
             await pilot.press('enter', '2')
             for pane in ('issue_body', 'unblock_body', 'unblock_details_body'):
                 with self.subTest(pane=pane):
@@ -440,7 +532,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app = self.app
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await pilot.press('4')
             fold = app.query_one('#unblock_details', Collapsible)
             self.assertTrue(fold.collapsed)
@@ -470,10 +562,10 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             publish_snapshot(self.path, self.state)
             await self.ready(pilot, lambda: app.current_action().comment_id == '999')
             self.assertTrue(fold.collapsed)
-            app.select('plan:179:worker')
+            app.select('plan:179:attention')
             self.assertTrue(fold.collapsed)
             self.assertFalse(fold.display)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             self.assertTrue(fold.collapsed)
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -493,7 +585,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app = self.app
         async with app.run_test(size=(110, 50)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await pilot.press('4')
             resume = app.query_one('#unblock_resume', Collapsible)
             evidence = app.query_one('#unblock_details', Collapsible)
@@ -527,16 +619,16 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(evidence.collapsed)
                 app.update_unblock()
                 self.assertFalse(resume.collapsed)
-                app.select('plan:179:worker')
+                app.select('plan:179:attention')
                 self.assertFalse(resume.display)
                 self.assertIn('Then resume worker:', app.query_one('#unblock_body', Markdown).source)
-                app.select('plan:178:worker')
+                app.select('plan:178:attention')
                 self.assertTrue(resume.collapsed)
             self.state['action_needed'] = {}
             self.state['latest_pass']['rows'][-2]['state'] = 'blocked'
             publish_snapshot(self.path, self.state)
             await self.ready(pilot, lambda: not app.current_action().available
-                             and app.rows['plan:178:worker'].state == 'blocked')
+                             and app.rows['plan:178:attention'].state == 'blocked')
             self.assertIn('Merging or closing #178 finishes this item; nothing else is needed.',
                           app.query_one('#unblock_body', Markdown).source)
             self.assertNotIn('<details', app.query_one('#unblock_body', Markdown).source)
@@ -560,7 +652,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app = self.app
         async with app.run_test(size=(110, 40)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await pilot.press('4')
             lead = app.query_one('#unblock_body', Markdown).source
             self.assertTrue(lead.startswith('Local CI is red.'))
@@ -599,7 +691,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('4', 'g')
             self.assertEqual(app.query_one(ItemTabs).active, 'log')
             self.assertFalse(app.unblock_visible)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await pilot.press('4', 'g')
             await self.ready(pilot, lambda: app.query_one(ItemTabs).active == 'unblock')
             self.assertEqual(self.transport.calls, [])
@@ -620,7 +712,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('4 on Needs attention', app.screen.message)
             self.assertIn('g on Unblock', app.screen.message)
             await pilot.press('?')
-            app.select('plan:179:worker')
+            app.select('plan:179:attention')
             await pilot.press('4')
             self.assertIn('failed 3/3', app.query_one('#item_header', Static).render().plain)
             app.select('plan:12')
@@ -629,7 +721,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('?')
             self.assertNotIn('g on Unblock', app.screen.message)
             await pilot.press('?')
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await pilot.press('4')
             self.state['latest_pass']['rows'][-2]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
@@ -646,7 +738,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app = self.app
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
-            app.select('plan:179:worker')
+            app.select('plan:179:attention')
             await pilot.press('4')
             await pilot.resize_terminal(120, 36)
             await pilot.pause(0.3)
@@ -688,7 +780,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app.descriptions.remember(('example/repo', 178), Response('Issue title', 'Issue body'))
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await pilot.pause(0.3)
             self.assertEqual(self.transport.calls, [])
             await pilot.press('4')
@@ -711,7 +803,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('1', '4')
             self.assertEqual(len(self.transport.calls), 2)
             self.assertIn('GitHub · loaded', app.query_one('#unblock_note', Static).render().plain)
-            app.select('plan:179:worker')
+            app.select('plan:179:attention')
             self.now += 60
             app.update_unblock()
             await pilot.resize_terminal(120, 36)
@@ -739,11 +831,11 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app = self.app
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await self.ready(pilot, lambda: app.local_description is not None and not app.local_description.available)
             await pilot.press('2', 'g')
             self.assertEqual(len(self.transport.calls), 1)
-            app.select('plan:179:worker')
+            app.select('plan:179:attention')
             await pilot.press('4')
             self.assertEqual(len(self.transport.calls), 1)
             note = app.query_one('#unblock_note', Static).render().plain
@@ -775,7 +867,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app.descriptions.remember(('example/repo', 178), Response('Issue title', 'Issue body'))
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
-            app.select('plan:178:worker')
+            app.select('plan:178:attention')
             await pilot.press('4', '2')
             await pilot.click(app.query_one(ItemTabs).get_tab('unblock'))
             self.assertEqual(app.query_one(ItemTabs).active, 'unblock')

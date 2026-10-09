@@ -14,6 +14,14 @@ role appear and obsolete rows disappear before the launcher claims again. This
 display refresh reads only that item's inputs; it makes no claims or repository
 discovery, and a failed read leaves the result and next pass unchanged.
 
+Needs attention shows each item once and counts items. When several agents need
+attention, its second line lists each agent with its state comma-separated, then
+the distinct reasons comma-separated. A single agent keeps `agent · state · reason`.
+The row keeps its first agent's glyph and shows the longest known waiting time.
+Selection stays on the item as polls, partial passes and post-run refreshes change
+its agents and reasons. Other agents for that item can still appear in Running or
+Eligible; Issue and Unblock preserve each attention agent's reasons and resume steps.
+
 Configured [agent health checks](/docs/configuration/agents.html#health-check) make otherwise-ready items wait in Eligible without spending attempts. The terminal view shows the latest failure, changed error or recovery in one line above the panes, also printed in plain launch output and `.ub-agents/launch.log`. Claiming resumes automatically when the check passes; other agents keep claiming while it fails.
 
 While a new run's log file has not appeared yet, Log shows `No log output yet.`

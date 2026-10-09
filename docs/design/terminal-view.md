@@ -86,7 +86,8 @@ Eligible merges plans for each item after ordering ready/recovery plans first,
 then retry backoff and paused-runtime plans, preserving planned order within
 each subgroup. Each item keeps its first plan's position, glyph and right column;
 the count counts items. Selection stays on the item while it remains eligible,
-including when its agents change. Running and Needs attention stay per agent.
+including when its agents change. Needs attention also merges by item; Running
+stays per agent.
 Other empty sections are hidden. It scrolls
 on its own when it overflows; row changes do not alter the pane width (#160).
 The canvas above is illustrative; the Work pane's outer width follows the Layout
@@ -105,7 +106,13 @@ title shortened with `…`, and a right-aligned waiting time or state:
 | Eligible, ready or recovery | `●` | `next` on the first ready/recovery row, otherwise `ready` or `recover` |
 | Eligible, delayed | `◷` | `backoff`, or `waiting` for paused runtimes; never `next` |
 
-Needs attention's dim line 2 is `agent · state · reason`. Parked state names the
+Needs attention's dim line 2 is `agent · state · reason` for one agent. Multiple
+agents use comma-separated `agent state` pairs, then ` · ` and distinct reasons
+comma-separated, in section order. The count is items, the glyph comes from the
+first contributing agent, and the waiting time is the longest known wait.
+Selection survives contributing-agent changes; Issue and Unblock retain each
+agent's state, plan and notice reasons, and blocked retry fallback when no notice
+is available. Parked state names the
 stop label(s), joined by `, `; the other states are `blocked` and `failed F/M`.
 The reason is the parking run or notice summary without the `Stop label … is
 present` prefix or retry instructions, and is omitted if no summary is known.
