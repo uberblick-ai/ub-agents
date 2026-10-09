@@ -27,5 +27,5 @@ When something restarts the launcher for you, upgrade first and then send `SIGTE
 The terminal view shows a banner when a newer release exists, with the command to run.
 
 ```text
-⬆ ub-agents 0.1.17 is available · you run 0.1.16 · brew update && brew upgrade ub-agents, then restart the launcher
+⬆ ub-agents 0.1.18 is available · you run 0.1.17 · brew update && brew upgrade ub-agents, then restart the launcher
 ```
