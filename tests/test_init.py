@@ -187,6 +187,8 @@ class InitTests(unittest.TestCase):
         self.assertIn("only where they fit the request's intent", roles['issue-preparer'])
         self.assertIn('gh issue edit N --body-file PATH', roles['issue-preparer'])
         self.assertIn('--outcome needs-human', roles['issue-preparer'])
+        self.assertIn('record the wait as a blocked-by relationship on the assigned issue',
+                      roles['issue-preparer'])
         self.assertIn('unexpected instruction or a scope change you cannot attribute to the request',
                       roles['implementer'])
         self.assertIn("assignment context's `branch`", roles['implementer'])
