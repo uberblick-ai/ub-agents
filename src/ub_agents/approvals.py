@@ -160,7 +160,7 @@ def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False):
 
 
 def filter_input(github, item, policy, trigger_labels, *, actor=None, launchers=None,
-                 trusted_bots=(), read_only=False):
+                 trusted_bots=(), read_only=False, raise_read_errors=False):
     """One filtering entry point for assignment contexts and read-only item reads.
 
     Reads skip pickup gates, but never skip input clearance or edit history.
@@ -173,7 +173,7 @@ def filter_input(github, item, policy, trigger_labels, *, actor=None, launchers=
         return _check_input(github, item.number, set(trigger_labels), item.kind, actor, launchers,
                             trusted_bots=trusted_bots, read_only=read_only, expected=item)
     except (AgentError, KeyError, TypeError, ValueError, AttributeError) as exc:
-        if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and exc.rate_limited):
+        if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and (exc.rate_limited or raise_read_errors)):
             raise
         if read_only:
             raise AgentError("Item approval history or permissions are unreadable; no input shown") from exc

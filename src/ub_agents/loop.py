@@ -156,16 +156,17 @@ class Loop:
             self.output(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}")
         current[key] = value
 
-    def _item_refusal(self, line, agent_name=None):
+    def _item_refusal(self, line, agent_name=None, *, on_success=True):
+        line = " ".join(line.split())
         if self._item_refusals is None:
             self.output(line)
         else:
-            self._item_refusals[agent_name] = line
+            self._item_refusals[agent_name] = (line, on_success)
 
     def _flush_item_refusals(self, *, final=False):
         if not self._item_refusals:
             return
-        lines = tuple(self._item_refusals.values())
+        lines = tuple(line for line, on_success in self._item_refusals.values() if final or on_success)
         self._item_refusals.clear()
         if final and self.refusal_output is not None:
             self.refusal_output(lines)
@@ -186,8 +187,9 @@ class Loop:
         if reason == "No trigger matches":
             reason = self.item_explanation(plan.item, plan.agent.name)
         elif state == "parked" and start.stop_reason and reason.startswith(start.stop_reason):
-            reason = self._stop_explanation(reason)
-        self._item_refusal(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}", plan.agent.name)
+            reason = self._stop_explanation(start.stop_reason)
+        self._item_refusal(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}", plan.agent.name,
+                           on_success=not plan.health_wait)
 
     def _claim_boundary(self):
         if self._pass_stats is None:
@@ -342,7 +344,8 @@ class Loop:
         triggers = matches.trigger_labels
         return input_approvals.filter_input(github, item, self.approvals, triggers,
                                            actor=self.coordinator.actor, launchers=self.config.launchers,
-                                           trusted_bots=self.config.trusted_bots)
+                                           trusted_bots=self.config.trusted_bots,
+                                           raise_read_errors=self._targeted_pass)
 
     @staticmethod
     def _rank(plan, priority):
@@ -1110,7 +1113,8 @@ class Loop:
         requests_before = request_counts(self.github)
         lease = self.coordinator.claim(plan, self.config.stop_labels,
                                        before_write=self._end_poll, authorize=authorize,
-                                       confirm_stopped=confirm_stopped)
+                                       confirm_stopped=confirm_stopped,
+                                       on_refusal=self.declined if self._targeted_pass else None)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False
@@ -1565,7 +1569,8 @@ class Loop:
         boundary = self._claim_boundary()
         requests_before = request_counts(self.github)
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
-                                          before_write=self._end_poll)
+                                          before_write=self._end_poll,
+                                          on_refusal=self.declined if self._targeted_pass else None)
         if recovery is None:
             self._finalizing = False
             return False

@@ -330,10 +330,13 @@ class Coordinator:
         return None
 
     def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
-              confirm_stopped=None):
+              confirm_stopped=None, on_refusal=None):
         reason = self.trust.reason(self.actor)
         if reason:
-            self.output(f"{reason}; claiming no work")
+            if on_refusal is not None:
+                on_refusal(plan, reason, "blocked")
+            else:
+                self.output(f"{reason}; claiming no work")
             return None
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
@@ -414,7 +417,7 @@ class Coordinator:
             self.notices.election_lost(created)
             self.notices.resumed(current.number)
             return self.decline(plan, "Claim election lost",
-                                fresh=replace(plan, state="owned", reason="Claim election lost",
+                                fresh=replace(plan, state="owned" if contenders else "declined", reason="Claim election lost",
                                               history=tuple(contenders), owner=contenders[0] if contenders else None))
         if not recovery:
             # Across an issue and a PR on its branch, the lowest live comment id wins too.
@@ -424,7 +427,8 @@ class Coordinator:
                 self.notices.election_lost(created)
                 self.notices.resumed(current.number)
                 return self.decline(plan, "Claim election lost on shared branch",
-                                    fresh=replace(plan, state="owned", reason="Claim election lost on shared branch",
+                                    fresh=replace(plan, state="blocked" if owner.get("cleanup") == "unconfirmed" else "owned",
+                                                  reason="Claim election lost on shared branch",
                                                   history=(), owner=owner))
         if self.clock() >= seconds(created["expires"]):
             raise LostOwnership("Lease expired during claiming")

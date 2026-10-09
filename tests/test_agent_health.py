@@ -317,7 +317,7 @@ class HealthGateTests(unittest.TestCase):
         self.assertEqual(self.check.call_count, 4)
         self.assertEqual(self.github.writes, [])
 
-    def test_launch_once_and_scoped_launch_log_one_health_notice_and_pass_stats(self):
+    def test_launch_once_health_notice_and_scoped_final_refusal_follow_pass_stats(self):
         path = self.root / 'ub-agents.yaml'
         path.touch()
         for scoped in ([], ['1']):
@@ -331,10 +331,14 @@ class HealthGateTests(unittest.TestCase):
                                      1 if scoped else 0)
                 self.assertEqual(stdout.getvalue().splitlines()[0],
                                  'worker: waiting — health check /check-corpus --cheap: Corpus unavailable')
-                self.assertEqual(len(stdout.getvalue().splitlines()), 2)
+                self.assertEqual(len(stdout.getvalue().splitlines()), 3 if scoped else 2)
                 self.assertRegex(stdout.getvalue().splitlines()[1], r'^Discovery pass empty: .*candidates reached=[12]$')
+                if scoped:
+                    self.assertEqual(stdout.getvalue().splitlines()[-1],
+                                     '#1 worker: waiting — Health check /check-corpus --cheap: Corpus unavailable')
         lines = (self.root / '.ub-agents/launch.log').read_text().splitlines()
-        self.assertEqual(len(lines), 4)
+        self.assertEqual(len(lines), 5)
         self.assertEqual(sum('Discovery pass empty:' in line for line in lines), 2)
         self.assertEqual(sum('worker: waiting — health check' in line for line in lines), 2)
+        self.assertEqual(sum('#1 worker: waiting — Health check' in line for line in lines), 1)
         self.assertEqual(self.github.writes, [])

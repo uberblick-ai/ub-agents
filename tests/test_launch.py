@@ -675,6 +675,24 @@ class TargetedLaunchTests(unittest.TestCase):
                     self.assertEqual(self.github.writes, [])
                     self.assert_scoped()
 
+    def test_stop_refusal_omits_the_previous_outcomes_diagnostic_dump(self):
+        self.config = config(self.root, agent(self.root, outcomes={
+            "done": {"add": ("needs-human",), "remove": ("ready",)}}))
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
+        co.update(lease, state="running", started=True)
+        summary = "Long diagnostic\n" * 100
+        outcome = co.report(lease, "success", summary, outcome="done")
+        co.update_outcome(lease, outcome, accepted=True, transition_complete=True)
+        co.release(lease, "success", summary)
+        self.github.change(11, labels=frozenset({"needs-human"}))
+        code, stdout, _, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: parked — Stop label needs-human is present; "
+                         "parked until a person acts on its Action needed notice, "
+                         "removes the stop label and restores a trigger\n")
+        run.assert_not_called()
+
     def test_claim_race_reports_the_fresh_owner_after_a_ready_plan(self):
         original_claim = Coordinator.claim
         self.config = replace(self.config, launchers=("operator", "peer"))
@@ -758,6 +776,55 @@ class TargetedLaunchTests(unittest.TestCase):
                 self.assertEqual(self.github.writes, [])
                 self.assert_scoped()
 
+    def test_authority_lost_at_claim_is_a_visible_final_refusal(self):
+        self.config = replace(self.config, launchers=("operator", "peer"))
+        original_claim = Coordinator.claim
+
+        def claim(co, plan, *args, **kwargs):
+            self.assertEqual(plan.state, "ready")
+            co.trust.reason = lambda _: "Launcher account @operator has repository role read; write or higher is required"
+            return original_claim(co, plan, *args, **kwargs)
+
+        with patch.object(Coordinator, "claim", new=claim):
+            code, stdout, _, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "#11 worker: blocked — Launcher account @operator has repository role read; "
+                         "write or higher is required\n")
+        run.assert_not_called()
+        self.assertEqual(self.github.writes, [])
+
+    def test_other_noop_causes_remain_distinct_after_view_close(self):
+        for case, expected in (
+                ("blocker", "#11 worker: parked — Waiting for blockers #1\n"),
+                ("milestone", "#11 worker: parked — Waiting for active milestone #3\n"),
+                ("trigger", "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n"),
+                ("kind", "#11: No evaluated agent applies to this issue\n"),
+                ("closed", "#11: issue is closed\n"),
+                ("merged", "#11: pr is merged\n")):
+            with self.subTest(case=case):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.config = config(self.root)
+                if case == "blocker":
+                    self.github.dependencies[11] = [1]
+                elif case == "milestone":
+                    self.config = config(self.root, queue=Queue(milestones="gate"))
+                    self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+                    self.github.change(1, milestone=3)
+                elif case == "trigger":
+                    self.github.change(11, labels=frozenset())
+                elif case == "kind":
+                    self.config = config(self.root, agent(self.root, kind="pr"))
+                elif case == "closed":
+                    self.github.change(11, state="closed")
+                elif case == "merged":
+                    self.github.items[11] = replace(pr(11), state="merged")
+                code, stdout, _, run = self.launch("11", hidden=True)
+                self.assertEqual(code, 1)
+                self.assertEqual(stdout, expected)
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assert_scoped()
+
     def test_health_wait_keeps_the_evaluated_agents_reason_after_view_close(self):
         with patch("ub_agents.agent_health.AgentHealth.check", return_value="Service is offline; retry later"):
             code, stdout, _, run = self.launch("11", hidden=True)
@@ -766,13 +833,33 @@ class TargetedLaunchTests(unittest.TestCase):
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
 
+    def test_successful_hidden_launch_keeps_the_existing_final_message(self):
+        code, stdout, stderr, run = self.launch("11", hidden=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout, "#11 worker: success — Completed\n")
+        self.assertEqual(stderr, "")
+        run.assert_called_once()
+
+    def test_successful_launch_does_not_add_an_earlier_agents_health_refusal(self):
+        self.config = config(self.root, agent(self.root, name="first"), agent(self.root, name="second"))
+        with patch("ub_agents.agent_health.AgentHealth.check",
+                   side_effect=lambda root, role, *args, **kwargs: "Health check unavailable" if role.name == "first" else None):
+            code, stdout, _, run = self.launch("11")
+        self.assertEqual(code, 0)
+        self.assertNotIn("#11 first:", stdout)
+        self.assertIn("#11 second: claimed", stdout)
+        run.assert_called_once()
+
     def test_read_errors_remain_visible_errors_after_view_close(self):
-        for read in ("item", "comments", "blocked_by", "active_milestone"):
+        for read in ("item", "comments", "blocked_by", "active_milestone", "timeline", "issue_content"):
             with self.subTest(read=read):
                 self.github = PollGitHub(issue(11))
-                self.config = config(self.root, queue=Queue(milestones="gate"))
-                self.github.dependencies[11] = [1]
-                self.github.items[1] = issue(1)
+                self.config = config(self.root)
+                if read == "active_milestone":
+                    self.config = config(self.root, queue=Queue(milestones="gate"))
+                if read == "blocked_by":
+                    self.github.dependencies[11] = [1]
+                    self.github.items[1] = issue(1)
                 self.github.read_results[read] = [GitHubError("GET", "repos/org/project/issues/11", "HTTP 500")]
                 code, stdout, stderr, run = self.launch("11", hidden=True)
                 self.assertEqual(code, 1)
