@@ -33,7 +33,7 @@ class WorkLineTests(unittest.TestCase):
 
     def row(self, group, state, **data):
         data = {'agent': 'implementer', 'title': 'Compact work rows', 'kind': 'issue', **data}
-        return WorkRow('plan:160:implementer', group, 160, data['agent'], state,
+        return WorkRow('plan:160:attention', group, 160, data['agent'], state,
                        data.pop('reason', ''), data)
 
     def test_assignment_claim_elapsed_stopping_and_details(self):
@@ -159,6 +159,30 @@ class WorkLineTests(unittest.TestCase):
         self.assertTrue(second.plain.endswith('…'))
         row = self.row('Eligible', 'ready', agent='', title='', failures=0, max_attempts=3)
         self.assertEqual(work_lines(row, 32)[1].plain.strip(), '')
+
+    def test_attention_merges_agent_states_distinct_reasons_and_longest_wait(self):
+        now = datetime(2026, 10, 5, 12, 36, tzinfo=timezone.utc)
+        first = self.row('Needs attention', 'parked', agent='issue-reviewer',
+                         stop_labels=['needs-human'], attention_reason='Sonner conflicts',
+                         waiting_since='2026-10-05T12:12:00Z')
+        second = self.row('Needs attention', 'blocked', attention_reason='Sonner conflicts',
+                          waiting_since='2026-10-05T11:36:00Z')
+        row = replace(first, attention_rows=(first, second))
+        line, detail = work_lines(row, 110, now=now)
+        self.assertTrue(line.plain.startswith('? #160'))
+        self.assertTrue(line.plain.endswith('1h'))
+        self.assertEqual(detail.plain, '  issue-reviewer needs-human, implementer blocked · Sonner conflicts')
+        second = replace(second, data={**second.data, 'attention_reason': 'CI failed'})
+        row = replace(first, attention_rows=(first, second))
+        self.assertEqual(work_lines(row, 110, now=now)[1].plain,
+                         '  issue-reviewer needs-human, implementer blocked · Sonner conflicts, CI failed')
+        second = replace(second, data={**second.data, 'waiting_since': 'invalid'})
+        row = replace(first, attention_rows=(first, second))
+        self.assertTrue(work_lines(row, 110, now=now)[0].plain.endswith('24m'))
+        for width in (0, 1, 15, 40):
+            line, detail = work_lines(row, width, now=now)
+            self.assertEqual(line.cell_len, width)
+            self.assertLessEqual(detail.cell_len, width)
 
     def test_stopping_holds_ready_recovery_but_keeps_delays_and_attention(self):
         for state in ('ready', 'recover'):

@@ -298,7 +298,7 @@ class ObservationTests(unittest.TestCase):
         path.parent.mkdir(parents=True)
         worker = LocalWorker(self.root, path)
         previous_pane = None
-        def published(selected='plan:4:worker'):
+        def published(selected='plan:4:attention'):
             nonlocal previous_pane
             snapshot = self.memory.snapshots[-1]
             path.write_text(json.dumps(snapshot))
@@ -338,7 +338,7 @@ class ObservationTests(unittest.TestCase):
         self.observer.plan(replace(changes[0], state='waiting'))
         self.observer.begin_pass()
         self.assertEqual([row['item'] for row in self.memory.snapshots[-1]['latest_pass']['rows']], [2, 5, 3, 1])
-        _, work, _ = published('plan:2:worker')
+        _, work, _ = published('plan:2')
         self.assertEqual([row.item for row in work if row.group == 'Eligible'], [5, 3, 1, 2])
 
     def test_partial_pass_drops_finished_or_untriggered_items_before_reaching_them(self):

@@ -1705,7 +1705,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             self.assertTrue(app.item_view)
                         header = app.query_one('#item_header', Static)
                         for number, marker, path in ((114, '#', 'issues'), (12, '⌥', 'pull')):
-                            app.select(f'plan:{number}:worker')
+                            app.select(f'plan:{number}:attention')
                             await self.ready(app, pilot, lambda: app.local_description is not None)
                             for tab in ('log', 'issue', 'runs', 'unblock'):
                                 with self.subTest(number=number, tab=tab):
@@ -2124,7 +2124,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             plans[1]['state'] = 'blocked'
             plans[1], plans[-1] = plans[-1], plans[1]
             publish_snapshot(self.path, self.state)
-            attention = 'plan:12:reviewer'
+            attention = 'plan:12:attention'
             await self.ready(app, pilot, lambda: attention in app.nodes)
             app.select(attention)
             tree.move_cursor(app.nodes[attention])
@@ -2687,7 +2687,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 tree.move_cursor(app.nodes['plan:21'])
                 cases = [
                     ([(22, 'ready'), (21, 'ready'), (20, 'ready')], 'plan:21'),
-                    ([(21, 'blocked'), (20, 'ready'), (22, 'ready')], 'plan:21:worker'),
+                    ([(21, 'blocked'), (20, 'ready'), (22, 'ready')], 'plan:21:attention'),
                     ([(20, 'ready'), (22, 'ready')], selected),
                 ]
                 for rows, highlighted in cases:
@@ -2732,7 +2732,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             pane = work_pane(Session(self.path, changed), self.root, app.pane, app.selected, app.chosen)
             app.populate(pane)
             # Assert before yielding to Textual's next layout or idle callback.
-            key = 'plan:21:worker'
+            key = 'plan:21:attention'
             self.assertIsNot(old_node, app.nodes[key])
             self.assertIs(tree.cursor_node, app.nodes[key])
             self.assertIs(app.reading, reading)
@@ -2769,7 +2769,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                  'description': description}]
             publish_snapshot(self.path, self.state)
             # The tree moves its cursor back to the kept node after the next refresh.
-            key = 'plan:21:worker'
+            key = 'plan:21:attention'
             await self.ready(app, pilot, lambda: key in app.nodes and
                              app.nodes[key].parent is app.groups.get('Needs attention')
                              and tree.cursor_node is app.nodes[key])
@@ -3580,8 +3580,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             width = tree.scrollable_content_region.width
             expected = [('assignment:owned-run', ' #114', '00:00', '  implementer · this launcher'),
                         ('plan:12', '● ⌥12', 'next', '  reviewer'),
-                        ('plan:20:worker', '! #20', '', '  worker · blocked'),
-                        ('plan:21:worker', '✗ #21', '', '  worker · failed 3/3'),
+                        ('plan:20:attention', '! #20', '', '  worker · blocked'),
+                        ('plan:21:attention', '✗ #21', '', '  worker · failed 3/3'),
                         ('plan:22', '● ⌥22', 'ready', '  worker')]
             for key, prefix, status, detail in expected:
                 node = app.nodes[key]
@@ -3607,7 +3607,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     number = first.crop(3, 4)
                     self.assertEqual(next(iter(marker)).style.color, theme_style(app, 'view-accent').color)
                     self.assertNotEqual(next(iter(number)).style.color, theme_style(app, 'view-accent').color)
-            own, blocked = app.nodes['assignment:owned-run'], app.nodes['plan:20:worker']
+            own, blocked = app.nodes['assignment:owned-run'], app.nodes['plan:20:attention']
             tree.focus()
             tree.move_cursor(own)
             await pilot.press('down')
@@ -3679,9 +3679,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     ('plan:20', self.state['latest_pass']['rows'][-2], {'priority': 'urgent'}, 1, 'urgent'),
                     ('plan:20', self.state['latest_pass']['rows'][-2],
                      {'failures': 1, 'max_attempts': 3}, 1, '1/3 failures'),
-                    ('plan:21:worker', self.state['latest_pass']['rows'][-1],
+                    ('plan:21:attention', self.state['latest_pass']['rows'][-1],
                      {'attention_reason': 'New reason'}, 1, 'New reason'),
-                    ('plan:21:worker', self.state['latest_pass']['rows'][-1],
+                    ('plan:21:attention', self.state['latest_pass']['rows'][-1],
                      {'waiting_since': (now - timedelta(minutes=10)).isoformat()}, 0, '10m'),
                 ]
                 for key, data, changes, offset, expected in cases:
@@ -3822,14 +3822,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: 'plan:20:worker' in app.nodes)
+            await self.ready(app, pilot, lambda: 'plan:20:attention' in app.nodes)
             app.worker.close()
             app.worker.thread.join(2)
             app.busy = True
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
             tree = app.query_one('#work', Tree)
-            node = app.nodes['plan:20:worker']
+            node = app.nodes['plan:20:attention']
             nodes = tuple(app.nodes.items())
             def displayed():
                 strips = app.screen._compositor.render_strips()

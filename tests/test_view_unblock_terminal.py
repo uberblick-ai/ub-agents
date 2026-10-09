@@ -46,8 +46,8 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
                 Binding('b', 'select_foreign', priority=True),
                 Binding('e', 'select_eligible', priority=True),
                 Binding('t', 'advance', priority=True), Binding('l', 'complete', priority=True)]
-    def action_select_attention(self): self.select('plan:178:worker')
-    def action_select_foreign(self): self.select('plan:179:worker')
+    def action_select_attention(self): self.select('plan:178:attention')
+    def action_select_foreign(self): self.select('plan:179:attention')
     def action_select_eligible(self): self.select('plan:180')
     def action_advance(self): self.now += 60
     def action_complete(self):
@@ -55,7 +55,7 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
         tree = self.query_one(WorkTree)
         tree.get_node_at_line(0)
-        node = self.nodes.get('plan:178:worker')
+        node = self.nodes.get('plan:178:attention')
         first = tree.render_line(node._line - tree.scroll_offset.y) if node else None
         second = tree.render_line(node._line + 1 - tree.scroll_offset.y) if node and tree.row_height == 2 else None
         value = {'tab': self.query_one(ItemTabs).active, 'attention': self.unblock_visible,
@@ -140,7 +140,7 @@ pathlib.Path(sys.argv[3] + '.closed').write_text(str(transport.closed))
                     self.assertFalse(eligible['attention'])
                     self.assertEqual(eligible['tab'], 'log')
                     terminal.send(b'a4')
-                    terminal.checkpoint(lambda value: value['selected'] == 'plan:178:worker'
+                    terminal.checkpoint(lambda value: value['selected'] == 'plan:178:attention'
                                         and value['tab'] == 'unblock' and value['attention'])
                     state['latest_pass']['rows'][0]['state'] = 'ready'
                     publish_snapshot(path, state)
