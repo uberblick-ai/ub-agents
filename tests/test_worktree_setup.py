@@ -281,8 +281,9 @@ class WorktreeSetupTests(unittest.TestCase):
     def test_stop_check_accepts_an_aliased_root_but_not_redirected_records(self):
         loop, directory = self.crashed()
         (directory / "stopped").write_text("confirmed\n")
-        alias = Path(tempfile.mkdtemp()) / "alias"
-        self.addCleanup(lambda: alias.unlink())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        alias = Path(temporary.name) / "alias"
         alias.symlink_to(self.root)
         aliased = SimpleNamespace(root=alias)
         confirm_worktree_setup_stopped(aliased, directory.parent.name)
@@ -296,6 +297,14 @@ class WorktreeSetupTests(unittest.TestCase):
         directory.symlink_to(target)
         with self.assertRaisesRegex(CleanupError, "redirected setup diagnostics"):
             confirm_worktree_setup_stopped(aliased, directory.parent.name)
+        directory.unlink()
+        target.rename(directory)
+        run = directory.parent
+        moved = run.with_name("other")
+        run.rename(moved)
+        run.symlink_to(moved)
+        with self.assertRaisesRegex(CleanupError, "redirected setup diagnostics"):
+            confirm_worktree_setup_stopped(aliased, run.name)
 
     def test_cleaner_keeps_crashed_setup_worktree_until_termination_is_confirmed(self):
         loop, directory = self.crashed()
