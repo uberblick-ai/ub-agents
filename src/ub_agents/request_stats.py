@@ -35,18 +35,28 @@ class PassOutput:
 
 
 class DiscoveryPass:
-    def __init__(self, github, output, kind="empty"):
+    def __init__(self, github, output, kind="empty", debit=None):
         self.github, self.output, self.kind = github, output, kind
         self.started = monotonic()
         self.before = request_counts(github)
         self.candidates = set()
         self.done = False
+        self.debit = debit
+        self.debited = 0
 
     def snapshot(self):
         return monotonic() - self.started, request_counts(self.github), len(self.candidates)
 
+    def account(self, snapshot):
+        requests = snapshot[1]['quota_requests'] - self.before['quota_requests']
+        if self.debit is not None:
+            self.debit(requests - self.debited)
+        self.debited = requests
+
     def finish(self, kind=None, snapshot=None):
         if not self.done:
-            elapsed, after, candidates = snapshot or self.snapshot()
+            snapshot = snapshot or self.snapshot()
+            self.account(snapshot)
+            elapsed, after, candidates = snapshot
             self.output.finished(kind or self.kind, elapsed, request_delta(after, self.before), candidates)
             self.done = True

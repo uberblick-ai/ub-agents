@@ -42,9 +42,16 @@ passes repeating the same decline for the same item and agent print it once.
 When no open issue or PR has a configured trigger label, both `launch` and
 `launch --once` name the labels to add. Continuous launch shows the next poll
 delay rounded to whole seconds below a minute or whole minutes otherwise.
-Empty polls back off according to their REST quota cost, excluding unchanged
-reads confirmed by HTTP 304 and reserving half the common account quota for busy
-work when ten idle launchers share it. Low quota
+Claiming, empty and observation passes debit one discovery balance: it starts full
+at 125 requests, refills at 250/hour, and retains debt. Idle and observation passes
+wait for `poll-seconds` since the previous start and a balance of at least 1, with
+a one-hour gap cap. A cold burst can therefore be followed by cheap passes at the
+normal interval. Claiming immediately after work and poll-now passes bypass
+admission and still debit; later idle waits repay their spend. HTTP 304 responses
+are free, and successful claim checks through release count toward the run instead.
+This reserves half the common account quota for work when ten launchers share it,
+as an average rather than a rolling-hour ceiling; sustained passes above 250
+requests are limited only by the one-hour cap. Low quota
 adds a wait bounded by the reset. A pass that runs or recovers work starts the next
 claiming pass immediately, while retaining rate-limit waits and runtime usage pauses.
 The continuous loop retries transient GitHub

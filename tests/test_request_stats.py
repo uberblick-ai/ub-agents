@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from ub_agents.config import Queue, Runtime
 from ub_agents.loop import Loop
+from ub_agents.polling import DiscoveryBudget
 from ub_agents.records import iso
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
@@ -20,6 +21,22 @@ class RequestStatsTests(unittest.TestCase):
         self.lines = []
         self.loop = Loop(config(self.root), self.github, 'operator', output=self.lines.append)
         self.loop.coordinator.clock = lambda: 1000
+
+    def test_budget_charges_failed_claim_checks_and_stops_at_successful_boundary(self):
+        for claimed in (False, True):
+            with self.subTest(claimed=claimed):
+                self.loop.discovery_budget = DiscoveryBudget(clock=lambda: 1000)
+                with self.loop.discovery_pass():
+                    self.github.quota_requests += 100
+                    self.loop._claim_boundary()
+                    self.github.quota_requests += 50  # Unsuccessful claim's checks remain discovery.
+                    if claimed:
+                        boundary = self.loop._claim_boundary()
+                        self.github.quota_requests += 70  # A successful claim's run traffic.
+                        self.loop._claimed_pass(boundary)
+                self.assertIn('REST quota=150,', self.lines[-1])
+                self.assertEqual(self.loop.discovery_budget.balance, -25)
+                self.assertAlmostEqual(self.loop.discovery_budget.wait_seconds(), 374.4)
 
     def test_idle_pass_coalesces_changed_duration_but_reports_changed_counts_or_candidates(self):
         self.github.items.clear()

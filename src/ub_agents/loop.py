@@ -25,7 +25,7 @@ from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
-from .polling import idle_interval, poll_delay
+from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
@@ -89,6 +89,7 @@ class Loop:
         self.default_config = default_config
         self.output = output
         self.pass_output = PassOutput(output)
+        self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._pass_stats = None
         self._targeted_pass = False
         self._declines = {}
@@ -124,7 +125,8 @@ class Loop:
 
     @contextmanager
     def discovery_pass(self, kind="empty", output=None, *, targeted=False):
-        self._pass_stats = DiscoveryPass(self.github, output or self.pass_output, kind)
+        self._pass_stats = DiscoveryPass(self.github, output or self.pass_output, kind,
+                                         debit=self.discovery_budget.debit)
         self._targeted_pass = targeted
         self._pass_declines = {}
         self._discovery_requests = None
@@ -149,6 +151,9 @@ class Loop:
         if self._pass_stats is None:
             return None
         snapshot = self._pass_stats.snapshot()
+        # The claim callback starts observations before claim() returns. Charge
+        # discovery now; a failed claim's remaining traffic is charged at finish.
+        self._pass_stats.account(snapshot)
         self._discovery_requests = snapshot[1]['quota_requests'] - self._pass_stats.before['quota_requests']
         return snapshot
 
@@ -188,10 +193,17 @@ class Loop:
             self.poll_now.request()
 
     def _wait(self, event, delay, reason):
+        requested = False
+
+        def on_request():
+            nonlocal requested
+            requested = True
+
         if self.observer is not None:
             self._observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
         if self.poll_now is not None and reason == "next poll or runtime pause":
-            self.poll_now.wait(event, delay, self._poll_updates if self.updates is not None else None)
+            self.poll_now.wait(event, delay, self._poll_updates if self.updates is not None else None,
+                               on_request=on_request)
         elif self.updates is None:
             event.wait(delay)
         else:
@@ -203,6 +215,7 @@ class Loop:
                 remaining -= interval
                 self._poll_updates()
         self._observe("activity", "running assignment" if self.github.lease else "polling")
+        return requested
 
     def _poll_updates(self):
         banner = self.updates.banner if self.updates is not None else None
@@ -1494,6 +1507,7 @@ class Loop:
 
     def _launch(self, once):
         self.usage.reset()
+        self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._planning_rate_until = None
         self._continuous = not once
         self.github.discovery = not once
@@ -1563,7 +1577,7 @@ class Loop:
                 continue
             elapsed = monotonic() - self._pass_started
             requests = self.github.quota_requests - requests_before
-            interval, low = idle_interval(requests, self.config.poll_seconds,
+            interval, low = idle_interval(self.discovery_budget.wait_seconds(), self.config.poll_seconds,
                                           self.github.resource_quotas,
                                           self.coordinator.clock(), elapsed)
             interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
@@ -1574,7 +1588,15 @@ class Loop:
             idle_state = (low, message)
             delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
-                self._wait(self.stop_event, delay, "next poll or runtime pause")
+                while not self.stop_event.is_set():
+                    if self._wait(self.stop_event, delay, "next poll or runtime pause"):
+                        break  # Poll-now passes bypass admission, but still debit.
+                    # A cancelled observation may finish and debit during this
+                    # wait. Recheck debt without extending the one-hour cap.
+                    delay = min(self.discovery_budget.wait_seconds(),
+                                max(0, self._pass_started + IDLE_MAX_SECONDS - monotonic()))
+                    if not delay:
+                        break
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
 
