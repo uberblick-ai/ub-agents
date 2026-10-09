@@ -46,7 +46,9 @@ options:
 LAUNCH_HELP = """usage: ub-agents launch [NUMBER] [options]
 
 Run the queue in the foreground under the configured gates. Without a number,
-watch the queue; with a number, handle only that issue or PR, then exit.
+watch the queue; with a number, handle only that issue or PR, then exit. Queue
+priority and milestone policy do not apply to an explicit item; all other gates
+do. An agent still needs a matching trigger label, including with --agent.
 
 options:
   --agent NAME           evaluate only this configured agent (needs NUMBER)

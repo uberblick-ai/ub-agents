@@ -26,7 +26,7 @@ class EligibilityTests(unittest.TestCase):
             github.dependencies[item.number] = [31]
         return Loop(config(self.root, worker, queue=queue), github, "operator", output=lambda _: None)
 
-    def test_start_rules_agree_in_discovery_parking_and_claim_and_recovery_skips_them(self):
+    def test_start_rules_in_discovery_parking_claim_and_recovery(self):
         gate = Queue(milestones="gate")
         cases = [
             ("closed", replace(issue(), state="closed"), "either", Queue(), False, False, "issue is closed"),
@@ -55,11 +55,19 @@ class EligibilityTests(unittest.TestCase):
                 self.assertEqual((start.allowed, start.reason), (allowed, reason))
                 repository = [p for p in loop.plans() if p.item.number == item.number]
                 scoped = list(loop.item_plans(item.number)[1])
-                for path, plans in (("repository", repository), ("single item", scoped)):
+                # Explicit targets bypass only the milestone hold; combined
+                # waits still explain their dependency blockers.
+                scoped_allowed, scoped_reason = {
+                    "milestone gate": (True, None),
+                    "combined wait": (False, "Waiting for blockers #31"),
+                }.get(name, (allowed, reason))
+                for path, plans, expected_allowed, expected_reason in (
+                        ("repository", repository, allowed, reason),
+                        ("single item", scoped, scoped_allowed, scoped_reason)):
                     with self.subTest(path=path):
-                        self.assertEqual(any(p.state == "ready" for p in plans), allowed)
-                        if plans and not allowed:
-                            self.assertEqual((plans[0].state, plans[0].reason), ("parked", reason))
+                        self.assertEqual(any(p.state == "ready" for p in plans), expected_allowed)
+                        if plans and not expected_allowed:
+                            self.assertEqual((plans[0].state, plans[0].reason), ("parked", expected_reason))
 
                 # Parking needs an approval gate. Remove the maintainer start
                 # after discovery, then run its real fresh-input recheck.

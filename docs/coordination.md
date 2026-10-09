@@ -82,9 +82,8 @@ issues and unchanged PR heads still need `ub-agents retry`.
    holds back existing work.
 3. Automatically selected new issues pass the dependency gate and, in milestone
    `gate` mode, the milestone gate, as the [queue reference](configuration.md#queue)
-   defines them. Planning
-   and a fresh claim-time read both enforce each gate. Approval parking also
-   rechecks them. In milestone `order` and `prefer` modes, milestones never gate
+   defines them. Planning and a fresh claim-time read both enforce each gate.
+   Approval parking also rechecks them. In milestone `order` and `prefer` modes, milestones never gate
    eligibility.
 4. In milestone `order` mode, new issues of equal effective priority rank by open
    milestones with open items, oldest creation time and then milestone number

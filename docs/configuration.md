@@ -574,9 +574,9 @@ In `gate` mode, automatically selected new issues wait for the oldest open miles
 with open issues or PRs to close or empty. Creation time and then milestone number
 select that active milestone. Later and unmilestoned issues wait even when the
 active milestone has no eligible issue. Queue planning, claiming and approval
-parking enforce this gate;
-PR work, owned runs and recovery remain eligible. Explicit `launch N` and `status N`
-skip queue priority and milestone policy, including this hold, while applying every
+parking enforce this gate; PR work, owned runs and recovery remain eligible.
+Explicit `launch N` and `status N` skip queue priority and milestone policy,
+including this hold, while applying every
 other gate. A numbered launch can start later-milestone or unmilestoned work.
 
 In `order` mode, new issues of equal effective priority rank by open milestones
