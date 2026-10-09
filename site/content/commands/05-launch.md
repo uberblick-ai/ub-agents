@@ -2,6 +2,28 @@
 
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
+Use `ub-agents launch --agent NAME` to serve only one agent named in your
+configuration, or `launch --once --agent NAME` to observe once and run at most
+one selected assignment. Queue priority, milestone policy and all other gates
+still apply. The filter also limits recovery and notice reconciliation; other
+agents' leases, pending outcomes and notices stay untouched. Started runs keep
+normal lease renewal, stopping and process cleanup. An unknown name exits
+nonzero before observing the queue and lists configured names. If a reload
+removes the selected agent, it claims nothing and says the agent is no longer
+configured.
+
+For preparation first, run `ub-agents launch --agent issue-preparer`, substituting
+your configured preparation agent name. Watch a milestone's issues finish
+preparation or reach human decisions, stop the launcher, resolve the decisions,
+then run `ub-agents launch` for the normal queue. The filtered launcher keeps
+polling until you stop it, even when its work runs out. It does not override
+milestones, bypass blockers or automatically hand control to another agent.
+
+The terminal view and `--no-ui` output name the selected agent. When idle, the
+message distinguishes no open item with its trigger labels, naming those labels,
+from waiting work counted by state and reason, such as blocked, parked, awaiting
+input approval or owned elsewhere. Neither message means every issue is prepared.
+
 `launch N` skips queue priority and milestone policy, including the `gate` hold
 during planning, after checkout refresh, at claim time and during approval parking.
 It can start later-milestone or unmilestoned work. Every other gate still applies,
@@ -41,7 +63,8 @@ declines print once. See [launch output](https://github.com/uberblick-ai/ub-agen
 for the fields and decline reasons.
 
 When a supervised run's outcome lands, Work immediately refreshes that item's
-rows for every configured agent, even during a partial pass. Rows for its next
+rows for every evaluated agent, even during a partial pass. A filtered queue
+refreshes only its selected agent. Rows for its next
 role appear and obsolete rows disappear before the launcher claims again. This
 display refresh reads only that item's inputs; it makes no claims or repository
 discovery, and a failed read leaves the result and next pass unchanged.

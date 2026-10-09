@@ -4,7 +4,7 @@ import json
 import os
 import socket
 import threading
-from collections import deque
+from collections import Counter, deque
 from contextlib import contextmanager, nullcontext
 from time import monotonic
 from dataclasses import replace
@@ -109,6 +109,7 @@ class Loop:
         self._refreshing_checkout = False
         self._launch_number = None
         self._launch_agent = None
+        self._queue_waits = {}
         self._launcher_reason = None
         self._has_trigger = None
         self._active_milestone = None
@@ -143,6 +144,8 @@ class Loop:
             self._pass_declines = None
 
     def declined(self, plan, reason, state="declined"):
+        if self._launch_agent is not None and self._launch_number is None:
+            self._queue_waits[plan.item.number] = (state, reason)
         if self._targeted_pass:
             if plan.state not in {"ready", "recover"}:
                 self._refuse_plan(plan)
@@ -390,22 +393,38 @@ class Loop:
             yield next_issue
         yield from other
 
+    def queue_agents(self):
+        return tuple(a for a in self.config.agents
+                     if self._launch_agent is None or a.name == self._launch_agent)
+
     def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False):
+        agents = self.queue_agents()
+        selected = {a.name for a in agents}
+        self._queue_waits = {}
+        if not agents:
+            self._has_trigger = False
+            self._observe("queue_idle", self.idle_message())
+            return
         checked = {}
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         github = self.discovery if cached else Discovery(self.github)
         lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
-        triggers = {label for agent in self.config.agents for label in agent.triggers}
+        triggers = {label for agent in agents for label in agent.triggers}
         self._has_trigger = any(item.state == "open" and item.labels.intersection(triggers)
                                 for item in items.values())
-        self._observe("discovered", items, self.config.agents, True)
+        self._observe("discovered", items, agents, True)
         coordinator = self._planning_coordinator(github)
         history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
         latest = latest_leases(history_index)
         unfinished = {r["assignment"] for r in latest.values()
-                      if r["state"] in {"claiming", "running"} or r.get("result") in {"retry", "blocked"}}
+                      if (self._launch_agent is None or r["agent"] in selected) and
+                      (r["state"] in {"claiming", "running"} or r.get("result") in {"retry", "blocked"})}
+        if self._launch_agent is not None:
+            # An invalid history can still block a selected matching item, but
+            # must not pull another agent's closed item into this queue.
+            invalid.intersection_update(items)
         for number in sorted(unfinished | invalid):
             if number not in items:
                 item = github.item(number)
@@ -420,6 +439,9 @@ class Loop:
         candidates = []
         for item in items.values():
             matches = AgentMatches.for_item(item, self.config.agents)
+            selected_matches = tuple(a for a in matches.matched if a.name in selected)
+            if self._launch_agent is not None and not selected_matches and item.number not in unfinished:
+                continue
             if (not matches.matched and item.number not in (unfinished | invalid)
                     and not item.labels.intersection(self.config.stop_labels)):
                 continue
@@ -436,6 +458,8 @@ class Loop:
             candidates.append(Plan(item, None, None, "owned" if ongoing else "ready", "", 1,
                                    priority=priority.effective(item.labels), matches=matches))
         if not candidates:
+            if self._launch_agent is not None:
+                self._observe("queue_idle", self.idle_message())
             return
         # Priority or milestone inheritance requires the open local graph.
         # Otherwise read only a reached item's links for dependency waits.
@@ -473,7 +497,7 @@ class Loop:
             github.scope = item.number
             if item.kind == "pr":
                 item = github.item(item.number, "pr")
-            self._observe("discovered", {item.number: item}, self.config.agents)
+            self._observe("discovered", {item.number: item}, agents)
             matches = candidate.matches
             if (item.kind, item.state, item.labels) != (candidate.item.kind, candidate.item.state, candidate.item.labels):
                 matches = AgentMatches.for_item(item, self.config.agents)
@@ -484,6 +508,7 @@ class Loop:
                 else:
                     blockers = self._open_blockers(item, github)
             plans = self._item_plans(item, now, github, coordinator, matches, active_milestone, blockers,
+                                     agents,
                                      reconcile_notices=reconcile_notices, checked=checked,
                                      health_notices=health_notices or reconcile_notices)
             for plan in plans:
@@ -500,6 +525,8 @@ class Loop:
             for observed in self._prefer_plans(preferred, milestones):
                 self._observe_plan(observed, github)
                 yield observed
+        if self._launch_agent is not None:
+            self._observe("queue_idle", self.idle_message())
 
     def _open_blockers(self, item, github):
         if (item.kind != "issue" or item.state != "open" or
@@ -553,6 +580,8 @@ class Loop:
                            on_author=lambda *args: observe("coordination_author", *args))
 
     def _observe_plan(self, plan, github, observe=None):
+        if self._launch_agent is not None and self._launch_number is None and observe is None:
+            self._queue_waits[plan.item.number] = (plan.state, plan.reason)
         closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
         filing = github.observed_item(closing[0]) if closing else None
         authors = {login: role in {"write", "maintain", "admin"} and
@@ -583,7 +612,9 @@ class Loop:
                 if priority is None or labels.index(plan.priority) < labels.index(priority):
                     priority = plan.priority  # Retain already-observed inheritance without a graph read.
             for refreshed in self._item_plans(item, coordinator.clock(), github, coordinator,
-                                              matches, self._active_milestone, blockers, checked={}):
+                                              matches, self._active_milestone, blockers,
+                                              self.queue_agents() if self._launch_number is None else None,
+                                              checked={}):
                 refreshed = replace(refreshed, priority=priority)
                 self._observe_plan(refreshed, github, observe)
         except Exception:
@@ -633,7 +664,9 @@ class Loop:
             # Closed items can have a missing advisory without an assignment
             # row. Keep that recovery, without evaluating later agents before
             # a reached ready agent's claim or posting for health-waiting rows.
-            self.reconcile_blocked_notices([r for r in history if r["agent"] not in reconciled], coordinator)
+            self.reconcile_blocked_notices([r for r in history if r["agent"] not in reconciled
+                                           and (self._launch_agent is None or self._launch_number is not None
+                                                or r["agent"] == self._launch_agent)], coordinator)
 
     def _health_plan(self, plan, checked=None, *, announce=False):
         if plan.state == "ready":
@@ -1630,6 +1663,9 @@ class Loop:
         self._continuous = not once
         self.github.discovery = not once
         self._observe("configure", self.config, self.coordinator.actor, self.config_path)
+        if self._launch_agent is not None and self._launch_number is None:
+            self.output(f"Serving queue for agent {self._launch_agent}")
+            self._observe("queue_scope", self._launch_agent)
         failures = 0
         idle_state = None
         while not self.stop_event.is_set():
@@ -1677,7 +1713,8 @@ class Loop:
             if self.stop_event.is_set():
                 return
             if once:
-                if not worked and self._launch_number is None and self._has_trigger is False:
+                if not worked and self._launch_number is None and (self._has_trigger is False
+                                                                  or self._launch_agent is not None):
                     self.output(self.idle_message())
                 return (0 if worked else 1) if self._launch_number is not None else None
             if worked:
@@ -1723,6 +1760,16 @@ class Loop:
             raise KeyboardInterrupt
 
     def idle_message(self):
+        if self._launch_agent is not None and self._launch_number is None:
+            agents = self.queue_agents()
+            if not agents:
+                return f"Agent {self._launch_agent} is no longer configured; claiming no work"
+            if self._has_trigger is False:
+                return (f"Agent {self._launch_agent}: no open issue or PR has a trigger label "
+                        f"({', '.join(agents[0].triggers)}); add one to start")
+            counts = Counter(f"{state} — {reason}" for state, reason in self._queue_waits.values())
+            waits = '; '.join(f"{count} {reason}" for reason, count in counts.items())
+            return f"Agent {self._launch_agent}: no eligible work" + (f"; waiting items: {waits}" if waits else '')
         if self._has_trigger is False:
             labels = dict.fromkeys(label for agent in self.config.agents for label in agent.triggers)
             return (f"No open issue or PR has a trigger label ({', '.join(labels)}); "

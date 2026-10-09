@@ -100,9 +100,10 @@ The version 1 envelope contains:
 |---|---|
 | `session`, `pid`, `host`, `actor`, `repository`, `config_path` | Launcher identity and configuration; `started_at` and `published_at` use UTC ISO 8601 times. |
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
+| `queue_agent`, `queue_idle` | Optional filtered-queue context: the selected configured agent and its last complete idle explanation, naming trigger labels or counting waiting reasons. Unfiltered launches omit these fields. |
 | `poll_now` | Optional poll control: `cooldown_until` and `rate_limit_until` are UTC ISO 8601 times or `null`; `waiting: true` confirms a poll waiter is installed, allowing immediate feedback on `r` during an assignment unless cooldown or rate limits apply. Missing or false `waiting` gives no such confirmation. `refreshing: true` means an `r`-forced read-only queue refresh is running during an assignment. Missing or false `refreshing` means no forced refresh; scheduled refreshes do not set it. |
 | `assignment` | Current item, kind, title, agent, effective priority word, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
-| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. A supervised run's completed outcome refreshes its item's rows for every configured agent before the next claim, without completing the pass or discovering the repository. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time, without description text. `eligible_count` counts merged Eligible items before byte trimming, excluding the running agent; older snapshots may omit it. Another launcher's owner includes only actor, host and run, with no log paths. |
+| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. A supervised run's completed outcome refreshes its item's rows for every evaluated agent before the next claim (only the selected agent in a filtered queue), without completing the pass or discovering the repository. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time, without description text. `eligible_count` counts merged Eligible items before byte trimming, excluding the running agent; older snapshots may omit it. Another launcher's owner includes only actor, host and run, with no log paths. |
 | `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff when reported, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit optional header context. |
 | `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. Work's `omitted N` counts dropped plan rows; Eligible's heading uses `eligible_count` even when hidden plans were dropped. |
 
@@ -1336,10 +1337,15 @@ options folded into `[options]`. For example, `ub-agents help launch` prints:
 usage: ub-agents launch [NUMBER] [options]
 
 Run the queue in the foreground under the configured gates. Without a number,
-watch the queue; with a number, handle only that issue or PR, then exit.
+watch the queue; with a number, handle only that issue or PR, then exit. Use
+--agent NAME to serve only one configured agent; without a number, the queue
+keeps polling until you stop it. For preparation, run --agent issue-preparer,
+stop to resolve human decisions, then launch the normal queue. Queue priority
+and milestone policy do not apply to an explicit item; all other gates do. An
+agent still needs a matching trigger label, including with --agent.
 
 options:
-  --agent NAME           evaluate only this configured agent (needs NUMBER)
+  --agent NAME           serve only this configured agent (queue or NUMBER)
   --once                 observe once, run at most one assignment, then exit
   --no-ui                plain lines instead of the terminal view
   --config PATH          project configuration (default: ub-agents.yaml)
@@ -1347,7 +1353,7 @@ options:
 
 examples:
   ub-agents launch
-  ub-agents launch --once
+  ub-agents launch --agent issue-preparer
   ub-agents launch 143 --agent implementer
 ```
 
@@ -1434,7 +1440,24 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   refuses input changed during display. Running the command expresses approval
   without an interactive confirmation; it changes no labels and does not replace
   the required maintainer start.
-- `ub-agents launch [--once]` runs the loop in the foreground.
+- `ub-agents launch [--once] [--agent NAME]` runs the loop in the foreground.
+  Without a number, `--agent` serves only that configured agent, including its
+  pending outcome recovery and notices. Other agents' assignments, leases,
+  pending outcomes and notices are left for another launcher. Agent names come
+  from `agents:`; an unknown name is a usage error listing the configured names
+  before queue observation. If a reload removes the selected agent, the launcher
+  claims nothing and says it is no longer configured.
+  Queue priority, milestone policy and all other eligibility and supervision
+  gates still apply. `--once --agent NAME` observes once and runs at most one
+  selected assignment; continuous launch keeps polling until stopped, even
+  when no selected work is eligible. The terminal view and plain output name
+  the selected agent. Idle output distinguishes no open item with its trigger
+  labels, naming them, from waiting work counted by state and reason.
+  For example, run `ub-agents launch --agent issue-preparer` to prepare a
+  milestone's issues, using your configured preparation agent name. Watch it
+  finish or reach human decisions, stop it, resolve those decisions, then run
+  `ub-agents launch` for the normal queue. Filtering does not override milestones,
+  bypass blockers or automatically launch another agent.
 - `ub-agents launch N [--agent NAME]` evaluates only issue or PR N and exits after
   running one assignment or recovering its pending completion. The number implies
   `--once`; an explicit `--once` is also accepted. Queue priority and milestone
@@ -1445,7 +1468,7 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   first eligible agent in configuration order acts; with it, only that configured
   agent is evaluated. `--agent` still requires that agent's trigger label;
   it does not choose a default role or authorize untriggered work.
-  An unknown agent or `--agent` without N is a usage error. If no agent can act,
+  An unknown agent is a usage error. If no agent can act,
   it leaves one short refusal line per evaluated agent visible after the terminal
   view closes, or explains closed work and unmatched triggers. Plain output ends
   with the same reasons after discovery counters. Ownership names the owning role,

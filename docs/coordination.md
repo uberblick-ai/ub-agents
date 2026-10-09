@@ -114,6 +114,29 @@ Later-milestone and unmilestoned issues can run. Agents still need matching trig
 labels; `--agent` narrows evaluation, and otherwise the first eligible agent in
 configuration order acts. Unnumbered launch and status keep the selection above.
 
+`ub-agents launch --agent NAME` serves only that configured agent's queue;
+`launch --once --agent NAME` observes once and runs at most one selected
+assignment. Names come from the configuration. Filtering takes place before
+planning, claiming and starting assignments, recovering pending outcomes or
+reconciling notices. Other agents' leases, pending outcomes and notices stay
+untouched, including when their history shares an item with the selected agent.
+Priority, milestone policy, dependency waits, trigger and stop labels, ownership,
+claim elections, attempts, backoff, runtime availability and input approval
+still apply. Started runs retain lease renewal, foreground stopping and process
+cleanup. An unknown name fails before queue observation and lists configured
+names; a reload that removes the selected agent leaves it claiming no work with
+an explanation.
+
+The terminal view and `--no-ui` output name the selected agent. Idle messages
+distinguish no open item with its trigger labels, naming those labels, from
+waiting assignments counted by state and reason. Neither means all issues have
+been prepared. Continuous launch keeps polling when that agent's work runs out.
+To prepare a milestone first, run `ub-agents launch --agent issue-preparer`
+(substitute the configured name), watch preparation finish or reach human
+decisions, stop the launcher, resolve the decisions, then start `ub-agents launch`.
+This workflow does not override milestones, bypass blockers, change labels
+automatically or hand control to another agent.
+
 `ub-agents status` lists rows in this order with each item's effective priority and
 its source, adds each issue's milestone and inherited source in `order` and
 `prefer` modes, and names what a waiting issue waits for, including

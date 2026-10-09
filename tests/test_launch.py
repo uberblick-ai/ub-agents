@@ -980,8 +980,8 @@ class TargetedLaunchTests(unittest.TestCase):
                 run.assert_not_called()
                 self.assertEqual(self.github.writes, [])
 
-    def test_agent_without_number_unknown_agent_and_invalid_numbers_are_usage_errors(self):
-        for args in (("--agent", "worker"), ("11", "--agent", "unknown"), ("0",), ("-1",),
+    def test_unknown_agent_and_invalid_numbers_are_usage_errors(self):
+        for args in (("--agent", "unknown"), ("11", "--agent", "unknown"), ("0",), ("-1",),
                      ("--number", "11")):
             with self.subTest(args=args), \
                     patch("ub_agents.cli.load_config", return_value=self.config), \

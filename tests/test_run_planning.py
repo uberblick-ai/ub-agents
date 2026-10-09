@@ -17,7 +17,7 @@ from ub_agents.observations import Observations
 from ub_agents.polling import DiscoveryBudget
 from ub_agents.records import iso, records, seconds
 from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning, _Cancelled
-from tests.support import DiscoveryCostRunner, MemoryPublisher, PollGitHub, config, issue, pr, stub_refresh
+from tests.support import DiscoveryCostRunner, MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
 
 
 class RunPlanningTests(unittest.TestCase):
@@ -81,6 +81,21 @@ class RunPlanningTests(unittest.TestCase):
                          r'HTTP 304=0, GraphQL calls=0; candidates reached=3$')
         self.assertIsNot(worker.planner.discovery, self.loop.discovery)
         self.assertFalse(any(s.get('poll_now', {}).get('refreshing') for s in self.memory.snapshots))
+
+    def test_filtered_run_observations_keep_selected_agent_and_waiting_explanation(self):
+        selected = agent(self.root, name='triage', triggers=('prepare',))
+        self.loop.config = config(self.root, self.cfg.agents[0], selected)
+        self.loop._launch_agent = 'triage'
+        self.observer.queue_scope('triage')
+        self.github.change(2, labels=frozenset({'prepare', 'needs-human'}))
+        self.github.change(3, labels=frozenset({'prepare', 'needs-human'}))
+        worker, _, _ = self.passes()
+        snapshot = self.memory.snapshots[-1]
+        self.assertEqual(worker.planner._launch_agent, 'triage')
+        self.assertEqual({(r['item'], r['agent']) for r in snapshot['latest_pass']['rows']},
+                         {(2, 'triage'), (3, 'triage')})
+        self.assertIn('2 parked — Stop label needs-human is present', snapshot['queue_idle'])
+        self.assertEqual(self.github.writes, [])
 
     def test_claimed_worker_first_pass_uses_cursor_discovery_and_etags(self):
         transport = DiscoveryCostRunner()

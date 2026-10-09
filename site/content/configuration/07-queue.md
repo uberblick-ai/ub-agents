@@ -37,6 +37,29 @@ An agent still needs a matching trigger label, including with `--agent`. Without
 `--agent`, the first eligible agent in configuration order acts. Unnumbered launch,
 `launch --once` and the status queue listing keep their selection policy.
 
+`ub-agents launch --agent NAME` limits the queue to one agent named in the
+configuration. `launch --once --agent NAME` observes once and runs at most one
+selected assignment. Both keep queue priority and milestone policy, along with
+dependencies, triggers, stop labels, input approval, ownership, elections,
+attempts, backoff and runtime availability. Only the selected agent's assignments
+are planned, claimed, started or recovered; other agents' leases, pending outcomes
+and notices stay untouched. Supervision and process cleanup remain the same.
+Unknown names fail before queue observation and list configured names; removing
+the selected agent during a reload leaves the launcher claiming nothing with
+an explanation.
+
+To prepare a milestone's issues first, run `ub-agents launch --agent issue-preparer`
+using your configured preparation agent name. Watch preparation finish or reach
+human decisions, stop the launcher, resolve the decisions, then run
+`ub-agents launch` for the normal queue. A filtered continuous launcher keeps
+polling until stopped, even when its work runs out. It does not override milestones,
+bypass blockers or automatically launch another agent.
+
+The terminal view and `--no-ui` output name the selected agent. Idle output
+distinguishes no open item with that agent's trigger labels, naming them, from
+matching work waiting with counts by state and reason. It does not claim every
+issue is prepared.
+
 To avoid idle waiting, switch `gate` to `prefer` when milestone precedence matters, or to `order` when priority should always win. Unreadable milestones, items or dependency links stop selection visibly; they never justify fallback. Fresh claim checks and election protection still apply. `prefer` and `order` need no milestone recheck at claim time or during approval parking.
 
 ```yaml

@@ -2189,6 +2189,27 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
 
+    async def test_filtered_queue_names_agent_and_shows_idle_explanation(self):
+        self.state['assignment'] = None
+        self.state['latest_pass']['state'] = 'complete'
+        self.state['latest_pass']['rows'] = []
+        self.state['outcomes'] = []
+        self.state['queue_agent'] = 'triage'
+        self.state['queue_idle'] = 'Agent triage: no open issue or PR has a trigger label (prepare); add one to start'
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot, lambda: app.idle_node is not None)
+            self.assertIn('agent triage', app.title)
+            self.assertIn('agent triage', app.query_one('#status', Static).render().plain)
+            self.assertIn(self.state['queue_idle'], app.idle_node.label.plain)
+            self.state['queue_idle'] = 'Agent triage: no eligible work; waiting items: 2 parked — Stop label needs-human is present'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: self.state['queue_idle'] in app.idle_node.label.plain)
+            self.state['latest_pass']['state'] = 'partial'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.idle_node.label.plain == '    Idle · polling for agent triage')
+
     async def test_idle_placeholder_is_one_dim_inert_line_and_running_stays_first(self):
         assignment = self.state['assignment']
         self.state['assignment'] = None
