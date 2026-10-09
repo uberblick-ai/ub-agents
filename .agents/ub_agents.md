@@ -55,5 +55,6 @@ retrying the role that stopped.
 Scrutinize durable outcomes, lost ownership, claim races, recovery and process
 cleanup whenever a change touches coordination or execution.
 
-A maintainer reads role-board retrospectives in the `delivery-review` skill's daily
-report.
+A maintainer reads role-board retrospectives in the `ub-agents-deliver-report`
+skill's daily report, published in [uberblick-ai/skills](https://github.com/uberblick-ai/skills).
+Install it with `npx skills@latest add uberblick-ai/skills -g`.
