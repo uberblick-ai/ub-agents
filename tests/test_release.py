@@ -72,7 +72,7 @@ class ReleaseTests(unittest.TestCase):
         self.git("remote", "get-url", "origin", response=f"git@github.com:{release.REPOSITORY}.git")
         self.git("fetch", "--quiet", "origin", "main")
         self.git("rev-parse", "HEAD", response=SHA)
-        self.git("rev-parse", "origin/main", response=SHA)
+        self.git("rev-parse", "refs/remotes/origin/main", response=SHA)
         self.git("status", "--porcelain")
         self.git("show-ref", "--verify", "--quiet", f"refs/tags/{TAG}", response=self.result(1))
         self.git("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/{TAG}", response=self.result(2))
@@ -117,7 +117,7 @@ class ReleaseTests(unittest.TestCase):
         self.assert_no_publication()
 
     def test_stale_main_refuses_after_fetch(self):
-        self.git("rev-parse", "origin/main", response="b" * 40)
+        self.git("rev-parse", "refs/remotes/origin/main", response="b" * 40)
         with self.assertRaisesRegex(release.ReleaseError, "origin/main check"):
             self.check()
         self.assertIn(("git", "-C", str(self.root), "fetch", "--quiet", "origin", "main"),
@@ -166,12 +166,37 @@ class ReleaseTests(unittest.TestCase):
     def test_missing_pending_and_failed_signoff_refuse(self):
         for statuses in ([], [{"context": "other", "state": "success"}],
                          [{"context": "signoff", "state": "pending"}],
-                         [{"context": "signoff", "state": "failure"}]):
+                         [{"context": "signoff", "state": "failure"}],
+                         [{"context": "signoff", "state": "failure"}, {"context": "signoff", "state": "success"}]):
             self.respond(["gh", "api", f"repos/{release.REPOSITORY}/commits/{SHA}/status"],
                          json.dumps({"statuses": statuses}))
             with self.subTest(statuses=statuses), self.assertRaisesRegex(release.ReleaseError, f"signoff check.*{SHA}"):
                 self.check()
             self.assert_no_publication()
+
+    def test_unreadable_signoff_names_check_and_refuses(self):
+        for response in ("not JSON", "{}", '{"statuses": null}', '{"statuses": [null]}',
+                         self.result(1, stderr="GitHub unavailable")):
+            self.respond(["gh", "api", f"repos/{release.REPOSITORY}/commits/{SHA}/status"], response)
+            with self.subTest(response=response), self.assertRaisesRegex(release.ReleaseError, "signoff check"):
+                self.check()
+            self.assert_no_publication()
+
+    def test_check_mode_prints_notes_and_refusal_returns_nonzero(self):
+        tool = release.Release(self.root, VERSION, self.runner)
+        with patch.object(release, "Release", return_value=tool), \
+                patch.object(release, "preflight", return_value=(SHA, NOTES)), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(release.main([VERSION, "--check"]), 0)
+        self.assertIn(SHA, output.getvalue())
+        self.assertIn(NOTES, output.getvalue())
+        with patch.object(release, "Release", return_value=tool), \
+                patch.object(release, "preflight", side_effect=release.ReleaseError("local tag check: already exists")), \
+                contextlib.redirect_stderr(io.StringIO()) as error:
+            self.assertEqual(release.main([VERSION]), 1)
+        self.assertIn("local tag check", error.getvalue())
+        self.assertIn("Completed: none", error.getvalue())
+        self.assertEqual(self.runner.calls, [])
 
     def test_notes_extraction_first_middle_and_last_sections(self):
         for prefix, suffix in (("# Changelog\n\n", "\n## 0.1.16 — 2026-10-08\nold"),
@@ -373,7 +398,7 @@ class ReleaseTests(unittest.TestCase):
             self.publish()
         message = tool.failure(raised.exception)
         self.assertIn("Completed: annotated tag created, tag pushed", message)
-        self.assertIn("Still to do: GitHub release created, tap PR opened, formula tests run", message)
+        self.assertIn("Still to do: GitHub release created, tap PR opened, formula tests passed", message)
         self.assertIn(TAG, message)
         self.assertFalse(any("clone" in args for args, _ in self.runner.calls))
 
@@ -384,9 +409,9 @@ class ReleaseTests(unittest.TestCase):
             self.publish()
         self.assertIn("Formula tests: FAIL", self.comment_body)
         self.assertIn("wrong configuration", self.comment_body)
-        self.assertEqual(tool.completed, list(release.STEPS[:4]))
+        self.assertEqual(tool.completed, [*release.STEPS[:4], release.STEPS[5]])
         self.assertIn(self.pr_url, tool.failure(raised.exception))
-        self.assertIn("Still to do: formula tests run, formula test result posted", tool.failure(raised.exception))
+        self.assertIn("Still to do: formula tests passed\n", tool.failure(raised.exception))
 
     def test_exact_version_check_rejects_unlisted_or_wrong_dependencies(self):
         self.publication()

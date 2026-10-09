@@ -21,7 +21,7 @@ REPOSITORY = "uberblick-ai/ub-agents"
 TAP = "uberblick-ai/homebrew-tap"
 FORMULA = "Formula/ub-agents.rb"
 STEPS = ("annotated tag created", "tag pushed", "GitHub release created",
-         "tap PR opened", "formula tests run", "formula test result posted")
+         "tap PR opened", "formula tests passed", "formula test result posted")
 RESOURCE = re.compile(r'^  resource "([^"\n]+)" do\n(?:    [^\n]*\n|\n)*  end\n', re.M)
 
 
@@ -73,7 +73,7 @@ def preflight(root, version, run=subprocess.run, environ=None):
         raise ReleaseError(f"origin check: expected {REPOSITORY}")
     git("fetch", "--quiet", "origin", "main")
     sha = git("rev-parse", "HEAD").stdout.strip()
-    if sha != git("rev-parse", "origin/main").stdout.strip():
+    if sha != git("rev-parse", "refs/remotes/origin/main").stdout.strip():
         raise ReleaseError("origin/main check: run from a checkout at current origin/main")
     if git("status", "--porcelain").stdout.strip():
         raise ReleaseError("clean checkout check: commit or remove local changes before releasing")
@@ -92,10 +92,16 @@ def preflight(root, version, run=subprocess.run, environ=None):
         notes = release_notes((root / "CHANGELOG.md").read_text(), version)
     except OSError as exc:
         raise ReleaseError(f"CHANGELOG check: {exc}") from exc
-    status = json.loads(command(run, ["gh", "api", f"repos/{REPOSITORY}/commits/{sha}/status"]).stdout)
-    if not any(item.get("context") == "signoff" and item.get("state") == "success"
-               for item in status["statuses"]):
-        raise ReleaseError(f"signoff check: {sha} has no green signoff; run mise run ci {sha} on origin/main")
+    try:
+        status = json.loads(command(run, ["gh", "api", f"repos/{REPOSITORY}/commits/{sha}/status"]).stdout)
+        if not isinstance(status["statuses"], list) or any(not isinstance(item, dict) for item in status["statuses"]):
+            raise ValueError("expected a list of commit statuses")
+        signoff = next((item for item in status["statuses"] if item.get("context") == "signoff"), {})
+    except (ReleaseError, ValueError, KeyError, TypeError) as exc:
+        raise ReleaseError(f"signoff check: {exc}") from exc
+    if signoff.get("state") != "success":
+        state = signoff.get("state", "missing")
+        raise ReleaseError(f"signoff check: {sha} signoff is {state}; run mise run ci {sha} on origin/main")
     return sha, notes
 
 
@@ -295,7 +301,8 @@ class Release:
         self.links.append(f"Tap branch: https://github.com/{TAP}/tree/{branch}")
         body = workspace / "tap-pr.md"
         body.write_text(f"Updates ub-agents to [{version}]({release_url}).\n\n"
-                        "Formula tests with Python 3.14 and the exact resource versions: pending.\n")
+                        "The release task tests the formula with Python 3.14 and the exact resource "
+                        "versions, then posts the result below.\n")
         pr = self.call("gh", "pr", "create", "--repo", TAP, "--head", branch,
                        "--title", f"ub-agents {version}", "--body-file", body)
         self.links.append(f"Tap PR: {pr}")
@@ -303,13 +310,14 @@ class Release:
         self.step = STEPS[4]
         try:
             result = test_formula(self.run, self.fetch, python, workspace, archive, formula, version)
-        except (ReleaseError, OSError, ValueError) as exc:
+        except (ReleaseError, OSError, ValueError, KeyError, TypeError) as exc:
             result = f"Formula tests: FAIL (Python 3.14, tag {tag}).\n\n{exc}\n"
             print(result, flush=True)
             body.write_text(result)
             try:
                 self.call("gh", "pr", "comment", pr, "--repo", TAP, "--body-file", body)
-            except ReleaseError as posting:
+                self.completed.append(STEPS[5])
+            except (ReleaseError, OSError) as posting:
                 print(f"release: could not post formula failure: {posting}", file=sys.stderr)
             raise
         print(result, flush=True)
@@ -343,7 +351,7 @@ def main(argv=None):
         with tempfile.TemporaryDirectory(prefix="ub-agents-release-") as directory:
             release.publish(Path(directory), sha, notes)
         return 0
-    except (ReleaseError, OSError, ValueError, KeyError, KeyboardInterrupt) as exc:
+    except (ReleaseError, OSError, ValueError, KeyError, TypeError, KeyboardInterrupt) as exc:
         print(release.failure(exc), file=sys.stderr)
         return 1
 
