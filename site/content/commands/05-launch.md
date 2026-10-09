@@ -21,8 +21,10 @@ milestones, bypass blockers or automatically hand control to another agent.
 
 The terminal view and `--no-ui` output name the selected agent. When idle, the
 message distinguishes no open item with its trigger labels, naming those labels,
-from waiting work counted by state and reason, such as blocked, parked, awaiting
-input approval or owned elsewhere. Neither message means every issue is prepared.
+from waiting work counted by state, with reasons on each item's row, such as
+blocked, parked, awaiting input approval or owned elsewhere. Items the selected
+agent parked for a human decision remain counted after their triggers are removed.
+Neither message means every issue is prepared.
 
 `launch N` skips queue priority and milestone policy, including the `gate` hold
 during planning, after checkout refresh, at claim time and during approval parking.

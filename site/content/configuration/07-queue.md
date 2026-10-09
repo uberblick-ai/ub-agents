@@ -57,8 +57,9 @@ bypass blockers or automatically launch another agent.
 
 The terminal view and `--no-ui` output name the selected agent. Idle output
 distinguishes no open item with that agent's trigger labels, naming them, from
-matching work waiting with counts by state and reason. It does not claim every
-issue is prepared.
+waiting work counted by state, with reasons on each item's row. Items the selected
+agent parked for a human decision remain counted after their triggers are removed.
+It does not claim every issue is prepared.
 
 To avoid idle waiting, switch `gate` to `prefer` when milestone precedence matters, or to `order` when priority should always win. Unreadable milestones, items or dependency links stop selection visibly; they never justify fallback. Fresh claim checks and election protection still apply. `prefer` and `order` need no milestone recheck at claim time or during approval parking.
 

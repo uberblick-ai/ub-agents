@@ -440,7 +440,10 @@ class Loop:
         for item in items.values():
             matches = AgentMatches.for_item(item, self.config.agents)
             selected_matches = tuple(a for a in matches.matched if a.name in selected)
-            if self._launch_agent is not None and not selected_matches and item.number not in unfinished:
+            # A stop outcome removes the trigger; item history identifies which
+            # agent parked it before that agent's plans and notices are evaluated.
+            if (self._launch_agent is not None and not selected_matches and item.number not in unfinished
+                    and not (item.state == "open" and item.labels.intersection(self.config.stop_labels))):
                 continue
             if (not matches.matched and item.number not in (unfinished | invalid)
                     and not item.labels.intersection(self.config.stop_labels)):
@@ -1764,11 +1767,11 @@ class Loop:
             agents = self.queue_agents()
             if not agents:
                 return f"Agent {self._launch_agent} is no longer configured; claiming no work"
-            if self._has_trigger is False:
+            if self._has_trigger is False and not self._queue_waits:
                 return (f"Agent {self._launch_agent}: no open issue or PR has a trigger label "
                         f"({', '.join(agents[0].triggers)}); add one to start")
-            counts = Counter(f"{state} — {reason}" for state, reason in self._queue_waits.values())
-            waits = '; '.join(f"{count} {reason}" for reason, count in counts.items())
+            counts = Counter(state for state, _ in self._queue_waits.values())
+            waits = '; '.join(f"{count} {state}" for state, count in counts.items())
             return f"Agent {self._launch_agent}: no eligible work" + (f"; waiting items: {waits}" if waits else '')
         if self._has_trigger is False:
             labels = dict.fromkeys(label for agent in self.config.agents for label in agent.triggers)

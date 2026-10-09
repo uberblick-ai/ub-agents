@@ -10,6 +10,7 @@ from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.github import Dependency
 from ub_agents.loop import Loop
+from ub_agents.notices import ACTION_MARKER
 from tests.support import AccountGitHub, PollGitHub, agent, config, issue
 from tests import test_launch
 
@@ -62,15 +63,89 @@ class FilteredLaunchTests(unittest.TestCase):
         self.assertNotIn("prepared", stdout)
         self.assertEqual(self.github.writes, [])
 
-    def test_waiting_once_counts_each_reason_without_claiming_other_work(self):
+    def park_for_human(self, number, worker):
+        worker = replace(worker, outcomes={"human": {"add": ("needs-human",), "remove": ()}})
+        self.config = replace(self.config, agents=tuple(
+            worker if a.name == worker.name else a for a in self.config.agents))
+        expected_labels = self.github.items[number].labels.difference(worker.triggers).union({"needs-human"})
+
+        def report_human(command, cwd, env, *args, **kwargs):
+            self.assertEqual(int(env["UB_AGENTS_ASSIGNMENT"]), number)
+            co = self.loop.coordinator
+            lease = next(r for r in reversed(co.history(number)) if r["kind"] == "lease")
+            co.report(lease, "success", "Needs a human decision", outcome="human",
+                      action=["Maintainer: decide the approach."])
+            return 0
+
+        code, _, _, run = self.launch("--once", "--agent", worker.name, execute=report_human)
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+        self.assertEqual(self.github.items[number].labels, expected_labels)
+
+    def test_stop_outcome_without_trigger_stays_visible_in_selected_queue(self):
+        self.park_for_human(11, self.selected)
+        baseline = self.github.writes[:]
+        code, stdout, _, run = self.launch("--once", "--agent", "triage")
+        self.assertEqual(code, 0)
+        run.assert_not_called()
+        self.assertIn("#11 triage: parked — Stop label needs-human is present", stdout)
+        self.assertIn("Agent triage: no eligible work; waiting items: 1 parked", stdout)
+        self.assertNotIn("no open issue or PR has a trigger label", stdout)
+        self.assertEqual(self.github.writes, baseline)
+        snapshot = self.loop.observer.publisher.snapshots[-1]
+        self.assertIn("waiting items: 1 parked", snapshot["queue_idle"])
+        self.assertEqual([(r["item"], r["agent"], r["state"])
+                          for r in snapshot["latest_pass"]["rows"]], [(11, "triage", "parked")])
+
+    def test_selected_parked_queue_reconciles_only_its_history_on_shared_item(self):
+        self.github.change(11, labels=frozenset({"prepare", "ready"}))
+        co = self.coordinator()
+        lease = co.claim(co.plan(self.github.items[11], self.other, ()))
+        co.update(lease, state="running", started=True)
+        co.report(lease, "blocked", "Needs a person", action=["Maintainer: decide the approach."])
+        co.release(lease, "blocked", "Needs a person")
+        self.park_for_human(11, self.selected)
+        notice = next(c for c in self.github.comments(11)
+                      if c["body"].startswith(f"{ACTION_MARKER}{lease['run']} -->"))
+        self.github.delete_comment(notice["id"])
+        baseline = deepcopy(self.github.store)
+        writes = self.github.writes[:]
+        with patch.object(Loop, "reconcile_blocked_notices", autospec=True,
+                          side_effect=Loop.reconcile_blocked_notices) as reconcile:
+            _, _, _, run = self.launch("--once", "--agent", "triage")
+        run.assert_not_called()
+        histories = [call.args[1] for call in reconcile.call_args_list]
+        self.assertTrue(any(histories))
+        self.assertTrue(all(r["agent"] == "triage" for history in histories for r in history))
+        self.assertEqual(self.github.store, baseline)
+        self.assertEqual(self.github.writes, writes)
+
+    def test_another_agents_stop_outcome_is_not_counted_or_repaired(self):
+        self.park_for_human(1, self.other)
+        self.github.change(11, labels=frozenset())
+        notice = next(c for c in self.github.comments(1) if c["body"].startswith(ACTION_MARKER))
+        self.github.delete_comment(notice["id"])
+        baseline = deepcopy(self.github.store)
+        writes = self.github.writes[:]
+        _, stdout, _, run = self.launch("--once", "--agent", "triage")
+        run.assert_not_called()
+        self.assertIn("Agent triage: no open issue or PR has a trigger label", stdout)
+        self.assertNotIn("waiting items:", stdout)
+        self.assertNotIn("#1 builder:", stdout)
+        self.assertEqual(self.github.store, baseline)
+        self.assertEqual(self.github.writes, writes)
+
+    def test_waiting_once_groups_states_and_keeps_each_items_reason(self):
         self.github = PollGitHub(issue(1), issue(11, labels=("prepare", "needs-human")),
                                  issue(12, labels=("prepare", "needs-human")),
                                  issue(13, labels=("prepare",)))
         self.github.dependencies[13] = [Dependency("org/project", 1, "open")]
         _, stdout, _, run = self.launch("--once", "--agent", "triage")
         run.assert_not_called()
-        self.assertIn("2 parked — Stop label needs-human is present", stdout)
-        self.assertIn("1 parked — Waiting for blockers #1", stdout)
+        self.assertIn("waiting items: 3 parked", stdout)
+        self.assertIn("#11 triage: parked — Stop label needs-human is present", stdout)
+        self.assertIn("#12 triage: parked — Stop label needs-human is present", stdout)
+        self.assertIn("#13 triage: parked — Waiting for blockers #1", stdout)
         self.assertEqual(self.github.writes, [])
 
     def test_queue_priority_and_milestone_policies_apply_to_selected_work(self):
@@ -129,13 +204,15 @@ class FilteredLaunchTests(unittest.TestCase):
         baseline = self.github.writes[:]
         _, stdout, _, run = self.launch("--once", "--agent", "triage")
         run.assert_not_called()
-        self.assertIn("1 backoff — Durable retry backoff has not elapsed", stdout)
+        self.assertIn("waiting items: 1 backoff", stdout)
+        self.assertIn("backoff — Durable retry backoff has not elapsed", stdout)
         self.assertEqual(self.github.writes, baseline)
         self.selected = replace(self.selected, max_attempts=1)
         self.config = config(self.root, self.other, self.selected)
         _, stdout, _, run = self.launch("--once", "--agent", "triage")
         run.assert_not_called()
-        self.assertIn("1 blocked — Attempt limit exhausted", stdout)
+        self.assertIn("waiting items: 1 blocked", stdout)
+        self.assertIn("blocked — Attempt limit exhausted", stdout)
         self.assertNotIn(1, self.github.store)
 
     def test_recovers_selected_outcome_and_leaves_other_closed_recovery_untouched(self):
@@ -219,14 +296,16 @@ class FilteredLaunchTests(unittest.TestCase):
         with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
             _, stdout, _, run = self.launch("--once", "--agent", "triage")
         run.assert_not_called()
-        self.assertIn("1 blocked — No eligible runtime executable", stdout)
+        self.assertIn("waiting items: 1 blocked", stdout)
+        self.assertIn("blocked — No eligible runtime executable", stdout)
         self.assertEqual(self.github.writes, [])
         pause = {"reason": "usage limit reached", "ends_at": "2026-10-10T00:00:00Z"}
         with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=True), \
                 patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
             _, stdout, _, run = self.launch("--once", "--agent", "triage")
         run.assert_not_called()
-        self.assertIn("1 waiting — Waiting for codex: usage limit reached", stdout)
+        self.assertIn("waiting items: 1 waiting", stdout)
+        self.assertIn("waiting — Waiting for codex: usage limit reached", stdout)
         self.assertEqual(self.github.writes, [])
         self.selected = agent(self.root, name="triage", triggers=("prepare",), health_check=("check-health",))
         self.config = config(self.root, self.other, self.selected)
@@ -234,7 +313,8 @@ class FilteredLaunchTests(unittest.TestCase):
             _, stdout, _, run = self.launch("--once", "--agent", "triage")
         health.assert_called_once()
         run.assert_not_called()
-        self.assertIn("1 waiting — Health check check-health: Unavailable", stdout)
+        self.assertIn("waiting items: 1 waiting", stdout)
+        self.assertIn("waiting — health check check-health: Unavailable", stdout)
         self.assertEqual(self.github.writes, [])
 
     def test_reload_removing_selected_agent_claims_nothing_and_explains_it(self):

@@ -100,7 +100,7 @@ The version 1 envelope contains:
 |---|---|
 | `session`, `pid`, `host`, `actor`, `repository`, `config_path` | Launcher identity and configuration; `started_at` and `published_at` use UTC ISO 8601 times. |
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
-| `queue_agent`, `queue_idle` | Optional filtered-queue context: the selected configured agent and its last complete idle explanation, naming trigger labels or counting waiting reasons. Unfiltered launches omit these fields. |
+| `queue_agent`, `queue_idle` | Optional filtered-queue context: the selected configured agent and its last complete idle explanation, naming trigger labels or counting waiting states. Unfiltered launches omit these fields. |
 | `poll_now` | Optional poll control: `cooldown_until` and `rate_limit_until` are UTC ISO 8601 times or `null`; `waiting: true` confirms a poll waiter is installed, allowing immediate feedback on `r` during an assignment unless cooldown or rate limits apply. Missing or false `waiting` gives no such confirmation. `refreshing: true` means an `r`-forced read-only queue refresh is running during an assignment. Missing or false `refreshing` means no forced refresh; scheduled refreshes do not set it. |
 | `assignment` | Current item, kind, title, agent, effective priority word, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
 | `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. A supervised run's completed outcome refreshes its item's rows for every evaluated agent before the next claim (only the selected agent in a filtered queue), without completing the pass or discovering the repository. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time, without description text. `eligible_count` counts merged Eligible items before byte trimming, excluding the running agent; older snapshots may omit it. Another launcher's owner includes only actor, host and run, with no log paths. |
@@ -1452,7 +1452,9 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   selected assignment; continuous launch keeps polling until stopped, even
   when no selected work is eligible. The terminal view and plain output name
   the selected agent. Idle output distinguishes no open item with its trigger
-  labels, naming them, from waiting work counted by state and reason.
+  labels, naming them, from waiting work counted by state, with reasons on each
+  item's row. Items this agent parked for a human decision remain counted after
+  their trigger labels are removed.
   For example, run `ub-agents launch --agent issue-preparer` to prepare a
   milestone's issues, using your configured preparation agent name. Watch it
   finish or reach human decisions, stop it, resolve those decisions, then run

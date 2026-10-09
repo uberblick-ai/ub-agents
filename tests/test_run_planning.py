@@ -94,7 +94,7 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual(worker.planner._launch_agent, 'triage')
         self.assertEqual({(r['item'], r['agent']) for r in snapshot['latest_pass']['rows']},
                          {(2, 'triage'), (3, 'triage')})
-        self.assertIn('2 parked — Stop label needs-human is present', snapshot['queue_idle'])
+        self.assertIn('waiting items: 2 parked', snapshot['queue_idle'])
         self.assertEqual(self.github.writes, [])
 
     def test_claimed_worker_first_pass_uses_cursor_discovery_and_etags(self):

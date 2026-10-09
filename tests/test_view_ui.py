@@ -2203,7 +2203,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('agent triage', app.title)
             self.assertIn('agent triage', app.query_one('#status', Static).render().plain)
             self.assertIn(self.state['queue_idle'], app.idle_node.label.plain)
-            self.state['queue_idle'] = 'Agent triage: no eligible work; waiting items: 2 parked — Stop label needs-human is present'
+            self.state['queue_idle'] = 'Agent triage: no eligible work; waiting items: 2 parked'
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: self.state['queue_idle'] in app.idle_node.label.plain)
             self.state['latest_pass']['state'] = 'partial'

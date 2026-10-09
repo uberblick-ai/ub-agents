@@ -129,8 +129,10 @@ an explanation.
 
 The terminal view and `--no-ui` output name the selected agent. Idle messages
 distinguish no open item with its trigger labels, naming those labels, from
-waiting assignments counted by state and reason. Neither means all issues have
-been prepared. Continuous launch keeps polling when that agent's work runs out.
+waiting assignments counted by state, with reasons on each item's row. Items the
+selected agent parked for a human decision remain counted after their triggers
+are removed. Neither message means all issues have been prepared. Continuous
+launch keeps polling when that agent's work runs out.
 To prepare a milestone first, run `ub-agents launch --agent issue-preparer`
 (substitute the configured name), watch preparation finish or reach human
 decisions, stop the launcher, resolve the decisions, then start `ub-agents launch`.
