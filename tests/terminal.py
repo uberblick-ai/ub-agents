@@ -24,7 +24,7 @@ import time
 
 class Terminal:
     def __init__(self, script, *arguments, size=(110, 32), python=sys.executable,
-                 env=None, proof=None, tmux=False):
+                 env=None, proof=None):
         self.size = size
         self.proof = proof
         self.transcript = bytearray()
@@ -34,7 +34,6 @@ class Terminal:
         self.master, self.slave = pty.openpty()
         self.modes = termios.tcgetattr(self.slave)
         self.process = None
-        self._tmux = tmux
         environment = dict(os.environ, TERM='xterm-256color', ESCDELAY='25')
         if env:
             for key, value in env.items():
@@ -55,18 +54,10 @@ _ProofPath({str(self._delay_path)!r}).write_text(str(_escape_delay))
 '''
         try:
             self._set_size(*size)
-            command = [str(python), '-P', '-c', prelude + script, *map(str, arguments)]
-            if tmux:
-                # A private socket and config isolate this test from operator sessions.
-                # A relative socket name also works with deeply nested scratch paths.
-                command = ['tmux', '-S', 'tmux', '-f', '/dev/null',
-                           'new-session', *command, ';', 'set-option', '-g', 'mouse', 'on',
-                           ';', 'set-option', '-g', 'status', 'off']
             self.process = subprocess.Popen(
-                command,
+                [str(python), '-P', '-c', prelude + script, *map(str, arguments)],
                 stdin=self.slave, stdout=self.slave, stderr=self.slave,
-                start_new_session=True, env=environment,
-                cwd=self._files.name if tmux else None)
+                start_new_session=True, env=environment)
         except BaseException:
             self.close()
             raise
@@ -179,9 +170,6 @@ _ProofPath({str(self._delay_path)!r}).write_text(str(_escape_delay))
 
     def close(self):
         try:
-            if self._tmux:
-                subprocess.run(['tmux', '-S', 'tmux', 'kill-server'], cwd=self._files.name,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
             if self.process is not None and self.process.poll() is None:
                 self.process.send_signal(signal.SIGINT)
                 try:

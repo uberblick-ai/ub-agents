@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -276,13 +275,6 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
 
 class RecentActivityTerminalTests(unittest.TestCase):
     def test_real_terminal_wheel_input(self):
-        self.check_terminal(tmux=False)
-
-    @unittest.skipUnless(shutil.which('tmux'), 'tmux is not installed')
-    def test_real_terminal_wheel_input_through_tmux(self):
-        self.check_terminal(tmux=True)
-
-    def check_terminal(self, tmux):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, state = recent_fixture(root)
@@ -311,7 +303,7 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
                             for strip in strips[recent.region.y:recent.region.bottom]]}
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
-            with Terminal(script, root, path, proof, proof=proof, tmux=tmux) as terminal:
+            with Terminal(script, root, path, proof, proof=proof) as terminal:
                 for size in ((110, 32), (80, 24)):
                     terminal.resize(*size)
                     rest = terminal.checkpoint(lambda value: value['ready'] and value['max'] > 0)
