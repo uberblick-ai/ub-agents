@@ -12,9 +12,9 @@ def confirm_worktree_setup_stopped(config, run):
     """Retain a crashed run's ownership and artifacts until setup is known to end."""
     directory = run_directory(config.root, run) / "checkout-setup"
     try:
-        # Compare against the resolved parent, so an aliased root such as macOS
-        # /var -> /private/var is accepted while a redirected record is not.
-        resolved = directory.parent.resolve() / directory.name
+        # Resolve only the project root, so an aliased root such as macOS
+        # /var -> /private/var is accepted while any redirect below it is not.
+        resolved = run_directory(config.root.resolve(), run) / "checkout-setup"
         if directory.resolve() != resolved:
             raise ValueError("redirected setup diagnostics")
         if not directory.exists():
