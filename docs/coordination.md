@@ -134,8 +134,8 @@ been prepared. Continuous launch keeps polling when that agent's work runs out.
 To prepare a milestone first, run `ub-agents launch --agent issue-preparer`
 (substitute the configured name), watch preparation finish or reach human
 decisions, stop the launcher, resolve the decisions, then start `ub-agents launch`.
-This workflow does not override milestones, bypass blockers, change labels
-automatically or hand control to another agent.
+Filtering keeps the project's existing outcome transitions. It does not override
+milestones, bypass blockers or automatically launch another agent.
 
 `ub-agents status` lists rows in this order with each item's effective priority and
 its source, adds each issue's milestone and inherited source in `order` and
