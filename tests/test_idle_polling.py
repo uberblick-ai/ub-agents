@@ -152,6 +152,28 @@ class IdlePollingTests(unittest.TestCase):
         self.assertEqual(waits[0], 5)
         self.assertAlmostEqual(waits[1], 1521.4)
 
+    def test_runtime_pause_expiry_wakes_idle_poll_with_discovery_debt(self):
+        self.response("user")
+        costs = iter([230, 0])
+
+        def tick():
+            requests = next(costs)
+            for _ in range(requests):
+                self.github.request("user")
+            if requests:
+                self.loop.usage.pauses["claude"] = self.now + 300
+            else:
+                self.assertIsNone(self.loop.usage.paused("claude"))
+                self.assertLess(self.loop.discovery_budget.balance, 0)
+            return False
+
+        starts, waits = self.run_passes(tick, count=3)
+        self.assertEqual(starts[:2], [1000, 1300])
+        self.assertAlmostEqual(starts[2], 2526.4)
+        self.assertEqual(waits[0], 300)
+        self.assertAlmostEqual(waits[1], 1226.4)
+        self.assertIn("next poll in 5 min (230 requests last poll)", self.lines[0])
+
     def test_idle_rechecks_debit_from_cancelled_observation_during_wait(self):
         def wait(delay):
             self.now += delay
@@ -172,6 +194,32 @@ class IdlePollingTests(unittest.TestCase):
                     self.assertRaises(KeyboardInterrupt):
                 self.loop.launch()
         self.assertAlmostEqual(starts[1], 2556.4)
+
+    def test_cancelled_observation_debt_cannot_extend_wait_past_runtime_pause(self):
+        starts, waits = [], []
+
+        def wait(delay):
+            waits.append(delay)
+            self.now += delay
+            if self.now == 1030:
+                self.loop.discovery_budget.debit(230)
+
+        def tick():
+            starts.append(self.now)
+            if len(starts) == 2:
+                self.loop.stop_event.set()
+            else:
+                self.loop.usage.pauses["claude"] = self.now + 300
+            return False
+
+        with patch("ub_agents.loop.monotonic", side_effect=lambda: self.now), \
+                patch.object(self.loop, "_discovery_tick", side_effect=tick), \
+                patch.object(self.loop.stop_event, "wait", side_effect=wait), \
+                self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        self.assertEqual(starts, [1000, 1300])
+        self.assertEqual(waits, [30, 270])
+        self.assertLess(self.loop.discovery_budget.balance, 0)
 
     def test_idle_output_rounds_seconds_under_a_minute_and_minutes_otherwise(self):
         for delay, expected in ((0.4, "0s"), (55.625, "56s"), (59.6, "60s"),

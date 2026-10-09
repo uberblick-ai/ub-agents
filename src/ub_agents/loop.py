@@ -1588,13 +1588,17 @@ class Loop:
             idle_state = (low, message)
             delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
+                wait_started = monotonic()
+                wait_until = wait_started + self.usage.bound_wait(
+                    max(0, self._pass_started + IDLE_MAX_SECONDS - wait_started))
                 while not self.stop_event.is_set():
                     if self._wait(self.stop_event, delay, "next poll or runtime pause"):
                         break  # Poll-now passes bypass admission, but still debit.
                     # A cancelled observation may finish and debit during this
-                    # wait. Recheck debt without extending the one-hour cap.
+                    # wait. Recheck debt without extending the original pause
+                    # deadline or the one-hour cap.
                     delay = min(self.discovery_budget.wait_seconds(),
-                                max(0, self._pass_started + IDLE_MAX_SECONDS - monotonic()))
+                                max(0, wait_until - monotonic()))
                     if not delay:
                         break
         if self.interrupt_event.is_set():
