@@ -341,6 +341,12 @@ class TargetedLaunchTests(unittest.TestCase):
         self.now = timestamp()
         self.loop = None
 
+    def use_milestone_gate(self, milestone=20):
+        self.config = replace(self.config, queue=replace(self.config.queue, milestones="gate"))
+        self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+        self.github.change(1, milestone=3)
+        self.github.change(11, milestone=milestone)
+
     def coordinator(self, github=None):
         github = self.github if github is None else github
         return Coordinator(github, github.actor(), clock=lambda: self.now, queue=self.config.queue,
@@ -388,7 +394,7 @@ class TargetedLaunchTests(unittest.TestCase):
         return code, stdout.getvalue(), stderr.getvalue(), run
 
     def assert_scoped(self, number=11):
-        forbidden = {"observe", "repository_comments", "dependency_graph", "milestone_order"}
+        forbidden = {"observe", "repository_comments", "dependency_graph", "milestone_order", "active_milestone"}
         self.assertFalse(forbidden.intersection(name for name, _ in self.github.reads), self.github.reads)
         item_reads = {"item", "comments", "timeline", "issue_content", "pr_content", "reviews",
                       "review_comments", "blocked_by"}
@@ -452,10 +458,12 @@ class TargetedLaunchTests(unittest.TestCase):
         peer.update(lease, state="running", started=True, host="remote-host")
         writes = self.github.writes[:]
         self.github.reads.clear()
+        self.use_milestone_gate()
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
         self.assertIn("#11 worker: owned — worker claimed by @peer on remote-host", stdout)
+        self.assertIn("lease ends", stdout)
         self.assertIn("Process can't be checked from here; lease is on another host.", stdout)
         run.assert_not_called()
         self.assertEqual(self.github.writes, writes)
@@ -491,6 +499,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assert_scoped()
 
     def test_untrusted_launcher_refuses_without_claim_or_approval_parking(self):
+        self.use_milestone_gate()
         for launchers, role, reason in (
                 (("peer",), "write", "Launcher account @operator is not listed in launchers"),
                 (("operator", "peer"), "read",
@@ -507,6 +516,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 self.assert_scoped()
 
     def test_stop_label_refuses_with_status_reason_without_writes(self):
+        self.use_milestone_gate()
         self.github.change(11, labels=frozenset({"ready", "needs-human"}))
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
@@ -518,6 +528,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assert_scoped()
 
     def test_open_dependency_refuses_and_reads_only_targets_blockers(self):
+        self.use_milestone_gate()
         self.github.dependencies[11] = [1]
         code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
@@ -527,13 +538,16 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assert_scoped()
 
     def test_no_trigger_refuses_with_labels_to_add(self):
+        self.use_milestone_gate()
         self.github.change(11, labels=frozenset())
-        code, stdout, _, run = self.launch("11")
-        self.assertEqual(code, 1)
-        self.assert_output(stdout, "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n")
-        self.assertEqual(self.github.writes, [])
-        run.assert_not_called()
-        self.assert_scoped()
+        for args in ((), ("--agent", "worker")):
+            with self.subTest(args=args):
+                code, stdout, _, run = self.launch("11", *args)
+                self.assertEqual(code, 1)
+                self.assert_output(stdout, "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n")
+                self.assertEqual(self.github.writes, [])
+                run.assert_not_called()
+                self.assert_scoped()
 
     def test_missing_and_closed_items_are_named(self):
         self.github.read_results["item"] = [GitHubError("GET", "repos/org/project/issues/11", "HTTP 404")]
@@ -562,6 +576,7 @@ class TargetedLaunchTests(unittest.TestCase):
         for args, expected in (((), "first"), (("--agent", "second"), "second")):
             with self.subTest(args=args):
                 self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.use_milestone_gate()
                 code, _, _, run = self.launch("11", *args)
                 self.assertEqual(code, 0)
                 run.assert_called_once()
@@ -575,6 +590,7 @@ class TargetedLaunchTests(unittest.TestCase):
         first = agent(self.root, name="first", command=("missing-command-for-test",))
         second = agent(self.root, name="second")
         self.config = config(self.root, first, second)
+        self.use_milestone_gate()
         code, stdout, _, run = self.launch("11", "--agent", "first")
         self.assertEqual(code, 1)
         self.assert_output(stdout, "#11 first: blocked — Command is not installed: missing-command-for-test\n")
@@ -589,6 +605,7 @@ class TargetedLaunchTests(unittest.TestCase):
     def test_named_agent_kind_and_trigger_mismatches_refuse(self):
         self.config = config(self.root, agent(self.root, name="reviewer", kind="pr"),
                              agent(self.root, name="other", triggers=("prepare",)))
+        self.use_milestone_gate()
         for name, reason in (("reviewer", "No evaluated agent applies to this issue"),
                              ("other", "No trigger matches; add a trigger label (other: prepare)")):
             with self.subTest(name=name):
@@ -761,12 +778,14 @@ class TargetedLaunchTests(unittest.TestCase):
             with self.subTest(hidden=hidden):
                 self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
                 self.github.roles["peer"] = "write"
+                self.use_milestone_gate()
                 winner = []
 
                 def claim(co, plan, *args, **kwargs):
                     self.assertEqual(plan.state, "ready")
                     peer = self.coordinator(AccountGitHub(self.github, "peer"))
-                    lease = original_claim(peer, peer.plan(self.github.items[11], self.config.agents[0], ()))
+                    lease = original_claim(peer, peer.plan(self.github.items[11], self.config.agents[0], ()),
+                                           milestone_gate=False)
                     peer.update(lease, state="running", started=True, host="race-host")
                     winner.append(lease.copy())
                     return original_claim(co, plan, *args, **kwargs)
@@ -791,13 +810,15 @@ class TargetedLaunchTests(unittest.TestCase):
             with self.subTest(hidden=hidden):
                 self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
                 self.github.roles["peer"] = "write"
+                self.use_milestone_gate()
                 create_comment = self.github.create_comment
                 winner = []
 
                 def create(number, text, *, login=None):
                     if login is None:
                         peer = self.coordinator(AccountGitHub(self.github, "peer"))
-                        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
+                        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()),
+                                           milestone_gate=False)
                         peer.update(lease, state="running", started=True, host="election-host")
                         winner.append(lease.copy())
                     return create_comment(number, text, login=login)
@@ -839,6 +860,7 @@ class TargetedLaunchTests(unittest.TestCase):
 
     def test_authority_lost_at_claim_is_a_visible_final_refusal(self):
         self.config = replace(self.config, launchers=("operator", "peer"))
+        self.use_milestone_gate()
         original_claim = Coordinator.claim
 
         def claim(co, plan, *args, **kwargs):
@@ -854,10 +876,43 @@ class TargetedLaunchTests(unittest.TestCase):
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
 
+    def test_gate_target_rechecks_state_trigger_stop_blockers_and_head_at_claim(self):
+        original_claim = Coordinator.claim
+        for change, reason in (("closed", "issue is closed"), ("trigger", "No trigger matches"),
+                               ("stop", "Stop label needs-human is present"),
+                               ("dependency", "Open blockers: #1"), ("head", "Head moved before claim")):
+            with self.subTest(change=change):
+                item = pr(11) if change == "head" else issue(11)
+                self.github = PollGitHub(item, issue(1, labels=("ready", "urgent")))
+                self.use_milestone_gate()
+
+                def claim(co, plan, *args, **kwargs):
+                    self.assertEqual(plan.state, "ready")
+                    if change == "closed":
+                        self.github.change(11, state="closed")
+                    elif change == "trigger":
+                        self.github.change(11, labels=frozenset())
+                    elif change == "stop":
+                        self.github.change(11, labels=frozenset({"ready", "needs-human"}))
+                    elif change == "dependency":
+                        self.github.dependencies[11] = [1]
+                    else:
+                        self.github.change(11, head="b" * 40)
+                    return original_claim(co, plan, *args, **kwargs)
+
+                with patch.object(Coordinator, "claim", new=claim):
+                    code, stdout, _, run = self.launch("11", hidden=True)
+                self.assertEqual(code, 1)
+                self.assertIn(reason, stdout)
+                self.assertNotIn("Waiting for active milestone", stdout)
+                self.assertEqual(len(stdout.splitlines()), 1)
+                run.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assert_scoped()
+
     def test_other_noop_causes_remain_distinct_after_view_close(self):
         for case, expected in (
                 ("blocker", "#11 worker: parked — Waiting for blockers #1\n"),
-                ("milestone", "#11 worker: parked — Waiting for active milestone #3\n"),
                 ("trigger", "#11: No trigger matches; add a trigger label (worker: ready, needs-changes)\n"),
                 ("kind", "#11: No evaluated agent applies to this issue\n"),
                 ("closed", "#11: issue is closed\n"),
@@ -865,16 +920,13 @@ class TargetedLaunchTests(unittest.TestCase):
             with self.subTest(case=case):
                 self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
                 self.config = config(self.root)
+                self.use_milestone_gate()
                 if case == "blocker":
                     self.github.dependencies[11] = [1]
-                elif case == "milestone":
-                    self.config = config(self.root, queue=Queue(milestones="gate"))
-                    self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
-                    self.github.change(1, milestone=3)
                 elif case == "trigger":
                     self.github.change(11, labels=frozenset())
                 elif case == "kind":
-                    self.config = config(self.root, agent(self.root, kind="pr"))
+                    self.config = config(self.root, agent(self.root, kind="pr"), queue=self.config.queue)
                 elif case == "closed":
                     self.github.change(11, state="closed")
                 elif case == "merged":
@@ -912,12 +964,10 @@ class TargetedLaunchTests(unittest.TestCase):
         run.assert_called_once()
 
     def test_read_errors_remain_visible_errors_after_view_close(self):
-        for read in ("item", "comments", "blocked_by", "active_milestone", "timeline", "issue_content"):
+        for read in ("item", "comments", "blocked_by", "timeline", "issue_content"):
             with self.subTest(read=read):
                 self.github = PollGitHub(issue(11))
                 self.config = config(self.root)
-                if read == "active_milestone":
-                    self.config = config(self.root, queue=Queue(milestones="gate"))
                 if read == "blocked_by":
                     self.github.dependencies[11] = [1]
                     self.github.items[1] = issue(1)
@@ -942,29 +992,66 @@ class TargetedLaunchTests(unittest.TestCase):
             github.assert_not_called()
 
     def test_approval_refusal_performs_normal_parking_without_claiming(self):
-        self.github.timelines[11] = []
-        code, stdout, _, run = self.launch("11")
-        self.assertEqual(code, 1)
-        self.assertIn("#11 worker: parked — No maintainer", stdout)
-        run.assert_not_called()
-        self.assertIn("needs-human", self.github.items[11].labels)
-        self.assertEqual(self.coordinator().history(11), [])
-        self.assertTrue(self.github.writes)
-        self.assert_scoped()
+        for milestone in (20, None):
+            with self.subTest(milestone=milestone):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.use_milestone_gate(milestone)
+                self.github.timelines[11] = []
+                code, stdout, _, run = self.launch("11")
+                self.assertEqual(code, 1)
+                self.assertIn("#11 worker: parked — No maintainer", stdout)
+                self.assertNotIn("Waiting for active milestone", stdout)
+                run.assert_not_called()
+                self.assertIn("needs-human", self.github.items[11].labels)
+                self.assertEqual(self.coordinator().history(11), [])
+                self.assertTrue(self.github.writes)
+                self.assert_scoped()
 
-    def test_milestone_gate_refuses_but_order_does_not_rank(self):
-        self.config = config(self.root, queue=Queue(milestones="gate"))
-        self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
-        self.github.change(1, milestone=3)
-        code, stdout, _, run = self.launch("11")
-        self.assertEqual(code, 1)
-        self.assert_output(stdout, "#11 worker: parked — Waiting for active milestone #3\n")
-        self.assertIn(("active_milestone", ()), self.github.reads)
-        self.assertEqual(self.github.writes, [])
-        run.assert_not_called()
-        self.assert_scoped()
+    def test_gate_target_rechecks_other_start_gates_before_approval_parking(self):
+        original_park = Loop.park_approval
+        for change in ("closed", "trigger", "stop", "dependency"):
+            with self.subTest(change=change):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.use_milestone_gate()
+                self.github.timelines[11] = []
+
+                def park(loop, plan):
+                    if change == "closed":
+                        self.github.change(11, state="closed")
+                    elif change == "trigger":
+                        self.github.change(11, labels=frozenset())
+                    elif change == "stop":
+                        self.github.change(11, labels=frozenset({"ready", "needs-human"}))
+                    else:
+                        self.github.dependencies[11] = [1]
+                    original_park(loop, plan)
+
+                with patch.object(Loop, "park_approval", autospec=True, side_effect=park) as parking:
+                    code, stdout, _, run = self.launch("11")
+                self.assertEqual(code, 1)
+                parking.assert_called_once()
+                run.assert_not_called()
+                self.assertNotIn("Waiting for active milestone", stdout)
+                self.assertEqual(self.github.writes, [])
+                self.assert_scoped()
+
+    def test_later_and_unmilestoned_targets_run_without_any_milestone_read(self):
+        for milestone in (20, None):
+            with self.subTest(milestone=milestone):
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+                self.use_milestone_gate(milestone)
+                self.github.read_results["active_milestone"] = [GitHubError("GET", "milestones", "HTTP 500")]
+                code, stdout, _, run = self.launch("11")
+                self.assertEqual(code, 0)
+                run.assert_called_once()
+                self.assertIn("#11 worker: claimed", stdout)
+                self.assertNotIn("Waiting for active milestone", stdout)
+                lease, outcome = self.coordinator().history(11)
+                self.assertEqual((lease["state"], outcome["accepted"]), ("released", True))
+                self.assert_scoped()
 
     def test_other_gates_suppress_approval_parking_as_in_a_normal_pass(self):
+        self.use_milestone_gate()
         self.github.timelines[11] = []
         self.github.dependencies[11] = [1]
         code, stdout, _, run = self.launch("11")
@@ -977,6 +1064,7 @@ class TargetedLaunchTests(unittest.TestCase):
     def test_runtime_pause_uses_the_status_waiting_reason(self):
         worker = agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.config = config(self.root, worker)
+        self.use_milestone_gate()
         pause = {"reason": "usage limit reached", "ends_at": "2026-10-04T00:00:00Z"}
         with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=True), \
                 patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
@@ -991,6 +1079,7 @@ class TargetedLaunchTests(unittest.TestCase):
     def test_runtime_unavailability_uses_the_same_gate_as_queue_launch(self):
         worker = agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.config = config(self.root, worker)
+        self.use_milestone_gate()
         with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
@@ -1014,6 +1103,7 @@ class TargetedLaunchTests(unittest.TestCase):
                               "blocked — Attempt limit exhausted; inspect failures and use "
                               "ub-agents retry 11 --agent worker --reason TEXT")):
             self.config = config(self.root, role)
+            self.use_milestone_gate()
             code, stdout, _, run = self.launch("11")
             self.assertEqual(code, 1)
             self.assert_output(stdout, f"#11 worker: {reason}\n")
@@ -1059,6 +1149,7 @@ class TargetedLaunchTests(unittest.TestCase):
 
     def test_refresh_rechecks_only_target_and_refuses_new_stop_label(self):
         self.config = replace(self.config, launchers=("operator", "peer"))
+        self.use_milestone_gate()
 
         def refresh(*_, on_fetch=None):
             self.github.change(11, labels=frozenset({"ready", "needs-human"}))
@@ -1071,6 +1162,23 @@ class TargetedLaunchTests(unittest.TestCase):
         run.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assert_scoped()
+
+    def test_refreshed_gate_configuration_allows_later_and_unmilestoned_targets(self):
+        for milestone in (20, None):
+            with self.subTest(milestone=milestone):
+                self.config = config(self.root)
+                self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
+
+                def refresh(*_, on_fetch=None):
+                    self.use_milestone_gate(milestone)
+
+                code, stdout, _, run = self.launch("11", refresh=refresh)
+                self.assertEqual(code, 0)
+                self.assertEqual(self.loop.config.queue.milestones, "gate")
+                run.assert_called_once()
+                self.assertIn("#11 worker: claimed", stdout)
+                self.assertNotIn("Waiting for active milestone", stdout)
+                self.assert_scoped()
 
     def test_refresh_removes_launcher_authority_before_claiming(self):
         for launchers, role, reason in (

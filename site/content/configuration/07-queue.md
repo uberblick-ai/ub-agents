@@ -29,6 +29,14 @@ Unmilestoned issues, including issues whose milestone is outside that list, go a
 
 `order` ranks priority first, then uses the same milestone order for equal-priority new issues, with unmilestoned issues last. Higher priority wins even in a later or no milestone. `gate` strictly holds later and unmilestoned new issues until the oldest open milestone closes or empties, even when its work is unavailable here. `ignore` is the default.
 
+The `gate` hold applies to automatic queue selection, including planning, claiming
+and approval parking. Explicit `launch N [--agent NAME]` and `status N` skip queue
+priority and milestone policy at every stage, including after checkout refresh.
+Later-milestone and unmilestoned targets can run; every other gate still applies.
+An agent still needs a matching trigger label, including with `--agent`. Without
+`--agent`, the first eligible agent in configuration order acts. Unnumbered launch,
+`launch --once` and the status queue listing keep their selection policy.
+
 To avoid idle waiting, switch `gate` to `prefer` when milestone precedence matters, or to `order` when priority should always win. Unreadable milestones, items or dependency links stop selection visibly; they never justify fallback. Fresh claim checks and election protection still apply. `prefer` and `order` need no milestone recheck at claim time or during approval parking.
 
 ```yaml

@@ -403,7 +403,7 @@ class ItemStatusTests(unittest.TestCase):
         self.assertEqual((code, errors), (0, ""))
         code, plain, errors = self.invoke("11")
         self.assertEqual((code, errors), (0, ""))
-        forbidden = {"observe", "repository_comments", "dependency_graph", "milestone_order"}
+        forbidden = {"observe", "repository_comments", "dependency_graph", "milestone_order", "active_milestone"}
         self.assertFalse(forbidden.intersection(name for name, _ in self.github.reads), self.github.reads)
         item_reads = {"item", "comments", "timeline", "issue_content", "pr_content", "reviews",
                       "review_comments", "blocked_by"}
@@ -460,7 +460,7 @@ class ItemStatusTests(unittest.TestCase):
                 if item.kind == "issue":
                     self.assertIn("milestone #7", plain)
 
-    def test_approval_stop_dependency_and_milestone_gates_are_read_only(self):
+    def test_approval_stop_and_dependency_gates_are_read_only(self):
         self.github.timelines[11] = []
         result, plain = self.status()
         self.assertEqual(result["assignments"][0]["state"], "parked")
@@ -474,12 +474,18 @@ class ItemStatusTests(unittest.TestCase):
         result, plain = self.status()
         self.assertEqual(result["assignments"][0]["reason"], "Waiting for blockers #1")
         self.assertEqual(result["assignments"][0]["open_blockers"], ["#1"])
-        self.github.dependencies.clear()
+
+    def test_later_and_unmilestoned_targets_are_ready_under_milestone_gate(self):
         self.config = config(self.root, queue=Queue(milestones="gate"))
         self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
         self.github.change(1, milestone=3)
-        result, plain = self.status()
-        self.assertEqual(result["assignments"][0]["reason"], "Waiting for active milestone #3")
+        for milestone in (20, None):
+            with self.subTest(milestone=milestone):
+                self.github.change(11, milestone=milestone)
+                result, plain = self.status()
+                self.assertEqual(result["assignments"][0]["state"], "ready")
+                self.assertIn("#11 worker: ready", plain)
+                self.assertNotIn("Waiting for active milestone", plain)
 
     def test_pr_candidate_and_outside_edit_approval_gate(self):
         self.github.items[11] = pr(11)

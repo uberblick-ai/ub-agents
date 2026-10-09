@@ -64,7 +64,9 @@ def parser():
     doctor.add_argument("--verbose", action="store_true", help="show the full per-check list (does not change --json)")
     launch = commands.add_parser("launch", help="run the queue in the foreground, or handle one item",
                                  description="Run the queue in the foreground under the configured gates. Without a number, "
-                                 "watch the queue; with a number, handle only that issue or PR, then exit.",
+                                 "watch the queue; with a number, handle only that issue or PR, then exit. "
+                                 "Queue priority and milestone policy do not apply to an explicit item; all other gates do. "
+                                 "An agent still needs a matching trigger label, including with --agent.",
                                  examples=("ub-agents launch", "ub-agents launch --once",
                                            "ub-agents launch 143 --agent implementer"))
     launch.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="run only this item, then exit (optional)")

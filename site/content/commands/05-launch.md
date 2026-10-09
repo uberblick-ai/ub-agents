@@ -2,16 +2,26 @@
 
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
+`launch N` skips queue priority and milestone policy, including the `gate` hold
+during planning, after checkout refresh, at claim time and during approval parking.
+It can start later-milestone or unmilestoned work. Every other gate still applies,
+including launcher trust, item state, trigger labels, stop labels, dependencies,
+input approval, ownership, attempts, backoff and runtime availability, with fresh
+checks and claim elections. Only triggered agents can act: `--agent NAME` narrows
+evaluation to that agent and still requires its trigger. Otherwise the first
+eligible agent in configuration order acts. Unnumbered `launch` and `launch --once`
+keep the queue's selection policy.
+
 `ub-agents launch N [--agent NAME]` exits nonzero when it starts no assignment or
 recovery, leaving one short refusal line per evaluated agent visible after the
 view closes. Plain output ends with the same reasons after discovery counters.
 `--agent NAME` evaluates only that agent. Reasons name the owning role, account,
 host and lease end, including the owning item when another item's run holds the
-branch, plus stop labels, open blockers or active milestone, and the next step
+branch, plus stop labels or open blockers, and the next step
 where one exists. A stop label explains acting on the Action needed notice,
 removing the label and restoring a trigger, even if the trigger is already gone.
 A decline during refresh or claiming reports its final cause. GitHub read
-failures remain errors. Eligibility, ownership and exit codes are unchanged.
+failures remain errors.
 
 After a run or recovery finishes, continuous launch immediately checks for the
 next item, including after retry or blocked results. Rate-limit waits, runtime
