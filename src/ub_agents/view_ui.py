@@ -698,6 +698,9 @@ class View(App):
             self.pop_screen()
         self.set_focus(None)
         self.update_layout(self.size)
+        # Mark the screen itself dirty before scheduling the stop callback;
+        # widget layout notifications may still be waiting in other queues.
+        self.refresh(layout=True)
 
     def update_shutdown(self):
         assignment = mapping(self.session.data.get('assignment')) if self.session else {}
