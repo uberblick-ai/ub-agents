@@ -17,12 +17,41 @@ the log is never truncated or rotated. Follow it from another terminal with
 `tail -f .ub-agents/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
+Discovery prints a line such as `Discovery pass claiming: 3.4s; gh calls=6,
+REST quota=1, HTTP 304=5, GraphQL calls=0; candidates reached=1`. Pass kinds are
+`claiming`, `empty` and `observation`; candidates count distinct reached items,
+not agent rows. Counts separate REST quota responses, 304 confirmations and
+GraphQL invocations; all attempted `gh` calls count, including pages, failures
+and refetches. Consecutive passes with the same kind, counts and candidate count
+print once, regardless of elapsed time. Observation lines measure the worker's
+client. A claiming line ends before the successful claim's fresh checks begin.
+The run's `events.jsonl` `released` event has a `github_requests` object with
+`gh_calls`, `quota_requests`, `not_modified_responses` and `graphql_calls` from
+those claim checks through release, including renewals and finalization, excluding
+the observation worker, agent requests and the post-release display refresh.
+
+If discovery reaches a ready plan and declines it, a line names its item, agent
+and reason: the refreshed re-plan is no longer ready, the head moved, a start or
+milestone gate changed, the fresh plan or runtime changed, blockers opened, the
+recovery outcome no longer matches, or the claim election was lost. For example:
+`#400 implementer: declined — Head moved before claim`. Existing trust, approval,
+runtime and health messages still explain their waits without a second decline
+line; targeted launches retain their fresh refusal message. Consecutive claiming
+passes repeating the same decline for the same item and agent print it once.
+
 When no open issue or PR has a configured trigger label, both `launch` and
 `launch --once` name the labels to add. Continuous launch shows the next poll
 delay rounded to whole seconds below a minute or whole minutes otherwise.
-Empty polls back off according to their REST quota cost, excluding unchanged
-reads confirmed by HTTP 304 and reserving half the common account quota for busy
-work when ten idle launchers share it. Low quota
+Claiming, empty and observation passes debit one discovery balance: it starts full
+at 125 requests, refills at 250/hour, and retains debt. Idle and observation passes
+wait for `poll-seconds` since the previous start and a balance of at least 1, with
+a one-hour gap cap. A cold burst can therefore be followed by cheap passes at the
+normal interval. Claiming immediately after work and poll-now passes bypass
+admission and still debit; later idle waits repay their spend. HTTP 304 responses
+are free, and successful claim checks through release count toward the run instead.
+This reserves half the common account quota for work when ten launchers share it,
+as an average rather than a rolling-hour ceiling; sustained passes above 250
+requests are limited only by the one-hour cap. Low quota
 adds a wait bounded by the reset. A pass that runs or recovers work starts the next
 claiming pass immediately, while retaining rate-limit waits and runtime usage pauses.
 The continuous loop retries transient GitHub

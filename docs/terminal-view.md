@@ -154,6 +154,17 @@ shortened with `…`, and a right column:
 | Eligible, delayed | `◷` | `backoff` for retry backoff; `waiting` for paused runtimes; never `next` |
 
 Needs attention's second line is `agent · state · reason`, indented and dim.
+When several agents need attention for the same item, they share one row. Its
+second line lists `agent state` pairs comma-separated in section order, followed
+by ` · ` and the distinct reasons comma-separated. Identical reasons appear once,
+for example `issue-reviewer needs-human, implementer blocked · Sonner conflicts`.
+The heading counts items, and the first contributing agent supplies the glyph.
+The right column shows the longest known waiting time among the contributing
+agents. Selection stays on the item as agents or reasons change during polls,
+partial passes and post-run refreshes; agents and reasons that leave attention
+disappear from the merged row. Other agents for the item can still appear in
+Running or Eligible. Issue and Unblock retain every contributing agent's state,
+plan reason and displayed notice reason, including when those reasons differ.
 Parked state names the stop label(s), joined by `, `; blocked state is `blocked`,
 and an exhausted attempt limit is `failed F/M`. The reason uses the notice or
 parking outcome's asks when available, without Markdown bold or bullet markers.
@@ -181,8 +192,8 @@ in that order; each failure count follows its agent, such as
 `reviewer 1/3 failures, integrator`. A single-agent row keeps `agent · F/M failures`.
 The section count counts items. Selection stays on the item while it remains
 eligible, including when its agents change; Issue and Runs still show that item's
-description and history. Running and Needs attention keep one row per agent, and
-running agents are omitted from Eligible as before.
+description and history. Running keeps one row per agent, and running agents are
+omitted from Eligible as before.
 
 Line 2 appends the item's effective priority word after ` · `, for example
 `issue-preparer · urgent` or `reviewer 1/3 failures, integrator · high`.
@@ -339,14 +350,19 @@ shortened body. Reopening Issue never retries a cached failure; press `g` to ret
 
 Unblock shows the latest trusted action-needed comment for a parked or blocked
 item, including an exhausted attempt limit. Its bold header keeps the item
-reference and title. Its dim second line shows the agent and the same state as the
-Work row, then red `waiting …` and `since HH:MM` in local time. Both displays use
-the row's published `waiting_since` and the same minute/hour/day format, counting
+reference and title. Its dim second line shows each contributing agent and the
+same state as the Work row, then red `waiting …` and `since HH:MM` in local time.
+Both displays use the oldest known contributing `waiting_since` and the same minute/hour/day format, counting
 while the view is open. Unknown times are omitted; loading a comment
 does not change this start time.
 The dashed rule follows as on the other tabs. Changing selection or refreshing
 the item out of Needs attention hides Unblock and returns an active Unblock pane
 to Log. `4` has no effect for other rows.
+Unblock remains available while any contributing agent needs attention. Without
+an available action-needed comment, every blocked agent keeps its own
+`ub-agents retry N --agent AGENT` fallback and resume guidance. Issue also shows
+the cached notice or these fallbacks below the description, with resume steps
+and supporting evidence expanded.
 
 The comment body uses Issue's inert Markdown rules and 2,048-character limit,
 with a visible shortening notice. The action-needed marker, `**Action needed**`

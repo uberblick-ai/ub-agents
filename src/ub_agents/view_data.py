@@ -10,6 +10,7 @@ import time
 
 from .log_format import CONTROLS, inert, shorten
 from .run_config import run_directory
+from .attention import attention_state, stamp
 
 SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
@@ -167,9 +168,28 @@ class WorkRow:
     context: Path | None = None
     hidden: bool = False
     eligible_plans: tuple[dict, ...] = ()
+    attention_rows: tuple['WorkRow', ...] = ()
 
     def label(self):
         return f'#{text(str(self.item))} {self.state} · {self.agent}'
+
+    def waiting_since(self):
+        starts = [row.data.get('waiting_since') for row in self.attention_rows or (self,)]
+        return min((start for start in starts if stamp(start) is not None), key=stamp, default=None)
+
+
+def attention_agents(row):
+    return ', '.join(dict.fromkeys(' '.join(part for part in (agent.agent, attention_state(agent)[1]) if part)
+                                  for agent in row.attention_rows or (row,)))
+
+
+def attention_context(row):
+    parts = []
+    for agent in row.attention_rows or (row,):
+        reasons = dict.fromkeys(reason for reason in
+                                (agent.reason, text(agent.data.get('attention_reason'), '')) if reason)
+        parts.append('\n'.join((f'{agent.agent} · {attention_state(agent)[1]}', *reasons)))
+    return '\n\n'.join(dict.fromkeys(parts))
 
 
 def own_run(root, value):
@@ -246,7 +266,7 @@ def work_rows(session, root):
               if row.data.get('history_key', str(row.item)) in histories else row for row in result]
     ordered = sorted(result, key=lambda row: (WORK_GROUPS.index(row.group),
                                              row.state in {'backoff', 'waiting'}))
-    grouped, eligible = [], {}
+    grouped, eligible, attention = [], {}, {}
     for row in ordered:
         if row.group == 'Eligible':
             if row.item in eligible:
@@ -256,6 +276,15 @@ def work_rows(session, root):
                 continue
             eligible[row.item] = len(grouped)
             row = replace(row, key=f'plan:{row.item}', eligible_plans=(row.data,))
+        elif row.group == 'Needs attention':
+            if row.item in attention:
+                index = attention[row.item]
+                first = grouped[index]
+                if row not in first.attention_rows:
+                    grouped[index] = replace(first, attention_rows=(*first.attention_rows, row))
+                continue
+            attention[row.item] = len(grouped)
+            row = replace(row, key=f'plan:{row.item}:attention', attention_rows=(row,))
         grouped.append(row)
     return grouped
 
@@ -347,12 +376,13 @@ def item_history(row, session):
 
 
 def related_plan(work, previous):
-    """Follow a plan between Eligible's item row and per-agent attention rows."""
+    """Follow a contributing agent between the two item-level plan sections."""
     if previous is None or not previous.key.startswith('plan:'):
         return None
     return next((row for row in work if row.key.startswith('plan:') and row.item == previous.item
                  and (row.agent == previous.agent or
-                      any(plan.get('agent') == previous.agent for plan in row.eligible_plans))), None)
+                      any(plan.get('agent') == previous.agent for plan in row.eligible_plans) or
+                      any(agent.agent == previous.agent for agent in row.attention_rows))), None)
 
 
 def related_assignment(work, previous):
@@ -517,6 +547,8 @@ def run_status(row, session):
 def context_header(row, description):
     if not row:
         return 'No item selected.'
+    if row.attention_rows and row.state != 'earlier observation':
+        return attention_context(row)
     return f'{row.state}\n{row.reason}'
 
 

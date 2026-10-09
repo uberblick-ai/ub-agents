@@ -25,7 +25,7 @@ from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
 from .rate_limits import RateLimitReads
-from .polling import idle_interval, poll_delay
+from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
@@ -35,6 +35,7 @@ from .records import (attempts, backoff, declared_transition, iso, latest_leases
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
+from .request_stats import DiscoveryPass, PassOutput, request_counts, request_delta
 from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
@@ -79,13 +80,21 @@ class Loop:
                                        on_claim=self.claimed, launchers=config.launchers, trusted_bots=config.trusted_bots,
                                        on_record=lambda record: self._observe("record", record),
                                        on_author=lambda *args: self._observe("coordination_author", *args),
-                                       on_action=lambda *args: self._observe("action_needed", *args))
+                                       on_action=lambda *args: self._observe("action_needed", *args),
+                                       on_decline=self.declined)
         self._renewal = None
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
         self.config_path = config_path
         self.default_config = default_config
         self.output = output
+        self.pass_output = PassOutput(output)
+        self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
+        self._pass_stats = None
+        self._targeted_pass = False
+        self._declines = {}
+        self._pass_declines = None
+        self._discovery_requests = None
         self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output)
         self.health = AgentHealth(output=self._health_notice)
         self.coordinator.runtime_paused = self.usage.paused
@@ -114,6 +123,52 @@ class Loop:
         self.output(line)
         self._observe("health_notice", line)
 
+    @contextmanager
+    def discovery_pass(self, kind="empty", output=None, *, targeted=False):
+        self._pass_stats = DiscoveryPass(self.github, output or self.pass_output, kind,
+                                         debit=self.discovery_budget.debit)
+        self._targeted_pass = targeted
+        self._pass_declines = {}
+        self._discovery_requests = None
+        try:
+            yield
+        finally:
+            self._pass_stats.finish()
+            self._pass_stats = None
+            self._targeted_pass = False
+            self._declines = self._pass_declines
+            self._pass_declines = None
+
+    def declined(self, plan, reason, state="declined"):
+        key = (plan.item.number, plan.agent.name)
+        current = self._pass_declines if self._pass_declines is not None else self._declines
+        value = (state, reason)
+        if current.get(key, self._declines.get(key)) != value:
+            self.output(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}")
+        current[key] = value
+
+    def _claim_boundary(self):
+        if self._pass_stats is None:
+            return None
+        snapshot = self._pass_stats.snapshot()
+        # The claim callback starts observations before claim() returns. Charge
+        # discovery now; a failed claim's remaining traffic is charged at finish.
+        self._pass_stats.account(snapshot)
+        self._discovery_requests = snapshot[1]['quota_requests'] - self._pass_stats.before['quota_requests']
+        return snapshot
+
+    def _claimed_pass(self, boundary):
+        if boundary is not None:
+            self._pass_stats.finish("claiming", boundary)
+
+    def _diagnostic(self, run_dir, event, **details):
+        try:
+            run_dir.mkdir(parents=True, exist_ok=True)
+            with (run_dir / "events.jsonl").open("a") as stream:
+                stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
+        except OSError as exc:
+            self.output(f"Cannot write diagnostic {event}: {exc}")
+
     def _publish_observation(self, method, *args):
         if self.observer is not None:
             try:
@@ -138,10 +193,17 @@ class Loop:
             self.poll_now.request()
 
     def _wait(self, event, delay, reason):
+        requested = False
+
+        def on_request():
+            nonlocal requested
+            requested = True
+
         if self.observer is not None:
             self._observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
         if self.poll_now is not None and reason == "next poll or runtime pause":
-            self.poll_now.wait(event, delay, self._poll_updates if self.updates is not None else None)
+            self.poll_now.wait(event, delay, self._poll_updates if self.updates is not None else None,
+                               on_request=on_request)
         elif self.updates is None:
             event.wait(delay)
         else:
@@ -153,6 +215,7 @@ class Loop:
                 remaining -= interval
                 self._poll_updates()
         self._observe("activity", "running assignment" if self.github.lease else "polling")
+        return requested
 
     def _poll_updates(self):
         banner = self.updates.banner if self.updates is not None else None
@@ -329,6 +392,8 @@ class Loop:
                                   milestone_rank=milestone_ranks.get(milestone, len(milestones))))
         for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
             item = candidate.item
+            if self._pass_stats is not None:
+                self._pass_stats.candidates.add(item.number)
             github.scope = item.number
             if item.kind == "pr":
                 item = github.item(item.number, "pr")
@@ -367,6 +432,8 @@ class Loop:
         return replace(plan, blockers=blockers)
 
     def item_plans(self, number, agent_name=None, *, reconcile_notices=False, health_notices=False):
+        if self._pass_stats is not None:
+            self._pass_stats.candidates.add(number)
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         # Share this item's history and approval reads, without repository
         # discovery, priority inheritance or milestone ordering.
@@ -543,6 +610,10 @@ class Loop:
                     len(attempts(history, agent.name, now)) + 1, history=tuple(history))
 
     def tick(self):
+        with self.discovery_pass():
+            return self._discovery_tick()
+
+    def _discovery_tick(self):
         self._observe("begin_pass")
         self.maintain_runtimes()
         with self.github_pass() as ready:
@@ -561,6 +632,7 @@ class Loop:
         config = self.config
         present = set()
         for plan in self.iter_plans(reconcile_notices=True):
+            self._pass_stats.candidates.add(plan.item.number)
             present.add((plan.item.number, plan.agent.name))
             self._before_claim()
             if plan.state in {"ready", "recover"}:
@@ -600,6 +672,10 @@ class Loop:
         return False
 
     def tick_item(self, number, agent_name=None):
+        with self.discovery_pass(targeted=True):
+            return self._discovery_tick_item(number, agent_name)
+
+    def _discovery_tick_item(self, number, agent_name=None):
         self._observe("begin_pass")
         self.maintain_runtimes()
         with self.github_pass() as ready:
@@ -619,12 +695,9 @@ class Loop:
             if plan.state == "recover" and self.recover(plan):
                 return True
             if plan.state in {"ready", "recover"}:
-                # A refresh or claim race may have changed eligibility. Explain
-                # the fresh row rather than printing the stale ready verdict.
-                item, current = self.item_plans(number, plan.agent.name)
-                plan = next(current, None)
-                if plan is None:
-                    continue
+                # Execution/recovery already explained the fresh decline.
+                shown = True
+                continue
             if plan.approval_gate:
                 self.coordinator.notices.advisory(f"approval parking on #{number}",
                                                   lambda: self.park_approval(plan))
@@ -857,11 +930,19 @@ class Loop:
             self._refreshing_checkout = False
         self._before_claim()
         if self.config_path is not None:
+            previous_plan = plan
             plans = (self.iter_plans(health_notices=True) if self._launch_number is None else
                      self.item_plans(self._launch_number, self._launch_agent, health_notices=True)[1])
             plan = next((p for p in plans if p.item.number == plan.item.number
-                         and p.agent.name == plan.agent.name and p.state == "ready"), None)
-            if plan is None:
+                         and p.agent.name == plan.agent.name), None)
+            if plan is None or plan.state != "ready":
+                if plan is None or not plan.health_wait:
+                    if self._targeted_pass and plan is not None:
+                        state, reason = refusal_reason(plan, self.coordinator.clock(), socket.gethostname())
+                        self.declined(plan, reason, state)
+                    else:
+                        detail = f": {plan.state} — {plan.reason}" if plan is not None else ""
+                        self.declined(previous_plan, f"Re-plan after refresh is no longer ready{detail}")
                 return False
             instructions = texts[plan.agent.name]
         self.maintain_runtimes()
@@ -882,14 +963,13 @@ class Loop:
         except GitHubError:
             raise
         except AgentError as exc:
-            self.output(f"#{plan.item.number} {plan.agent.name}: waiting — {exc}")
+            self.declined(plan, str(exc), "waiting")
             return False
         with self.maintenance.reserve_run(runtime.cli if runtime is not None else None,
                                           github=self._github_reservation) as reservation:
             if reservation is None:
-                self.output(f"#{plan.item.number} {plan.agent.name}: waiting — "
-                            f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
-                            "before the claim; retry next poll")
+                self.declined(plan, f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
+                              "before the claim; retry next poll", "waiting")
                 return False
             self._before_claim()
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation,
@@ -911,16 +991,19 @@ class Loop:
                 # Fresh authority can reveal a permission change that does not
                 # advance item timestamps. Let the next poll plan its gate.
                 self.discovery.invalidate(current.number)
-                self.output(f"#{current.number} {plan.agent.name}: parked — {approval.reason}")
+                self.declined(plan, approval.reason, "parked")
             return approval.allowed
 
         self._observe("assignment", plan)
+        boundary = self._claim_boundary()
+        requests_before = request_counts(self.github)
         lease = self.coordinator.claim(plan, self.config.stop_labels,
                                        before_write=self._end_poll, authorize=authorize,
                                        confirm_stopped=confirm_stopped)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False
+        self._claimed_pass(boundary)
         try:
             fresh = self.github.item(plan.item.number, plan.item.kind)
             approval = self.input_check(fresh)
@@ -933,7 +1016,7 @@ class Loop:
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, state="withdrawn", started=False, attempt_effect="unchanged",
                                     expires=iso(self.coordinator.clock()), summary=approval.reason)
-            self.output(f"#{plan.item.number} {plan.agent.name}: parked — {approval.reason}")
+            self.declined(plan, approval.reason, "parked")
             return True
         run_dir = run_directory(self.config.root.resolve(), lease["run"])
         scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])
@@ -943,11 +1026,7 @@ class Loop:
         self.output(f"Logs: {run_dir}")
 
         def diagnostic(event, **details):
-            try:
-                with (run_dir / "events.jsonl").open("a") as stream:
-                    stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
-            except OSError as exc:
-                self.output(f"Cannot write diagnostic {event}: {exc}")
+            self._diagnostic(run_dir, event, **details)
 
         def record_uncertainty(exc):
             diagnostic("cleanup-unconfirmed", error=str(exc))
@@ -1174,8 +1253,10 @@ class Loop:
             outcome = self.coordinator.outcome(lease)
         self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
                     completed=completing)
+        self._renewal.close()
+        diagnostic("released", result=result, summary=summary,
+                   github_requests=request_delta(request_counts(self.github), requests_before))
         self._replan_finished_item(plan)
-        diagnostic("released", result=result, summary=summary)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
             self._released_blockers[(plan.item.number, plan.agent.name)] = summary
@@ -1364,15 +1445,19 @@ class Loop:
         history = self.coordinator.history(plan.item.number)
         outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
         if outcome is None:
+            self.declined(plan, "Recovery outcome no longer matches")
             return False
         confirm_worktree_setup_stopped(self.config, outcome["run"])
         self._observe("assignment", plan)
         self._finalizing = True
+        boundary = self._claim_boundary()
+        requests_before = request_counts(self.github)
         recovery = self.coordinator.claim(plan, self.config.stop_labels, recovery=True,
                                           before_write=self._end_poll)
         if recovery is None:
             self._finalizing = False
             return False
+        self._claimed_pass(boundary)
         # The claim reread may have observed a supervisor's newer outcome flags.
         source = lease_by_id(self.coordinator.history(plan.item.number), recovery["recovered_lease_id"])
         outcome = self.coordinator.outcome(source) if source else None
@@ -1389,6 +1474,10 @@ class Loop:
         # The source's attempt counts this failure, as an execution lease's does.
         self.settle(plan, recovery, source["attempt"], result, f"Recovered {outcome['run']}:\n\n{summary}",
                     effect, parking_outcome=outcome, completed=True)
+        self._renewal.close()
+        self._diagnostic(run_directory(self.config.root.resolve(), recovery['run']), "released",
+                         result=result, summary=summary,
+                         github_requests=request_delta(request_counts(self.github), requests_before))
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 
@@ -1418,6 +1507,7 @@ class Loop:
 
     def _launch(self, once):
         self.usage.reset()
+        self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._planning_rate_until = None
         self._continuous = not once
         self.github.discovery = not once
@@ -1487,7 +1577,7 @@ class Loop:
                 continue
             elapsed = monotonic() - self._pass_started
             requests = self.github.quota_requests - requests_before
-            interval, low = idle_interval(requests, self.config.poll_seconds,
+            interval, low = idle_interval(self.discovery_budget.wait_seconds(), self.config.poll_seconds,
                                           self.github.resource_quotas,
                                           self.coordinator.clock(), elapsed)
             interval = elapsed + self.usage.bound_wait(max(0, interval - elapsed))
@@ -1498,7 +1588,19 @@ class Loop:
             idle_state = (low, message)
             delay = self.usage.bound_wait(max(0, interval - elapsed))
             if delay:
-                self._wait(self.stop_event, delay, "next poll or runtime pause")
+                wait_started = monotonic()
+                wait_until = wait_started + self.usage.bound_wait(
+                    max(0, self._pass_started + IDLE_MAX_SECONDS - wait_started))
+                while not self.stop_event.is_set():
+                    if self._wait(self.stop_event, delay, "next poll or runtime pause"):
+                        break  # Poll-now passes bypass admission, but still debit.
+                    # A cancelled observation may finish and debit during this
+                    # wait. Recheck debt without extending the original pause
+                    # deadline or the one-hour cap.
+                    delay = min(self.discovery_budget.wait_seconds(),
+                                max(0, wait_until - monotonic()))
+                    if not delay:
+                        break
         if self.interrupt_event.is_set():
             raise KeyboardInterrupt
 

@@ -82,7 +82,24 @@ the issue or PR number.
   required correction.
 - Release prep consolidates related changes, keeps every issue or PR reference and
   required upgrade information, dates the version's section (folding in any
-  `Unreleased` entries) and copies that section into the GitHub release notes.
+  `Unreleased` entries) and bumps `pyproject.toml`. It stays a loop issue and ends
+  with a merged release-prep PR.
+
+## Publishing releases
+
+A maintainer invokes the [release skill](.agents/skills/release/SKILL.md) after
+release prep merges. `mise run release X.Y.Z` checks current `origin/main`, a clean
+checkout, the prepared version and dated CHANGELOG section, an unused tag and a
+green `signoff`. It pushes an annotated tag, copies the section without its heading
+into the GitHub release notes, and opens a PR updating the Homebrew tap formula.
+It tests the tag and exact formula resource versions in a fresh Python 3.14
+virtualenv and posts the result to that PR. A maintainer reviews and merges the tap
+PR, then upgrades Homebrew and verifies the installed version.
+
+No loop role cuts releases. Implementers and reviewers test the tooling with fakes
+and never run it against the real repositories. The task never merges the tap PR
+or moves or deletes a pushed tag. See [the release procedure](docs/releases.md)
+for prerequisites and completing a partially published release.
 
 ## Changes
 

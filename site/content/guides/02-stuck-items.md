@@ -11,9 +11,18 @@ ub-agents status 214
 
 Stopped items are listed under **Needs attention** in `ub-agents launch`. Select one and press `4` for the Unblock tab: it shows the item's **Action needed** comment, with each decision, the options and how to resume.
 
+Each item appears once, with contributing agents and states comma-separated,
+followed by distinct reasons comma-separated. The count is items and the waiting
+time is the longest known wait. Unblock remains available while any contributing
+agent needs attention. Unblock and Issue show every contributing agent's state
+and reasons, including a plan reason that differs from the displayed notice.
+Issue also shows the cached notice or fallback resume steps below its description.
+
 For a PR run-outcome notice, merging or closing the PR finishes the item; nothing else is needed. To return it to the same agent instead, expand **To send it back to AGENT instead**. The resume steps are separate from the collapsed **Reasoning and evidence** section. Issue notices keep their visible **Then resume AGENT:** steps, as do notices whose item type could not be read. Approval-gate notices keep their visible authorization and resume steps, and older notices display as before.
 
 If a blocked item's comment is unavailable, Unblock shows its blocked reason and the same structure: PRs show the completion line and fold the `ub-agents retry N --agent AGENT --reason "Human resolved the blocker"` command under **To send it back to AGENT instead**; issues and unknown item types keep the command visible. A failed blocked notice post is retried on later launcher passes until the item resumes.
+Merged items keep a separate retry command for each blocked agent; PR fallback
+steps share a **To send it back to these agents instead** fold.
 
 ## GitHub failed after a completed run
 

@@ -144,7 +144,7 @@ class ViewScrollbarTests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.reading.page is not None)
-            app.select('plan:114:worker')
+            app.select('plan:114:attention')
             await self.ready(pilot, lambda: app.unblock_visible)
             await pilot.press('4')
             area = app.query_one('#unblock VerticalScroll', PaneScroll)

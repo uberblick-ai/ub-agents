@@ -839,15 +839,16 @@ class NoticeTests(unittest.TestCase):
         loop = Loop(config(self.root, agent(self.root, kind="issue")), self.github, "operator", output=self.output.append)
         for _ in range(3):
             loop.tick()
-        self.assertEqual(len(self.output), 1)
+        self.assertEqual(len(self.output), 2)
+        self.assertEqual(sum(line.startswith("Discovery pass empty:") for line in self.output), 1)
         self.co.update(lease, summary="Need a different decision")
         loop.tick()
         loop.tick()
-        self.assertEqual(len(self.output), 2)
+        self.assertEqual(len(self.output), 3)
         self.github.change(1, labels=frozenset({"ready", "needs-human"}))
         loop.tick()
         loop.tick()
-        self.assertEqual(len(self.output), 3)
+        self.assertEqual(len(self.output), 4)
         self.assertIn("parked", self.output[-1])
 
 

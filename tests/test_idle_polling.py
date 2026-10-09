@@ -12,7 +12,8 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
-from ub_agents.polling import idle_interval
+from ub_agents.polling import DiscoveryBudget, idle_interval
+from ub_agents.request_stats import PassOutput
 from tests.support import RecordingRunner, config, isolate_observations
 
 
@@ -33,6 +34,7 @@ class IdlePollingTests(unittest.TestCase):
         self.github = GitHub("org/project", self.runner)
         self.lines = []
         self.loop = Loop(self.config, self.github, "operator", output=self.lines.append)
+        self.loop.pass_output = PassOutput(lambda *_: None)
         self.now = 1000
         self.loop.coordinator.clock = lambda: self.now
 
@@ -64,15 +66,15 @@ class IdlePollingTests(unittest.TestCase):
             self.now += delay
 
         with patch("ub_agents.loop.monotonic", side_effect=lambda: self.now), \
-                patch.object(self.loop, "tick", side_effect=pass_), \
+                patch.object(self.loop, "_discovery_tick", side_effect=pass_), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), \
                 self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         return starts, waits
 
-    def test_rest_cost_gap_from_pass_start_and_hour_cap(self):
-        for requests, duration, gap in ((0, 3, 30), (1, 3, 30), (5, 3, 72),
-                                        (230, 10, 3312), (300, 10, 3600), (5, 100, 100)):
+    def test_rest_balance_and_minimum_gap_from_pass_start(self):
+        for requests, duration, gap in ((0, 3, 30), (1, 3, 30), (5, 3, 30), (123, 3, 30),
+                                        (230, 10, 1536.4), (300, 10, 2544.4), (5, 100, 100)):
             with self.subTest(requests=requests, duration=duration):
                 self.setUp()
                 self.response("user")
@@ -84,9 +86,140 @@ class IdlePollingTests(unittest.TestCase):
                     return False
 
                 starts, waits = self.run_passes(tick)
-                self.assertEqual(starts, [1000, 1000 + gap])
-                self.assertEqual(waits, [gap - duration] if gap > duration else [])
+                self.assertAlmostEqual(starts[1], 1000 + gap)
+                self.assertEqual(len(waits), int(gap > duration))
+                if waits:
+                    self.assertAlmostEqual(waits[0], gap - duration)
                 self.assertIn(f"({requests} requests last poll)", self.lines[0])
+
+    def test_cold_burst_followed_by_cheap_passes_keeps_minimum_gap(self):
+        self.response("user")
+        costs = iter([123, 1, 1])
+
+        def tick():
+            for _ in range(next(costs)):
+                self.github.request("user")
+            return False
+
+        starts, waits = self.run_passes(tick, count=4)
+        self.assertEqual(starts, [1000, 1030, 1060, 1090])
+        self.assertEqual(waits, [30, 30, 30])
+
+    def test_sustained_300_request_passes_keep_debt_and_cap_each_gap_at_an_hour(self):
+        self.response("user")
+
+        def tick():
+            for _ in range(300):
+                self.github.request("user")
+            return False
+
+        starts, waits = self.run_passes(tick, count=4)
+        self.assertAlmostEqual(waits[0], 2534.4)
+        self.assertEqual(waits[1:], [3600, 3600])
+        self.assertLess(self.loop.discovery_budget.balance, 0)
+
+    def test_claiming_passes_after_work_bypass_budget_then_idle_repays_all_spend(self):
+        self.response("user")
+        results = iter([True, True, False])
+
+        def tick():
+            for _ in range(100):
+                self.github.request("user")
+            return next(results)
+
+        starts, waits = self.run_passes(tick, count=4)
+        self.assertEqual(starts[:3], [1000, 1000, 1000])
+        self.assertAlmostEqual(waits[0], 2534.4)
+        self.assertAlmostEqual(self.loop.discovery_budget.balance, 1)
+
+    def test_failed_pass_debits_and_retry_backoff_does_not_erase_debt(self):
+        from ub_agents.errors import GitHubError
+        self.response("user")
+        calls = 0
+
+        def tick():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                for _ in range(230):
+                    self.github.request("user")
+                raise GitHubError("GET", "user", "temporary", retryable=True)
+            return False
+
+        starts, waits = self.run_passes(tick, count=3)
+        self.assertEqual(starts[:2], [1000, 1005])
+        self.assertAlmostEqual(starts[2], 2526.4)
+        self.assertEqual(waits[0], 5)
+        self.assertAlmostEqual(waits[1], 1521.4)
+
+    def test_runtime_pause_expiry_wakes_idle_poll_with_discovery_debt(self):
+        self.response("user")
+        costs = iter([230, 0])
+
+        def tick():
+            requests = next(costs)
+            for _ in range(requests):
+                self.github.request("user")
+            if requests:
+                self.loop.usage.pauses["claude"] = self.now + 300
+            else:
+                self.assertIsNone(self.loop.usage.paused("claude"))
+                self.assertLess(self.loop.discovery_budget.balance, 0)
+            return False
+
+        starts, waits = self.run_passes(tick, count=3)
+        self.assertEqual(starts[:2], [1000, 1300])
+        self.assertAlmostEqual(starts[2], 2526.4)
+        self.assertEqual(waits[0], 300)
+        self.assertAlmostEqual(waits[1], 1226.4)
+        self.assertIn("next poll in 5 min (230 requests last poll)", self.lines[0])
+
+    def test_idle_rechecks_debit_from_cancelled_observation_during_wait(self):
+        def wait(delay):
+            self.now += delay
+            if self.now == 1030:
+                self.loop.discovery_budget.debit(230)
+
+        with patch.object(self.loop.stop_event, "wait", side_effect=wait):
+            starts = []
+
+            def tick():
+                starts.append(self.now)
+                if len(starts) == 2:
+                    self.loop.stop_event.set()
+                return False
+
+            with patch("ub_agents.loop.monotonic", side_effect=lambda: self.now), \
+                    patch.object(self.loop, "_discovery_tick", side_effect=tick), \
+                    self.assertRaises(KeyboardInterrupt):
+                self.loop.launch()
+        self.assertAlmostEqual(starts[1], 2556.4)
+
+    def test_cancelled_observation_debt_cannot_extend_wait_past_runtime_pause(self):
+        starts, waits = [], []
+
+        def wait(delay):
+            waits.append(delay)
+            self.now += delay
+            if self.now == 1030:
+                self.loop.discovery_budget.debit(230)
+
+        def tick():
+            starts.append(self.now)
+            if len(starts) == 2:
+                self.loop.stop_event.set()
+            else:
+                self.loop.usage.pauses["claude"] = self.now + 300
+            return False
+
+        with patch("ub_agents.loop.monotonic", side_effect=lambda: self.now), \
+                patch.object(self.loop, "_discovery_tick", side_effect=tick), \
+                patch.object(self.loop.stop_event, "wait", side_effect=wait), \
+                self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        self.assertEqual(starts, [1000, 1300])
+        self.assertEqual(waits, [30, 270])
+        self.assertLess(self.loop.discovery_budget.balance, 0)
 
     def test_idle_output_rounds_seconds_under_a_minute_and_minutes_otherwise(self):
         for delay, expected in ((0.4, "0s"), (55.625, "56s"), (59.6, "60s"),
@@ -116,7 +249,7 @@ class IdlePollingTests(unittest.TestCase):
             return False
 
         starts, waits = self.run_passes(tick)
-        self.assertAlmostEqual(waits[0], 57.6)
+        self.assertEqual(waits[0], 30)
         self.assertEqual(self.github.rest_requests, 4)
         self.assertEqual(self.github.quota_requests, 4)
         self.assertEqual(len(self.runner.calls), 14)
@@ -178,21 +311,21 @@ class IdlePollingTests(unittest.TestCase):
 
     def test_low_quota_reset_bounds_threshold_and_cap(self):
         for resource in ("core", "graphql"):
-            for remaining, reset, requests, expected in (
-                    (1000, 4600, 5, 72), (999, 4600, 5, 144), (999, 1100, 5, 100),
-                    (999, 1010, 5, 72), (999, 900, 5, 72), (999, 9999, 200, 3600)):
+            for remaining, reset, budget_wait, expected in (
+                    (1000, 4600, 69, 72), (999, 4600, 69, 144), (999, 1100, 69, 100),
+                    (999, 1010, 69, 72), (999, 900, 69, 72), (999, 9999, 2877, 3600)):
                 with self.subTest(resource=resource, remaining=remaining, reset=reset):
-                    interval, low = idle_interval(requests, 30, {resource: quota(remaining, reset)}, 1003, 3)
+                    interval, low = idle_interval(budget_wait, 30, {resource: quota(remaining, reset)}, 1003, 3)
                     self.assertEqual(interval, expected)
                     self.assertEqual(low, frozenset({resource})
                                      if remaining < 1000 and reset > 1003 else frozenset())
-        interval, low = idle_interval(5, 30, {"core": quota(reset=1100), "graphql": quota(reset=1080)}, 1000, 0)
+        interval, low = idle_interval(72, 30, {"core": quota(reset=1100), "graphql": quota(reset=1080)}, 1000, 0)
         self.assertEqual(interval, 80)
         self.assertEqual(low, frozenset({"core", "graphql"}))
         for headers in ({}, quota(limit=0), quota(remaining=-1), quota(reset="nan"),
                         quota(remaining="bad"), quota(limit="inf")):
             with self.subTest(headers=headers):
-                self.assertEqual(idle_interval(5, 30, {"core": headers}, 1000, 0), (72, frozenset()))
+                self.assertEqual(idle_interval(72, 30, {"core": headers}, 1000, 0), (72, frozenset()))
 
     def test_expired_low_resource_does_not_bound_live_low_resource(self):
         for live, expired in (("core", "graphql"), ("graphql", "core")):
@@ -202,11 +335,11 @@ class IdlePollingTests(unittest.TestCase):
                                       live_reset=live_reset):
                         quotas = {live: quota(reset=live_reset),
                                   expired: quota(reset=expired_reset)}
-                        self.assertEqual(idle_interval(5, 30, quotas, 1000, 0),
+                        self.assertEqual(idle_interval(72, 30, quotas, 1000, 0),
                                          (expected, frozenset({live})))
 
     def test_idle_logging_changes_when_retained_low_quota_expires(self):
-        self.github.resource_quotas = {"graphql": quota(reset=1100)}
+        self.github.resource_quotas = {"graphql": quota(reset=1040)}
         self.response("user")
 
         def tick():
@@ -215,13 +348,13 @@ class IdlePollingTests(unittest.TestCase):
             return False
 
         starts, waits = self.run_passes(tick, count=4)
-        self.assertEqual(waits, [100, 72, 72])
+        self.assertEqual(waits, [40, 30, 30])
         self.assertEqual(self.lines, [
-            "No eligible work; next poll in 2 min (5 requests last poll)",
-            "No eligible work; next poll in 1 min (5 requests last poll)"])
+            "No eligible work; next poll in 40s (5 requests last poll)",
+            "No eligible work; next poll in 30s (5 requests last poll)"])
 
     def test_low_quota_wait_is_bounded_by_reset_from_pass_start(self):
-        self.response("user", headers={"X-RateLimit-Resource": "core"} | quota(reset=1100))
+        self.response("user", headers={"X-RateLimit-Resource": "core"} | quota(reset=1040))
 
         def tick():
             for _ in range(5):
@@ -230,9 +363,9 @@ class IdlePollingTests(unittest.TestCase):
             return False
 
         starts, waits = self.run_passes(tick)
-        self.assertEqual(starts, [1000, 1100])
-        self.assertEqual(waits, [90])
-        self.assertIn("next poll in 2 min", self.lines[0])
+        self.assertEqual(starts, [1000, 1040])
+        self.assertEqual(waits, [30])
+        self.assertIn("next poll in 30s", self.lines[0])
 
     def test_idle_logging_changes_only_with_work_or_low_resource_state(self):
         states = iter([(False, 2000), (False, 2000), (False, 999), (False, 999),
@@ -246,12 +379,12 @@ class IdlePollingTests(unittest.TestCase):
             return worked
 
         starts, waits = self.run_passes(tick, count=9)
-        self.assertEqual(waits, [72, 72, 144, 144, 72, 144, 144])
+        self.assertEqual(waits, [30, 30, 60, 60, 30, 60, 60])
         self.assertEqual(self.lines, [
+            "No eligible work; next poll in 30s (5 requests last poll)",
             "No eligible work; next poll in 1 min (5 requests last poll)",
-            "No eligible work; next poll in 2 min (5 requests last poll)",
-            "No eligible work; next poll in 1 min (5 requests last poll)",
-            "No eligible work; next poll in 2 min (5 requests last poll)"])
+            "No eligible work; next poll in 30s (5 requests last poll)",
+            "No eligible work; next poll in 1 min (5 requests last poll)"])
 
     def test_once_empty_poll_never_waits_or_logs_idle(self):
         self.github.quota_requests = 500
@@ -270,7 +403,7 @@ class IdlePollingTests(unittest.TestCase):
                 handler = signal.getsignal(sig)
 
                 def tick():
-                    for _ in range(5):
+                    for _ in range(230):
                         self.github.request("user")
                     return False
 
@@ -282,9 +415,29 @@ class IdlePollingTests(unittest.TestCase):
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch.object(self.github, "actor", return_value="operator"), \
-                        patch.object(Loop, "tick", side_effect=tick) as ticks, \
+                        patch.object(Loop, "_discovery_tick", side_effect=tick) as ticks, \
                         patch("threading.Event.wait", side_effect=wait), \
                         redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
                     self.assertEqual(main(["launch"]), 0 if sig == signal.SIGTERM else 130)
                 ticks.assert_called_once()
                 self.assertEqual(signal.getsignal(sig), handler)
+
+
+class DiscoveryBudgetTests(unittest.TestCase):
+    def test_starts_full_refills_at_250_per_hour_keeps_debt_and_caps_savings(self):
+        now = 0
+        budget = DiscoveryBudget(clock=lambda: now)
+        self.assertEqual(budget.balance, 125)
+        budget.debit(230)
+        self.assertEqual(budget.balance, -105)
+        self.assertAlmostEqual(budget.wait_seconds(), 1526.4)
+        now += 720
+        self.assertAlmostEqual(budget.wait_seconds(), 806.4)
+        self.assertEqual(budget.balance, -55)
+        budget.debit(100)
+        now += 3600
+        self.assertEqual(budget.wait_seconds(), 0)
+        self.assertEqual(budget.balance, 95)
+        now += 3600
+        self.assertEqual(budget.wait_seconds(), 0)
+        self.assertEqual(budget.balance, 125)

@@ -5,7 +5,7 @@ from datetime import datetime
 import re
 import time
 
-from .view_data import Description, description_text, mapping, text
+from .view_data import Description, attention_agents, attention_context, description_text, mapping, text
 from .attention import attention_state, stamp, waiting_time
 from .notices import outcome_resume, retry_command
 
@@ -86,6 +86,8 @@ class ActionComment(Description):
 def needs_attention(row):
     if not row or row.hidden or row.group != 'Needs attention':
         return False
+    if row.attention_rows:
+        return any(needs_attention(agent) for agent in row.attention_rows)
     failures, maximum = row.data.get('failures'), row.data.get('max_attempts')
     exhausted = type(failures) is int and type(maximum) is int and failures >= maximum
     return row.state in {'parked', 'blocked'} or row.state == 'failed' and exhausted
@@ -107,8 +109,28 @@ def local_action(row, session):
 
 
 def unblock_body(row, comment):
+    if row and len(row.attention_rows) > 1:
+        context = attention_context(row)
+        if comment.available:
+            return context + '\n\n' + comment.body
+        bodies, resumes = [], []
+        for agent in row.attention_rows:
+            body = unblock_body(agent, comment)
+            lead, _, resume = resume_section(body)
+            if lead:
+                bodies.append(f'### {agent.agent} · {attention_state(agent)[1]}\n\n{lead}')
+            if resume:
+                resumes.append(f'### {agent.agent}\n\n{resume}')
+        body = '\n\n'.join((context, *bodies))
+        if resumes:
+            body += ('\n\n<details>\n<summary>To send it back to these agents instead</summary>\n\n' +
+                     '\n\n'.join(resumes) + '\n\n</details>')
+        return body
+    context = (attention_context(row) + '\n\n' if row and row.attention_rows and
+               text(row.data.get('attention_reason'), '') and
+               text(row.data.get('attention_reason'), '') != row.reason else '')
     if comment.available:
-        return comment.body
+        return context + comment.body
     if row and row.state == 'blocked' and needs_attention(row):
         reason = description_text(row.reason)
         steps = (f"```sh\n{retry_command(row.item, row.agent)}\n```\n\n"
@@ -116,16 +138,16 @@ def unblock_body(row, comment):
                  "Use these steps only when resuming the same role; follow the project's "
                  "correction or handoff route if a different role must act next.")
         resume = outcome_resume(row.item, text(row.agent), steps, is_pr=row.data.get('kind') == 'pr')
-        return f"{reason}\n\n{resume}"
-    return ''
+        return f"{context}{reason}\n\n{resume}"
+    return context.strip()
 
 
 def unblock_metadata(row, comment, session, now=None):
     if not row:
         return '', ''
     _, state = attention_state(row)
-    parts = [row.agent, state]
-    start = row.data.get('waiting_since')
+    parts = [attention_agents(row)] if len(row.attention_rows) > 1 else [row.agent, state]
+    start = row.waiting_since()
     created = stamp(start)
     waiting = ''
     if created is not None:

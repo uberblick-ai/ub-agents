@@ -448,7 +448,7 @@ class View(App):
     #output { height: 1fr; scrollbar-gutter: stable; overflow-x: hidden; }
     #run_status { height: 2; overflow: hidden; }
     #log_state { height: 1; content-align: right middle; }
-    #issue_body, #unblock_body { padding: 0; }
+    #issue_body, #issue_actions, #unblock_body { padding: 0; }
     MarkdownFence { color: $foreground; background: $panel; }
     MarkdownBlockQuote { border: none; background: $panel; }
     MarkdownHorizontalRule { border-bottom: dashed $view-muted; }
@@ -535,6 +535,7 @@ class View(App):
                     with PaneScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
                         yield Markdown('', id='issue_body', parser_factory=description_parser, open_links=False)
+                        yield Markdown('', id='issue_actions', parser_factory=description_parser, open_links=False)
                         yield Static('', id='issue_note', markup=False)
                 with TabPane('3 Runs', id='runs'):
                     with PaneScroll():
@@ -1037,6 +1038,14 @@ class View(App):
                 markdown.update(body)
             self.query_one('#issue_note', Static).update(Text(details + extra))
             self.last_context = value
+        actions = unblock_body(row, self.current_action()) if needs_attention(row) else ''
+        lead, supporting = comment_sections(actions)
+        lead, resume_title, resume = resume_section(lead)
+        actions = '\n\n'.join(part for part in (lead, resume_title, resume, supporting) if part)
+        markdown = self.query_one('#issue_actions', Markdown)
+        markdown.display = bool(actions)
+        if actions != markdown.source:
+            markdown.update(actions)
 
     def current_description(self):
         local = self.local_description

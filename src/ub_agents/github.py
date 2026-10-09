@@ -96,6 +96,7 @@ class Item:
     updated_at: str | None = None
     open_blocked_by: int | None = None
     author: str | None = None
+    comments_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -160,7 +161,8 @@ def parse_item(data, kind, endpoint=None):
                     data["issue_dependencies_summary"]["blocked_by"]
                     if kind == "issue" and dependency_total(data) is not None else None,
                     data["user"].get("login") if isinstance(data.get("user"), dict)
-                    and isinstance(data["user"].get("login"), str) else None)
+                    and isinstance(data["user"].get("login"), str) else None,
+                    data["comments"] if type(data.get("comments")) is int and data["comments"] >= 0 else None)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
             raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc
@@ -176,12 +178,16 @@ class GitHub:
         self.resource_quotas = {}
         # All attempted REST calls, including revalidations and transport failures.
         self.rest_requests = 0
+        self.gh_calls = 0
+        self.not_modified_responses = 0
+        self.graphql_calls = 0
         # REST responses that consume quota; GraphQL has a separate budget.
         self.quota_requests = 0
         self.rate_limited = False
         self._etag_cache = {}
         self._comment_cache = {}
         self._comment_since = None
+        self.comment_window_start = None
 
     def request(self, endpoint, method="GET", data=None, paginate=False, array=False):
         if paginate:
@@ -239,8 +245,12 @@ class GitHub:
     def _response(self, command, endpoint, method, data, cached):
         if cached is not None:
             command = command + ["-H", f"If-None-Match: {cached[0]}"]
-        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+        rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
+        self.gh_calls += 1
+        if rest:
             self.rest_requests += 1
+        else:
+            self.graphql_calls += 1
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -262,7 +272,9 @@ class GitHub:
         except ValueError as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
         # GraphQL has its own quota; doctor reports the REST account quota.
-        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+        if status == 304:
+            self.not_modified_responses += 1
+        if rest:
             if status != 304 and (status is not None or result.returncode == 0):
                 self.quota_requests += 1
             if "x-ratelimit-remaining" in headers:
@@ -567,6 +579,7 @@ class GitHub:
         since, comments = self._comment_since, {}
         if since is None and lookback_seconds is not None:
             since = iso(now - lookback_seconds)
+        window_start = seconds(since) if since is not None else float("-inf")
         while True:
             query = {"sort": "updated", "direction": "asc", "per_page": 100}
             if since is not None:
@@ -595,6 +608,8 @@ class GitHub:
                                   "discovery cursor retained")
             since = iso(boundary)
         # Commit the index and cursor only after the entire scan completes.
+        if self.comment_window_start is None:
+            self.comment_window_start = window_start
         self._comment_cache.update(comments)
         if lookback_seconds is not None:
             cutoff = now - lookback_seconds
