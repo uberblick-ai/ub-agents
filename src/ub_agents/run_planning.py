@@ -9,6 +9,7 @@ from .errors import GitHubError
 from .github import GitHub, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
 from .polling import idle_interval
 from .rate_limits import READS
+from .request_stats import COUNTERS
 
 
 class _Cancelled(Exception):
@@ -22,7 +23,7 @@ class ObservationReads:
         self.github, self.stop = github, stop
 
     def __getattr__(self, name):
-        if name in {"repository", "quota_requests", "resource_quotas"}:
+        if name in {"repository", "resource_quotas", *COUNTERS}:
             return getattr(self.github, name)
         if name not in READS:
             raise AttributeError(name)
@@ -119,7 +120,10 @@ class RunPlanning:
 
     def _run(self):
         elapsed = self.clock() - self.started
-        interval, _ = idle_interval(self.loop.github.quota_requests - self.loop._requests_before,
+        requests = self.loop._discovery_requests
+        if requests is None:
+            requests = self.loop.github.quota_requests - self.loop._requests_before
+        interval, _ = idle_interval(requests,
                                     self.planner.config.poll_seconds,
                                     self.loop.github.resource_quotas,
                                     self.planner.coordinator.clock(), elapsed)
@@ -139,9 +143,10 @@ class RunPlanning:
             try:
                 # Exhaust the ranked queue. No tick, recovery, parking or runtime
                 # maintenance is reachable through this path.
-                for _ in self.planner.iter_plans():
-                    if self.stop.is_set():
-                        return
+                with self.planner.discovery_pass("observation", self.loop.pass_output):
+                    for _ in self.planner.iter_plans():
+                        if self.stop.is_set():
+                            return
                 with self.lock:
                     if not self.stop.is_set():
                         self.loop._observe("observation_pass", observed_at, events.events)

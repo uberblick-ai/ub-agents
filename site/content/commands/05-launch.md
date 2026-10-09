@@ -8,6 +8,17 @@ usage pauses and graceful stops still apply. With no assignment, Running shows
 `Idle · polling` during a pass, then `Idle · nothing eligible for this launcher`
 only after a complete pass with nothing claimable.
 
+Launch output and `.ub-agents/launch.log` report each discovery pass's kind,
+wall time, attempted `gh` calls, REST quota responses, HTTP 304 responses,
+GraphQL calls and distinct candidates reached. Consecutive identical pass counts
+print once, even if wall time differs. Observation passes measure their own client.
+The run's `events.jsonl` `released` event records the launcher's requests from
+the successful claim's fresh checks through release, including renewals and
+finalization, excluding observation-worker and agent traffic. A reached ready
+plan that is declined names the item, agent and reason; consecutive identical
+declines print once. See [launch output](https://github.com/uberblick-ai/ub-agents/blob/main/docs/operations.md#launch-output)
+for the fields and decline reasons.
+
 When a supervised run's outcome lands, Work immediately refreshes that item's
 rows for every configured agent, even during a partial pass. Rows for its next
 role appear and obsolete rows disappear before the launcher claims again. This

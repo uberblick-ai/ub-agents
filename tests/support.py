@@ -173,6 +173,9 @@ class FakeGitHub:
 
     def __init__(self, *items):
         self.rest_requests = 0
+        self.gh_calls = 0
+        self.not_modified_responses = 0
+        self.graphql_calls = 0
         self.quota_requests = 0
         self.resource_quotas = {}
         self.items = {item.number: item for item in items}

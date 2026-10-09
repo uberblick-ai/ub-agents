@@ -176,6 +176,9 @@ class GitHub:
         self.resource_quotas = {}
         # All attempted REST calls, including revalidations and transport failures.
         self.rest_requests = 0
+        self.gh_calls = 0
+        self.not_modified_responses = 0
+        self.graphql_calls = 0
         # REST responses that consume quota; GraphQL has a separate budget.
         self.quota_requests = 0
         self.rate_limited = False
@@ -239,8 +242,12 @@ class GitHub:
     def _response(self, command, endpoint, method, data, cached):
         if cached is not None:
             command = command + ["-H", f"If-None-Match: {cached[0]}"]
-        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+        rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
+        self.gh_calls += 1
+        if rest:
             self.rest_requests += 1
+        else:
+            self.graphql_calls += 1
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -262,7 +269,9 @@ class GitHub:
         except ValueError as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
         # GraphQL has its own quota; doctor reports the REST account quota.
-        if urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}:
+        if status == 304:
+            self.not_modified_responses += 1
+        if rest:
             if status != 304 and (status is not None or result.returncode == 0):
                 self.quota_requests += 1
             if "x-ratelimit-remaining" in headers:

@@ -44,7 +44,7 @@ class Plan:
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
                  runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
-                 on_author=None, on_action=None, trusted_bots=()):
+                 on_author=None, on_action=None, trusted_bots=(), on_decline=None):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role, on_author, trusted_bots=trusted_bots)
@@ -52,6 +52,7 @@ class Coordinator:
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
+        self.on_decline = on_decline
         self.on_record = on_record
         self.runtime_available = runtime_available
         self.runtime_paused = runtime_paused or (lambda cli: None)
@@ -321,6 +322,13 @@ class Coordinator:
                 return unconfirmed[0]
         return None
 
+    def decline(self, plan, reason):
+        if self.on_decline is not None:
+            self.on_decline(plan, reason)
+        else:
+            self.output(f"#{plan.item.number} {plan.agent.name}: declined — {reason}")
+        return None
+
     def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
               confirm_stopped=None):
         reason = self.trust.reason(self.actor)
@@ -331,32 +339,35 @@ class Coordinator:
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
         if current.head != plan.item.head:
-            return None
+            return self.decline(plan, "Head moved before claim")
         matches = AgentMatches.for_item(current, plan.matches.configured if plan.matches else (plan.agent,))
         if not recovery:
             start = check_start(current, plan.agent, matches, stop_labels, self.queue)
             # Stop labels still reach durable planning: its history reads and
             # precedence for ownership and pending outcomes must stay intact.
             if not start.allowed and start.reason != start.stop_reason:
-                return None
+                return self.decline(plan, f"Start gate: {start.reason}")
         history = self.history(current.number)
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, self.clock())
             if outcome is None or any(r["id"] != outcome["lease_id"]
                                       for r in live_leases(history, self.clock())):
-                return None
+                return self.decline(plan, "Recovery outcome no longer matches")
         else:
             fresh = self.plan(current, plan.agent, stop_labels, history, start=start, matches=matches)
-            if fresh.state != "ready" or fresh.runtime != plan.runtime:
-                return None
+            if fresh.state != "ready":
+                return self.decline(plan, f"Fresh plan is no longer ready: {fresh.state} — {fresh.reason}")
+            if fresh.runtime != plan.runtime:
+                return self.decline(plan, "Runtime changed before claim")
             active = (self.github.active_milestone() if current.kind == "issue"
                       and self.queue.milestones == "gate" else None)
-            if not check_start(current, plan.agent, matches, stop_labels, self.queue, active).allowed:
-                return None
+            start = check_start(current, plan.agent, matches, stop_labels, self.queue, active)
+            if not start.allowed:
+                return self.decline(plan, f"Milestone gate: {start.reason}")
             blockers = (open_blockers(self.github, current) if current.kind == "issue"
                         and self.queue.dependencies == "wait" else ())
             if not check_start(current, plan.agent, matches, stop_labels, self.queue, active, blockers).allowed:
-                return None
+                return self.decline(plan, f"Open blockers: {', '.join(blockers)}")
         if authorize is not None and not authorize(current, matches):
             return None
         if confirm_stopped is not None:
@@ -399,7 +410,7 @@ class Coordinator:
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
             self.notices.election_lost(created)
             self.notices.resumed(current.number)
-            return None
+            return self.decline(plan, "Claim election lost")
         if not recovery:
             # Across an issue and a PR on its branch, the lowest live comment id wins too.
             owner = self.shared_branch_owner(current, plan.agent, self.history(current.number))
@@ -407,7 +418,7 @@ class Coordinator:
                 self.update(created, state="withdrawn", summary="Lost the shared-branch election.")
                 self.notices.election_lost(created)
                 self.notices.resumed(current.number)
-                return None
+                return self.decline(plan, "Claim election lost on shared branch")
         if self.clock() >= seconds(created["expires"]):
             raise LostOwnership("Lease expired during claiming")
         self.notices.resumed(current.number)

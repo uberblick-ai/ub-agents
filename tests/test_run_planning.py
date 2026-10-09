@@ -63,7 +63,7 @@ class RunPlanningTests(unittest.TestCase):
             worker._run()
         return worker, starts, waits
 
-    def test_complete_ranked_observations_are_read_only_and_silent(self):
+    def test_complete_ranked_observations_print_only_coalesced_request_stats(self):
         priority = Priority(('priority:urgent', 'priority:high', 'priority:low'), None)
         self.loop.config = replace(self.cfg, queue=Queue(priority=priority))
         self.github.change(3, labels=frozenset({'ready', 'priority:urgent'}))
@@ -74,7 +74,9 @@ class RunPlanningTests(unittest.TestCase):
         self.assertEqual([r['item'] for r in latest['rows']], [3, 2, 1])
         self.assertEqual([r['priority'] for r in latest['rows']], ['urgent', 'high', None])
         self.assertEqual(self.github.writes, [])
-        self.assertEqual(self.lines, [])
+        self.assertEqual(len(self.lines), 1)
+        self.assertRegex(self.lines[0], r'^Discovery pass observation: .*; gh calls=0, REST quota=0, '
+                         r'HTTP 304=0, GraphQL calls=0; candidates reached=3$')
         self.assertIsNot(worker.planner.discovery, self.loop.discovery)
         self.assertFalse(any(s.get('poll_now', {}).get('refreshing') for s in self.memory.snapshots))
 
@@ -162,6 +164,29 @@ class RunPlanningTests(unittest.TestCase):
         self.assertIsNone(worker.planner.github.lease)
         self.assertEqual(loop.github.lease, lease)
 
+    def test_pass_counts_use_worker_client_even_with_launcher_requests_during_observation(self):
+        transport = DiscoveryCostRunner()
+        source = GitHub('org/project', transport)
+        cfg = replace(self.cfg, queue=Queue(priority=Priority(('urgent', 'low'), 'low')))
+        loop = Loop(cfg, source, 'operator', output=self.lines.append)
+        loop.coordinator.clock = lambda: self.now
+        loop._requests_before = 0
+        worker = RunPlanning(loop, self.now)
+        iterate = worker.planner.iter_plans
+
+        def plans():
+            source.role('operator')
+            yield from iterate()
+
+        with patch.object(worker, '_wait', side_effect=[False, True]), \
+                patch.object(worker.planner, 'iter_plans', side_effect=plans):
+            worker._run()
+        self.assertEqual(len(transport.calls), 97)  # 96 worker calls and one launcher call.
+        self.assertEqual((source.gh_calls, source.quota_requests, source.graphql_calls), (1, 1, 0))
+        self.assertEqual(len(self.lines), 1)
+        self.assertRegex(self.lines[0], r'^Discovery pass observation: .*gh calls=96, REST quota=65, '
+                         r'HTTP 304=0, GraphQL calls=31; candidates reached=30$')
+
     def test_discovery_copies_are_independent_in_both_directions(self):
         self.github.create_comment(1, 'Feedback')
         list(self.loop.iter_plans())
@@ -206,6 +231,7 @@ class RunPlanningTests(unittest.TestCase):
         github._comment_since = iso(self.now - 60)
         github.resource_quotas = {'core': {'x-ratelimit-remaining': '1000'}}
         github.rest_requests, github.quota_requests = 12, 8
+        github.gh_calls, github.not_modified_responses, github.graphql_calls = 17, 4, 5
         github.quota_headers = {'x-ratelimit-remaining': '1000'}
         github.rate_limited = True
         loop = Loop(self.cfg, github, 'operator')
@@ -217,6 +243,7 @@ class RunPlanningTests(unittest.TestCase):
         snapshot = {name: deepcopy(getattr(copied, name)) for name in names}
         self.assertEqual({name: getattr(github, name) for name in names}, snapshot)
         self.assertEqual((copied.rest_requests, copied.quota_requests), (0, 0))
+        self.assertEqual((copied.gh_calls, copied.not_modified_responses, copied.graphql_calls), (0, 0, 0))
         self.assertEqual(copied.quota_headers, {})
         self.assertFalse(copied.rate_limited)
         github._etag_cache.clear()
