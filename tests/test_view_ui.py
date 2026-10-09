@@ -2906,7 +2906,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
                 self.assertTrue(separators <= tree._spacer_lines)
                 tree.scroll_end(animate=False, immediate=True)
-                await pilot.pause()
+                await self.ready(app, pilot, lambda: tree.scroll_y > 0)
                 self.assertGreater(tree.scroll_y, 0)
                 self.assertEqual(recent.region.y, boundary)
                 self.assertEqual(recent.scroll_y, 0)
