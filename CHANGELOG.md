@@ -6,6 +6,35 @@ notes are copied from that section.
 
 ## Unreleased
 
+## 0.1.17 — 2026-10-09
+
+**Upgrading:** Upgrade every launcher of a project before adding `health-check`
+(#380), top-level `runtime-args` or agent-level `runtime-args` mappings (#384, #386)
+to its `ub-agents.yaml`; older launchers reject these keys and forms. Existing
+agent-level lists need no change. Queues with configured priorities now favor
+higher-priority work across pipeline states and milestone ranks; no configuration
+change is required (#389).
+
+### Added
+
+- Projects can pause new claims per agent with `health-check` until a project dependency passes, resuming automatically ([configuration](docs/configuration.md#project-health-checks), #380).
+- Projects can share runtime arguments per CLI across agents, with agent-level lists or mappings replacing the shared defaults ([configuration](docs/configuration.md#built-in-runtimes), #384, #386).
+
+### Changed
+
+- Queues rank higher-priority work before lower-priority pipeline states and milestone ranks, using the same order for status, Eligible and claiming (#389).
+- Continuous launch refreshes Work rows and discovers the next claim immediately after supervised work finishes, without waiting for the poll interval (#382, #383).
+- Configured `checkout-setup` runs in every new private worktree before its agent starts, regardless of `when-changed` ([configuration](docs/configuration.md#checkout-setup), #392).
+- PR outcome notices explain that merging or closing finishes the item and keep optional resume steps in a separate collapsed section (#375).
+- Recent activity shows the listed outcome count in its fixed heading, with rows starting directly below it (#390).
+- Opening Issue loads descriptions on demand, reusing cached descriptions and preserving explicit retries for failed loads (#381).
+
+### Removed
+
+### Fixed
+
+- Bounded session snapshots prioritize visible Running, Needs attention and Eligible rows over hidden plans and older history (#381).
+
 ## 0.1.16 — 2026-10-08
 
 **Upgrading:** let running agents finish (`q`) or stop the launcher before updating:
