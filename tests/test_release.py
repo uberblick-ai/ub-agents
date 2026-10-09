@@ -67,6 +67,15 @@ class ReleaseTests(unittest.TestCase):
         self.runner = RecordingRunner(self.root)
         self.runner.responses.clear()
         (self.root / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n')
+        self.version_file = self.root / "src/ub_agents/__init__.py"
+        self.version_file.parent.mkdir(parents=True)
+        self.version_file.write_text(f'__version__ = "{VERSION}"\n')
+        self.python = "/fixture/python3.14"
+        self.python_command = [self.python, "-c", "import sys; print('.'.join(map(str, sys.version_info[:2])))"]
+        self.respond(self.python_command, "3.14\n")
+        lookup = patch.object(release.shutil, "which", return_value=self.python)
+        self.addCleanup(lookup.stop)
+        self.which = lookup.start()
         (self.root / "CHANGELOG.md").write_text(f"# Changelog\n\n## {VERSION} — 2026-10-09" + NOTES +
                                                "## 0.1.16 — 2026-10-08\n\nOld notes.\n")
         self.git("remote", "get-url", "origin", response=f"git@github.com:{release.REPOSITORY}.git")
@@ -97,8 +106,27 @@ class ReleaseTests(unittest.TestCase):
             self.assertNotIn("tag", args)
             self.assertNotIn("create", args)
 
+    def assert_preflight_refusal(self, message):
+        with self.assertRaises(release.ReleaseError) as raised:
+            self.check()
+        self.assertIn(message, str(raised.exception))
+        preflight = release.preflight
+        for argv in ([VERSION, "--check"], [VERSION]):
+            tool = release.Release(self.root, VERSION, self.runner)
+            with self.subTest(argv=argv), \
+                    patch.object(release, "Release", return_value=tool), \
+                    patch.object(release, "preflight", side_effect=lambda root, version:
+                                 preflight(root, version, self.runner, environ={})), \
+                    contextlib.redirect_stderr(io.StringIO()) as error:
+                self.assertEqual(release.main(argv), 1)
+            self.assertIn(message, error.getvalue())
+            self.assertIn("Completed: none", error.getvalue())
+        self.assert_no_publication()
+
     def test_preflight_returns_signed_off_sha_and_verbatim_notes(self):
         self.assertEqual(self.check(), (SHA, NOTES))
+        self.which.assert_called_once_with("python3.14")
+        self.assertIn(tuple(self.python_command), [args for args, _ in self.runner.calls])
         self.assert_no_publication()
 
     def test_invalid_version_and_loop_roles_refuse_before_commands(self):
@@ -154,6 +182,60 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(content=content), self.assertRaisesRegex(release.ReleaseError, "pyproject version check"):
                 self.check()
             self.assert_no_publication()
+
+    def test_mismatched_source_version_refuses_before_publication(self):
+        self.version_file.write_text('__version__ = "0.1.16"\n')
+        self.assert_preflight_refusal(f"version check: src/ub_agents/__init__.py has 0.1.16, expected {VERSION}")
+
+    def test_missing_source_version_refuses_before_publication(self):
+        self.version_file.write_text('"""Package without a version."""\n')
+        self.assert_preflight_refusal("version check: src/ub_agents/__init__.py has no __version__")
+
+    def test_missing_source_file_refuses_before_publication(self):
+        self.version_file.unlink()
+        self.assert_preflight_refusal("version check: src/ub_agents/__init__.py:")
+
+    def test_unreadable_source_file_refuses_before_publication(self):
+        read_text = Path.read_text
+
+        def read(path, *args, **kwargs):
+            if path == self.version_file:
+                raise PermissionError("permission denied")
+            return read_text(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", read):
+            self.assert_preflight_refusal("version check: src/ub_agents/__init__.py: permission denied")
+
+    def test_missing_formula_python_refuses_before_publication(self):
+        self.which.return_value = None
+        for response in (FileNotFoundError("brew not found"), self.result(1, stderr="formula not installed"), ""):
+            with self.subTest(response=response):
+                self.respond(["brew", "--prefix", "python@3.14"], response)
+                self.assert_preflight_refusal("formula Python check: python3.14 not found "
+                                              "(python3.14 on PATH or brew python@3.14)")
+
+    def test_missing_brew_interpreter_refuses_before_publication(self):
+        self.which.return_value = None
+        self.respond(["brew", "--prefix", "python@3.14"], "/fixture/brew/python@3.14\n")
+        self.respond(["/fixture/brew/python@3.14/bin/python3.14", *self.python_command[1:]],
+                     FileNotFoundError("interpreter not found"))
+        self.assert_preflight_refusal("formula Python check: python3.14 not found "
+                                      "(python3.14 on PATH or brew python@3.14)")
+
+    def test_wrong_formula_python_refuses_before_publication(self):
+        for python in (self.python, "/fixture/brew/python@3.14/bin/python3.14"):
+            with self.subTest(python=python):
+                self.which.return_value = self.python if python == self.python else None
+                self.respond(["brew", "--prefix", "python@3.14"], "/fixture/brew/python@3.14\n")
+                self.respond([python, *self.python_command[1:]], "3.13\n")
+                self.assert_preflight_refusal("formula Python check: expected Python 3.14, got 3.13")
+
+    def test_preflight_finds_formula_python_through_brew(self):
+        self.which.return_value = None
+        self.respond(["brew", "--prefix", "python@3.14"], "/fixture/brew/python@3.14\n")
+        self.respond(["/fixture/brew/python@3.14/bin/python3.14", *self.python_command[1:]], "3.14\n")
+        self.assertEqual(self.check(), (SHA, NOTES))
+        self.assert_no_publication()
 
     def test_missing_undated_invalid_and_empty_changelog_refuse(self):
         for content in ("# Changelog\n", f"## {VERSION}\n{NOTES}",
@@ -356,8 +438,6 @@ class ReleaseTests(unittest.TestCase):
             return DIGEST
 
         self.tool = release.Release(self.root, VERSION, self.runner, fetch)
-        self.addCleanup(patch.stopall)
-        patch.object(release.shutil, "which", return_value=python).start()
         return self.tool
 
     def publish(self):

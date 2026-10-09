@@ -88,6 +88,17 @@ def preflight(root, version, run=subprocess.run, environ=None):
         raise ReleaseError(f"pyproject version check: {exc}") from exc
     if project.get("version") != version:
         raise ReleaseError(f"pyproject version check: expected version = \"{version}\"")
+    version_path = Path("src/ub_agents/__init__.py")
+    try:
+        source = (root / version_path).read_text()
+    except (OSError, ValueError) as exc:
+        raise ReleaseError(f"version check: {version_path}: {exc}") from exc
+    match = re.search(r'''^__version__\s*=\s*["']([^"'\n]*)["']\s*$''', source, re.M)
+    if not match:
+        raise ReleaseError(f"version check: {version_path} has no __version__")
+    if match[1] != version:
+        raise ReleaseError(f"version check: {version_path} has {match[1]}, expected {version}")
+    formula_python(run)
     try:
         notes = release_notes((root / "CHANGELOG.md").read_text(), version)
     except OSError as exc:
@@ -199,11 +210,20 @@ def download(url, destination):
 
 
 def formula_python(run):
+    missing = "formula Python check: python3.14 not found (python3.14 on PATH or brew python@3.14)"
     python = shutil.which("python3.14")
     if python is None:
-        prefix = command(run, ["brew", "--prefix", "python@3.14"]).stdout.strip()
+        try:
+            prefix = command(run, ["brew", "--prefix", "python@3.14"]).stdout.strip()
+        except (OSError, ReleaseError) as exc:
+            raise ReleaseError(missing) from exc
+        if not prefix:
+            raise ReleaseError(missing)
         python = str(Path(prefix) / "bin/python3.14")
-    actual = command(run, [python, "-c", "import sys; print('.'.join(map(str, sys.version_info[:2])))"]).stdout.strip()
+    try:
+        actual = command(run, [python, "-c", "import sys; print('.'.join(map(str, sys.version_info[:2])))"]).stdout.strip()
+    except FileNotFoundError as exc:
+        raise ReleaseError(missing) from exc
     if actual != "3.14":
         raise ReleaseError(f"formula Python check: expected Python 3.14, got {actual}")
     return python

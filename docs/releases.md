@@ -26,6 +26,13 @@ absent locally and on origin, and that commit has a green `signoff`. If signoff
 is missing, run `mise run ci SHA` from `origin/main` and check again. Each refusal
 names the failing check and creates no tag, release or tap PR.
 
+The version must match both `pyproject.toml` and `__version__` in
+`src/ub_agents/__init__.py`; an unreadable file or missing `__version__` also
+refuses. Preflight requires a Python 3.14 interpreter, looking for `python3.14`
+on PATH first, then `brew --prefix python@3.14`. A missing interpreter, Homebrew
+or formula, or an interpreter reporting another Python version, refuses before
+publication.
+
 The task pushes an annotated `vX.Y.Z` tag, creates the GitHub release
 `ub-agents X.Y.Z` with the CHANGELOG section verbatim except its heading, and
 opens a PR on `uberblick-ai/homebrew-tap`. The formula URL and checksum describe
