@@ -2553,6 +2553,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('?', '3')
             with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
                 clock.now.return_value = now
+                # Activating Runs can draw its table before layout gives it a width.
+                # Redraw at the laid-out width so later seconds compare like for like.
+                app._static_values.clear()
+                app.last_runs = None
                 app.tick()
                 with patch.object(Static, 'update', autospec=True) as update:
                     for tick in range(1, 31):
