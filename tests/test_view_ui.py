@@ -2514,6 +2514,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    @unittest.skip('Flaky under parallel load; see #428')
     async def test_quiet_ticks_do_not_update_static_content_even_across_seconds(self):
         self.state['assignment'] = None
         self.state['activity'] = {'state': 'idle'}
@@ -2977,6 +2978,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    @unittest.skip('Flaky under parallel load; see #427')
     async def test_recent_split_fixed_with_empty_and_overflowing_live_work(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:

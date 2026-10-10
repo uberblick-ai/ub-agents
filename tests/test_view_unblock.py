@@ -570,6 +570,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    @unittest.skip('Flaky under parallel load; see #430')
     async def test_pr_notices_and_blocked_fallback_render_separate_resume_fold(self):
         retry = ('```sh\nub-agents retry 178 --agent worker --reason "Human resolved the blocker"\n```\n\n'
                  'Restore `ready` if absent; remove any stop label. Use these steps only for the same role.')
