@@ -1,21 +1,26 @@
 name: Test
-# Local CI (`mise run ci`, AGENTS.md) gates merges. This Linux run follows each
-# merge to main, and can be started from the Actions tab, to catch what only
-# Linux shows. GitHub bills macOS minutes at ten times the Linux rate, so macOS
-# is covered by local CI on a Mac.
+# Gates merges and releases: the main ruleset requires the `Test result` check,
+# and bin/release.py requires a green run on the release commit. Local
+# `mise run ci` (AGENTS.md) is an optional check before pushing.
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  # A new push to a PR supersedes its running checks; runs on main all finish.
+  group: test-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   tests:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.14"]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,3 +33,21 @@ jobs:
       - run: python -m pip install build
       - run: python -m build
       - run: python scripts/check_package.py dist/*.whl
+  whitespace:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      # A PR checks out its merge commit; the first parent is the base branch.
+      - run: git --no-pager diff --check HEAD^1 HEAD --
+  result:
+    # One required check, so the matrix can change without editing the ruleset.
+    name: Test result
+    if: always()
+    needs: [tests, whitespace]
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.tests.result }}" = success
+      - run: case "${{ needs.whitespace.result }}" in success|skipped) ;; *) exit 1 ;; esac

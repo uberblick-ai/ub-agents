@@ -23,6 +23,7 @@ TAG = f"v{VERSION}"
 URL = f"https://github.com/{release.REPOSITORY}/archive/refs/tags/{TAG}.tar.gz"
 DIGEST = hashlib.sha256(b"archive fixture").hexdigest()
 NOTES = "\n\n**Upgrading:** restart launchers.\n\n### Added\n\n- A change (#398).\n\n"
+RUNS = ("gh", "api", f"repos/{release.REPOSITORY}/actions/workflows/test.yml/runs?head_sha={SHA}")
 
 
 def package(name="pyyaml", version="6.0.3", digest=DIGEST):
@@ -85,8 +86,10 @@ class ReleaseTests(unittest.TestCase):
         self.git("status", "--porcelain")
         self.git("show-ref", "--verify", "--quiet", f"refs/tags/{TAG}", response=self.result(1))
         self.git("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/{TAG}", response=self.result(2))
-        self.respond(["gh", "api", f"repos/{release.REPOSITORY}/commits/{SHA}/status"],
-                     json.dumps({"statuses": [{"context": "signoff", "state": "success"}]}))
+        self.runs([{"status": "completed", "conclusion": "success"}])
+
+    def runs(self, runs):
+        self.respond(RUNS, json.dumps({"total_count": len(runs), "workflow_runs": runs}))
 
     def result(self, code, stdout="", stderr=""):
         return subprocess.CompletedProcess([], code, stdout, stderr)
@@ -123,11 +126,16 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn("Completed: none", error.getvalue())
         self.assert_no_publication()
 
-    def test_preflight_returns_signed_off_sha_and_verbatim_notes(self):
+    def test_preflight_returns_tested_sha_and_verbatim_notes(self):
         self.assertEqual(self.check(), (SHA, NOTES))
         self.which.assert_called_once_with("python3.14")
         self.assertIn(tuple(self.python_command), [args for args, _ in self.runner.calls])
         self.assert_no_publication()
+
+    def test_newest_green_run_passes_over_an_older_failure(self):
+        self.runs([{"status": "completed", "conclusion": "success"},
+                   {"status": "completed", "conclusion": "failure"}])
+        self.assertEqual(self.check(), (SHA, NOTES))
 
     def test_invalid_version_and_loop_roles_refuse_before_commands(self):
         for version, environ, check in (("v0.2.0", {}, "version check"),
@@ -245,22 +253,22 @@ class ReleaseTests(unittest.TestCase):
                 self.check()
             self.assert_no_publication()
 
-    def test_missing_pending_and_failed_signoff_refuse(self):
-        for statuses in ([], [{"context": "other", "state": "success"}],
-                         [{"context": "signoff", "state": "pending"}],
-                         [{"context": "signoff", "state": "failure"}],
-                         [{"context": "signoff", "state": "failure"}, {"context": "signoff", "state": "success"}]):
-            self.respond(["gh", "api", f"repos/{release.REPOSITORY}/commits/{SHA}/status"],
-                         json.dumps({"statuses": statuses}))
-            with self.subTest(statuses=statuses), self.assertRaisesRegex(release.ReleaseError, f"signoff check.*{SHA}"):
+    def test_missing_pending_and_failed_test_run_refuse(self):
+        completed = {"status": "completed", "conclusion": "success"}
+        for runs in ([], [{"status": "in_progress", "conclusion": None}],
+                     [{"status": "completed", "conclusion": "failure"}],
+                     [{"status": "completed", "conclusion": "cancelled"}],
+                     [{"status": "completed", "conclusion": "failure"}, completed]):
+            self.runs(runs)
+            with self.subTest(runs=runs), self.assertRaisesRegex(release.ReleaseError, f"Test workflow check.*{SHA}"):
                 self.check()
             self.assert_no_publication()
 
-    def test_unreadable_signoff_names_check_and_refuses(self):
-        for response in ("not JSON", "{}", '{"statuses": null}', '{"statuses": [null]}',
+    def test_unreadable_test_runs_name_check_and_refuse(self):
+        for response in ("not JSON", "{}", '{"workflow_runs": null}', '{"workflow_runs": [null]}',
                          self.result(1, stderr="GitHub unavailable")):
-            self.respond(["gh", "api", f"repos/{release.REPOSITORY}/commits/{SHA}/status"], response)
-            with self.subTest(response=response), self.assertRaisesRegex(release.ReleaseError, "signoff check"):
+            self.respond(RUNS, response)
+            with self.subTest(response=response), self.assertRaisesRegex(release.ReleaseError, "Test workflow check"):
                 self.check()
             self.assert_no_publication()
 

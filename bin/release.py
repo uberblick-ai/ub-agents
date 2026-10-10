@@ -20,6 +20,7 @@ from urllib.request import urlopen
 REPOSITORY = "uberblick-ai/ub-agents"
 TAP = "uberblick-ai/homebrew-tap"
 FORMULA = "Formula/ub-agents.rb"
+WORKFLOW = "test.yml"
 STEPS = ("annotated tag created", "tag pushed", "GitHub release created",
          "tap PR opened", "formula tests passed", "formula test result posted")
 RESOURCE = re.compile(r'^  resource "([^"\n]+)" do\n(?:    [^\n]*\n|\n)*  end\n', re.M)
@@ -104,15 +105,18 @@ def preflight(root, version, run=subprocess.run, environ=None):
     except OSError as exc:
         raise ReleaseError(f"CHANGELOG check: {exc}") from exc
     try:
-        status = json.loads(command(run, ["gh", "api", f"repos/{REPOSITORY}/commits/{sha}/status"]).stdout)
-        if not isinstance(status["statuses"], list) or any(not isinstance(item, dict) for item in status["statuses"]):
-            raise ValueError("expected a list of commit statuses")
-        signoff = next((item for item in status["statuses"] if item.get("context") == "signoff"), {})
+        runs = json.loads(command(run, ["gh", "api", f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs"
+                                                     f"?head_sha={sha}"]).stdout)["workflow_runs"]
+        if not isinstance(runs, list) or any(not isinstance(item, dict) for item in runs):
+            raise ValueError("expected a list of workflow runs")
     except (ReleaseError, ValueError, KeyError, TypeError) as exc:
-        raise ReleaseError(f"signoff check: {exc}") from exc
-    if signoff.get("state") != "success":
-        state = signoff.get("state", "missing")
-        raise ReleaseError(f"signoff check: {sha} signoff is {state}; run mise run ci {sha} on origin/main")
+        raise ReleaseError(f"Test workflow check: {exc}") from exc
+    # GitHub lists the newest run first; a rerun updates that run in place.
+    latest = runs[0] if runs else {}
+    if latest.get("status") != "completed" or latest.get("conclusion") != "success":
+        state = latest.get("conclusion") or latest.get("status") or "missing"
+        raise ReleaseError(f"Test workflow check: {sha} Test run is {state}; "
+                           "wait for it, or rerun it from the Actions tab")
     return sha, notes
 
 

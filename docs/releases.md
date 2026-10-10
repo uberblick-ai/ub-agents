@@ -22,9 +22,10 @@ mise run release X.Y.Z
 
 Replace X.Y.Z with the prepared version. The check fetches `origin/main` and
 refuses unless HEAD matches it, the version and dated notes match, the tag is
-absent locally and on origin, and that commit has a green `signoff`. If signoff
-is missing, run `mise run ci SHA` from `origin/main` and check again. Each refusal
-names the failing check and creates no tag, release or tap PR.
+absent locally and on origin, and the newest GitHub Actions `Test` run on that
+commit passed. If the run is still going, wait for it and check again; if it
+failed, rerun it from the Actions tab or fix main first. Each refusal names the
+failing check and creates no tag, release or tap PR.
 
 The version must match both `pyproject.toml` and `__version__` in
 `src/ub_agents/__init__.py`; an unreadable file or missing `__version__` also
