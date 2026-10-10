@@ -63,7 +63,8 @@ class FinalizationTests(unittest.TestCase):
                 if name in {'create_comment', 'update_comment'} and exited and args[-1].startswith(MARKER):
                     record, = records([{'id': 0, 'body': args[-1], 'user': {'login': 'operator'}}])
                     writes.append(record)
-                if active and trace is not None and (name == 'item' or name in methods):
+                if (active and loop.github._finalization is not None and trace is not None
+                        and (name == 'item' or name in methods)):
                     trace.append((name, args[0], record))
                 if active and (fail_at == len(calls) - 1 or fail_at == name):
                     if lost_response:
@@ -77,7 +78,7 @@ class FinalizationTests(unittest.TestCase):
 
         history = loop.coordinator._history
         def read_history(number):
-            if exited and len(passes) == 1 and trace is not None:
+            if exited and len(passes) == 1 and loop.github._finalization is not None and trace is not None:
                 trace.append(('history', number, None))
             return history(number)
 
@@ -137,10 +138,14 @@ class FinalizationTests(unittest.TestCase):
         return github, loop, calls, writes, lines, supervise.call_count, error
 
     def test_completion_shares_history_and_items_until_each_write(self):
-        for status, handoff in (('success', True), ('success', False), ('retry', False), ('blocked', False)):
-            with self.subTest(status=status, handoff=handoff):
+        for status, handoff, recovering in (('success', True, False), ('success', False, False),
+                                            ('retry', False, False), ('blocked', False, False),
+                                            ('success', True, True), ('success', False, True),
+                                            ('retry', False, True), ('blocked', False, True)):
+            with self.subTest(status=status, handoff=handoff, recovering=recovering):
                 trace = []
-                github, loop, _, _, _, _, error = self.scenario(status, once=True, handoff=handoff, trace=trace)
+                github, loop, _, _, _, _, error = self.scenario(status, once=True, handoff=handoff,
+                                                               recovering=recovering, trace=trace)
                 self.assertIsNone(error)
                 assignment = 1 if handoff else 296
                 reads, released = set(), False
@@ -157,7 +162,7 @@ class FinalizationTests(unittest.TestCase):
                         if record and record.get('state') == 'released':
                             released = True
                 self.assertTrue(released)
-                lease = loop.coordinator.history(assignment)[0]
+                lease = [r for r in loop.coordinator.history(assignment) if r['kind'] == 'lease'][-1]
                 self.assertEqual((lease['state'], lease['result']), ('released', status))
                 if status == 'success':
                     outcome = loop.coordinator.history(assignment)[1]

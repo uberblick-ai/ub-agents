@@ -397,9 +397,11 @@ and runtimes must obey the contract. Clocks must be reasonably synchronized.
 Expired leases are never resurrected. Ownership is checked before every durable
 write. During finalization, that check uses an assignment history read made after
 the preceding finalization write. Completion shares each item's history and item
-reads until the next GitHub write attempt, including reads for validation and outcome lookup. Failed or
-interrupted writes discard those observations too. Lease renewal uses its own
+reads until the next GitHub write attempt, including validation and outcome
+lookup. Failed or interrupted writes discard those observations too. Lease renewal uses its own
 fresh ownership read and extends only expiry; it does not end this read window.
+Recovery starts sharing reads after its claim and retains the validation and
+replay rules for an already-started transition.
 An ownership read that fails after applicable rate-limit waits stops the
 run, and the launcher does not report,
 accept, or release after losing ownership. Between observations, an agent with
@@ -628,12 +630,12 @@ configuration edits or a restarted launcher cannot replace the recorded changes.
 
 A report starts `accepted: false`. Once the process group has terminated, the
 launcher reads current GitHub history and items and validates ownership and the
-exact reported candidate SHA, and for an issue handoff that the PR is ready, links the issue, and that no other
-open PR sits on an earlier run branch. It then applies the transition as the
+exact reported candidate SHA, and for an issue handoff that the PR is ready,
+links the issue, and that no other open PR sits on an earlier run branch. It then applies the transition as the
 [configuration reference](configuration.md#outcomes-and-transitions) describes:
 use the same item reads to check both items, block on a missing trigger or pause
-on a stop label with a durable rejection, persist `started: true`, copy the pending outcome to the handoff
-PR, remove assignment labels, add destination labels, persist
+on a stop label with a durable rejection, persist `started: true`, copy the pending
+outcome to the handoff PR, remove assignment labels, add destination labels, persist
 `transition_complete: true`, accept the outcome, update its handoff copy, and release.
 
 An exit without an outcome, zero or nonzero, increments the consecutive failure

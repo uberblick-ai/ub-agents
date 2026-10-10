@@ -1600,6 +1600,7 @@ class Loop:
         try:
             return self._recover(plan)
         finally:
+            self.github.end_finalization()
             self._stop_planning()
             self._renewal.close()
             self._renewal = None
@@ -1626,6 +1627,7 @@ class Loop:
             return False
         self._flush_item_refusals()
         self._claimed_pass(boundary)
+        self.github.begin_finalization()
         # The claim reread may have observed a supervisor's newer outcome flags.
         source = lease_by_id(self.coordinator.history(plan.item.number), recovery["recovered_lease_id"])
         outcome = self.coordinator.outcome(source) if source else None
@@ -1642,6 +1644,7 @@ class Loop:
         # The source's attempt counts this failure, as an execution lease's does.
         self.settle(plan, recovery, source["attempt"], result, f"Recovered {outcome['run']}:\n\n{summary}",
                     effect, parking_outcome=outcome, completed=True)
+        self.github.end_finalization()
         self._renewal.close()
         self._diagnostic(run_directory(self.config.root.resolve(), recovery['run']), "released",
                          result=result, summary=summary,
