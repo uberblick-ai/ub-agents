@@ -374,7 +374,8 @@ class LaunchTerminalTests(unittest.TestCase):
                     terminal.send(b'\x1b[5~hu')
                     terminal.expect(b'RAW')
                     terminal.resize(100, 25)
-                    terminal.expect('↑↓ select ⏎ open r poll now ? keys q quit'.encode())
+                    awake_hint = ' c awake' if sys.platform == 'darwin' else ''
+                    terminal.expect(f'↑↓ select ⏎ open r poll now{awake_hint} ? keys q quit'.encode())
                     self.assertNotIn(b'minimum 110', transcript)
                     terminal.resize(110, 32)
                     terminal.expect(lambda out: b'PgUp/PgDn scroll' in out or b'1-3 tabs' in out)

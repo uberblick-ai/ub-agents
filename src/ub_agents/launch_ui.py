@@ -1,5 +1,6 @@
 """Optional terminal child supervision; no UI dependency imports in the launcher."""
 
+import json
 import os
 import select
 import signal
@@ -10,6 +11,7 @@ import termios
 import threading
 
 from . import __version__
+from .keep_awake import KeepAwake
 from .launcher_code import descriptors, helper_command
 
 RESTORE = ('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l'
@@ -51,6 +53,14 @@ class ViewProcess:
         self.modes = None
         self.winch_handler = None
         self.poll = poll
+        self.awake = KeepAwake(self.publish_awake)
+
+    def publish_awake(self, state):
+        if self.channel is not None:
+            try:
+                self.channel.sendall(b'awake ' + json.dumps(state).encode('utf-8') + b'\n')
+            except OSError:
+                pass
 
     def start(self, stop):
         child = None
@@ -111,18 +121,24 @@ class ViewProcess:
                         message, pending = pending.split(b'\n', 1)
                         if message == b'ready':
                             self.ready.set()
+                            self.awake.state()
                         elif message == b'interrupt':
                             os.kill(os.getpid(), signal.SIGINT)
                         elif message == b'drain':
                             os.kill(os.getpid(), signal.SIGTERM)
                         elif message == b'poll' and self.poll is not None:
                             self.poll()
+                        elif message == b'awake':
+                            self.awake.toggle()
                         elif message.startswith(b'error '):
                             self.error = message[6:].decode('utf-8', errors='replace')[:300]
                 elif self.process.poll() is not None:
                     break
+                self.awake.check()
+            self.awake.close()
             code = self.process.wait()
         finally:
+            self.awake.close()
             closing = self.closing.is_set()
             self.output.resume(self.restore, final=closing)
             if not closing and (self.error or code):
@@ -132,6 +148,7 @@ class ViewProcess:
 
     def close(self):
         self.closing.set()
+        self.awake.close()
         if self.winch_handler is not None:
             signal.signal(signal.SIGWINCH, self.winch_handler)
             self.winch_handler = None
