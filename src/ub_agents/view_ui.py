@@ -88,9 +88,11 @@ class MilestoneNotice(Static):
         self.messages = ()
 
     def set_messages(self, messages):
-        self.messages = tuple(text(message, '') for message in messages) if isinstance(messages, list) else ()
+        current = tuple(text(message, '') for message in messages) if isinstance(messages, list) else ()
+        if current != self.messages:
+            self.messages = current
+            self.update('\n'.join(self.messages))
         self.display = bool(self.messages) and not self.app.too_small and self.app.shutdown is None
-        self.update('\n'.join(self.messages))
 
 
 def pane_line(value, width, style=''):

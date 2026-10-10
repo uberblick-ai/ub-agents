@@ -81,7 +81,7 @@ The three milestone modes are `gate`, `order` and `ignore` (the default).
    milestone `gate` mode, priority ranks first. Existing work (PR assignments,
    owned runs and recovery) keeps priority order, ignores milestones, and precedes
    the next selected new issue at equal or higher priority. Dependency waits never
-   holds back existing work.
+   hold back existing work.
 3. Automatically selected new issues pass the dependency gate, as the
    [queue reference](configuration.md#queue) defines it. Planning and a fresh
    claim-time read both enforce this gate. Approval parking also rechecks it.

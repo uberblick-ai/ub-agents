@@ -586,8 +586,8 @@ creation time and number within that milestone. It uses the same milestone list
 as `order`, choosing the earliest milestone with an issue eligible for this
 launcher. Blocked, owned, stop-labelled, untriggered, retry-limited, approval-parked
 or runtime-unavailable work, including work outside the selected role, does not
-hold back independent later work. Every pass
-reconsiders earlier work; no cursor advances or milestone changes state.
+hold back independent later work. Every pass reconsiders earlier work;
+no cursor advances or milestone changes state.
 An eligible unmilestoned issue, including one whose milestone is outside the list,
 goes ahead only if its effective priority is **strictly higher** than the selected
 milestone's next eligible issue. Milestone work wins ties. Later assigned milestones
@@ -1480,7 +1480,7 @@ stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [opti
   that open or closed issue or PR under the same gates as `launch NUMBER`, showing
   each evaluated agent's row: `ready` when launch would run it, or `recover` when
   launch would recover its pending completion. Priority and milestone use the
-  item's own values, without inheritance. Queue priority and milestone policy,
+  item's own values, without inheritance. Queue priority and milestone policy
   do not apply to N; all other gates do. When no rows
   apply, it prints launch's one-line explanation, including trigger labels to add
   or the item's closed state. It makes no GitHub writes and starts no runtime

@@ -24,4 +24,4 @@ queue:
   milestones: gate
 ```
 
-Use `order` if higher priority should always win, including in later milestones, or `ignore` to skip milestone selection. Projects using `gate` now start later work while earlier issues are ineligible; to keep work in milestone order, give every open issue in the active milestone a trigger label, or move it out.
+The three milestone modes are `gate`, `order` and `ignore`. Use `order` if higher priority should always win, including in later milestones, or `ignore` to skip milestone selection. Projects using `gate` now start later work while earlier issues are ineligible; to keep work in milestone order, give every open issue in the active milestone a trigger label, or move it out.
