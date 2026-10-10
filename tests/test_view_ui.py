@@ -3269,6 +3269,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    @unittest.skip('Flaky in GitHub Actions: Test run 38093196022 on main')
     async def test_recent_rows_dim_selection_and_evicted_selected_outcome(self):
         self.state['assignment'] = None
         self.state['latest_pass'] = {'state': 'complete', 'rows': []}
