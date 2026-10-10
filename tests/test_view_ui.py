@@ -2993,9 +2993,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
                 publish_snapshot(self.path, self.state)
+                # Textual ignores scroll_end until layout shows the scrollbar,
+                # which can lag behind max_scroll_y on a loaded machine.
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
                                  len(app.groups['Eligible'].children) == 10 and
-                                 tree.virtual_size.height > tree.size.height and tree.max_scroll_y > 0)
+                                 tree.virtual_size.height > tree.size.height and tree.max_scroll_y > 0 and
+                                 tree.allow_vertical_scroll)
                 tree.get_node_at_line(0)
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
                 self.assertTrue(separators <= tree._spacer_lines)
