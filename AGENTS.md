@@ -15,27 +15,26 @@ git diff --check
 
 Run them in your own worktree while you work.
 
-## Local CI
+## CI
 
-CI runs on a maintainer's or the integrator's machine, not on GitHub. From a checkout
-at `origin/main`, for a pushed commit:
+GitHub Actions runs the `Test` workflow (`.github/workflows/test.yml`) on every PR and
+after each merge to main. It covers Linux and macOS with Python 3.11 and 3.14, plus
+whitespace errors in a PR's diff. Its `Test result` check gates merges through the
+main ruleset, and the release check requires a green run on the release commit.
+
+To run the same checks locally before pushing, optionally:
 
 ```sh
-mise run ci <sha>
+mise run ci [commit]    # defaults to HEAD
 ```
+
+It checks the commit out into a temporary worktree with a fresh virtualenv and runs
+`git diff --check` against `origin/main`, the unit suite and `ub-agents check`. It
+posts nothing to GitHub and gates nothing.
 
 mise only reads a trusted `mise.toml`, and every fresh worktree is a new path, so an
 agent runs `mise trust` in its own worktree before its first `mise` command. That is
 expected and needs no approval.
-
-It checks the commit out into a temporary worktree with a fresh virtualenv, runs
-`git diff --check`, the unit suite, and
-`ub-agents check`. When all pass it posts a green `signoff` commit status through
-[gh-signoff](https://github.com/basecamp/gh-signoff); a failure posts a red one.
-Install the extension once with `gh extension install basecamp/gh-signoff`. The
-script refuses to run from a checkout other than `origin/main`, because main owns the
-recipe. GitHub Actions runs the suite on Linux with Python 3.11 and 3.14 after each
-merge to main (`.github/workflows/test.yml`).
 
 ## Uberblick corpus
 
@@ -90,7 +89,7 @@ the issue or PR number.
 A maintainer invokes the [release skill](.agents/skills/release/SKILL.md) after
 release prep merges. `mise run release X.Y.Z` checks current `origin/main`, a clean
 checkout, the prepared version and dated CHANGELOG section, an unused tag and a
-green `signoff`. It pushes an annotated tag, copies the section without its heading
+green GitHub Actions `Test` run on the commit. It pushes an annotated tag, copies the section without its heading
 into the GitHub release notes, and opens a PR updating the Homebrew tap formula.
 It tests the tag and exact formula resource versions in a fresh Python 3.14
 virtualenv and posts the result to that PR. A maintainer reviews and merges the tap

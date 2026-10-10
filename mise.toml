@@ -17,9 +17,9 @@ run = [
 ]
 
 [tasks.ci]
-description = "Local CI: verify a pushed commit in a fresh worktree, then sign off"
-usage = 'arg "<commit>" help="Full SHA of the pushed commit"'
-run = 'sh "{{config_root}}/bin/ci.sh" "${usage_commit?}"'
+description = "Optional local CI: verify a commit in a fresh worktree before pushing"
+usage = 'arg "[commit]" help="Commit to verify" default="HEAD"'
+run = 'sh "{{config_root}}/bin/ci.sh" "${usage_commit:-HEAD}"'
 
 [tasks.release]
 description = "Maintainers: publish a prepared release and open its Homebrew tap PR"
@@ -29,5 +29,5 @@ run = 'python3 "{{config_root}}/bin/release.py" "${usage_version?}"'
 [hooks]
 enter = [
   { task = "setup" },
-  "echo 'ub-agents: launch · status · mise run ci <sha> · mise run release X.Y.Z · .venv/bin/python -m tests' >&2",
+  "echo 'ub-agents: launch · status · mise run ci · mise run release X.Y.Z · .venv/bin/python -m tests' >&2",
 ]

@@ -1,40 +1,26 @@
 #!/bin/sh
-# Local CI: verify one pushed commit on this machine and sign off on it.
+# Local CI: verify one commit on this machine, for example before pushing it.
 #
-#   mise run ci <sha>
+#   mise run ci [commit]    # defaults to HEAD
 #
 # The commit is checked out into a temporary worktree with a fresh virtualenv,
 # so nothing from this checkout (its .venv, untracked files, local edits) can
-# make a run pass. The steps mirror what GitHub ran before: the unit suite on
-# every core, `ub-agents check`, and whitespace errors in the
-# diff. When every step passes the commit gets the `signoff` status, which is
-# the merge gate; a failed step posts a red status instead. Signing off needs
-# the gh-signoff extension.
-#
-# Run it from a checkout at origin/main: main owns this recipe, and the commit
-# under test only supplies the code it runs.
+# make a run pass. The steps mirror the GitHub Actions `Test` workflow, which
+# gates merges: whitespace errors against origin/main, the unit suite on every
+# core, and `ub-agents check`. This run is optional and posts nothing to GitHub.
 set -eu
 
 root=$(CDPATH= cd "$(dirname "$0")/.." && pwd -P)
 
-if [ $# -ne 1 ]; then
-	printf 'usage: mise run ci <sha>\n' >&2
+if [ $# -gt 1 ]; then
+	printf 'usage: mise run ci [commit]\n' >&2
 	exit 2
 fi
-
-if ! gh signoff --help >/dev/null 2>&1; then
-	printf 'ci: gh signoff is missing; install it with `gh extension install basecamp/gh-signoff`.\n' >&2
-	exit 1
-fi
+commit=${1:-HEAD}
 
 git -C "$root" fetch --quiet origin main
-git -C "$root" cat-file -e "$1^{commit}" 2>/dev/null || git -C "$root" fetch --quiet origin "$1"
-if [ "$(git -C "$root" rev-parse HEAD)" != "$(git -C "$root" rev-parse origin/main)" ] ||
-	! git -C "$root" diff --quiet origin/main -- bin/ci.sh mise.toml; then
-	printf 'ci: refusing; run from a checkout at origin/main with bin/ci.sh and mise.toml unmodified.\n' >&2
-	exit 1
-fi
-sha=$(git -C "$root" rev-parse --verify --end-of-options "$1^{commit}")
+git -C "$root" cat-file -e "$commit^{commit}" 2>/dev/null || git -C "$root" fetch --quiet origin "$commit"
+sha=$(git -C "$root" rev-parse --verify --end-of-options "$commit^{commit}")
 short=$(printf '%s' "$sha" | cut -c1-12)
 
 worktree=$(mktemp -d "${TMPDIR:-/tmp}/ub-agents-ci.XXXXXX")
@@ -47,7 +33,7 @@ git -C "$root" worktree add --quiet --detach "$worktree" "$sha"
 cd "$worktree"
 
 # The commit's own code runs without this machine's GitHub and git credentials,
-# so it cannot post a signoff or push in the caller's name.
+# so it cannot push or call GitHub in the caller's name.
 mkdir "$worktree.gh"
 trap 'cleanup; rm -rf "$worktree.gh"' EXIT
 isolated() {
@@ -63,8 +49,7 @@ run() {
 	shift
 	printf '\n== %s (%s)\n' "$name" "$short"
 	if ! isolated "$@"; then
-		gh signoff fail --commit "$sha" --description "$name failed" >/dev/null
-		printf '\nci: %s failed at %s; posted a failing status.\n' "$name" "$short" >&2
+		printf '\nci: %s failed at %s.\n' "$name" "$short" >&2
 		exit 1
 	fi
 }
@@ -74,5 +59,4 @@ run "Install" sh -c 'python3 -m venv .venv && .venv/bin/python -m pip install -q
 run "Tests" .venv/bin/python -m tests
 run "Config check" .venv/bin/ub-agents check
 
-gh signoff --commit "$sha"
-printf '\nci: signed off %s\n' "$short"
+printf '\nci: all checks passed at %s\n' "$short"

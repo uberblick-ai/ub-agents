@@ -90,7 +90,7 @@ class ConfigTests(unittest.TestCase):
         self.assertIn('`--match-head-commit` set to the assigned SHA or the head of its own clean base merge',
                       policy)
         self.assertIn('That clean base merge keeps the review and needs no new review', policy)
-        self.assertIn('a green `signoff` status from local CI at the head it merges', policy)
+        self.assertIn('a green `Test result` from the GitHub Actions `Test` workflow at the head it merges', policy)
         self.assertEqual(load_config(root / 'ub-agents.yaml').shared_instructions, root / '.agents/ub_agents.md')
         for path in (root / '.agents').rglob('*.md'):
             text = path.read_text()

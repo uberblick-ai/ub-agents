@@ -18,10 +18,10 @@ Use literal versions, PR numbers and commit SHAs in commands below.
    Fetch `origin/main`, verify HEAD equals it, and check `pyproject.toml` and the
    dated CHANGELOG section for the intended X.Y.Z. Run
    `python3 bin/release.py X.Y.Z --check`: it also checks local and origin tag
-   absence and the commit's green `signoff`, and prints the complete release notes.
-   If `signoff` is missing, run `mise trust` then `mise run ci SHA` from
-   `origin/main`, and repeat the check. A failing signoff or any other failing
-   check is no-go. Show the release notes, including **Upgrading** instructions,
+   absence and that the commit's newest GitHub Actions `Test` run passed, and
+   prints the complete release notes. If that run is still in progress, wait with
+   `gh run watch` and repeat the check. A failed run or any other failing check is
+   no-go. Show the release notes, including **Upgrading** instructions,
    and ask the maintainer to confirm publication of this version and commit.
 
 2. After confirmation, run `mise trust` if needed, then `mise run release X.Y.Z`.

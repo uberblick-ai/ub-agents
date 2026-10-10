@@ -464,8 +464,9 @@ match `candidate_sha` or the base merge the integrator pushed itself; any other
 change is blocked. Real conflicts and check failures that repository code or tests
 can fix go back to the implementer. Missing or inaccurate changelog entries also
 go back when shared guidance requires them in PRs. External blockers and other
-unmet gates are reported as blocked. This repository requires a green local-CI
-`signoff` at the head being merged, including an integrator's own base merge.
+unmet gates are reported as blocked. This repository requires a green `Test result`
+from its GitHub Actions `Test` workflow at the head being merged, including an
+integrator's own base merge.
 
 A retried issue run starts in a fresh worktree on a new branch. The assignment
 context lists the branches recorded by the issue's earlier runs as

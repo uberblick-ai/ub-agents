@@ -231,7 +231,7 @@ git clone https://github.com/uberblick-ai/ub-agents && cd ub-agents
 mise trust                  # once; entering the checkout now installs it into .venv
 ub-agents --version         # runs this checkout's code, not an installed release
 .venv/bin/python -m tests   # the test suite
-mise run ci <sha>           # maintainers: local CI for a pushed commit, posts signoff
+mise run ci                 # optional: GitHub's checks on HEAD, locally, before pushing
 ```
 
 Tests use fakes for GitHub and never call a model. This repository runs its own
