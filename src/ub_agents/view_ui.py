@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from math import ceil
 from pathlib import Path
 from queue import Empty
+import sys
 import time
 from weakref import WeakKeyDictionary
 
@@ -183,10 +184,12 @@ class KeyHelp(RawAccess, inherit_bindings=False):
     BINDINGS = [Binding('escape,question_mark', 'dismiss', 'Close', priority=True)]
     footer_keys = 'Esc/? close q quit'
 
-    def __init__(self, unblock=False, attached=False):
+    def __init__(self, unblock=False, attached=False, awake_supported=False):
         unblock_keys = ('4 on Needs attention   Unblock\n'
                         'g on Unblock   Load the action-needed comment or retry a failed read\n') if unblock else ''
         poll_key = 'r   Poll GitHub now (attached launcher only; 10s cooldown)\n' if attached else ''
+        awake_key = ('c   Toggle keeping the launcher machine awake (macOS only'
+                     + (')\n' if awake_supported else '; unavailable on this platform)\n')) if attached else ''
         super().__init__(
             'Keys\n\n'
             'Tab / arrows / Enter   Focus a pane and select a work row\n'
@@ -200,7 +203,7 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             'h   Read an older bounded page toward byte zero\n'
             'u   Toggle formatted/raw projection of the same page\n'
             'p   Show the full raw path and log diagnostics; Escape closes it\n'
-            + poll_key +
+            + poll_key + awake_key +
             'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
             'Mouse drag   Copy selected text on release (OSC 52)\n'
             'y   Copy the current selection again\n'
@@ -481,6 +484,7 @@ class View(App):
         Binding('h', 'history', 'Older page', priority=True),
         Binding('p', 'path', 'Full raw path', priority=True),
         Binding('r', 'poll_now', 'Poll now', priority=True),
+        Binding('c', 'keep_awake', 'Keep awake (macOS)', priority=True),
         Binding('question_mark', 'help', 'Keys', priority=True),
         Binding('g', 'load_description', 'Reload/load/retry', priority=True),
         Binding('1', "tab('log')", 'Log', priority=True),
@@ -499,6 +503,10 @@ class View(App):
         self.register_theme(VIEW_THEME)
         self.theme = VIEW_THEME.name
         self.launcher = launcher
+        self.awake_enabled = False
+        self.awake_supported = sys.platform == 'darwin'
+        self.awake_notice = ''
+        self.awake_notice_until = 0
         self.shutdown = None
         self.worker = worker or LocalWorker(root, session_path)
         self.descriptions = descriptions or DescriptionLoads()
@@ -738,6 +746,17 @@ class View(App):
         if self.shutdown == 'draining':
             message += '\nNo new work will be claimed. Press Ctrl-C to stop now.'
         self.query_one('#shutdown', Static).update(Text(message, justify='center'))
+
+    def action_keep_awake(self):
+        if self.launcher is not None and self.shutdown is None:
+            self.launcher.awake()
+
+    def keep_awake_state(self, state):
+        self.awake_supported = state.get('supported') is True
+        self.awake_enabled = state.get('enabled') is True
+        self.awake_notice = text(state.get('notice'), '')
+        self.awake_notice_until = time.monotonic() + 2 if self.awake_notice else 0
+        self.update_status()
 
     def action_poll_now(self):
         if self.launcher is not None:
@@ -1213,8 +1232,10 @@ class View(App):
         return unread, lag
 
     def footer(self, width, keys):
-        if time.monotonic() < self.copy_notice_until:
-            notice = Text(self.copy_notice, no_wrap=True, overflow='ellipsis')
+        now = time.monotonic()
+        if now < max(self.copy_notice_until, self.awake_notice_until):
+            value = self.awake_notice if self.awake_notice_until > self.copy_notice_until else self.copy_notice
+            notice = Text(value, no_wrap=True, overflow='ellipsis')
             notice.truncate(max(0, width), overflow='ellipsis')
             notice.pad_right(max(0, width - notice.cell_len))
             return notice
@@ -1223,6 +1244,9 @@ class View(App):
             version = text(self.session.data.get('base_version'), '')
             if version:
                 parts[0] += ('' if self.narrow else ' ') + f'v{version}'
+        if self.launcher is not None and self.awake_enabled:
+            parts.append('awake')
+        awake_prefix = Text(' · '.join(part for part in parts if part)).cell_len
         if self.session:
             if self.session.data.get('queue_agent'):
                 parts.append('agent ' + text(self.session.data['queue_agent']))
@@ -1279,8 +1303,15 @@ class View(App):
             keys = '1-4 tabs g load f follow h older u raw ? keys q quit'
             if len(keys) + left.cell_len + 1 > width:
                 keys = '1-4 tabs g load f follow ? keys q quit'
+        # Add this hint only after retaining the existing poll/reload hints.
+        # It is the first hint to disappear as space becomes scarce.
+        if self.launcher is not None and self.awake_supported and 'r poll now' in keys:
+            awake_keys = keys.replace('? keys', 'c awake ? keys')
+            if len(awake_keys) + left.cell_len + 1 <= width:
+                keys = awake_keys
         right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
-        right.truncate(max(0, width - 1), overflow='ellipsis')
+        reserve = awake_prefix if self.launcher is not None and self.awake_enabled else 0
+        right.truncate(max(0, width - reserve - 1), overflow='ellipsis')
         left.truncate(max(0, width - right.cell_len - 1), overflow='ellipsis')
         left.append(' ' * max(1, width - left.cell_len - right.cell_len))
         left.append_text(right)
@@ -1515,7 +1546,8 @@ class View(App):
         if isinstance(self.screen, KeyHelp):
             self.screen.dismiss()
         else:
-            self.push_screen(KeyHelp(self.unblock_visible, attached=self.launcher is not None))
+            self.push_screen(KeyHelp(self.unblock_visible, attached=self.launcher is not None,
+                                     awake_supported=self.awake_supported))
 
     def scroll_area(self):
         if isinstance(self.screen, RawAccess):
