@@ -162,7 +162,8 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
                 app = View(self.root, self.path)
                 async with app.run_test(size=size) as pilot:
                     recent = app.query_one(RecentActivity)
-                    await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0)
+                    await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0
+                                     and recent.allow_vertical_scroll)
                     geometry = recent.virtual_size, recent.max_scroll_y, len(recent.visible_rows)
                     for omitted in (0, 1, 3, 0):
                         self.state['omitted'] = {'outcomes': omitted}
@@ -207,7 +208,8 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             recent = app.query_one(RecentActivity)
-            await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0)
+            await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0
+                             and recent.allow_vertical_scroll)
             await pilot.pause()
             recent.scroll_to(y=25, animate=False, immediate=True)
             recent.cursor = recent.rows[10].key

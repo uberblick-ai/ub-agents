@@ -2978,7 +2978,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    @unittest.skip('Flaky under parallel load; see #427')
     async def test_recent_split_fixed_with_empty_and_overflowing_live_work(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
@@ -2997,7 +2996,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 publish_snapshot(self.path, self.state)
                 await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
                                  len(app.groups['Eligible'].children) == 10 and
-                                 tree.virtual_size.height > tree.size.height and tree.max_scroll_y > 0)
+                                 tree.virtual_size.height > tree.size.height and tree.max_scroll_y > 0 and
+                                 tree.allow_vertical_scroll)
                 tree.get_node_at_line(0)
                 separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
                 self.assertTrue(separators <= tree._spacer_lines)

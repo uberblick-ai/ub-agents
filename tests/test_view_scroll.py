@@ -51,7 +51,8 @@ class ViewScrollbarTests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             output = app.query_one(LogPane)
-            await self.ready(pilot, lambda: output.max_scroll_y > 0 and app.reading.page is not None)
+            await self.ready(pilot, lambda: output.max_scroll_y > 0 and output.allow_vertical_scroll
+                             and app.reading.page is not None)
             output.focus(scroll_visible=False)
             await pilot.press('f')
             output.scroll_home(animate=False, immediate=True)
@@ -86,7 +87,8 @@ class ViewScrollbarTests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             output = app.query_one(LogPane)
-            await self.ready(pilot, lambda: output.max_scroll_y > 0 and app.reading.page is not None)
+            await self.ready(pilot, lambda: output.max_scroll_y > 0 and output.allow_vertical_scroll
+                             and app.reading.page is not None)
             before = app.reading.page.end
             with self.log.open('ab') as stream:
                 stream.write(event(601, 20))
