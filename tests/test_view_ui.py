@@ -2514,7 +2514,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    @unittest.skip('Flaky under parallel load; see #428')
     async def test_quiet_ticks_do_not_update_static_content_even_across_seconds(self):
         self.state['assignment'] = None
         self.state['activity'] = {'state': 'idle'}
@@ -2554,6 +2553,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('?', '3')
             with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
                 clock.now.return_value = now
+                # Rebuild the baseline at Runs' laid-out width after tab activation.
+                app._static_values.clear()
+                app.last_runs = None
                 app.tick()
                 with patch.object(Static, 'update', autospec=True) as update:
                     for tick in range(1, 31):
