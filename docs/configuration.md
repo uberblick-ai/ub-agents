@@ -289,16 +289,19 @@ Discovery pacing targets an **average of at most 250 requests/hour** per launche
 not a ceiling in each rolling hour. Apart from the one-hour cap exception, over any
 interval `T`, discovery spend is at most `125 + 250/hour × T`, plus the largest
 admitted pass and exempt spend since the last admitted pass. Later idle waits repay
-exempt claiming and poll-now spend. A default warm pass costing one request every
-30 seconds uses about 120 requests/hour; two-request passes use about 240.
+exempt claiming and poll-now spend. On a quiet repository, a warm pass costs about
+one quota-counted request, or 120 requests/hour at the default 30-second interval.
+On a busy repository, a warm pass costs a few requests; the 250/hour budget,
+rather than `poll-seconds`, then paces discovery.
 The initial 125-request balance absorbs a cold burst, while a pass above 125 can
 leave debt. Sustained 300-request passes eventually need more than an hour to repay
 each pass; they start at the one-hour cap with debt still outstanding. Passes that
 keep costing more than 250 are therefore the exception to the average guarantee.
 Sum all launchers using the account, including other repositories, and add
-execution/write costs and agents' calls. See
+execution/write costs and agents' calls. For many short runs, put launchers beyond
+about seven on a second account. See
 [How many launchers one account supports](../site/content/best-practices/08-account-capacity.md)
-for the busy-run estimate and when to use another account.
+for the measured per-run cost and the agent-call allowance behind this threshold.
 GraphQL has a separate point budget; graph-list query cost depends on its
 connections. Long runs reduce discovery frequency.
 

@@ -14,7 +14,7 @@ People keep their own accounts for starting work, approving input and the merges
 
 One account supports up to ten launchers under the discovery budget. Busy capacity
 also depends on requests per finished run; for many short runs, put launchers beyond
-about six on a second account. See
+about seven on a second account. See
 [How many launchers one account supports](/docs/best-practices/account-capacity.html).
 
 ## Narrow the list
