@@ -1,4 +1,5 @@
 from copy import deepcopy
+from contextlib import nullcontext
 import hashlib
 import json
 from pathlib import Path
@@ -305,6 +306,38 @@ class CoordinationRunner(RecordingRunner):
 
 
 class RequestBudgetTests(unittest.TestCase):
+    def test_no_handoff_success_reduces_released_gh_calls(self):
+        stub_refresh(self)
+        counts = []
+        for shared in (False, True):
+            with self.subTest(shared=shared), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                runner = CoordinationRunner(root, True)
+                runner.store = FakeGitHub(issue())
+                github = GitHub('org/project', runner)
+                loop = Loop(config(root), github, 'operator', output=lambda *_: None)
+
+                def execute(*args, **kwargs):
+                    # Agent requests use a separate client and are excluded from
+                    # the launcher's released event, just as in production.
+                    source = Coordinator(GitHub('org/project', runner), 'operator')
+                    source.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                    return 0
+
+                # Reproduce the previous read strategy against the same durable
+                # store and HTTP recording runner for an explicit comparison.
+                unshared = patch.object(loop.github, 'begin_finalization') if not shared else nullcontext()
+                with unshared, patch('ub_agents.loop.supervise', side_effect=execute):
+                    self.assertTrue(loop.tick())
+                lease, outcome = records(runner.store.comments(1), 'operator')
+                self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
+                self.assertTrue(outcome['accepted'])
+                events = [json.loads(line) for line in (run_directory(root, lease['run']) / 'events.jsonl')
+                          .read_text().splitlines()]
+                counts.append(next(event['github_requests']['gh_calls'] for event in events
+                                   if event['event'] == 'released'))
+        self.assertEqual(counts, [71, 52])
+
     def test_recovery_release_records_its_own_run_request_counts(self):
         stub_refresh(self)
         with tempfile.TemporaryDirectory() as directory:
@@ -403,7 +436,7 @@ class RequestBudgetTests(unittest.TestCase):
             self.assertGreater(len(runner.calls), len(own))  # Worker and agent traffic is excluded.
             self.assertEqual(len(own), boundaries['release'] + 1)  # Display refresh is excluded too.
 
-    def test_45_item_gate_claim_to_release_saves_at_least_two_fifths_of_rest_quota(self):
+    def test_45_item_gate_claim_to_release_saves_at_least_one_third_of_rest_quota(self):
         self.assert_request_budget('gate')
 
     def test_45_item_milestone_order_claim_to_release_uses_at_most_half_the_rest_quota(self):
@@ -455,9 +488,13 @@ class RequestBudgetTests(unittest.TestCase):
         self.assertEqual(request_counts[0], request_counts[1])
         # Gate evaluates eligibility across all new issues before choosing its
         # active milestone, so its cold pass has more uncached approval reads.
-        # Still require a substantial saving while retaining order's budget.
+        # Sharing finalization reads removes requests from both clients. The
+        # conditional quota stays at 93, while the unconditional baseline drops
+        # from 168 to 148: the remaining ETag saving is a smaller fraction.
         if milestone_mode == 'gate':
-            self.assertLessEqual(counts[0] * 5, counts[1] * 3,
+            self.assertLessEqual(counts[0], 93)
+            self.assertLessEqual(counts[1], 148)
+            self.assertLessEqual(counts[0] * 3, counts[1] * 2,
                                  f'conditional={counts[0]}, baseline={counts[1]}')
         else:
             self.assertLessEqual(counts[0] * 2, counts[1], f'conditional={counts[0]}, baseline={counts[1]}')

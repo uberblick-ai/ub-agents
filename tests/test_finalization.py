@@ -8,12 +8,12 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ub_agents.errors import AgentError, GitHubError
+from ub_agents.errors import AgentError, GitHubError, LostOwnership
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop, POLL_FAILURE_LIMIT
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.rate_limits import READS
-from ub_agents.records import MARKER, records, timestamp
+from ub_agents.records import MARKER, body, payload, records, timestamp
 from tests.support import FakeGitHub, RecordingRunner, agent, config, issue, pr, stub_refresh
 
 
@@ -25,7 +25,7 @@ class FinalizationTests(unittest.TestCase):
         self.root = Path(self.temp.name)
 
     def scenario(self, status='success', fail_at=None, *, once=False, failure=None,
-                 lost_response=False, handoff=False, recovering=False):
+                 lost_response=False, handoff=False, recovering=False, trace=None, after_write=None):
         github = FakeGitHub(issue(), pr(296, labels=() if handoff else ('needs-review',)))
         worker = agent(self.root, name='reviewer', kind='issue' if handoff else 'pr',
                        triggers=('ready',) if handoff else ('needs-review',),
@@ -59,14 +59,27 @@ class FinalizationTests(unittest.TestCase):
                 active = bool(exited) and len(passes) == 1
                 if active:
                     calls.append(name)
+                record = None
                 if name in {'create_comment', 'update_comment'} and exited and args[-1].startswith(MARKER):
-                    writes.extend(records([{'id': 0, 'body': args[-1], 'user': {'login': 'operator'}}]))
+                    record, = records([{'id': 0, 'body': args[-1], 'user': {'login': 'operator'}}])
+                    writes.append(record)
+                if active and trace is not None and (name == 'item' or name in methods):
+                    trace.append((name, args[0], record))
                 if active and (fail_at == len(calls) - 1 or fail_at == name):
                     if lost_response:
                         operation(*args, **kwargs)
                     raise failure or request_error(name)
-                return operation(*args, **kwargs)
+                result = operation(*args, **kwargs)
+                if active and name in methods and after_write is not None:
+                    after_write(loop)
+                return result
             return call
+
+        history = loop.coordinator._history
+        def read_history(number):
+            if exited and len(passes) == 1 and trace is not None:
+                trace.append(('history', number, None))
+            return history(number)
 
         def report(lease):
             return loop.coordinator.report(lease, status, 'Recorded review result',
@@ -104,6 +117,10 @@ class FinalizationTests(unittest.TestCase):
             now[0] += 61  # Expire the lease before the one later recovery pass.
 
         with ExitStack() as stack:
+            stack.enter_context(patch.object(loop.coordinator, '_history', side_effect=read_history))
+            if trace is not None:
+                # Display refresh belongs to the next discovery phase.
+                stack.enter_context(patch.object(loop, '_replan_finished_item'))
             for name in sorted(READS | methods.keys()):
                 operation = getattr(github, name, None)
                 if operation is not None:
@@ -118,6 +135,69 @@ class FinalizationTests(unittest.TestCase):
             except AgentError as exc:
                 error = exc
         return github, loop, calls, writes, lines, supervise.call_count, error
+
+    def test_completion_shares_history_and_items_until_each_write(self):
+        for status, handoff in (('success', True), ('success', False), ('retry', False), ('blocked', False)):
+            with self.subTest(status=status, handoff=handoff):
+                trace = []
+                github, loop, _, _, _, _, error = self.scenario(status, once=True, handoff=handoff, trace=trace)
+                self.assertIsNone(error)
+                assignment = 1 if handoff else 296
+                reads, released = set(), False
+                for name, number, record in trace:
+                    if name in {'history', 'item'}:
+                        self.assertNotIn((name, number), reads, trace)
+                        reads.add((name, number))
+                    else:
+                        # Advisory presentation writes after release keep their
+                        # existing semantics; durable writes require ownership.
+                        if not released:
+                            self.assertIn(('history', assignment), reads, trace)
+                        reads.clear()
+                        if record and record.get('state') == 'released':
+                            released = True
+                self.assertTrue(released)
+                lease = loop.coordinator.history(assignment)[0]
+                self.assertEqual((lease['state'], lease['result']), ('released', status))
+                if status == 'success':
+                    outcome = loop.coordinator.history(assignment)[1]
+                    self.assertTrue(outcome['accepted'])
+                    if handoff:
+                        self.assertTrue(loop.coordinator.history(296)[0]['accepted'])
+                else:
+                    self.assertEqual(lease['attempt_effect'], 'failure' if status == 'retry' else 'unchanged')
+
+    def test_ownership_lost_between_writes_stops_before_second_write(self):
+        for handoff in (False, True):
+            baseline = []
+            self.assertIsNone(self.scenario(once=True, handoff=handoff, trace=baseline)[-1])
+            durable = []
+            for name, _, record in baseline:
+                if name not in {'history', 'item'}:
+                    durable.append(name)
+                if record and record.get('state') == 'released':
+                    break
+            for index in range(len(durable) - 1):
+                with self.subTest(handoff=handoff, after=durable[index], index=index):
+                    trace, completed = [], []
+                    def lose_ownership(loop):
+                        completed.append(True)
+                        if len(completed) != index + 1:
+                            return
+                        lease = loop.github.lease
+                        # Another writer revokes the lease between this pair of
+                        # durable writes, outside the launcher's read window.
+                        for comment in loop.github.github.store[lease['assignment']]:
+                            if comment['id'] == lease['id']:
+                                comment['body'] = body(payload(lease) | {'state': 'withdrawn'})
+                    result = self.scenario(once=True, handoff=handoff, trace=trace, after_write=lose_ownership)
+                    self.assertIsInstance(result[-1], LostOwnership)
+                    self.assertEqual([name for name, _, _ in trace if name not in {'history', 'item'}],
+                                     durable[:index + 1], trace)
+                    assignment = 1 if handoff else 296
+                    self.assertEqual(len([name for name, number, _ in trace
+                                          if name == 'history' and number == assignment]), index + 2, trace)
+                    self.assertIsNone(result[1].github._finalization)
 
     def assert_finished(self, scenario, status, *, recovering=False, handoff=False):
         github, loop, calls, writes, lines, executions, error = scenario

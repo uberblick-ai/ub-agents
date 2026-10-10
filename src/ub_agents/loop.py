@@ -22,10 +22,10 @@ from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
+from .finalization import FinalizationReads
 from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
-from .rate_limits import RateLimitReads
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
@@ -76,7 +76,7 @@ class Loop:
         self._observation_warning = False
         self.config = config
         self.approvals = config.approvals or "on"
-        self.github = RateLimitReads(github, self.wait_rate_limit)
+        self.github = FinalizationReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
                                        on_claim=self.claimed, launchers=config.launchers, trusted_bots=config.trusted_bots,
                                        on_record=lambda record: self._observe("record", record),
@@ -932,6 +932,7 @@ class Loop:
         try:
             return self._execute(plan)
         finally:
+            self.github.end_finalization()
             self._stop_planning()
             self._renewal.close()
             self._renewal = None
@@ -1348,6 +1349,7 @@ class Loop:
                 usage_output.poll(final=True)
             self._observe("process", "exited", "Supervision confirmed execution has ended")
             diagnostic("execution-exited", code=code)
+            self.github.begin_finalization()
             # No acceptance or release until all attributable execution has ended.
             cleanup_workspace()
             completing = True
@@ -1409,12 +1411,14 @@ class Loop:
             result, effect = "retry", "unchanged"
             summary = usage_output.summary
             completing = False  # This supervision verdict supersedes an early report.
+        self.github.begin_finalization()
         if outcome is None:
             # A report can precede a timeout/interruption. Keep that report
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
         self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
                     completed=completing)
+        self.github.end_finalization()
         self._renewal.close()
         diagnostic("released", result=result, summary=summary,
                    github_requests=request_delta(request_counts(self.github), requests_before))

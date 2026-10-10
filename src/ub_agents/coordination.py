@@ -10,6 +10,7 @@ from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime, LEASE_SECONDS
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
+from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
 from .records import (MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
@@ -71,6 +72,11 @@ class Coordinator:
             self.on_record(record)
 
     def history(self, number):
+        if isinstance(self.github, FinalizationReads):
+            return self.github.read_history(number, lambda: self._history(number))
+        return self._history(number)
+
+    def _history(self, number):
         comments = self.github.comments(number)
         try:
             return records(comments, trusted=self.trust.observation())
@@ -498,6 +504,8 @@ class Coordinator:
         except AgentError as exc:
             raise LostOwnership(f"Cannot establish ownership: {exc}") from exc
         with self._lease_lock:
+            if isinstance(self.github, FinalizationReads):
+                history = self.github.ownership_history(lease, history)
             return self._owned(lease, history)
 
     def renew(self, lease, github):
@@ -528,6 +536,8 @@ class Coordinator:
                 # Only expiry belongs to renewal. Workspace preparation may have
                 # a branch staged locally while a Git command is in progress.
                 lease["expires"] = result["expires"]
+                if isinstance(self.github, FinalizationReads):
+                    self.github.renewed(lease)
                 return True
         except LostOwnership:
             raise
