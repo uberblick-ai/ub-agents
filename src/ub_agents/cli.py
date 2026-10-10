@@ -456,6 +456,8 @@ def run(args):
                 explanation = loop.item_explanation(item)
         if args.json:
             result = {"assignments": rows}
+            if loop.milestone_skips:
+                result["milestone_skips"] = list(loop.milestone_skips)
             if explanation is not None:
                 result["explanation"] = explanation
             print(json.dumps(result, indent=2))
@@ -482,7 +484,7 @@ def run(args):
                 elif row["priority_from_issue"] is not None:
                     priority += f" (from closed issue #{row['priority_from_issue']})"
                 milestone = ""
-                if config.queue.milestones in {"order", "prefer"} and row["kind"] == "issue":
+                if config.queue.milestones in {"order", "gate"} and row["kind"] == "issue":
                     value = f"#{row['milestone']}" if row["milestone"] is not None else "none"
                     milestone = f" · milestone {value}"
                     if row["milestone_inherited_from"] is not None:
@@ -490,6 +492,9 @@ def run(args):
                 state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
                 print(f"#{row['number']} {row['agent']}: {state} · priority {priority}{milestone} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['process_reason'] or row['reason']}")
+        if not args.json:
+            for line in loop.milestone_skips:
+                print(line)
         return
     for _, error in repository_checks(config):
         if error is not None:

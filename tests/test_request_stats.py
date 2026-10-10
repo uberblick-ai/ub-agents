@@ -111,7 +111,6 @@ class RequestStatsTests(unittest.TestCase):
                 ('trigger', 'Start gate: No trigger matches'),
                 ('stop', 'Fresh plan is no longer ready: parked — Stop label needs-human is present'),
                 ('runtime', 'Runtime changed before claim'),
-                ('milestone', 'Milestone gate: Waiting for active milestone #2'),
                 ('blockers', 'Open blockers: #3')):
             with self.subTest(change=change):
                 github = FakeGitHub(pr() if change == 'head' else issue(), issue(3, labels=()))
@@ -126,10 +125,6 @@ class RequestStatsTests(unittest.TestCase):
                     github.change(1, labels=frozenset({'ready', 'needs-human'}))
                 elif change == 'runtime':
                     co.plan = lambda *args, **kwargs: replace(plan, runtime=Runtime('codex', 'model', 'high'))
-                elif change == 'milestone':
-                    co.queue = Queue(milestones='gate')
-                    github.milestones = [{'number': 2, 'state': 'open', 'open_issues': 1, 'created_at': iso(1)}]
-                    github.change(3, milestone=2)
                 elif change == 'blockers':
                     github.dependencies[1] = [3]
                 self.assertIsNone(co.claim(plan, ('needs-human',)))

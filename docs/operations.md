@@ -31,8 +31,8 @@ those claim checks through release, including renewals and finalization, excludi
 the observation worker, agent requests and the post-release display refresh.
 
 If discovery reaches a ready plan and declines it, a line names its item, agent
-and reason: the refreshed re-plan is no longer ready, the head moved, a start or
-milestone gate changed, the fresh plan or runtime changed, blockers opened, the
+and reason: the refreshed re-plan is no longer ready, the head moved, a start
+gate changed, the fresh plan or runtime changed, blockers opened, the
 recovery outcome no longer matches, or the claim election was lost. For example:
 `#400 implementer: declined — Head moved before claim`. Existing trust, approval,
 runtime and health messages still explain their waits without a second decline

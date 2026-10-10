@@ -83,8 +83,7 @@ class PollingTests(unittest.TestCase):
         cases = [("observe", [], Queue()), ("repository_comments", [], Queue()),
                  ("comments", [], Queue()), ("comments", [None], Queue()),
                  ("item", [], Queue()), ("milestone_order", [], Queue(milestones="order")),
-                 ("active_milestone", [], Queue(milestones="gate")),
-                 ("active_milestone", [None], Queue(milestones="gate")),
+                 ("milestone_order", [], Queue(milestones="gate")),
                  ("blocked_by", [], Queue()), ("blocked_by", [None], Queue())]
         for name, earlier, queue in cases:
             with self.subTest(read=name, earlier=len(earlier)):
@@ -373,7 +372,7 @@ class PollingTests(unittest.TestCase):
         command = ("gh", "api", "--hostname", "github.com", "--method", "GET", "-H",
                    "Accept: application/vnd.github+json", "--include", endpoint)
         runner.responses[command] = '[{"number":1,"created_at":"invalid"}]'
-        for mode, name in (("gate", "active_milestone"), ("order", "milestone_order")):
+        for mode, name in (("gate", "milestone_order"), ("order", "milestone_order")):
             with self.subTest(mode=mode):
                 with self.assertRaises(GitHubError) as raised:
                     getattr(GitHub("org/project", runner), name)()

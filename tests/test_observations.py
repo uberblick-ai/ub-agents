@@ -697,7 +697,8 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual([row.item for row in work_rows(session, self.root)
                           if row.group == 'Eligible'], [3, 1])
         self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
-        # An equal-priority PR keeps the following pass partial before it reaches #1.
+        # Gate evaluates issue eligibility before choosing, but only yielded
+        # plans replace the partial snapshot. An equal-priority PR still runs first.
         github.change(2, labels=frozenset({'needs-changes', 'urgent'}))
         github.timelines.pop(2, None)
         github.reads.clear()
@@ -708,8 +709,8 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(snapshot['latest_pass']['state'], 'partial')
         self.assertEqual([r['agent'] for r in snapshot['latest_pass']['rows'] if r['item'] == 1],
                          ['issue-reviewer', 'auditor'])
-        self.assertFalse(any(name in {'item', 'comments', 'timeline', 'issue_content'} and args[0] == 1
-                             for name, args in github.reads))
+        self.assertTrue(any(name in {'item', 'comments', 'timeline', 'issue_content'} and args[0] == 1
+                            for name, args in github.reads))
 
     def test_failed_finished_item_replan_preserves_verdict_and_next_claim_without_waiting(self):
         self.cfg = config(self.root, agent(self.root))

@@ -245,7 +245,7 @@ class EnforcementTests(unittest.TestCase):
                     self.assertEqual(self.notices(), [])
 
     def test_approval_is_not_the_only_obstacle_so_no_parking_writes(self):
-        for obstacle in ('stop', 'closed', 'dependency', 'milestone', 'backoff', 'blocked', 'runtime', 'owned'):
+        for obstacle in ('stop', 'closed', 'dependency', 'backoff', 'blocked', 'runtime', 'owned'):
             with self.subTest(obstacle=obstacle):
                 self.setUp()
                 if obstacle == 'stop':
@@ -255,10 +255,6 @@ class EnforcementTests(unittest.TestCase):
                 elif obstacle == 'dependency':
                     self.github.items[2] = issue(2, labels=())
                     self.github.dependencies[1] = [2]
-                elif obstacle == 'milestone':
-                    self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
-                    self.github.milestones = [dict(number=1, state='open', created_at=at(1))]
-                    self.github.items[2] = issue(2, labels=(), milestone=1)
                 elif obstacle == 'runtime':
                     self.loop.config = config(self.root, replace(self.worker, command=('missing-ub-agents-command',)))
                 else:
@@ -277,13 +273,13 @@ class EnforcementTests(unittest.TestCase):
                 run.assert_not_called()
                 self.assertEqual(self.github.writes, before)
 
-    def test_milestone_order_allows_approval_parking_without_milestone_recheck(self):
+    def test_milestone_gate_allows_approval_parking_without_milestone_recheck(self):
         for milestone in (None, 20):
             with self.subTest(milestone=milestone):
                 self.setUp()
                 self.github.timelines[1] = []
                 self.github.change(1, milestone=milestone)
-                self.loop.config = config(self.root, self.worker, queue=Queue(milestones='order'))
+                self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
                 self.github.milestones = [dict(number=10, state='open', created_at=at(1)),
                                           dict(number=20, state='open', created_at=at(2))]
                 self.github.items[2] = issue(2, labels=(), milestone=10)
@@ -292,7 +288,7 @@ class EnforcementTests(unittest.TestCase):
                     with patch.object(self.github, 'milestone_order',
                                       side_effect=AssertionError('parking must not read milestones')), \
                             patch.object(self.github, 'active_milestone',
-                                         side_effect=AssertionError('order must not recheck the gate')):
+                                         side_effect=AssertionError('gate must not recheck milestones')):
                         original(plan)
                 with patch.object(self.loop, 'park_approval', side_effect=park):
                     self.assert_parked('No maintainer', writes=True)
@@ -308,7 +304,7 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
 
     def test_gate_reapproved_or_item_changed_before_writes_is_not_parked(self):
-        for change in ('approval', 'closed', 'stop', 'trigger', 'dependency', 'milestone', 'during-read'):
+        for change in ('approval', 'closed', 'stop', 'trigger', 'dependency', 'during-read'):
             with self.subTest(change=change):
                 self.setUp()
                 self.github.timelines[1] = []
@@ -325,10 +321,6 @@ class EnforcementTests(unittest.TestCase):
                     elif change == 'dependency':
                         self.github.items[2] = issue(2, labels=())
                         self.github.dependencies[1] = [2]
-                    elif change == 'milestone':
-                        self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
-                        self.github.milestones = [dict(number=1, state='open', created_at=at(1))]
-                        self.github.items[2] = issue(2, labels=(), milestone=1)
                     if change == 'during-read':
                         read = self.github.issue_content
                         def content(number):

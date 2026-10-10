@@ -819,25 +819,25 @@ class MilestoneGateTests(unittest.TestCase):
                  replace(pr(4, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)),
                  replace(pr(5, ("needs-changes", "urgent"), body="Unrelated"), created_at=iso(300)),
                  replace(pr(6, ("needs-changes", "low"), body="Unrelated"), created_at=iso(100)))
-        self.assertEqual(self.ready("implementer"), [5, 1, 4, 6, 3])
+        self.assertEqual(self.ready("implementer"), [5, 1, 2, 4, 6, 3])
         with patch.object(self.loop, "execute", return_value=True) as execute:
             self.assertTrue(self.loop.tick())
         self.assertEqual(execute.call_args.args[0].item.number, 5)
         self.assertIsNotNone(self.loop.coordinator.claim(execute.call_args.args[0]))
 
-    def test_priority_never_allows_later_or_unmilestoned_issue_to_start(self):
+    def test_gate_keeps_later_milestone_behind_active_but_allows_unmilestoned_priority_exception(self):
         self.loop = Loop(config(self.root, self.implementer,
                                 queue=Queue("gate", Priority(("urgent", "low")))),
                          self.github, "operator", output=lambda *_: None)
         self.add(issue(1, ("ready", "urgent"), iso(1), 20),
                  issue(2, ("ready", "urgent"), iso(2)),
                  issue(3, ("ready", "low"), iso(300), 10))
-        self.assertEqual(self.ready("implementer"), [3])
+        self.assertEqual(self.ready("implementer"), [2, 3, 1])
         with patch.object(self.loop, "execute", return_value=True) as execute:
             self.assertTrue(self.loop.tick())
-        self.assertEqual(execute.call_args.args[0].item.number, 3)
+        self.assertEqual(execute.call_args.args[0].item.number, 2)
 
-    def test_status_text_and_json_share_rank_priority_and_milestone_wait(self):
+    def test_status_text_and_json_share_rank_priority_and_milestone_skip(self):
         settings = config(self.root, self.implementer,
                           queue=Queue("gate", Priority(("urgent", "normal", "low"), "normal")))
         self.loop = Loop(settings, self.github, "operator", output=lambda *_: None)
@@ -852,8 +852,7 @@ class MilestoneGateTests(unittest.TestCase):
         self.assertEqual(rows[0]["priority_from_issue"], 1)
         self.assertEqual(rows[-1]["state"], "ready")
         for row in rows[1:3]:
-            self.assertEqual(row["state"], "parked")
-            self.assertEqual(row["reason"], "Waiting for active milestone #10")
+            self.assertEqual(row["state"], "ready")
         with patch("ub_agents.cli.load_config", return_value=settings), \
                 patch("ub_agents.cli.GitHub", return_value=self.github):
             structured = io.StringIO()
@@ -869,34 +868,35 @@ class MilestoneGateTests(unittest.TestCase):
         for priority in ("urgent", "normal", "low"):
             self.assertIn(f"priority {priority}", output)
         self.assertIn("urgent (from closed issue #1)", output)
-        self.assertEqual(output.count("Waiting for active milestone #10"), 2)
-        self.assertNotIn(" · milestone ", output)
+        self.assertNotIn("Waiting for active milestone", output)
+        self.assertIn("Milestone #10 has no eligible issues for this launcher", output)
+        self.assertIn(" · milestone ", output)
         self.assertEqual(self.github.writes, [])
 
-    def test_later_and_unmilestoned_issues_wait_when_active_has_no_eligible_issue(self):
+    def test_later_and_unmilestoned_issues_start_when_early_has_no_eligible_issue(self):
         self.add(issue(1, ("prepare", "ready"), iso(1), 20),
                  issue(2, ("prepare", "ready"), iso(2)),
                  issue(3, (), iso(300), 10))
-        with patch.object(self.loop, "execute") as execute:
-            self.assertFalse(self.loop.tick())
-        execute.assert_not_called()
+        with patch.object(self.loop, "execute", return_value=True) as execute:
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(execute.call_args.args[0].item.number, 1)
         self.assertEqual(self.github.writes, [])
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
-                         [(1, "parked"), (1, "parked"), (2, "parked"), (2, "parked")])
+                         [(1, "ready"), (1, "ready"), (2, "ready"), (2, "ready")])
 
-    def test_closing_active_milestone_advances_even_with_open_items(self):
+    def test_closing_unavailable_earlier_milestone_keeps_later_work_ready(self):
         self.add(issue(1, ("prepare", "ready"), iso(1), 20), issue(2, (), iso(2), 10))
-        self.assertEqual(self.ready("preparer"), [])
+        self.assertEqual(self.ready("preparer"), [1])
         self.github.milestones[1]["state"] = "closed"
         self.assertEqual(self.ready("preparer"), [1])
         self.assertEqual(self.ready("implementer"), [1])
 
-    def test_closing_last_issue_or_pr_advances_to_next_milestone(self):
+    def test_untriggered_last_issue_or_pr_does_not_hold_later_milestone(self):
         for remaining in (issue(2, (), milestone=10), pr(2, (), milestone=10)):
             with self.subTest(kind=remaining.kind):
                 self.add(issue(1, ("prepare", "ready"), iso(1), 20), remaining)
-                self.assertEqual(self.ready("preparer"), [])
-                self.assertEqual(self.ready("implementer"), [])
+                self.assertEqual(self.ready("preparer"), [1])
+                self.assertEqual(self.ready("implementer"), [1])
                 self.github.change(2, state="closed")
                 self.assertEqual(self.ready("preparer"), [1])
                 self.assertEqual(self.ready("implementer"), [1])
@@ -905,7 +905,7 @@ class MilestoneGateTests(unittest.TestCase):
         self.github.milestones[0]["created_at"] = iso(100)
         self.add(issue(1, ("prepare", "ready"), iso(1), 20),
                  issue(2, ("prepare", "ready"), iso(200), 10))
-        self.assertEqual(self.ready("preparer"), [2])
+        self.assertEqual(self.ready("preparer"), [2, 1])
         self.github.change(2, state="closed")
         self.assertEqual(self.ready("preparer"), [1])
 
@@ -978,20 +978,20 @@ class MilestoneGateTests(unittest.TestCase):
         recovery = next(r for r in co.history(2) if r.get("mode") == "recovery")
         self.assertEqual(recovery["result"], "success")
 
-    def test_claim_rechecks_active_milestone_and_current_membership(self):
-        self.add(issue(1, ("ready",), milestone=20))
-        plan = next(p for p in self.loop.plans() if p.state == "ready")
-        self.add(issue(2, (), milestone=10))
-        self.assertIsNone(self.loop.coordinator.claim(plan))
-        self.github.change(2, state="closed")
-        self.github.change(1, milestone=None)
-        self.add(pr(3, (), milestone=20))
-        self.assertIsNone(self.loop.coordinator.claim(plan))
-        self.assertEqual(self.github.writes, [])
+    def test_claim_does_not_recheck_milestone_list_or_current_membership(self):
+        for milestone in (None, 10, 20):
+            with self.subTest(milestone=milestone):
+                self.setUp()
+                self.add(issue(1, ("ready",), milestone=20))
+                plan = next(p for p in self.loop.plans() if p.state == "ready")
+                self.add(issue(2, (), milestone=10), pr(3, (), milestone=20))
+                self.github.change(1, milestone=milestone)
+                with patch.object(self.github, "milestone_order", side_effect=AssertionError("no milestone recheck")):
+                    self.assertIsNotNone(self.loop.coordinator.claim(plan))
 
     def test_milestone_read_failure_stops_selection_without_claiming(self):
         self.add(issue())
-        with patch.object(self.github, "active_milestone", side_effect=AgentError("GitHub unavailable")):
+        with patch.object(self.github, "milestone_order", side_effect=AgentError("GitHub unavailable")):
             with self.assertRaises(AgentError):
                 self.loop.tick()
         self.assertEqual(self.github.writes, [])

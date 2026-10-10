@@ -151,6 +151,7 @@ class Observations:
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
             "health_notice": None,
+            "milestone_skips": [],
             "outcomes": [], "histories": {}, "action_needed": {}, "coordination_authors": {},
             "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
@@ -328,6 +329,10 @@ class Observations:
 
     def queue_idle(self, message):
         self.state["queue_idle"] = message
+        self.emit()
+
+    def milestone_skips(self, messages):
+        self.state["milestone_skips"] = list(messages[:MAX_ADVISORIES])
         self.emit()
 
     def configure(self, config, actor, path):

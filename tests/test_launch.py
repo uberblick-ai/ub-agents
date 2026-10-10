@@ -82,6 +82,22 @@ class LaunchTests(unittest.TestCase):
                 wait.assert_not_called()
                 self.assertEqual(github.writes, [])
 
+    def test_gate_logs_why_untriggered_earlier_milestone_is_skipped(self):
+        github = FakeGitHub(issue(1, labels=(), milestone=12), issue(2, milestone=13))
+        github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (12, 13)]
+        settings = replace(self.config, queue=Queue(milestones="gate"))
+        with patch("ub_agents.cli.load_config", return_value=settings), \
+                patch("ub_agents.cli.GitHub", return_value=github), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch.object(Loop, "execute", return_value=True) as execute, \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(self.argv + ["--once"]), 0)
+        self.assertEqual(execute.call_args.args[0].item.number, 2)
+        line = "Milestone #12 has no eligible issues for this launcher"
+        self.assertIn(line, output.getvalue())
+        self.assertIn(line, self.log_lines())
+        self.assertNotIn("Waiting for active milestone", self.log.read_text())
+
     def test_idle_message_names_all_triggers_once_in_configuration_order(self):
         self.config = config(self.root,
                              agent(self.root, name="preparer", triggers=("needs-preparation",), kind="issue"),
@@ -784,8 +800,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 def claim(co, plan, *args, **kwargs):
                     self.assertEqual(plan.state, "ready")
                     peer = self.coordinator(AccountGitHub(self.github, "peer"))
-                    lease = original_claim(peer, peer.plan(self.github.items[11], self.config.agents[0], ()),
-                                           milestone_gate=False)
+                    lease = original_claim(peer, peer.plan(self.github.items[11], self.config.agents[0], ()))
                     peer.update(lease, state="running", started=True, host="race-host")
                     winner.append(lease.copy())
                     return original_claim(co, plan, *args, **kwargs)
@@ -817,8 +832,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 def create(number, text, *, login=None):
                     if login is None:
                         peer = self.coordinator(AccountGitHub(self.github, "peer"))
-                        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()),
-                                           milestone_gate=False)
+                        lease = peer.claim(peer.plan(self.github.items[11], self.config.agents[0], ()))
                         peer.update(lease, state="running", started=True, host="election-host")
                         winner.append(lease.copy())
                     return create_comment(number, text, login=login)

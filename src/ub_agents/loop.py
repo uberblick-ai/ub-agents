@@ -112,7 +112,8 @@ class Loop:
         self._queue_waits = {}
         self._launcher_reason = None
         self._has_trigger = None
-        self._active_milestone = None
+        self.milestone_skips = ()
+        self._shown_milestone_skips = ()
         self._maintaining = False
         self._github_waiting = False
         self._github_reservation = None
@@ -361,12 +362,12 @@ class Loop:
     def plans(self):
         # Status evaluates every row, with fresh inputs even on a reused Loop.
         plans = self.iter_plans(cached=False)
-        if self.config.queue.milestones == "prefer":
+        if self.config.queue.milestones == "gate":
             return list(plans)
         return sorted(plans,
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
-    def _prefer_plans(self, plans, milestones):
+    def _milestone_plans(self, plans, milestones):
         # Eligibility must be known before choosing a milestone. Merge the
         # milestone-first queue with unlisted issues one choice at a time: the
         # exception compares against the next eligible milestone issue, not a
@@ -393,6 +394,18 @@ class Loop:
             yield next_issue
         yield from other
 
+    def _milestone_diagnostics(self, plans=(), milestones=(), *, announce=False):
+        eligible = {p.milestone for p in plans if p.item.kind == "issue" and p.state == "ready"}
+        first = next((rank for rank, number in enumerate(milestones) if number in eligible), len(milestones))
+        self.milestone_skips = tuple(f"Milestone #{number} has no eligible issues for this launcher"
+                                     for number in milestones[:first])
+        self._observe("milestone_skips", self.milestone_skips)
+        if announce:
+            for line in self.milestone_skips:
+                if line not in self._shown_milestone_skips:
+                    self.output(line)
+            self._shown_milestone_skips = self.milestone_skips
+
     def queue_agents(self):
         return tuple(a for a in self.config.agents
                      if self._launch_agent is None or a.name == self._launch_agent)
@@ -401,6 +414,7 @@ class Loop:
         agents = self.queue_agents()
         selected = {a.name for a in agents}
         self._queue_waits = {}
+        self._milestone_diagnostics()
         if not agents:
             self._has_trigger = False
             self._observe("queue_idle", self.idle_message())
@@ -429,11 +443,8 @@ class Loop:
             if number not in items:
                 item = github.item(number)
                 items[item.number] = item
-        active_milestone = (self.github.active_milestone()
-                            if self.config.queue.milestones == "gate" else None)
-        self._active_milestone = active_milestone
         milestones = (self.github.milestone_order()
-                      if self.config.queue.milestones in {"order", "prefer"} else ())
+                      if self.config.queue.milestones in {"order", "gate"} else ())
         milestone_ranks = {number: rank for rank, number in enumerate(milestones)}
         priority = self.config.queue.priority
         candidates = []
@@ -461,13 +472,16 @@ class Loop:
             candidates.append(Plan(item, None, None, "owned" if ongoing else "ready", "", 1,
                                    priority=priority.effective(item.labels), matches=matches))
         if not candidates:
+            if self.config.queue.milestones == "gate":
+                self._milestone_diagnostics(milestones=milestones,
+                                            announce=reconcile_notices or health_notices)
             if self._launch_agent is not None:
                 self._observe("queue_idle", self.idle_message())
             return
         # Priority or milestone inheritance requires the open local graph.
         # Otherwise read only a reached item's links for dependency waits.
         inherit = (self.config.queue.dependencies == "wait" and
-                   (priority.labels or self.config.queue.milestones in {"order", "prefer"}))
+                   (priority.labels or self.config.queue.milestones in {"order", "gate"}))
         if inherit:
             github.prepare_dependencies(items.values())
         dependencies = Dependencies(github, items.values(), priority, milestones) if inherit else None
@@ -492,7 +506,7 @@ class Loop:
                                   priority_from_issue=from_issue, milestone=milestone,
                                   milestone_source=milestone_source,
                                   milestone_rank=milestone_ranks.get(milestone, len(milestones))))
-        preferred = [] if self.config.queue.milestones == "prefer" else None
+        milestone_plans = [] if self.config.queue.milestones == "gate" else None
         for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
             item = candidate.item
             if self._pass_stats is not None:
@@ -510,7 +524,7 @@ class Loop:
                     blockers = dependencies.blockers.get(item.number, ())
                 else:
                     blockers = self._open_blockers(item, github)
-            plans = self._item_plans(item, now, github, coordinator, matches, active_milestone, blockers,
+            plans = self._item_plans(item, now, github, coordinator, matches, blockers,
                                      agents,
                                      reconcile_notices=reconcile_notices, checked=checked,
                                      health_notices=health_notices or reconcile_notices)
@@ -519,13 +533,15 @@ class Loop:
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
-                if preferred is None:
+                if milestone_plans is None:
                     self._observe_plan(observed, github)
                     yield observed
                 else:
-                    preferred.append(observed)
-        if preferred is not None:
-            for observed in self._prefer_plans(preferred, milestones):
+                    milestone_plans.append(observed)
+        if milestone_plans is not None:
+            self._milestone_diagnostics(milestone_plans, milestones,
+                                        announce=reconcile_notices or health_notices)
+            for observed in self._milestone_plans(milestone_plans, milestones):
                 self._observe_plan(observed, github)
                 yield observed
         if self._launch_agent is not None:
@@ -560,10 +576,10 @@ class Loop:
         self._observe("discovered", {item.number: item}, self.config.agents)
         agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
         coordinator = self._planning_coordinator(github)
-        self._active_milestone = None
+        self._milestone_diagnostics()
         blockers = self._open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
-        plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, None, blockers, agents,
+        plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, blockers, agents,
                                  reconcile_notices=reconcile_notices, checked={},
                                  health_notices=health_notices or reconcile_notices)
 
@@ -615,7 +631,7 @@ class Loop:
                 if priority is None or labels.index(plan.priority) < labels.index(priority):
                     priority = plan.priority  # Retain already-observed inheritance without a graph read.
             for refreshed in self._item_plans(item, coordinator.clock(), github, coordinator,
-                                              matches, self._active_milestone, blockers,
+                                              matches, blockers,
                                               self.queue_agents() if self._launch_number is None else None,
                                               checked={}):
                 refreshed = replace(refreshed, priority=priority)
@@ -624,11 +640,11 @@ class Loop:
             return  # Discard incomplete observations; the normal pass retries.
         self._observe("replanned_item", item.number, events)
 
-    def _item_plans(self, item, now, github, coordinator, matches, active_milestone, blockers, agents=None,
+    def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,
                     *, reconcile_notices=False, checked=None, health_notices=False):
         agents = self.config.agents if agents is None else agents
         starts = {a.name: check_start(item, a, matches, self.config.stop_labels,
-                                     self.config.queue, active_milestone, blockers) for a in agents}
+                                     self.config.queue, blockers) for a in agents}
         matched = tuple(a for a in matches.matched if a in agents)
         approval = None
         # The same comments supply coordination history and approval input.
@@ -897,15 +913,10 @@ class Loop:
         if self.coordinator.plan(current, plan.agent, self.config.stop_labels,
                                  start=start, matches=matches).state != "ready":
             return
-        active = (self.github.active_milestone() if current.kind == "issue"
-                  and not self._targeted_pass and self.config.queue.milestones == "gate" else None)
-        if not check_start(current, plan.agent, matches, self.config.stop_labels,
-                           self.config.queue, active).allowed:
-            return
         blockers = (open_blockers(self.github, current) if current.kind == "issue"
                     and self.config.queue.dependencies == "wait" else ())
         if not check_start(current, plan.agent, matches, self.config.stop_labels,
-                           self.config.queue, active, blockers).allowed:
+                           self.config.queue, blockers).allowed:
             return
         approval = self.input_check(current, matches=matches)
         if approval.gate_key != plan.approval_gate.gate_key:
@@ -1149,8 +1160,7 @@ class Loop:
         lease = self.coordinator.claim(plan, self.config.stop_labels,
                                        before_write=self._end_poll, authorize=authorize,
                                        confirm_stopped=confirm_stopped,
-                                       on_refusal=self.declined if self._targeted_pass else None,
-                                       milestone_gate=not self._targeted_pass)
+                                       on_refusal=self.declined if self._targeted_pass else None)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False

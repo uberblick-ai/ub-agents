@@ -34,14 +34,13 @@ class EligibilityTests(unittest.TestCase):
             ("wrong kind", issue(), "pr", Queue(), False, False, "Agent worker does not apply to this issue"),
             ("stop", issue(labels=("ready", "needs-human")), "either", Queue(), False, False,
              "Stop label needs-human is present"),
-            ("milestone gate", issue(milestone=20), "either", gate, False, False,
-             "Waiting for active milestone #10"),
+            ("milestone gate", issue(milestone=20), "either", gate, False, True, None),
             ("milestone order", issue(milestone=20), "either", Queue(milestones="order"), False, True, None),
             ("milestone ignore", issue(milestone=20), "either", Queue(), False, True, None),
             ("blocker wait", issue(), "either", Queue(), True, False, "Waiting for blockers #31"),
             ("blocker ignore", issue(), "either", Queue(dependencies="ignore"), True, True, None),
             ("combined wait", issue(milestone=20), "either", gate, True, False,
-             "Waiting for active milestone #10; Waiting for blockers #31"),
+             "Waiting for blockers #31"),
             ("eligible", issue(), "either", Queue(), False, True, None),
             ("PR ignores issue gates", pr(1, body="", milestone=20), "pr", gate, True, True, None),
         ]
@@ -51,19 +50,13 @@ class EligibilityTests(unittest.TestCase):
                 loop = self.loop(item, worker, queue, blocked)
                 matches = AgentMatches.for_item(item, (worker,))
                 start = check_start(item, worker, matches, loop.config.stop_labels, queue,
-                                    10, ("#31",) if blocked else ())
+                                    ("#31",) if blocked else ())
                 self.assertEqual((start.allowed, start.reason), (allowed, reason))
                 repository = [p for p in loop.plans() if p.item.number == item.number]
                 scoped = list(loop.item_plans(item.number)[1])
-                # Explicit targets bypass only the milestone hold; combined
-                # waits still explain their dependency blockers.
-                scoped_allowed, scoped_reason = {
-                    "milestone gate": (True, None),
-                    "combined wait": (False, "Waiting for blockers #31"),
-                }.get(name, (allowed, reason))
                 for path, plans, expected_allowed, expected_reason in (
                         ("repository", repository, allowed, reason),
-                        ("single item", scoped, scoped_allowed, scoped_reason)):
+                        ("single item", scoped, allowed, reason)):
                     with self.subTest(path=path):
                         self.assertEqual(any(p.state == "ready" for p in plans), expected_allowed)
                         if plans and not expected_allowed:

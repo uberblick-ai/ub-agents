@@ -288,8 +288,8 @@ def load_config(path):
         checkout_setup = CheckoutSetup(argv(setup.get("command"), "checkout-setup command"), paths, timeout)
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
-    if milestones not in ("gate", "order", "prefer", "ignore"):
-        raise AgentError("queue milestones must be gate, order, prefer or ignore")
+    if milestones not in ("gate", "order", "ignore"):
+        raise AgentError("queue milestones must be gate, order or ignore")
     dependencies = queue.get("dependencies", "wait")
     if dependencies not in ("wait", "ignore"):
         raise AgentError("queue dependencies must be wait or ignore")

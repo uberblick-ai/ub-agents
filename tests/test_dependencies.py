@@ -262,7 +262,7 @@ class DependencyTests(unittest.TestCase):
         with patch.object(self.github, "blocked_by", side_effect=AssertionError("ignore must not read")):
             self.assertEqual((self.plans()[1].milestone, self.plans()[1].milestone_source), (None, None))
 
-    def test_gate_and_ignore_keep_blockers_own_milestones(self):
+    def test_gate_inherits_blocker_milestones_while_ignore_keeps_own_milestones(self):
         self.add(issue(1, ("ready", "priority:low"), milestone=20),
                  issue(21, ("priority:urgent",), milestone=10))
         self.github.milestones = [{"number": n, "state": "open", "created_at": iso(n)}
@@ -274,8 +274,9 @@ class DependencyTests(unittest.TestCase):
                     self.loop = Loop(config(self.root, self.worker, queue=Queue(mode, priority)),
                                      self.github, "operator", output=lambda *_: None)
                     plan = self.plans()[1]
-                    self.assertEqual((plan.milestone, plan.milestone_source), (20, None))
-                    self.assertEqual(plan.state, "parked" if mode == "gate" else "ready")
+                    self.assertEqual((plan.milestone, plan.milestone_source),
+                                     (10, 21) if mode == "gate" else (20, None))
+                    self.assertEqual(plan.state, "ready")
 
     def test_status_text_and_json_name_inherited_milestone(self):
         self.add(issue(1, ("ready", "priority:low")), issue(21, (), milestone=10))
@@ -420,7 +421,7 @@ class DependencyTests(unittest.TestCase):
             self.assertIn("priority:urgent (inherited from #21)", output.getvalue())
             self.assertIn("Waiting for blockers #31, #32", output.getvalue())
 
-    def test_dependency_and_milestone_gates_both_apply_to_inherited_priority(self):
+    def test_dependency_wait_applies_to_inherited_priority_under_milestone_gate(self):
         self.add(issue(1, ("ready", "priority:low"), milestone=20),
                  issue(2, (), milestone=10), issue(21, ("priority:urgent",)))
         self.github.dependencies = {1: [2], 21: [1]}
@@ -428,6 +429,6 @@ class DependencyTests(unittest.TestCase):
         self.loop = self.make_loop(milestones="gate")
         plan = self.plans()[1]
         self.assertEqual(plan.priority, "priority:urgent")
-        self.assertEqual(plan.reason, "Waiting for active milestone #10; Waiting for blockers #2")
+        self.assertEqual(plan.reason, "Waiting for blockers #2")
         self.github.change(2, state="closed")
         self.assertEqual(self.plans()[1].state, "ready")

@@ -26,8 +26,7 @@ blocked, parked, awaiting input approval or owned elsewhere. Items the selected
 agent parked for a human decision remain counted after their triggers are removed.
 Neither message means every issue is prepared.
 
-`launch N` skips queue priority and milestone policy, including the `gate` hold
-during planning, after checkout refresh, at claim time and during approval parking.
+`launch N` skips queue priority and milestone selection, including after checkout refresh.
 It can start later-milestone or unmilestoned work. Every other gate still applies,
 including launcher trust, item state, trigger labels, stop labels, dependencies,
 input approval, ownership, attempts, backoff and runtime availability, with fresh
@@ -35,6 +34,12 @@ checks and claim elections. Only triggered agents can act: `--agent NAME` narrow
 evaluation to that agent and still requires its trigger. Otherwise the first
 eligible agent in configuration order acts. Unnumbered `launch` and `launch --once`
 keep the queue's selection policy.
+
+The three milestone modes are `gate`, `order` and `ignore`. `gate` chooses the
+earliest milestone with eligible work for this launcher, allowing later work
+when earlier issues cannot start. Only strictly higher-priority unmilestoned
+work can precede its next eligible issue. Passed-over milestones are explained
+in the terminal view and `launch.log`.
 
 `ub-agents launch N [--agent NAME]` exits nonzero when it starts no assignment or
 recovery, leaving one short refusal line per evaluated agent visible after the

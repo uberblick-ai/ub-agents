@@ -584,7 +584,6 @@ agents:
             with self.subTest(extra=extra):
                 self.assertEqual(self.load(base + extra).queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  milestones: order\n").queue, Queue("order"))
-        self.assertEqual(self.load(base + "queue:\n  milestones: prefer\n").queue, Queue("prefer"))
         self.assertEqual(self.load(base + "queue:\n  milestones: gate\n").queue, Queue("gate"))
         self.assertEqual(self.load(base + "queue:\n  dependencies: wait\n").queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  dependencies: ignore\n").queue,
@@ -600,9 +599,9 @@ agents:
                                      "  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n")
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
                     self.assertEqual(main(["--config", str(self.path), "check"]),
-                                     1 if mode == "oldest" else 0)
-                if mode == "oldest":
-                    self.assertIn("milestones must be gate, order, prefer or ignore", errors.getvalue())
+                                     1 if mode in {"oldest", "prefer"} else 0)
+                if mode in {"oldest", "prefer"}:
+                    self.assertIn("milestones must be gate, order or ignore", errors.getvalue())
 
     def test_queue_validation_through_check(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"

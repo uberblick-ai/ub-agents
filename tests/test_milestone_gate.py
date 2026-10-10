@@ -19,7 +19,7 @@ from ub_agents.view_data import Session, work_pane
 from tests.support import FakeGitHub, MemoryPublisher, agent, config, issue, pr, stub_refresh
 
 
-class MilestonePreferTests(unittest.TestCase):
+class MilestoneGateTests(unittest.TestCase):
     def setUp(self):
         stub_refresh(self)
         self.temp = tempfile.TemporaryDirectory()
@@ -34,7 +34,7 @@ class MilestonePreferTests(unittest.TestCase):
 
     def make_loop(self, worker=None, **queue):
         return Loop(config(self.root, worker or self.worker,
-                           queue=Queue("prefer", queue.pop("priority", self.priority), **queue)),
+                           queue=Queue("gate", queue.pop("priority", self.priority), **queue)),
                     self.github, "operator", output=lambda *_: None)
 
     def add(self, *items):
@@ -124,6 +124,40 @@ class MilestonePreferTests(unittest.TestCase):
         self.assertEqual(plans[1].reason, "Waiting for blockers #2")
         self.assertEqual(plans[4].reason, "Waiting for blockers #1")
         self.assertEqual(plans[5].reason, "Waiting for blockers #1, #2")
+
+    def test_untriggered_early_milestone_allows_later_work_and_explains_skip(self):
+        self.add(issue(1, (), milestone=10), issue(2, (), milestone=10), issue(3, milestone=20))
+        expected = "Milestone #10 has no eligible issues for this launcher"
+        self.assertEqual(self.ready(), [3])
+        self.assertEqual(self.loop.milestone_skips, (expected,))
+        lines = []
+        self.loop.output = lines.append
+        memory = MemoryPublisher()
+        self.loop.observer = Observations(self.loop.config, "operator", None, memory)
+        self.assertEqual(self.choice().item.number, 3)
+        self.assertIn(expected, lines)
+        self.assertEqual(memory.snapshots[-1]["milestone_skips"], [expected])
+        with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli.GitHub", return_value=self.github):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["status"]), 0)
+            self.assertIn(expected, output.getvalue())
+            self.assertNotIn("Waiting for active milestone", output.getvalue())
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["status", "--json"]), 0)
+            self.assertEqual(json.loads(output.getvalue())["milestone_skips"], [expected])
+        self.github.change(1, labels=frozenset({"ready"}))
+        self.github.timelines[1] = [dict(event="labeled", actor={"login": "maintainer"},
+                                         label={"name": "ready"}, created_at=iso(timestamp()))]
+        self.assertEqual(self.choice().item.number, 1)
+        self.assertEqual(self.loop.milestone_skips, ())
+        self.assertEqual(memory.snapshots[-1]["milestone_skips"], [])
+
+    def test_only_untriggered_work_reports_all_skipped_milestones(self):
+        self.add(issue(1, (), milestone=10), issue(2, (), milestone=20))
+        self.assertEqual(self.ready(), [])
+        self.assertEqual(self.loop.milestone_skips,
+                         tuple(f"Milestone #{n} has no eligible issues for this launcher" for n in (10, 20)))
 
     def test_next_pass_reconsiders_earlier_work_when_its_blocker_closes(self):
         self.add(issue(1, ("ready", "low"), milestone=10), issue(2, (), milestone=10),
