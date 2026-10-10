@@ -19,11 +19,11 @@ integrator merges, under the policy below.
 The integrator squash-merges a PR once every owed review and check applies to its
 current head, with `--match-head-commit` set to the assigned SHA or the head of its
 own clean base merge. That clean base merge keeps the review and needs no new
-review. The check is a green `signoff` status from local CI at the head it merges.
-The integrator runs it: detach its own worktree at `origin/main`
-(`git switch --detach origin/main`), run `mise trust` there,
-and run `mise run ci SHA`, every time: a `signoff` already on the commit only says someone
-posted it, not that the checks ran. It leaves the merge
+review. The check is a green `Test result` from the GitHub Actions `Test` workflow at
+the head it merges, which the main ruleset also requires. A push, including the
+integrator's own base merge, starts a new run: wait for it with
+`gh pr checks N --watch` and merge only when `Test result` passed at that head.
+Local `mise run ci` is optional and does not replace it. It leaves the merge
 to a maintainer, and says why, when the PR:
 
 - changes the `ub-agents` command-line experience without the issue it closes
