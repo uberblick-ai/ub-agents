@@ -30,6 +30,12 @@ The run's `events.jsonl` `released` event has a `github_requests` object with
 those claim checks through release, including renewals and finalization, excluding
 the observation worker, agent requests and the post-release display refresh.
 
+After execution ends, completion shares each item's history and item reads until
+the next GitHub write attempt. Every durable write still checks ownership against
+assignment history read after the preceding write. Renewal reads ownership
+independently. Recovery shares reads after claiming its recovery lease and retains
+its existing validation and replay rules.
+
 If discovery reaches a ready plan and declines it, a line names its item, agent
 and reason: the refreshed re-plan is no longer ready, the head moved, a start
 gate changed, the fresh plan or runtime changed, blockers opened, the

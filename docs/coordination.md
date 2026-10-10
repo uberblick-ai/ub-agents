@@ -394,8 +394,15 @@ writes are not compare-and-swap. It does **not** establish exactly-once executio
 strict consistency, instantaneous loss detection, or write fencing. Other launchers
 and runtimes must obey the contract. Clocks must be reasonably synchronized.
 
-Expired leases are never resurrected. Ownership is reread before every durable
-write; an ownership read that fails after applicable rate-limit waits stops the
+Expired leases are never resurrected. Ownership is checked before every durable
+write. During finalization, that check uses an assignment history read made after
+the preceding finalization write. Completion shares each item's history and item
+reads until the next GitHub write attempt, including validation and outcome
+lookup. Failed or interrupted writes discard those observations too. Lease renewal uses its own
+fresh ownership read and extends only expiry; it does not end this read window.
+Recovery starts sharing reads after its claim and retains the validation and
+replay rules for an already-started transition.
+An ownership read that fails after applicable rate-limit waits stops the
 run, and the launcher does not report,
 accept, or release after losing ownership. Between observations, an agent with
 GitHub credentials can still write: comments cannot prevent this.
@@ -403,7 +410,8 @@ GitHub credentials can still write: comments cannot prevent this.
 REST GETs revalidate the last in-memory response with `If-None-Match` when GitHub
 provided an ETag for that exact URL, including its query and page. A `304 Not
 Modified` confirms freshness and returns the stored payload without consuming
-REST quota; it still satisfies the reread before every durable write. Idle polling
+REST quota; it still satisfies the fresh ownership read required for a durable
+write. Idle polling
 uses quota-counted REST responses, so 304 confirmations do not extend its budget
 gap. Their rate-limit headers still update low-quota pacing. A 304 with
 no stored response is refetched once without a validator. Changed responses
@@ -621,13 +629,13 @@ original lease. The transition must match that lease's declaration, so
 configuration edits or a restarted launcher cannot replace the recorded changes.
 
 A report starts `accepted: false`. Once the process group has terminated, the
-launcher rereads GitHub and validates ownership, the exact reported candidate SHA,
-and for an issue handoff that the PR is ready, links the issue, and that no other
-open PR sits on an earlier run branch. It then applies the transition as the
+launcher reads current GitHub history and items and validates ownership and the
+exact reported candidate SHA, and for an issue handoff that the PR is ready,
+links the issue, and that no other open PR sits on an earlier run branch. It then applies the transition as the
 [configuration reference](configuration.md#outcomes-and-transitions) describes:
-reread both items, block on a missing trigger or pause on a stop label with a
-durable rejection, persist `started: true`, copy the pending outcome to the handoff
-PR, remove assignment labels, add destination labels, persist
+use the same item reads to check both items, block on a missing trigger or pause
+on a stop label with a durable rejection, persist `started: true`, copy the pending
+outcome to the handoff PR, remove assignment labels, add destination labels, persist
 `transition_complete: true`, accept the outcome, update its handoff copy, and release.
 
 An exit without an outcome, zero or nonzero, increments the consecutive failure

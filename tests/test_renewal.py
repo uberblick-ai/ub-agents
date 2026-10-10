@@ -150,6 +150,21 @@ class RenewalTests(unittest.TestCase):
         with patch.object(Workspace, "prepare", setup), patch.object(self.loop, "finalize", side_effect=complete):
             self.execute(lambda *args, **kwargs: self.finish())
 
+    def test_renewal_reads_fresh_ownership_without_ending_finalization_read_sharing(self):
+        lease = self.claim()
+        self.loop.github.begin_finalization()
+        self.addCleanup(self.loop.github.end_finalization)
+        with patch.object(self.github, "comments", wraps=self.github.comments) as read:
+            self.co.assert_owned(lease)
+            for _ in range(4):
+                self.now += 600
+                self.assertTrue(self.co.renew(lease, self.github))
+                self.co.assert_owned(lease)
+            # The original shared lease expiry has passed, but each renewal
+            # independently checked ownership and confirmed its extension.
+            self.assertEqual(read.call_count, 5)
+            self.assertEqual(self.co.deadline(lease), self.now + LEASE_SECONDS)
+
     def test_cleanup_hook_uses_the_renewed_deadline(self):
         self.loop.config = replace(self.loop.config, cleanup=CleanupHook(("echo",), 3600))
         def prepare(workspace):
