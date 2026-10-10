@@ -34,7 +34,7 @@ class StartCheck:
 
 
 def check_start(item: Item, agent: Agent, matches: AgentMatches, stop_labels,
-                queue: Queue, active_milestone=None, blockers=()):
+                queue: Queue, blockers=()):
     stops = item.labels.intersection(stop_labels)
     stop_reason = f"Stop label {', '.join(sorted(stops))} is present" if stops else None
     if item.state != "open":
@@ -47,8 +47,6 @@ def check_start(item: Item, agent: Agent, matches: AgentMatches, stop_labels,
         return StartCheck(stop_reason, stop_reason)
     reasons = []
     if item.kind == "issue":
-        if queue.milestones == "gate" and active_milestone is not None and item.milestone != active_milestone:
-            reasons.append(f"Waiting for active milestone #{active_milestone}")
         if queue.dependencies == "wait" and blockers:
             reasons.append(f"Waiting for blockers {', '.join(blockers)}")
     return StartCheck("; ".join(reasons) if reasons else None)

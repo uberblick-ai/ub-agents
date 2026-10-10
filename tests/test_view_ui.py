@@ -25,7 +25,7 @@ from ub_agents.view_github import DescriptionLoads, Response, parse_response
 from textual import messages
 from textual.geometry import Size
 from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
-from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
+from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, MilestoneNotice, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, work_pane
@@ -1094,6 +1094,31 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.resize_terminal(110, 32)
             await pilot.pause()
             self.assertTrue(banner.display)
+
+    async def test_skipped_milestones_explain_selection_and_clear_on_reevaluation(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            notice = app.query_one(MilestoneNotice)
+            self.assertFalse(notice.display)
+            selected, focus = app.selected, app.focused
+            line = 'Milestone #12 has no eligible issues for this launcher'
+            self.state['milestone_skips'] = [line]
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: notice.display and notice.messages == (line,))
+            self.assertEqual(notice.render().plain, line)
+            self.assertFalse(notice.can_focus)
+            self.assertEqual(app.selected, selected)
+            self.assertIs(app.focused, focus)
+            await pilot.resize_terminal(59, 15)
+            await pilot.pause()
+            self.assertFalse(notice.display)
+            await pilot.resize_terminal(110, 32)
+            await pilot.pause()
+            self.assertTrue(notice.display)
+            self.state['milestone_skips'] = []
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: not notice.display)
 
     async def settled(self, app, pane):
         # A pilot pause can return on a busy machine before the after-refresh

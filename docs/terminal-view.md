@@ -128,6 +128,12 @@ Eligible's heading counts all eligible items: `Eligible · 7`, or
 ` · not claimed while stopping`; the heading shortens with `…` to fit the pane.
 Claim order puts effective priority first, then existing work, milestone rank for
 new issues in `order` mode, age and number.
+The three milestone modes are `gate`, `order` and `ignore`. In `gate`, new issues
+follow the earliest milestone with eligible work here, with a strictly higher-priority
+exception for unmilestoned issues. Independent later work can start when earlier
+work cannot. Above the panes, up to three lines explain passed-over milestones,
+for example `Milestone #12 has no eligible issues for this launcher`.
+The same explanations appear in `status` and `launch.log`.
 Continuous launch refreshes the queue with complete read-only planning passes
 while an assignment runs; a failed pass keeps the previous rows.
 
@@ -245,8 +251,8 @@ Eligible's rule reads `Eligible · N · not claimed while stopping`, adding
 with `…` at narrow widths like other headings. Ready and recovery rows show
 `held`; delayed rows keep `backoff` or `waiting`. The footer reads `stopping`.
 
-Dependency and milestone waits are parked plans whose reasons start with
-`Waiting for blockers …` or `Waiting for active milestone #…`. They are omitted
+Dependency waits are parked plans whose reasons start with
+`Waiting for blockers …`. They are omitted
 from the Work pane and all section counts. There is no Waiting section.
 Retry backoff and paused-runtime plans remain in Eligible because this launcher
 can run them once their delay passes. Within Eligible, ready/recovery rows keep
@@ -327,7 +333,7 @@ the local `process.log` exists. Until that file first exists, Log shows
 that disappears after being read, still show `Read error`.
 A selected row that disappears
 remains an earlier local observation in the right pane. A previous assignment or
-a plan now claimed by another launcher or parked for dependencies or a milestone
+a plan now claimed by another launcher or parked for dependencies
 is omitted from the live work sections.
 
 The right pane has `1 Log`, `2 Issue` and `3 Runs` tabs, plus `4 Unblock` while the
@@ -812,9 +818,9 @@ Textual pilots or screenshots. In a real 110×32 terminal, attach to a live laun
 or a local replay that appends to a session's `process.log` and publishes snapshots:
 
 1. Publish a replay with the current assignment, owned, blocked, parked stop/approval,
-   ready/recovery, dependency/milestone wait, backoff and paused-runtime plans.
+   ready/recovery, dependency wait, backoff and paused-runtime plans.
    Confirm Running, Needs attention and Eligible appear in that order, with
-   correct counts and no Waiting section. Dependency/milestone waits must be
+   correct counts and no Waiting section. Dependency waits must be
    absent from rows and counts. Within Eligible, ready/recovery rows keep their
    planned order, followed by backoff and paused-runtime rows with `◷` and their
    `backoff`/`waiting` states; delayed rows never show `next`, even without any
@@ -859,8 +865,8 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    Remove a selected plan and
    check its earlier observation remains. Remove a selected Needs attention row;
    it must leave the list and count while Issue and Runs keep their cached details,
-   without adding Recent activity. Park a selected plan for dependencies
-   or a milestone; it must leave the Work rows and counts while its cached
+   without adding Recent activity. Park a selected plan for dependencies;
+   it must leave the Work rows and counts while its cached
    details remain in the right pane.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading

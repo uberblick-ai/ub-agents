@@ -573,14 +573,14 @@ class ViewDataTests(unittest.TestCase):
         attention = next(row for row in work if row.group == 'Needs attention')
         self.assertEqual([row.agent for row in attention.attention_rows], ['reviewer', 'integrator'])
 
-    def test_eligibility_dependency_and_milestone_waits_are_omitted(self):
+    def test_dependency_waits_are_omitted_under_each_milestone_policy(self):
         worker = agent(self.root)
         item = issue(milestone=20)
         matches = AgentMatches.for_item(item, (worker,))
-        for gate, blockers in ((False, ('#31',)), (True, ()), (True, ('#31',))):
-            with self.subTest(gate=gate, blockers=blockers):
+        for policy in ('ignore', 'order', 'gate'):
+            with self.subTest(policy=policy):
                 check = check_start(item, worker, matches, (),
-                                    Queue(milestones='gate' if gate else 'ignore'), 10, blockers)
+                                    Queue(milestones=policy), ('#31',))
                 self.assertFalse(check.allowed)
                 for state in ('partial', 'complete'):
                     snapshot = Session(self.path, {'latest_pass': {'state': state, 'rows': [

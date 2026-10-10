@@ -149,7 +149,7 @@ class FilteredLaunchTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
 
     def test_queue_priority_and_milestone_policies_apply_to_selected_work(self):
-        for policy, expected in (("ignore", 12), ("order", 12), ("prefer", 11), ("gate", None)):
+        for policy, expected in (("ignore", 12), ("order", 12), ("gate", 11)):
             with self.subTest(policy=policy):
                 self.github = PollGitHub(issue(1, milestone=3),
                                          issue(11, labels=("prepare",), milestone=4),
@@ -160,13 +160,10 @@ class FilteredLaunchTests(unittest.TestCase):
                 self.config = config(self.root, self.other, self.selected,
                                      queue=Queue(priority=Priority(("urgent",)), milestones=policy))
                 _, stdout, _, run = self.launch("--once", "--agent", "triage")
-                if expected is None:
-                    run.assert_not_called()
-                    self.assertIn("Waiting for active milestone #3", stdout)
-                    self.assertEqual(self.github.writes, [])
-                else:
-                    run.assert_called_once()
-                    self.assertEqual(int(run.call_args.args[2]["UB_AGENTS_ASSIGNMENT"]), expected)
+                run.assert_called_once()
+                self.assertEqual(int(run.call_args.args[2]["UB_AGENTS_ASSIGNMENT"]), expected)
+                if policy == "gate":
+                    self.assertIn("Milestone #3 has no eligible issues for this launcher", stdout)
                 self.assertNotIn(1, self.github.store)
 
     def test_filtered_plans_keep_approval_and_ownership_gates(self):

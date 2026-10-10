@@ -17,11 +17,11 @@ The issue preparer turns a rough idea into clear requirements. Tell it, in its [
 
 ## Ship in milestones
 
-Group related issues in a milestone and [prefer earlier milestones](/docs/configuration/queue.html#milestones). Earlier runnable milestone work goes first, with a strict-priority exception for unmilestoned issues. Independent later work can start when earlier work is unavailable to this launcher.
+Group related issues in a milestone and [use milestone `gate`](/docs/configuration/queue.html#milestones). Earlier runnable milestone work goes first, with a strict-priority exception for unmilestoned issues. Independent later work can start when earlier work is unavailable to this launcher.
 
 ```yaml
 queue:
-  milestones: prefer
+  milestones: gate
 ```
 
-Upgrade every launcher of the project to a build supporting `prefer` before using this value. Use `order` if higher priority should always win, including in later milestones.
+Use `order` if higher priority should always win, including in later milestones, or `ignore` to skip milestone selection. Projects using `gate` now start later work while earlier issues are ineligible; to keep work in milestone order, give every open issue in the active milestone a trigger label, or move it out.
