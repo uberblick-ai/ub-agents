@@ -5,9 +5,9 @@
 #
 # The commit is checked out into a temporary worktree with a fresh virtualenv,
 # so nothing from this checkout (its .venv, untracked files, local edits) can
-# make a run pass. The steps mirror the GitHub Actions `Test` workflow, which
-# gates merges: whitespace errors against origin/main, the unit suite on every
-# core, and `ub-agents check`. This run is optional and posts nothing to GitHub.
+# make a run pass. It runs the unit suite on every core and `ub-agents check`,
+# as the GitHub Actions `Test` workflow that gates merges does, plus the
+# `git diff --check` from AGENTS.md. It is optional and posts nothing to GitHub.
 set -eu
 
 root=$(CDPATH= cd "$(dirname "$0")/.." && pwd -P)

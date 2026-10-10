@@ -18,11 +18,11 @@ Run them in your own worktree while you work.
 ## CI
 
 GitHub Actions runs the `Test` workflow (`.github/workflows/test.yml`) on every PR and
-after each merge to main. It covers Linux and macOS with Python 3.11 and 3.14, plus
-whitespace errors in a PR's diff. Its `Test result` check gates merges through the
-main ruleset, and the release check requires a green run on the release commit.
+after each merge to main. It covers Linux and macOS with Python 3.11 and 3.14. Its
+`Test result` check gates merges through the main ruleset, and the release check
+requires a green run on the release commit.
 
-To run the same checks locally before pushing, optionally:
+To run these checks locally before pushing, optionally:
 
 ```sh
 mise run ci [commit]    # defaults to HEAD

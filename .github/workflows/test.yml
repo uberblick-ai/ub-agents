@@ -33,21 +33,11 @@ jobs:
       - run: python -m pip install build
       - run: python -m build
       - run: python scripts/check_package.py dist/*.whl
-  whitespace:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      # A PR checks out its merge commit; the first parent is the base branch.
-      - run: git --no-pager diff --check HEAD^1 HEAD --
   result:
     # One required check, so the matrix can change without editing the ruleset.
     name: Test result
     if: always()
-    needs: [tests, whitespace]
+    needs: tests
     runs-on: ubuntu-latest
     steps:
       - run: test "${{ needs.tests.result }}" = success
-      - run: case "${{ needs.whitespace.result }}" in success|skipped) ;; *) exit 1 ;; esac
