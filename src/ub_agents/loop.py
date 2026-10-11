@@ -701,7 +701,7 @@ class Loop:
                 raise
             # Unreadable item input cannot authorize a claim. A transient
             # coordination failure with readable approval input still fails the poll.
-            approval = self.input_check(item, github, matches) if matched and check_input else None
+            approval = self.input_check(item, github, matches) if matched else None
             if approval is None or approval.allowed:
                 raise
             yield from (Plan(item, a, None, "parked", approval.reason, 1, history_read=False) for a in matched)

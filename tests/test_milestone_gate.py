@@ -83,6 +83,37 @@ class MilestoneGateTests(unittest.TestCase):
                                  ("issue_content", (2,)), ("timeline", (2,))])
         self.assertEqual(len(reads), 4)
 
+    def test_cold_claim_and_parking_reread_only_the_reached_items(self):
+        self.github = PollGitHub(*(issue(n, milestone=10 if n <= 2 else 20) for n in range(1, 84)))
+        self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+        self.github.timelines[1] = []
+        self.loop = self.make_loop()
+
+        def run(*args, **kwargs):
+            self.loop.coordinator.report(self.loop.github.lease, "success", "Finished", outcome="done")
+            return 0
+
+        with patch("ub_agents.loop.supervise", side_effect=run) as executed:
+            self.assertTrue(self.loop.tick())
+        executed.assert_called_once()
+        # Discovery and fresh approval parking read #1; discovery, before-write
+        # authorization and after-election authorization read the claimed #2.
+        self.assertEqual([args[0] for name, args in self.github.reads if name == "timeline"], [1, 1, 2, 2, 2])
+        self.assertEqual([args[0] for name, args in self.github.reads if name == "issue_content"], [1, 1, 2, 2, 2])
+        self.assertIn("needs-human", self.github.items[1].labels)
+        self.assertEqual(self.loop.coordinator.history(2)[0]["state"], "released")
+        self.assertTrue(all(not self.github.store.get(n) for n in range(3, 84)))
+
+    def test_later_pass_parks_an_initially_unreached_denial(self):
+        self.add(issue(1, milestone=10), issue(2, milestone=10), issue(3, milestone=20))
+        self.github.timelines[2] = []
+        self.assertEqual(self.choice().item.number, 1)
+        self.assertEqual(self.github.writes, [])
+        self.github.change(1, labels=frozenset())
+        self.assertEqual(self.choice().item.number, 3)
+        self.assertIn("needs-human", self.github.items[2].labels)
+        self.assertEqual(self.loop.coordinator.history(2), [])
+
     def test_lazy_choice_and_milestone_skips_match_eager_approval(self):
         fixtures = [
             ("milestone order", [issue(1, ("ready", "low"), milestone=10),
