@@ -75,6 +75,24 @@ examples:
   ub-agents check --config workflow.yaml
 """
 
+DOCTOR_HELP = """ub-agents doctor
+usage: ub-agents doctor [options]
+
+Check machine, GitHub and runtime prerequisites. Create missing workflow labels
+only after a confirmed interactive prompt. Show warnings and failures with a
+summary per area by default; required failures exit nonzero.
+
+options:
+  --json                 # emit versioned prerequisite results
+  --verbose              # show the full per-check list (does not change --json)
+  --config PATH          # project configuration (default: ub-agents.yaml)
+  -h, --help             # show this help
+
+examples:
+  ub-agents doctor
+  ub-agents doctor --json
+"""
+
 LAUNCH_HELP = """ub-agents launch
 usage: ub-agents launch [NUMBER] [options]
 
@@ -171,14 +189,15 @@ class HelpTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertLessEqual(len(line), 80)
 
-    def test_doctor_help_describes_summary_verbose_and_json(self):
-        code, output, errors = self.invoke(["doctor", "--help"])
-        self.assertEqual((code, errors), (0, ""))
-        self.assertIn("summary per area by default", output)
-        self.assertIn("--verbose", output)
-        self.assertIn("show the full per-check list", output)
-        self.assertIn("does not change --json", output)
-        self.assertIn("confirmed interactive prompt", output)
+    def test_doctor_help_matches_requested_layout_without_probes_or_prompts(self):
+        with patch("ub_agents.doctor.Doctor", side_effect=AssertionError("Help ran doctor")), \
+                patch("builtins.input", side_effect=AssertionError("Help prompted")):
+            for argv in (["doctor", "-h"], ["doctor", "--help"], ["help", "doctor"],
+                         ["--config", "missing.yaml", "doctor", "--help"],
+                         ["doctor", "--config", "missing.yaml", "--help"],
+                         ["--config", "missing.yaml", "help", "doctor"]):
+                with self.subTest(argv=argv):
+                    self.assertEqual(self.invoke(argv), (0, DOCTOR_HELP, ""))
 
     def test_status_help_describes_optional_item_and_has_an_example(self):
         code, output, errors = self.invoke(["status", "--help"])
@@ -286,18 +305,18 @@ class HelpTests(unittest.TestCase):
         for name, command in self.command_line.commands().items():
             with self.subTest(command=name):
                 details = self.invoke(["help", name])[1]
-                self.assertEqual(details.splitlines()[1 if name in {"init", "check", "launch"} else 0],
+                self.assertEqual(details.splitlines()[1 if name in {"init", "check", "launch", "doctor"} else 0],
                                  f"usage: ub-agents {name} {expected[name]}")
                 for action in command._actions:
                     if action.option_strings and action.required and action.help != argparse.SUPPRESS:
                         self.assertIn(f"{action.help} (required)", " ".join(details.split()))
                 help_row = ("  -h, --help               # show this help\n" if name == "init" else
-                            "  -h, --help             # show this help\n" if name in {"check", "launch"} else
+                            "  -h, --help             # show this help\n" if name in {"check", "launch", "doctor"} else
                             "  -h, --help             show this help\n")
                 self.assertIn(help_row, details)
                 self.assertNotIn("show this help message and exit", details)
                 # Descriptions and other commands' option rows wrap within 80
-                # columns. Init/check/launch options and example commands remain literal.
+                # columns. Init/check/launch/doctor options and example commands remain literal.
                 for line in details.split("\n\n", 1)[1].split("\nexamples:")[0].splitlines():
                     width = 82 if name == "init" and line.startswith("  ") else 80
                     self.assertLessEqual(len(line), width, line)
