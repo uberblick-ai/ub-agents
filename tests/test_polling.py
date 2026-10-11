@@ -773,7 +773,7 @@ class PollingTests(unittest.TestCase):
         wait.assert_not_called()
 
     def test_documented_fixed_limits_match_code(self):
-        docs = (Path(__file__).resolve().parents[1] / "docs/configuration.md").read_text()
+        docs = (Path(__file__).resolve().parents[1] / "docs/polling.md").read_text()
         self.assertIn(f"**{POLL_RETRY_BASE_SECONDS} seconds**", docs)
         self.assertIn(f"**{POLL_RETRY_MAX_SECONDS} seconds**", docs)
         self.assertEqual(POLL_FAILURE_LIMIT, 6)

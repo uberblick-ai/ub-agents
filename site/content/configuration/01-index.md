@@ -47,21 +47,13 @@ shared-instructions: .agents/ub_agents.md
 
 ## Poll interval
 
-The shortest gap, in seconds, between discovery-pass starts. Defaults to 30.
-After running or recovering work, continuous launch starts the next claiming pass
-immediately; the gap counts from that new pass. Rate-limit waits and runtime usage
-pauses still apply. When nothing is eligible, the launcher waits longer so that
-discovery averages at most 250 requests/hour per launcher. One balance, shared
-with in-run observations, starts full at 125 requests and refills at 250/hour.
-Idle and observation passes wait for the gap and a balance of at least 1; their
-gap is capped at one hour. Claiming after work and poll-now passes start without
-this wait, debit the balance, and leave any debt for later idle waits. The first
-observation counts its gap from the claiming pass's start. A cold burst followed
-by cheap passes can keep the normal interval. Sustained passes above 250 requests
-are the one-hour-cap exception to the average. Low quota still doubles the gap,
-bounded by the reset. See
-[How many launchers one account supports](/docs/best-practices/account-capacity.html)
-for idle and busy capacity.
+The minimum gap between discovery-pass starts, in seconds; defaults to 30.
+After running or recovering work, claiming resumes immediately. Idle and
+observation passes can wait longer for request budget or low quota; rate-limit
+waits and runtime usage pauses still apply. This is not an agent retry setting.
+See [polling rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md)
+for exact timing and [account capacity](/docs/best-practices/account-capacity.html)
+for sizing a shared account.
 
 ```yaml
 poll-seconds: 30
