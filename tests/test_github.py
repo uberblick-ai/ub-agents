@@ -532,6 +532,14 @@ class GitHubTests(unittest.TestCase):
                 parse_item(raw | fields, "pr")
         self.assertFalse(parse_item(raw, "issue").draft)
 
+    def test_pr_merge_state_is_known_only_as_a_boolean(self):
+        raw = {"number": 2, "title": "Candidate", "body": "", "labels": [], "state": "open",
+               "created_at": iso(100), "draft": False, "head": {"sha": "a" * 40, "ref": "feature/test"}}
+        for value, expected in ((False, False), (True, True), (None, None), ("dirty", None)):
+            with self.subTest(value=value):
+                self.assertIs(parse_item(raw | {"mergeable": value}, "pr").mergeable, expected)
+        self.assertIsNone(parse_item(raw | {"mergeable": False}, "issue").mergeable)
+
     def test_reads_all_pages_without_indexed_search(self):
         pages = [[{"id": i} for i in range(100)], [{"id": 100}]]
         results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]

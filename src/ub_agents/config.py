@@ -149,6 +149,7 @@ class Agent:
     outcomes: dict
     retrospectives: int | None = None
     health_check: tuple[str, ...] = ()
+    on_conflict: str | None = None
 
     def runtime_args_for(self, runtime):
         if isinstance(self.runtime_args, dict):
@@ -317,7 +318,7 @@ def load_config(path):
             raise AgentError("Agent names must be lowercase slugs")
         item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
             "command", "runtime-args", "different-runtime-from", "kind",
-            "worktree", "outcomes", "retrospectives", "health-check"}, f"agent {name}")
+            "worktree", "outcomes", "retrospectives", "health-check", "on-conflict"}, f"agent {name}")
         retrospectives = item.get("retrospectives")
         if "retrospectives" in item and (type(retrospectives) is not int or retrospectives <= 0):
             raise AgentError(f"{name} retrospectives must be a positive integer discussion number")
@@ -384,11 +385,17 @@ def load_config(path):
             if set(labels["remove"]).union(triggers).intersection(stop):
                 raise AgentError(f"{name}: outcome cannot remove a stop label")
             outcomes[outcome] = labels
+        on_conflict = string(item["on-conflict"], f"{name} on-conflict") if "on-conflict" in item else None
+        if on_conflict is not None and (kind != "pr" or on_conflict not in outcomes
+                                        or set(outcomes[on_conflict]["add"]).intersection(stop)):
+            raise AgentError(f"{name}: on-conflict must name a declared outcome of a pr agent "
+                             "that adds no stop label")
         agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind, worktree,
             LEASE_SECONDS,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
-            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check))
+            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check,
+            on_conflict))
     for agent in agents:
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")

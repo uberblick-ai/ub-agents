@@ -71,6 +71,17 @@ A nonzero exit, start failure or timeout makes ready items `waiting`, with the c
 
 **Upgrading:** Upgrade every launcher of a project before adding `health-check`; older versions reject the unknown agent key.
 
+## On conflict
+
+Send a pull request GitHub reports as conflicting straight to the agent that repairs it. Name one of this `pr` agent's outcomes that adds no stop label. After the claim, the launcher records that outcome with a summary naming the conflict instead of starting the agent, so the integrator does not spend a run only to send the conflict back. An unknown merge state starts the agent as usual.
+
+```yaml
+integrator:
+  on-conflict: changes-requested
+```
+
+**Upgrading:** Upgrade every launcher of a project before adding `on-conflict`; older versions reject the unknown agent key.
+
 ## Outcomes
 
 The results this agent can report, and the labels each one changes. Required. See [Outcomes](/docs/configuration/outcomes.html).
