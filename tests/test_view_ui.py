@@ -3381,6 +3381,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
+    # Keep Recent-only initial-selection and eviction coverage enabled (#433).
     async def test_recent_rows_dim_selection_and_evicted_selected_outcome(self):
         self.state['assignment'] = None
         self.state['latest_pass'] = {'state': 'complete', 'rows': []}
@@ -3391,9 +3392,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             recent = app.query_one(RecentActivity)
-            # Selection and focus follow the rows in a later refresh.
+            # Rows, selection and focus can arrive before Textual enables scrolling.
             await self.ready(app, pilot, lambda: len(recent.rows) == 20 and app.focused is recent
-                             and app.selected == 'outcome:past-19')
+                             and app.selected == 'outcome:past-19' and recent.max_scroll_y > 0
+                             and recent.allow_vertical_scroll)
             self.assertEqual(app.selected, 'outcome:past-19')
             self.assertIs(app.focused, recent)
             visible = recent.visible_rows
@@ -3411,11 +3413,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             recent.cursor = visible[-1].key
             recent.reveal_cursor()
             await pilot.press('enter', '2')
-            selected, focus = app.selected, app.focused
+            selected, focus, anchor = app.selected, app.focused, recent.viewport_anchor()
+            self.assertIsNotNone(anchor)
             self.state['outcomes'] = self.state['outcomes'][1:] + [dict(self.state['outcomes'][-1], run='newest')]
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: recent.rows[0].key == 'outcome:newest')
-            await pilot.pause()
+            await self.ready(app, pilot, lambda: recent.rows[0].key == 'outcome:newest'
+                             and recent.viewport_anchor() == anchor)
             self.assertIn(selected, [row.key for row in recent.visible_rows])
             self.assertEqual(app.selected, selected)
             self.assertIs(app.focused, focus)
