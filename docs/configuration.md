@@ -74,8 +74,8 @@ poll-seconds: 30
 
 For the detailed rules previously covered here, see
 [Polling and GitHub requests](polling.md), including its fixed
-[retry limits](polling.md#transient-failures) and
-[rate-limit waits](polling.md#rate-limit-waits).
+[retry limits](polling.md#quota-and-failure-handling) and
+[rate-limit waits](polling.md#quota-and-failure-handling).
 Launch logs are described in [Running launchers](operations.md#launch-output).
 Local session files have no configuration key; their format and lifecycle are in
 the [session snapshot contract](session-snapshots.md).

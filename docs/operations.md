@@ -20,7 +20,7 @@ for signal handling, including during a GitHub request.
 Discovery reports pass kind, elapsed time and request counts. Consecutive passes
 with the same kind, counts and candidate count are printed once; each run also
 records its launcher requests in `events.jsonl`.
-See [request accounting](polling.md#observation-and-request-accounting) for field
+See [request accounting](polling.md#accounting-and-diagnostics) for field
 meanings and what is included. [Session snapshots](session-snapshots.md) support
 local observation without rereading GitHub.
 
@@ -65,7 +65,7 @@ Discovery and idle waits (including rate-limit waits outside a run) wake on SIGT
 and exit 0, and on Ctrl-C/SIGHUP exit 130. A rate-limit wait inside an owned run
 keeps draining on SIGTERM; Ctrl-C/SIGHUP interrupt it like the run. A launcher
 error keeps its nonzero exit even during a drain. See the
-[polling contract](polling.md#rate-limit-waits) for detailed wait rules
+[polling contract](polling.md#quota-and-failure-handling) for detailed wait rules
 and the [coordination contract](coordination.md#execution-boundaries) for
 execution and cleanup boundaries.
 
