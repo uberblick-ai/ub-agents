@@ -1064,7 +1064,12 @@ class View(App):
                 self.descriptions.request(key)
         description = local if local.available else (self.descriptions.get(key) or local)
         row = self.rows.get(self.selected)
-        details = description.details()
+        details = Text()
+        muted = theme_style(self, 'view-muted', dim=True)
+        for index, (line, secondary) in enumerate(description.detail_lines()):
+            if index:
+                details.append('\n')
+            details.append(line, style=muted if secondary else None)
         extra = ''
         if self.descriptions.pending == key and key is not None and self.descriptions.pending_kind == 'issue':
             extra += f'\n\nLoading #{row.item}…'
@@ -1082,7 +1087,7 @@ class View(App):
             markdown = self.query_one('#issue_body', Markdown)
             if body != markdown.source:
                 markdown.update(body)
-            self.query_one('#issue_note', Static).update(Text(details + extra))
+            self.query_one('#issue_note', Static).update(details.append(extra))
             self.last_context = value
         actions = unblock_body(row, self.current_action()) if needs_attention(row) else ''
         lead, supporting = comment_sections(actions)
@@ -1560,6 +1565,8 @@ class View(App):
         output.reflow()
         self.last_runs = None
         self.update_runs()
+        self.last_context = None
+        self.update_issue()
         self.update_status()
         self.query_one(WorkTree).refresh()
         self.query_one(RecentActivity).refresh()

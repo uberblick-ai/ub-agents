@@ -417,17 +417,24 @@ class Description:
         object.__setattr__(self, 'error', error[:DESCRIPTION_LIMIT])
         object.__setattr__(self, 'notice', '\n'.join(notices))
 
+    def detail_lines(self, now=None):
+        """Literal detail lines paired with whether they are secondary metadata."""
+        age = f'{max(0, (time.time() if now is None else now) - self.observed_at):.0f}s old' if self.observed_at is not None else 'age unavailable'
+        lines = [] if self.available else [('Description unavailable (not cached).', False)]
+        if self.error:
+            lines = [('Description load failed: ' + self.error, False)]
+        if self.source:
+            lines.append((f'Source: {self.source} · {age}', True))
+        if self.notice:
+            for notice in self.notice.split('\n'):
+                secondary = notice.startswith(('Title shortened', 'Description shortened',
+                                               'Description load error shortened'))
+                lines.append((notice, secondary))
+        return lines
+
     def details(self, now=None):
         """Plain status and provenance, kept outside the Markdown body."""
-        age = f'{max(0, (time.time() if now is None else now) - self.observed_at):.0f}s old' if self.observed_at is not None else 'age unavailable'
-        lines = [] if self.available else ['Description unavailable (not cached).']
-        if self.error:
-            lines = ['Description load failed: ' + self.error]
-        if self.source:
-            lines.append(f'Source: {self.source} · {age}')
-        if self.notice:
-            lines.append(self.notice)
-        return '\n'.join(lines)
+        return '\n'.join(line for line, _ in self.detail_lines(now))
 
     def display(self, now=None):
         body = self.body if self.available and not self.error else ''

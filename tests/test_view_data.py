@@ -688,6 +688,18 @@ class ViewDataTests(unittest.TestCase):
         exact = Description('t' * 2048, 'x' * 2048)
         self.assertEqual(exact.notice, '')
 
+    def test_description_detail_lines_preserve_text_age_and_non_metadata_notices(self):
+        description = Description(source='run context.json', observed_at=1000,
+                                  notice='Cached context unavailable: read failure')
+        self.assertEqual(description.detail_lines(now=1105), [
+            ('Description unavailable (not cached).', False),
+            ('Source: run context.json · 105s old', True),
+            ('Cached context unavailable: read failure', False)])
+        self.assertEqual(description.details(now=1106),
+                         'Description unavailable (not cached).\n'
+                         'Source: run context.json · 106s old\n'
+                         'Cached context unavailable: read failure')
+
     def test_cli_lists_without_importing_textual_or_invoking_a_process(self):
         self.path.write_text(json.dumps(dict(self.state, ended=True)))
         with patch('subprocess.Popen', side_effect=AssertionError('process/network access')), contextlib.redirect_stdout(io.StringIO()) as output:
