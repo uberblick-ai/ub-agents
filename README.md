@@ -61,8 +61,16 @@ ub-agents is MIT-licensed and early stage. It develops itself with its own loop.
 │                                            │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │                                            │ │  ⠧ implementer running · no outcome reported                  │
 ╰────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────────────╯
-ub-agents · running assignment                                           ↑↓ select ⏎ open 1-3 tabs ? keys q quit
+ub-agents · running assignment                                                            1-3 tabs ? keys q quit
 ```
+
+The footer keeps navigation hints brief: `1-3 tabs ? keys q quit` in follow mode,
+or `? keys q quit` in the narrow Work list. Arrow keys still select rows and
+`Enter` opens them; `?` lists all keys. Attached macOS views offer
+`r poll now c Stay awake ? keys` when there is room. With keep awake enabled,
+the footer reads `ub-agents v0.2.1 · ☕ · next poll 26s`, or
+`v0.2.1 · ☕ · poll 26s` in the narrow layout. The `☕` indicator uses two terminal
+cells and stays visible as the `c Stay awake` hint drops first.
 
 ## Get started
 

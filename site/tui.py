@@ -100,6 +100,6 @@ def render():
     out.append(bottom(W_L, True) + ' ' + bottom(W_R, False))
     total = W_L + 1 + W_R
     lft = 'ub-agents · running assignment'
-    rgt = '↑↓ select ⏎ open 1-3 tabs ? keys q quit'
+    rgt = '1-3 tabs ? keys q quit'
     out.append(f'<span class="dim">{esc(lft)}{" " * (total - len(lft) - len(rgt))}{esc(rgt)}</span>')
     return '\n'.join(out)

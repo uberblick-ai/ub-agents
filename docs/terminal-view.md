@@ -568,7 +568,7 @@ In the narrow layout, the `ub-agents` prefix is omitted and `next poll Ns` becom
 `poll Ns`,
 for example `v0.1.11 · poll 26s` or `v0.1.11 · running assignment · polling`.
 Other activity and diagnostic labels keep their
-text. The list's right side reads `↑↓ select ⏎ open ? keys q quit`; the item view
+text. The list's right side reads `? keys q quit`; the item view
 reads `Esc back 1-3 tabs ? keys q quit`. On Log, the footer adds `g reload`,
 dropping it at narrow widths when it does not fit. Reloading before the log exists
 keeps the existing empty-log notice. A paused item uses the existing log keys,
@@ -576,6 +576,9 @@ including on Issue and Runs, shortened only when they do not fit. Needs attentio
 uses `1-4 tabs`; on Unblock the footer also includes `g load`, including when the
 log is paused. `?` includes `4` and `g on Unblock` only for Needs attention rows,
 alongside the other keys and narrow `Enter` and `Esc`.
+The wide follow-mode keys read `1-3 tabs ? keys q quit` before contextual hints.
+Footers omit selection and opening hints in every layout and overlay; arrow keys
+and `Enter` still work, and `?` still describes them.
 Attached views also include `r poll now` among the main footer keys on every tab
 and pane. Narrow layouts drop it before shortening the existing keys when it
 does not fit.
@@ -583,12 +586,13 @@ does not fit.
 On macOS, `c` toggles keep awake from any pane, tab or overlay. It starts off at
 every launch and remembers nothing. The launcher holds one `caffeinate -i -w`
 idle-sleep assertion tied to its own PID; display sleep remains allowed and no
-permanent setting changes. The footer adds `awake` immediately after the version
-only once the helper starts: `ub-agents v0.2.1 · awake · next poll 26s`, or
-`v0.2.1 · awake · poll 26s` in the narrow layout. State updates arrive over the
-attached channel without waiting for a discovery poll. The `c awake` hint sits
+permanent setting changes. The footer adds `☕` immediately after the version
+only once the helper starts: `ub-agents v0.2.1 · ☕ · next poll 26s`, or
+`v0.2.1 · ☕ · poll 26s` in the narrow layout. State updates arrive over the
+attached channel without waiting for a discovery poll. The `c Stay awake` hint sits
 next to `r poll now` when there is room and disappears first at narrow widths,
-preserving the existing poll/reload hints. The `awake` token stays visible.
+preserving the existing poll/reload hints. The `☕` indicator stays visible and
+counts as two terminal cells when fitting the footer to one line.
 
 A missing or failed helper leaves keep awake off and briefly shows a reason in
 the footer, such as `keep awake unavailable: caffeinate not found`. An unexpected

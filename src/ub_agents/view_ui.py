@@ -1245,7 +1245,7 @@ class View(App):
             if version:
                 parts[0] += ('' if self.narrow else ' ') + f'v{version}'
         if self.launcher is not None and self.awake_enabled:
-            parts.append('awake')
+            parts.append('☕')
         awake_prefix = Text(' · '.join(part for part in parts if part)).cell_len
         if self.session:
             if self.session.data.get('queue_agent'):
@@ -1306,7 +1306,7 @@ class View(App):
         # Add this hint only after retaining the existing poll/reload hints.
         # It is the first hint to disappear as space becomes scarce.
         if self.launcher is not None and self.awake_supported and 'r poll now' in keys:
-            awake_keys = keys.replace('? keys', 'c awake ? keys')
+            awake_keys = keys.replace('? keys', 'c Stay awake ? keys')
             if len(awake_keys) + left.cell_len + 1 <= width:
                 keys = awake_keys
         right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
@@ -1338,10 +1338,10 @@ class View(App):
         page, log = reading.page, reading.log
         unread, lag = self.log_lag()
         keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit' if not reading.follow else
-                '↑↓ select ⏎ open 1-3 tabs ? keys q quit')
+                '1-3 tabs ? keys q quit')
         if self.narrow:
             if not self.item_view:
-                keys = '↑↓ select ⏎ open ? keys q quit'
+                keys = '? keys q quit'
             elif reading.follow:
                 keys = 'Esc back 1-3 tabs ? keys q quit'
         if self.unblock_visible and (not self.narrow or self.item_view):
