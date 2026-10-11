@@ -21,7 +21,7 @@ from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted,
                      GitHubError, InstructionError)
 from .execution import repository_checks
 from .github import GitHub
-from .help import HelpParser
+from .help import HelpParser, InitHelpFormatter
 from .loop import Loop, _GracefulStop
 from .launch_log import launch_output
 from .labels import configured_labels, provision_labels
@@ -42,9 +42,10 @@ def parser():
         "show this help; after a command, that command's help")
     commands = result.add_subparsers(dest="command", prog="ub-agents")
     init = commands.add_parser("init", help="set up this repository: starter configuration, agent instructions and workflow labels",
+                               formatter_class=InitHelpFormatter,
                                description="Create starter configuration and agent instructions for a project. "
-                               "Use when adopting ub-agents; existing starter files are never overwritten.",
-                               examples=("ub-agents init --repository org/project",
+                               "Use when adopting ub-agents; existing files will never be overwritten.",
+                               examples=("ub-agents init",
                                          "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")

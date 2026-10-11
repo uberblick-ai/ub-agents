@@ -7,6 +7,8 @@ import textwrap
 
 
 class HelpFormatter(argparse.HelpFormatter):
+    command_heading = False
+
     def __init__(self, prog):
         super().__init__(prog, width=80)
 
@@ -74,6 +76,14 @@ class HelpFormatter(argparse.HelpFormatter):
         return self.rows(rows)
 
 
+class InitHelpFormatter(HelpFormatter):
+    command_heading = True
+
+    def rows(self, rows):
+        # Init's approved example keeps option explanations on a single line.
+        return [f"  {label:<25}# {description}" for label, description in rows]
+
+
 class HelpParser(argparse.ArgumentParser):
     def __init__(self, *args, examples=(), overview_options=(), run_command=False,
                  overview_hidden=False, **kwargs):
@@ -138,7 +148,8 @@ class HelpParser(argparse.ArgumentParser):
                     lines.extend(["", title, *formatter.rows(rows)])
             lines.extend(["", "options:", *formatter.option_rows(self._actions)])
         else:
-            lines = [self.format_usage().rstrip(), "", *textwrap.wrap(self.description, width=80)]
+            lines = [self.prog] if formatter.command_heading else []
+            lines.extend([self.format_usage().rstrip(), "", *textwrap.wrap(self.description, width=80)])
             actions = [action for action in self._actions if not isinstance(action, argparse._HelpAction)]
             actions.extend(action for action in self._actions if isinstance(action, argparse._HelpAction))
             lines.extend(["", "options:", *formatter.option_rows(actions)])
