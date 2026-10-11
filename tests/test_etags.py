@@ -246,6 +246,23 @@ class CoordinationRunner(RecordingRunner):
         path = parts.path.removeprefix('repos/org/project/')
         if path == 'graphql':
             query, variables = data['query'], data['variables']
+            if 'timelineItems' in query:
+                import re
+                repository = {}
+                for alias, number in re.findall(r'(item[0-9]+): issue\(number:([0-9]+)\)', query):
+                    item = self.store.item(int(number))
+                    events = [{'__typename': 'LabeledEvent', 'createdAt': e['created_at'],
+                               'actor': {'login': e['actor']['login'], '__typename': 'User'},
+                               'label': {'name': e['label']['name'], 'updatedAt': iso(0)}}
+                              for e in self.store.timeline(item.number)]
+                    repository[alias] = {
+                        'title': item.title, 'body': item.body, 'createdAt': item.created_at,
+                        'lastEditedAt': None, 'author': None,
+                        'userContentEdits': {'nodes': [], 'totalCount': 0,
+                                            'pageInfo': {'hasNextPage': False, 'endCursor': None}},
+                        'timelineItems': {'nodes': events, 'totalCount': len(events),
+                                          'pageInfo': {'hasNextPage': False, 'endCursor': None}}}
+                return {'data': {'repository': repository}}
             if 'userContentEdits' in query:
                 item = self.store.item(variables['number'])
                 return {'data': {'repository': {'issue': {

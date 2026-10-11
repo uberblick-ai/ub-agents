@@ -14,7 +14,8 @@ from ub_agents.discovery import Discovery
 from ub_agents.github import APPROVAL_BATCH_SIZE, GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import iso
-from tests.support import DiscoveryCostRunner, PollGitHub, agent, config, issue, pr, stub_refresh
+from ub_agents.run_planning import RunPlanning
+from tests.support import DiscoveryCostRunner, agent, config, issue, pr, stub_refresh
 
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "approval_inputs.json").read_text())
@@ -35,6 +36,7 @@ class ApprovalFixtureRunner:
         self.item, self.node, self.timeline = item, node, timeline
         self.calls, self.batch_responses, self.content_responses = [], [], []
         self.comments = []
+        self.roles = {"operator": "write", "maintainer": "maintain"}
 
     def __call__(self, command, **kwargs):
         endpoint = command[command.index("--include") + 1]
@@ -58,7 +60,7 @@ class ApprovalFixtureRunner:
                 response = deepcopy(self.comments)
             elif path.endswith("/permission"):
                 login = path.split("/")[-2]
-                response = {"role_name": {"operator": "write", "maintainer": "maintain"}.get(login, "none")}
+                response = {"role_name": self.roles.get(login, "none")}
             else:
                 raise AssertionError(f"Unexpected fixture request: {path}")
         return subprocess.CompletedProcess(command, 0, json.dumps(response), "")
@@ -134,6 +136,43 @@ class ApprovalBatchTests(unittest.TestCase):
                 self.assertEqual(sum(name == "content" for name, _ in runner.calls), 1)
                 self.assertEqual(sum(name.endswith("/timeline") for name, _ in runner.calls), 1)
 
+    def test_approval_records_use_rename_history_and_deleted_edits_prove_no_digest(self):
+        cases = {c["name"]: c for c in FIXTURES["cases"]}
+        for kind in ("issue", "pr"):
+            for name in ("trusted rename", "body edited after start", "deleted edit"):
+                with self.subTest(kind=kind, case=name):
+                    item, node, timeline = fixture(cases[name], kind)
+                    title = "Requirements" if name == "trusted rename" else item.title
+                    at = "2026-01-01T00:00:08Z" if name == "trusted rename" else "2026-01-01T00:00:12Z"
+                    record = {"id": 601, "body": approval_body(1, title, item.body, [],
+                              head=item.head if kind == "pr" else None),
+                              "created_at": at, "updated_at": at,
+                              "user": {"login": "maintainer", "type": "User"}}
+                    def setup(ordinary, bulk):
+                        ordinary.comments = [deepcopy(record)]
+                        bulk.comments = [deepcopy(record)]
+                    result, _, _ = self.check_pair(item, node, timeline, setup)
+                    self.assertEqual(result.allowed, name != "deleted edit")
+
+    def test_outside_pr_head_verdicts_and_cleared_feedback_match(self):
+        item, node, timeline = fixture(FIXTURES["cases"][0], "pr")
+        node["author"] = {"login": "outsider", "__typename": "User"}
+        outside = {"id": 602, "body": "Outside feedback", "created_at": "2026-01-01T00:00:08Z",
+                   "updated_at": "2026-01-01T00:00:08Z", "user": {"login": "outsider", "type": "User"}}
+        for approved in (False, True):
+            with self.subTest(approved=approved):
+                def setup(ordinary, bulk):
+                    comments = [deepcopy(outside)]
+                    if approved:
+                        comments.append({"id": 603, "body": approval_body(1, item.title, item.body, [outside], head=item.head),
+                                         "created_at": "2026-01-01T00:00:12Z", "updated_at": "2026-01-01T00:00:12Z",
+                                         "user": {"login": "maintainer", "type": "User"}})
+                    ordinary.comments = deepcopy(comments)
+                    bulk.comments = deepcopy(comments)
+                result, _, _ = self.check_pair(item, node, timeline, setup)
+                self.assertEqual(result.allowed, approved)
+                self.assertEqual(result.cleared_comment_ids, frozenset({602}) if approved else frozenset())
+
     def test_partial_or_graphql_error_batch_supplies_no_items_and_is_not_retried(self):
         item, node, timeline = fixture(FIXTURES["cases"][0], "issue")
         for response in ({"data": {"repository": {"item1": node}}, "errors": [{"message": "Unavailable"}]},
@@ -187,7 +226,31 @@ class ApprovalBatchTests(unittest.TestCase):
         self.assertIn("changed", result.reason)
         self.assertNotIn(1, discovery.bulk_inputs)
 
+    def test_followups_complete_long_edit_histories_using_only_per_item_pages(self):
+        for kind in ("issue", "pr"):
+            with self.subTest(kind=kind):
+                item, node, timeline = fixture(FIXTURES["cases"][0], kind)
+                edits = [{"editedAt": iso(1767225600 + n), "editor": {"login": "operator", "__typename": "User"},
+                          "diff": item.body, "deletedAt": None} for n in range(1, 102)]
+                first, last = deepcopy(node), deepcopy(node)
+                for page in (first, last):
+                    page["lastEditedAt"] = edits[-1]["editedAt"]
+                first["userContentEdits"] = {"nodes": edits[:100], "totalCount": 101,
+                                             "pageInfo": {"hasNextPage": True, "endCursor": "next"}}
+                last["userContentEdits"] = {"nodes": edits[100:], "totalCount": 101,
+                                            "pageInfo": {"hasNextPage": False, "endCursor": None}}
+                def setup(ordinary, bulk):
+                    ordinary.content_responses = deepcopy([first, last])
+                    bulk.content_responses = deepcopy([first, last])
+                    bulk.batch_responses = [{"data": {"repository": {"item1": deepcopy(first)}}}]
+                result, runner, discovery = self.check_pair(item, node, timeline, setup)
+                self.assertTrue(result.allowed)
+                self.assertNotIn(1, discovery.bulk_inputs)
+                calls = [data for name, data in runner.calls if name == "content"]
+                self.assertEqual([c["variables"]["cursor"] for c in calls], [None, "next"])
+
     def test_cold_observation_batches_and_warm_pass_reads_no_approval_input(self):
+        self.assertEqual(APPROVAL_BATCH_SIZE, 50)
         runner = DiscoveryCostRunner()
         # Repeat the recording audit fixture beyond one batch.
         original = deepcopy(runner.rows[0])
@@ -211,19 +274,62 @@ class ApprovalBatchTests(unittest.TestCase):
             self.assertFalse(any(c[c.index("--include") + 1] == "graphql" for c in runner.calls))
 
     def test_milestone_claiming_batches_only_reached_plans_and_preserves_call_ceiling(self):
-        class BulkGitHub(PollGitHub):
-            def approval_inputs(self, items):
-                self.reads.append(("approval_inputs", tuple(i.number for i in items)))
-                return {i.number: (PollGitHub.issue_content(self, i.number), PollGitHub.timeline(self, i.number))
-                        for i in items}
-        github = BulkGitHub(*(issue(n, milestone=10 if n <= 2 else 20) for n in range(1, 84)))
-        github.milestones = [{"number": n, "state": "open", "created_at": iso(n)} for n in (10, 20)]
-        github.timelines[1] = []
-        loop = Loop(config(self.root, agent(self.root), queue=Queue("gate")), github, "operator")
-        with patch.object(loop, "execute", return_value=True), patch.object(loop, "park_approval"):
-            self.assertTrue(loop.tick())
-        self.assertEqual([args for name, args in github.reads if name == "approval_inputs"], [(1,), (2,)])
-        self.assertEqual({args[0] for name, args in github.reads if name in {"issue_content", "timeline"}}, {1, 2})
+        class MilestoneRunner(DiscoveryCostRunner):
+            def __call__(self, command, **kwargs):
+                path = urlsplit(command[command.index("--include") + 1]).path
+                if path.endswith("/milestones"):
+                    self.calls.append(command)
+                    return subprocess.CompletedProcess(command, 0, json.dumps([
+                        {"number": n, "state": "open", "created_at": iso(n), "open_issues": 83}
+                        for n in (10, 20)]), "")
+                response = super().__call__(command, **kwargs)
+                if path == "graphql" and "timelineItems" in kwargs["input"]:
+                    data = json.loads(response.stdout)
+                    node = data["data"]["repository"].get("item1")
+                    if node:
+                        node["timelineItems"].update(nodes=[], totalCount=0)
+                    return subprocess.CompletedProcess(command, 0, json.dumps(data), "")
+                if path.endswith("/issues/1/timeline"):
+                    return subprocess.CompletedProcess(command, 0, "[]", "")
+                return response
+        counts = []
+        for bulk in (False, True):
+            runner = MilestoneRunner()
+            original = deepcopy(runner.rows[0])
+            runner.rows = [original | {"number": n, "comments": 0, "milestone": {"number": 10 if n <= 2 else 20}}
+                           for n in range(1, 84)]
+            runner.comments = {n: [] for n in range(1, 84)}
+            github = GitHub("org/project", runner)
+            if not bulk:
+                github.approval_inputs = None
+            loop = Loop(config(self.root, agent(self.root), queue=Queue("gate")), github, "operator", output=lambda _: None)
+            with patch.object(loop, "execute", return_value=True) as execute, \
+                    patch.object(loop, "park_approval"), patch("ub_agents.github.timestamp", return_value=1000):
+                self.assertTrue(loop.tick())
+            self.assertEqual(execute.call_args.args[0].item.number, 2)
+            counts.append(len(runner.calls))
+            paths = [c[c.index("--include") + 1] for c in runner.calls]
+            self.assertFalse(any("/issues/3/" in path for path in paths))
+            if bulk:
+                self.assertEqual(sum(path == "graphql" for path in paths), 3)  # Graph and two reached inputs.
+                self.assertFalse(any("/timeline" in path for path in paths))
+        self.assertEqual(counts[1], counts[0] - 2)
+
+    def test_copied_observation_cache_retains_rest_title_gate_fallback(self):
+        case = next(c for c in FIXTURES["cases"] if c["name"] == "trusted rename")
+        item, node, timeline = fixture(case, "issue")
+        runner = ApprovalFixtureRunner(item, node, timeline)
+        loop = self.loop(runner)
+        loop.discovery.prepare_approval_inputs([item])
+        worker = RunPlanning(loop, 0)
+        self.assertEqual(worker.planner.discovery.bulk_inputs, {1})
+        runner.roles["operator"] = "none"
+        actual = worker.planner.input_check(item, worker.planner.discovery)
+        expected = self.loop(runner).input_check(item)
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual.gate, "input")
+        self.assertNotIn(1, worker.planner.discovery.bulk_inputs)
+        self.assertEqual(loop.discovery.bulk_inputs, {1})
 
     def test_fresh_input_checks_ignore_bulk_discovery_cache(self):
         item, node, timeline = fixture(FIXTURES["cases"][0], "issue")
