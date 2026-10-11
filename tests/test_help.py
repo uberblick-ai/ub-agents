@@ -60,6 +60,21 @@ examples:
   ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high
 """
 
+CHECK_HELP = """ub-agents check
+usage: ub-agents check [options]
+
+Validate project configuration, including trusted-bots, and instruction files
+without executing agents. Use after editing the workflow or before launching it.
+
+options:
+  --config PATH          # project configuration (default: ub-agents.yaml)
+  -h, --help             # show this help
+
+examples:
+  ub-agents check
+  ub-agents check --config workflow.yaml
+"""
+
 LAUNCH_HELP = """usage: ub-agents launch [NUMBER] [options]
 
 Run the queue in the foreground under the configured gates. Without a number,
@@ -130,6 +145,11 @@ class HelpTests(unittest.TestCase):
         for argv in (["init", "-h"], ["init", "--help"], ["help", "init"]):
             with self.subTest(argv=argv):
                 self.assertEqual(self.invoke(argv), (0, INIT_HELP, ""))
+
+    def test_check_help_matches_requested_layout(self):
+        for argv in (["check", "-h"], ["check", "--help"], ["help", "check"]):
+            with self.subTest(argv=argv):
+                self.assertEqual(self.invoke(argv), (0, CHECK_HELP, ""))
 
     def test_every_registered_command_has_one_aligned_overview_row(self):
         overview = self.invoke([])[1]
@@ -268,17 +288,18 @@ class HelpTests(unittest.TestCase):
         for name, command in self.command_line.commands().items():
             with self.subTest(command=name):
                 details = self.invoke(["help", name])[1]
-                self.assertEqual(details.splitlines()[1 if name == "init" else 0],
+                self.assertEqual(details.splitlines()[1 if name in {"init", "check"} else 0],
                                  f"usage: ub-agents {name} {expected[name]}")
                 for action in command._actions:
                     if action.option_strings and action.required and action.help != argparse.SUPPRESS:
                         self.assertIn(f"{action.help} (required)", " ".join(details.split()))
                 help_row = ("  -h, --help               # show this help\n" if name == "init" else
+                            "  -h, --help             # show this help\n" if name == "check" else
                             "  -h, --help             show this help\n")
                 self.assertIn(help_row, details)
                 self.assertNotIn("show this help message and exit", details)
                 # Descriptions and other commands' option rows wrap within 80
-                # columns. Init options and example commands remain literal.
+                # columns. Init/check options and example commands remain literal.
                 for line in details.split("\n\n", 1)[1].split("\nexamples:")[0].splitlines():
                     width = 82 if name == "init" and line.startswith("  ") else 80
                     self.assertLessEqual(len(line), width, line)
@@ -309,6 +330,8 @@ class HelpTests(unittest.TestCase):
                            (["approve"], "approve"), (["approve", "0"], "approve"),
                            (["approve", "143", "--number", "143"], "approve"),
                            (["--config", "x.yaml", "check", "--config", "x.yaml"], "check"),
+                           (["check", "--bogus"], "check"),
+                           (["check", "--config"], "check"),
                            (["report"], "report"), (["read"], "read"),
                            (["init", "--bogus"], "init"),
                            (["init", "--repository"], "init"),
@@ -323,6 +346,8 @@ class HelpTests(unittest.TestCase):
                 self.assertEqual(code, 2)
                 self.assertEqual(output, "")
                 self.assertTrue(errors.startswith(self.command_line.commands()[name].format_usage()))
+                if name == "check":
+                    self.assertTrue(errors.startswith("usage: ub-agents check [options]\n"))
                 self.assertIn(f"ub-agents {name}: error:", errors)
                 self.assertNotIn("usage: ub-agents <command>", errors)
                 self.assertNotIn("[-h]", errors)

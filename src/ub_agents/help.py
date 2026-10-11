@@ -76,12 +76,17 @@ class HelpFormatter(argparse.HelpFormatter):
         return self.rows(rows)
 
 
-class InitHelpFormatter(HelpFormatter):
+class CommentHelpFormatter(HelpFormatter):
     command_heading = True
+    label_width = 23
 
     def rows(self, rows):
-        # Init's approved example keeps option explanations on a single line.
-        return [f"  {label:<25}# {description}" for label, description in rows]
+        # Approved examples keep option explanations on a single line.
+        return [f"  {label:<{self.label_width}}# {description}" for label, description in rows]
+
+
+class InitHelpFormatter(CommentHelpFormatter):
+    label_width = 25
 
 
 class HelpParser(argparse.ArgumentParser):
