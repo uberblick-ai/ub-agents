@@ -65,13 +65,11 @@ def parser():
     doctor.add_argument("--json", action="store_true", help="emit versioned prerequisite results")
     doctor.add_argument("--verbose", action="store_true", help="show the full per-check list (does not change --json)")
     launch = commands.add_parser("launch", help="run the queue in the foreground, or handle one item",
+                                 formatter_class=CommentHelpFormatter,
                                  description="Run the queue in the foreground under the configured gates. Without a number, "
                                  "watch the queue; with a number, handle only that issue or PR, then exit. "
                                  "Use --agent NAME to serve only one configured agent; without a number, "
-                                 "the queue keeps polling until you stop it. For preparation, run "
-                                 "--agent issue-preparer, stop to resolve human decisions, then launch the normal queue. "
-                                 "Queue priority and milestone policy do not apply to an explicit item; all other gates do. "
-                                 "An agent still needs a matching trigger label, including with --agent.",
+                                 "the queue keeps polling until you stop it.",
                                  examples=("ub-agents launch", "ub-agents launch --agent issue-preparer",
                                            "ub-agents launch 143 --agent implementer"))
     launch.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="run only this item, then exit (optional)")
