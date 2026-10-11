@@ -55,13 +55,13 @@ def parser():
                                  "Use after editing the workflow or before launching it.",
                                  examples=("ub-agents check", "ub-agents check --config workflow.yaml"))
     doctor = commands.add_parser("doctor", help="check the machine, GitHub access, labels and agent runtimes",
+                                 formatter_class=CommentHelpFormatter,
                                  overview_options=("--json",),
                                  description="Check machine, GitHub and runtime prerequisites. "
                                  "Create missing workflow labels only after a confirmed interactive prompt. "
                                  "Show warnings and failures with a summary per area by default; "
-                                 "use --verbose for every check. "
-                                 "Use during setup or to diagnose launch failures; required failures exit nonzero.",
-                                 examples=("ub-agents doctor", "ub-agents doctor --verbose", "ub-agents doctor --json"))
+                                 "required failures exit nonzero.",
+                                 examples=("ub-agents doctor", "ub-agents doctor --json"))
     doctor.add_argument("--json", action="store_true", help="emit versioned prerequisite results")
     doctor.add_argument("--verbose", action="store_true", help="show the full per-check list (does not change --json)")
     launch = commands.add_parser("launch", help="run the queue in the foreground, or handle one item",
