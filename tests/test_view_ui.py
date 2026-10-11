@@ -61,10 +61,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 presses += 1
                 app.keep_awake_state({'supported': True, 'enabled': True})
                 footer = app.screen.query_one('#raw_status', Static)
-                self.assertIn(' · awake · ', footer.render().plain)
+                self.assertIn(' · ☕ · ', footer.render().plain)
                 await pilot.press('escape')
                 app.keep_awake_state({'supported': True, 'enabled': False})
-                self.assertNotIn(' · awake · ', app.query_one('#status', Static).render().plain)
+                self.assertNotIn('☕', app.query_one('#status', Static).render().plain)
             self.assertEqual(launcher.awake.call_count, presses)
             launcher.poll.assert_not_called()
             launcher.interrupt.assert_not_called()
@@ -83,35 +83,89 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             clock.now.return_value = now
             async with app.run_test(size=(160, 45)) as pilot:
                 await self.ready(app, pilot)
-                keys = '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'
+                keys = '1-3 tabs g reload ? keys q quit'
                 for narrow in (False, True):
                     app.narrow = narrow
-                    for width in range(60, 161):
-                        app.awake_supported = False
-                        baseline = app.footer(width, keys).plain
-                        app.awake_supported = True
-                        footer = app.footer(width, keys).plain
-                        self.assertEqual('r poll now' in footer, 'r poll now' in baseline)
-                        self.assertEqual('g reload' in footer, 'g reload' in baseline)
-                        if 'c awake' in footer:
-                            self.assertIn('r poll now c awake', footer)
-                        else:
-                            self.assertEqual(footer, baseline)
-                        self.assertNotIn(' · awake', footer)
-                    app.awake_enabled = True
-                    for width in (60, 70, 80, 100, 110, 160):
-                        footer = app.footer(width, keys)
-                        prefix = 'v9.8.7 · awake' if narrow else 'ub-agents v9.8.7 · awake'
-                        self.assertTrue(footer.plain.startswith(prefix), footer.plain)
-                        self.assertEqual(footer.cell_len, width)
-                    app.awake_enabled = False
+                    for enabled in (False, True):
+                        app.awake_enabled = enabled
+                        for width in range(60, 161):
+                            app.awake_supported = False
+                            baseline = app.footer(width, keys).plain
+                            app.awake_supported = True
+                            footer = app.footer(width, keys)
+                            self.assertEqual('r poll now' in footer.plain, 'r poll now' in baseline)
+                            self.assertEqual('g reload' in footer.plain, 'g reload' in baseline)
+                            if 'c Stay awake' in footer.plain:
+                                self.assertIn('r poll now c Stay awake ? keys', footer.plain)
+                            else:
+                                self.assertEqual(footer.plain, baseline)
+                            self.assertNotIn(' · awake', footer.plain)
+                            self.assertEqual('☕' in footer.plain, enabled)
+                            if enabled:
+                                prefix = 'v9.8.7 · ☕ · ' if narrow else 'ub-agents v9.8.7 · ☕ · '
+                                self.assertTrue(footer.plain.startswith(prefix), footer.plain)
+                            self.assertEqual(footer.cell_len, width)
+                            # The coffee symbol occupies two cells but one code point.
+                            self.assertEqual(len(footer.plain) + int(enabled), width)
+                app.awake_enabled = False
                 app.narrow = True
-                self.assertIn('r poll now c awake', app.footer(160, keys).plain)
+                self.assertIn('r poll now c Stay awake ? keys', app.footer(160, keys).plain)
                 # At this width the original poll and reload hints still fit.
-                self.assertNotIn('c awake', app.footer(80, keys).plain)
-                self.assertIn('r poll now', app.footer(80, keys).plain)
-                self.assertIn('g reload', app.footer(80, keys).plain)
+                self.assertNotIn('c Stay awake', app.footer(60, keys).plain)
+                self.assertIn('r poll now', app.footer(60, keys).plain)
+                self.assertIn('g reload', app.footer(60, keys).plain)
                 app.exit()
+        app.worker.thread.join(2)
+
+    async def test_footer_hides_selection_hints_without_changing_navigation_or_help(self):
+        self.state['base_version'] = '9.8.7'
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path, launcher=Mock())
+        async with app.run_test(size=(160, 45)) as pilot:
+            await self.ready(app, pilot)
+            app.keep_awake_state({'supported': True, 'enabled': True})
+
+            def check_footer(selector):
+                footer = app.screen.query_one(selector, Static)
+                value = footer.render()
+                self.assertNotIn('↑↓ select', value.plain)
+                self.assertNotIn('⏎ open', value.plain)
+                self.assertIn(' · ☕ · ', value.plain)
+                self.assertEqual(value.cell_length, footer.size.width)
+                self.assertEqual(len(value.plain) + 1, footer.size.width)
+                self.assertEqual(footer.size.height, 1)
+
+            for size in ((60, 16), (80, 24), (110, 32), (160, 45)):
+                with self.subTest(size=size):
+                    await pilot.resize_terminal(*size)
+                    await pilot.pause()
+                    check_footer('#status')
+                    tree = app.query_one('#work', Tree)
+                    tree.focus()
+                    tree.move_cursor(app.nodes[app.selected])
+                    cursor = tree.cursor_node
+                    await pilot.press('down')
+                    self.assertIsNot(tree.cursor_node, cursor)
+                    await pilot.press('up')
+                    self.assertIs(tree.cursor_node, cursor)
+                    selected = app.selected
+                    await pilot.press('enter')
+                    self.assertEqual(app.selected, selected)
+                    self.assertEqual(app.item_view, app.narrow)
+                    for tab in ('1', '2', '3'):
+                        await pilot.press(tab)
+                        check_footer('#status')
+                    for overlay in ('p', '?'):
+                        await pilot.press(overlay)
+                        check_footer('#raw_status')
+                        if overlay == '?':
+                            help_text = app.screen.query_one('#raw_details', Static).render().plain
+                            self.assertIn('Tab / arrows / Enter   Focus a pane and select a work row', help_text)
+                            self.assertIn('Enter below 110×32   Open the selected item at full width', help_text)
+                            self.assertIn('c   Toggle keeping the launcher machine awake (macOS only)', help_text)
+                        await pilot.press('escape')
+                    await pilot.press('1', 'escape')
+            app.exit()
         app.worker.thread.join(2)
 
     async def test_awake_help_unavailable_notice_and_standalone_ignore(self):
@@ -120,7 +174,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(160, 45)) as pilot:
                 await self.ready(app, pilot)
                 app.keep_awake_state({'supported': False, 'enabled': False})
-                self.assertNotIn('c awake', app.query_one('#status', Static).render().plain)
+                self.assertNotIn('c Stay awake', app.query_one('#status', Static).render().plain)
                 await pilot.press('?')
                 help_text = app.screen.query_one('#raw_details', Static).render().plain
                 self.assertEqual('c   Toggle' in help_text, attached)
@@ -143,6 +197,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press('c')
                     self.assertEqual(app.awake_notice, '')
                     self.assertFalse(app.awake_enabled)
+                    # Even an enabled state cannot add an indicator without an attachment.
+                    app.keep_awake_state({'supported': True, 'enabled': True})
+                    self.assertNotIn('☕', app.query_one('#status', Static).render().plain)
                 app.exit()
             app.worker.thread.join(2)
 
@@ -999,7 +1056,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
                 self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
-                self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('? keys q quit'))
                 await pilot.press('enter')
                 self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs g reload ? keys q quit'))
                 await pilot.press('f')
@@ -1530,7 +1587,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
-                keys = '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'
+                keys = '1-3 tabs g reload ? keys q quit'
                 self.assertIn('ub-agents v9.8.7 · next poll 30s', footer.render().plain)
                 self.assertTrue(footer.render().plain.endswith(keys))
                 self.assertEqual(footer.size.height, 1)
@@ -1562,7 +1619,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.update_status()
                 self.assertNotIn('minimum', footer.render().plain)
                 self.assertTrue(footer.render().plain.startswith('malformed:'))
-                self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('? keys q quit'))
                 await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -1605,7 +1662,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('1', 'f')
             await self.ready(app, pilot, lambda: not pill.display)
             self.assertTrue(app.reading.raw)
-            self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
+            self.assertTrue(footer.render().plain.endswith('1-3 tabs g reload ? keys q quit'))
             # Ingestion can lag while following; it must be visible without a
             # persistent FOLLOW or RAW badge when caught up.
             app.reading.log = replace(app.reading.log, unread_bytes=8192)
