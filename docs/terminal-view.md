@@ -548,6 +548,8 @@ Missing repository values and `reading session` omit the segment and its separat
 Long names shorten with a trailing `…` inside the repository segment; the footer
 stays on one row without cutting the version, enabled awake token or separators,
 or overlapping the right-side keys.
+Busy activity text shortens before the repository loses its readable prefix;
+the repository shortens further only when the remaining space requires it.
 Waiting counts down as `next poll Ns`; other activities say `polling`,
 `running assignment` or `stopping`. Stale, ended and malformed snapshots are
 labelled there, including the malformed error, without a snapshot-age counter.

@@ -136,6 +136,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             name = left.split(' · ')[1]
                             self.assertTrue(name == repository or
                                             (name.endswith('…') and repository.startswith(name[:-1].rstrip())), name)
+                            if width >= (80 if narrow else 110):
+                                self.assertTrue(name.startswith('example/' if repository == 'example/repo' else 'owner/'),
+                                                footer.plain)
                             if awake:
                                 self.assertIn(f'{version} · {name} · awake', footer.plain)
                             else:
@@ -144,6 +147,45 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             self.assertNotIn(' ·  · ', left)
                             if width >= 60:
                                 self.assertTrue(footer.plain.endswith('q quit'), footer.plain)
+
+    def test_repository_footer_keeps_readable_names_during_launcher_activity(self):
+        app = View(self.root, self.path, launcher=Mock())
+        now = datetime.now(timezone.utc)
+        later = (now + timedelta(seconds=300)).isoformat()
+        self.state.update(base_version='9.8.7', repository='uberblick-ai/ub-agents')
+        app.session = Session(self.path, self.state)
+        states = (
+            ('implementer', {'state': 'running assignment'}, {'refreshing': True},
+             'agent implementer · running assignment · polling'),
+            ('', {'state': 'running assignment'}, {'rate_limit_until': later},
+             'running assignment · rate limited until'),
+            ('', {'state': 'waiting', 'until': later}, {'cooldown_until': later},
+             'next poll 300s · poll now available in 300s'),
+        )
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            for agent, activity, control, expected in states:
+                self.state.update(queue_agent=agent, activity=activity, poll_now=control)
+                for width in (80, 100, 110, 130, 160, 200):
+                    app.narrow = width < 110
+                    version = 'v9.8.7' if app.narrow else 'ub-agents v9.8.7'
+                    keys = ('↑↓ select ⏎ open ? keys q quit' if app.narrow else
+                            '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit')
+                    for awake in (False, True):
+                        app.awake_enabled = awake
+                        with self.subTest(agent=agent, activity=activity, control=control, width=width, awake=awake):
+                            footer = app.footer(width, keys)
+                            self.assertEqual(footer.cell_len, width)
+                            self.assertTrue(footer.plain.startswith(version + ' · uberblick-ai/ub'), footer.plain)
+                            name = footer.plain.split(' · ')[1]
+                            self.assertTrue(name == self.state['repository'] or name.endswith('…'), footer.plain)
+                            if awake:
+                                self.assertIn(f'{version} · {name} · awake · ', footer.plain)
+                            else:
+                                self.assertNotIn(' · awake', footer.plain)
+                            self.assertTrue(footer.plain.endswith('q quit'), footer.plain)
+                            if width == 200:
+                                self.assertIn(expected, footer.plain)
 
     def test_repository_footer_omits_missing_snapshot_values_and_preserves_status_order(self):
         app = View(self.root, self.path, launcher=Mock())

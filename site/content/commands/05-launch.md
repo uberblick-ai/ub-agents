@@ -137,6 +137,8 @@ raw-access views share this footer, including standalone views. A snapshot witho
 a repository, or `reading session`, omits the segment and its separator. Long names
 shorten with a trailing `…` inside the repository segment, keeping the version,
 enabled awake token and separators intact without wrapping or overlapping keys.
+Busy activity text shortens before the repository loses its readable prefix,
+subject to the space left for the version and enabled awake token.
 
 On macOS, press `c` in any pane, tab or overlay of the attached view to toggle
 keep awake. It starts off at every launch. Once the launcher's built-in

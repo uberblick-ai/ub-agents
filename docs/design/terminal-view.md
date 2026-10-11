@@ -490,6 +490,11 @@ its separator; keep awake off and standalone views omit `awake` and its separato
 Long repository names shorten with a trailing `…` within their segment, preserving
 the version, enabled awake token and separators. Every footer fills its available
 terminal-cell width without wrapping or overlapping its right-side keys.
+After the existing key fitting, the repository gets up to 24 cells before
+activity is shortened, capped by the space left after the version, awake token
+and a separator plus activity ellipsis. Extra room expands the repository when
+the full activity fits. Key-shortening decisions still use the full left-side
+text, so long names can drop optional hints before the name itself shortens.
 
 Toggling off, exiting the launcher or closing its attached view ends only its
 helper. The PID tie also ends the assertion after SIGKILL. Other launchers are
