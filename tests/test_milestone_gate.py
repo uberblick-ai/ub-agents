@@ -15,8 +15,9 @@ from ub_agents.github import Dependency
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.records import iso, timestamp
+from ub_agents.run_planning import RunPlanning
 from ub_agents.view_data import Session, work_pane
-from tests.support import FakeGitHub, MemoryPublisher, agent, config, issue, pr, stub_refresh
+from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
 
 
 class MilestoneGateTests(unittest.TestCase):
@@ -55,6 +56,126 @@ class MilestoneGateTests(unittest.TestCase):
             lease = other.claim(other.plan(self.github.item(number), self.worker, ()))
         self.assertIsNotNone(lease)
         return other, lease
+
+    def test_cold_claim_reads_approval_only_through_the_selected_plan(self):
+        self.github = PollGitHub()
+        self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+        self.loop = self.make_loop()
+        self.add(issue(1, milestone=10), issue(2, milestone=10),
+                 *(issue(n, milestone=20) for n in range(3, 84)),
+                 issue(84, ("ready", "needs-human"), milestone=10),
+                 issue(85, milestone=10), issue(86, (), milestone=10),
+                 issue(87, milestone=10), issue(88, milestone=10))
+        self.github.dependencies[85] = [86]
+        self.claim_other(87)
+        lease = self.loop.coordinator.claim(self.loop.coordinator.plan(self.github.item(88), self.worker, ()))
+        self.loop.coordinator.release(lease, "blocked", "Decision pending")
+        self.github.reads.clear()
+        self.github.timelines[1] = []
+        with patch.object(self.loop, "park_approval") as parked:
+            self.assertEqual(self.choice().item.number, 2)
+        self.assertEqual([call.args[0].item.number for call in parked.call_args_list], [1])
+        # One timeline and one edit-history read per reached, claimable item;
+        # Later, stopped, dependency-blocked, owned and blocked-run work is unread.
+        reads = [(name, args) for name, args in self.github.reads
+                 if name in {"timeline", "issue_content"}]
+        self.assertEqual(reads, [("issue_content", (1,)), ("timeline", (1,)),
+                                 ("issue_content", (2,)), ("timeline", (2,))])
+        self.assertEqual(len(reads), 4)
+
+    def test_lazy_choice_and_milestone_skips_match_eager_approval(self):
+        fixtures = [
+            ("milestone order", [issue(1, ("ready", "low"), milestone=10),
+                                 issue(2, ("ready", "high"), milestone=20)], ()),
+            ("unlisted exception", [issue(1, ("ready", "medium"), milestone=10),
+                                    issue(2, ("ready", "high"))], ()),
+            ("unapproved milestone head", [issue(1, ("ready", "high"), milestone=10),
+                                            issue(2, ("ready", "medium"), milestone=10),
+                                            issue(3, ("ready", "high"))], (1,)),
+            ("unlisted tie", [issue(1, ("ready", "medium"), milestone=10),
+                              issue(2, ("ready", "medium"))], ()),
+            ("unapproved unlisted head", [issue(1, ("ready", "medium"), milestone=10),
+                                           issue(2, ("ready", "high")),
+                                           issue(3, ("ready", "low"))], (2,)),
+            ("existing PR", [issue(1, ("ready", "high"), milestone=10),
+                             issue(2, ("ready", "low"), milestone=10),
+                             pr(3, ("needs-changes", "medium"), body="Unrelated")], (1,)),
+            ("existing PR tie", [issue(1, milestone=10),
+                                 pr(2, body="Unrelated")], ()),
+            ("unapproved PR", [issue(1, milestone=10),
+                               pr(2, body="Unrelated")], (2,)),
+            ("approval skip", [issue(1, milestone=10), issue(2, milestone=20)], (1,)),
+            ("empty milestone skip", [issue(1, (), milestone=10),
+                                      issue(2, ("ready", "needs-human"), milestone=10),
+                                      issue(3, milestone=20)], ()),
+            ("all assigned unapproved", [issue(1, milestone=10), issue(2, milestone=20),
+                                         issue(3)], (1, 2)),
+            ("none approved", [issue(1, milestone=10), issue(2, milestone=20),
+                               issue(3)], (1, 2, 3)),
+        ]
+        for name, items, rejected in fixtures:
+            with self.subTest(name=name):
+                self.github = FakeGitHub(*items)
+                self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+                self.github.timelines.update({n: [] for n in rejected})
+                eager = self.make_loop()
+                expected = next((p for p in eager.plans() if p.state == "ready"), None)
+                self.loop = self.make_loop()
+                with patch.object(self.loop, "execute", return_value=True) as execute, \
+                        patch.object(self.loop, "park_approval"):
+                    self.assertEqual(self.loop.tick(), expected is not None)
+                selected = execute.call_args.args[0] if execute.called else None
+                self.assertEqual(selected, expected)
+                self.assertEqual(self.loop.milestone_skips, eager.milestone_skips)
+
+    def test_unlisted_and_existing_work_need_the_approved_milestone_head_first(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                competitor = (pr(3, ("needs-changes", "medium"), body="Unrelated") if existing else
+                              issue(3, ("ready", "medium")))
+                self.github = PollGitHub(issue(1, ("ready", "high"), milestone=10),
+                                         issue(2, ("ready", "low"), milestone=10), competitor,
+                                         issue(4, milestone=20))
+                self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+                self.github.timelines[1] = []
+                self.loop = self.make_loop()
+                with patch.object(self.loop, "park_approval"):
+                    self.assertEqual(self.choice().item.number, 3)
+                self.assertEqual([args[0] for name, args in self.github.reads if name == "timeline"], [1, 2, 3])
+
+    def test_gate_claim_rechecks_approval_with_fresh_reads_before_its_first_write(self):
+        self.github = PollGitHub(issue(1, milestone=10), issue(2, milestone=20))
+        self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+        self.loop = self.make_loop()
+        plan = next(self.loop.iter_plans(claiming=True))
+        self.github.roles["maintainer"] = "read"
+        self.github.reads.clear()
+        self.assertFalse(self.loop.execute(plan))
+        self.assertIn(("timeline", (1,)), self.github.reads)
+        self.assertIn(("issue_content", (1,)), self.github.reads)
+        self.assertIn(("role", ("maintainer",)), self.github.reads)
+        self.assertEqual(self.github.writes, [])
+
+    def test_status_and_observation_show_unreached_approval_parking(self):
+        self.add(issue(1, milestone=10), issue(2, milestone=10), issue(3, milestone=20))
+        self.github.timelines[2] = self.github.timelines[3] = []
+        self.assertEqual(self.choice().item.number, 1)
+        rows = {row["number"]: row for row in status_rows(self.loop)}
+        self.assertEqual(set(rows), {1, 2, 3})
+        for n in (2, 3):
+            self.assertEqual(rows[n]["state"], "parked")
+            self.assertIn("No maintainer", rows[n]["reason"])
+        memory = MemoryPublisher()
+        worker = RunPlanning(self.loop, 0)
+        worker.planner.observer = Observations(self.loop.config, "operator", None, memory)
+        worker.planner.observer.begin_pass()
+        plans = list(worker.planner.iter_plans())
+        worker.planner.observer.complete_pass()
+        self.assertEqual({p.item.number: p.state for p in plans}, {1: "ready", 2: "parked", 3: "parked"})
+        pane = work_pane(Session(self.root / "session.json", memory.snapshots[-1]), self.root)
+        attention = next(section for section in pane.sections if section.name == "Needs attention")
+        self.assertEqual({row.item for row in attention.rows}, {2, 3})
+        self.assertEqual(self.github.writes, [])
 
     def test_milestone_first_with_strict_priority_exception_and_ten_medium_issues(self):
         self.add(*(issue(n, ("ready", "medium"), iso(n), 10) for n in range(1, 11)),

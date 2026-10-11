@@ -602,6 +602,19 @@ launcher. Blocked, owned, stop-labelled, untriggered, retry-limited, approval-pa
 or runtime-unavailable work, including work outside the selected role, does not
 hold back independent later work. Every pass reconsiders earlier work;
 no cursor advances or milestone changes state.
+On a cold claiming pass, `gate` first plans all candidates from discovery's labels,
+triggers, leases, blockers, milestones and runtime availability. Candidates that
+cannot be claimed for those reasons need no approval-input reads. It then reads
+approval input as selection reaches each ready plan, stopping at the first claim.
+The selected milestone's next approved issue is checked before comparing unlisted
+issues or existing work against it, so that comparison can require a verdict on
+an issue that is not claimed. Denied plans are approval-parked only when reached;
+later passes reach the remaining plans. Status and queue-view observation passes
+still evaluate every row, including approval parking reasons.
+Observation passes retain the shared discovery-budget accounting described above.
+Their cold reads can delay a later idle pass beyond `poll-seconds`; claiming
+immediately after work still bypasses budget admission. Exhaustive observations
+and claiming passes share the same REST quota reservation.
 An eligible unmilestoned issue, including one whose milestone is outside the list,
 goes ahead only if its effective priority is **strictly higher** than the selected
 milestone's next eligible issue. Milestone work wins ties. Later assigned milestones

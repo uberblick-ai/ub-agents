@@ -29,6 +29,8 @@ There are three values: `gate`, `order` and `ignore` (the default).
 
 Unmilestoned issues, including issues whose milestone is outside that list, go ahead only at **strictly higher priority** than the selected milestone's next eligible issue. Milestone work wins ties. Higher-priority issues in later assigned milestones still wait. When no milestone has work eligible here, unmilestoned work runs in priority order even while milestones remain open.
 
+A cold claiming pass under `gate` plans all candidates before reading approval input. It reads approval only for otherwise claimable plans as selection reaches them, stopping at the first claim. The next approved milestone issue is checked before comparing unlisted issues or existing work with it. Approval parking is posted only for reached plans. Status and queue-view observations still evaluate every row; cold observations share the discovery budget and can delay later idle passes beyond `poll-seconds`. Claiming immediately after work bypasses budget admission.
+
 `order` ranks priority first, then uses the same milestone order for equal-priority new issues, with unmilestoned issues last. Higher priority wins even in a later or no milestone. `ignore` skips milestone selection and reads.
 
 Explicit `launch N [--agent NAME]` and `status N` skip queue

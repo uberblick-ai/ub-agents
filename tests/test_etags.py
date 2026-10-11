@@ -486,11 +486,9 @@ class RequestBudgetTests(unittest.TestCase):
                 request_counts.append(runner.rest_requests)
         self.assertEqual(len(counts), 2)
         self.assertEqual(request_counts[0], request_counts[1])
-        # Gate evaluates eligibility across all new issues before choosing its
-        # active milestone, so its cold pass has more uncached approval reads.
-        # Sharing finalization reads removes requests from both clients. The
-        # conditional quota stays at 93, while the unconditional baseline drops
-        # from 168 to 148: the remaining ETag saving is a smaller fraction.
+        # Gate plans every candidate before choosing its active milestone, but
+        # reads approval only as far as selection needs. These bounds also cover
+        # fresh claim checks and finalization, independently of cached discovery.
         if milestone_mode == 'gate':
             self.assertLessEqual(counts[0], 93)
             self.assertLessEqual(counts[1], 148)
