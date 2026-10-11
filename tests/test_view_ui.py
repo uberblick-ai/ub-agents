@@ -1847,6 +1847,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 for visible in (True, False):
                     note.display = visible
                     await pilot.pause()
+                    await self.settled(app, output)
                     self.assertTrue(app.reading.follow)
                     self.assertEqual(output.scroll_y, output.max_scroll_y)
             await pilot.press('q')
