@@ -19,19 +19,10 @@ found warm empty passes costing p50 1 on ub-agents, but 1–7 on uberblick-2
 (p50 2, mean about 2.6 across 46 passes). At 30 seconds, that busy-repository
 cost would use about 240–310 requests/hour before budget pacing.
 
-Each launcher starts with a 125-request balance, shared by claiming and in-run
-observation passes, and refills at 250/hour. Every pass debits its reported REST
-quota cost. Idle and observation passes wait for the poll interval and a balance
-of at least 1, then admit the whole pass without predicting its cost. A cold
-123-request pass can be followed by one-request passes every 30 seconds. A pass
-above 125 can leave debt that subsequent waits repay.
-
-Claiming immediately after work and accepted poll-now passes bypass admission and
-still debit. Their spend can exceed the average until later idle waits repay it.
-This is not a strict rolling-hour ceiling: over any interval `T`, the bound is
-`125 + 250/hour × T`, plus the largest admitted pass and exempt spend since the
-last admitted pass. The one-hour gap cap is the exception: passes that keep
-costing more than 250 requests can resume with debt still outstanding.
+Discovery permits bursts and repays their cost through later idle waits. Its
+250/hour target is not a strict hourly ceiling: immediate post-work passes and
+the one-hour maximum wait can exceed it. For exact admission, debit and retry
+rules, see the [polling contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#shared-account-budget).
 
 ## Finished runs
 

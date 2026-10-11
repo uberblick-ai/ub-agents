@@ -17,18 +17,12 @@ the log is never truncated or rotated. Follow it from another terminal with
 `tail -f .ub-agents/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
-Discovery prints a line such as `Discovery pass claiming: 3.4s; gh calls=6,
-REST quota=1, HTTP 304=5, GraphQL calls=0; candidates reached=1`. Pass kinds are
-`claiming`, `empty` and `observation`; candidates count distinct reached items,
-not agent rows. Counts separate REST quota responses, 304 confirmations and
-GraphQL invocations; all attempted `gh` calls count, including pages, failures
-and refetches. Consecutive passes with the same kind, counts and candidate count
-print once, regardless of elapsed time. Observation lines measure the worker's
-client. A claiming line ends before the successful claim's fresh checks begin.
-The run's `events.jsonl` `released` event has a `github_requests` object with
-`gh_calls`, `quota_requests`, `not_modified_responses` and `graphql_calls` from
-those claim checks through release, including renewals and finalization, excluding
-the observation worker, agent requests and the post-release display refresh.
+Discovery reports pass kind, elapsed time and request counts. Consecutive passes
+with the same kind, counts and candidate count are printed once; each run also
+records its launcher requests in `events.jsonl`.
+See [request accounting](polling.md#accounting-and-diagnostics) for field
+meanings and what is included. [Session snapshots](session-snapshots.md) support
+local observation without rereading GitHub.
 
 After execution ends, completion shares each item's history and item reads until
 the next GitHub write attempt. Every durable write still checks ownership against
@@ -48,26 +42,14 @@ passes repeating the same decline for the same item and agent print it once.
 When no open issue or PR has a configured trigger label, both `launch` and
 `launch --once` name the labels to add. Continuous launch shows the next poll
 delay rounded to whole seconds below a minute or whole minutes otherwise.
-Claiming, empty and observation passes debit one discovery balance: it starts full
-at 125 requests, refills at 250/hour, and retains debt. Idle and observation passes
-wait for `poll-seconds` since the previous start and a balance of at least 1, with
-a one-hour gap cap. A cold burst can therefore be followed by cheap passes at the
-normal interval. Claiming immediately after work and poll-now passes bypass
-admission and still debit; later idle waits repay their spend. HTTP 304 responses
-are free, and successful claim checks through release count toward the run instead.
-This reserves half the common account quota for work when ten launchers share it,
-as an average rather than a rolling-hour ceiling; sustained passes above 250
-requests are limited only by the one-hour cap. Low quota
-adds a wait bounded by the reset. A pass that runs or recovers work starts the next
-claiming pass immediately, while retaining rate-limit waits and runtime usage pauses.
-The continuous loop retries transient GitHub
-discovery failures with bounded waits.
-Continuous launch waits out GitHub rate limits without charging poll failures or
-item attempts. Owned runs retry rate-limited reads while the lease permits; writes
-keep their existing handling. `doctor --verbose` reports request quota and reset time in UTC,
-warning below 10% remaining. See [polling and retry limits](configuration.md#top-level)
-for the waits and failure limit. `launch --once` and `status` fail on the first
-error.
+After work, claiming resumes immediately, subject to active rate-limit waits and
+runtime usage pauses. Idle and observation passes may wait
+longer than `poll-seconds` for request budget or low quota. Continuous launch retries
+transient discovery errors and waits out GitHub rate limits without charging item
+attempts; authentication and permission errors need operator action. `launch --once`
+and `status` fail on their first error. `doctor --verbose` shows quota and reset
+time, warning below 10% remaining. See [Polling and GitHub requests](polling.md)
+for the exact accounting, waits and failure limits.
 
 ## Stopping and restarting
 
@@ -83,7 +65,7 @@ Discovery and idle waits (including rate-limit waits outside a run) wake on SIGT
 and exit 0, and on Ctrl-C/SIGHUP exit 130. A rate-limit wait inside an owned run
 keeps draining on SIGTERM; Ctrl-C/SIGHUP interrupt it like the run. A launcher
 error keeps its nonzero exit even during a drain. See the
-[configuration reference](configuration.md#top-level) for detailed wait rules
+[polling contract](polling.md#quota-and-failure-handling) for detailed wait rules
 and the [coordination contract](coordination.md#execution-boundaries) for
 execution and cleanup boundaries.
 

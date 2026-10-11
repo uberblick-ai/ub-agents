@@ -170,14 +170,11 @@ platforms omit `c Stay awake`, mark `c` unavailable in `?` and show a brief
 `--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
 machine awake.
 
-Continuous launch retries transient discovery and claim POST failures, including
-empty or truncated responses reported by `gh` as `unexpected end of JSON input`.
-It waits 5 seconds initially, doubles the delay up to 60 seconds, and stops after
-six consecutive failures. If a failed claim POST created a comment, the next pass
-withdraws it before planning, without spending an attempt or adding item backoff.
-If the launcher restarts first, the claim expires normally. `launch --once` fails
-on the first error. See [polling and retry limits](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#top-level)
-for details.
+Continuous launch retries transient GitHub failures with bounded waits; persistent
+failures stop the loop. A lost claim response is reconciled before retrying, without
+spending an item attempt. `launch --once` fails on its first error. See
+[polling and retry limits](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling)
+for the exact rules.
 
 ```text
 {{help launch}}

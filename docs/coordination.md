@@ -423,7 +423,7 @@ unused responses in memory.
 
 GitHub rate limits during claim election, ownership checks and completion reads
 (including recovery) wait and retry without treating the limit as changed ownership.
-Waits use real response headers and the [rate-limit rules](configuration.md#top-level).
+Waits use real response headers and the [rate-limit rules](polling.md).
 A reset beyond the current expiry still starts a wait, while renewal continues.
 The wait ends as lost ownership only when the last confirmed expiry actually passes
 or another claim owns the item: no further coordination writes, followed by expiry recovery.
@@ -707,7 +707,7 @@ Only the bounded repository history decides which closed or untriggered items
 surface for recovery. PR reviews and inline review comments remain per-item reads.
 Item comments and approval inputs are always reread
 before a claim or approval-parking write, so stale cached records never supply
-authority. See [poll timing and request budgeting](configuration.md#top-level).
+authority. See [poll timing and request budgeting](polling.md).
 
 PR shared-branch ownership checks parse `ub-agents/<agent>/<N>/<run>` and read issue
 N's full history, independently of the repository window. Branches outside that
@@ -878,7 +878,7 @@ message telling the operator what to fix before restarting. These failures do
 not claim an assignment, charge an attempt, or mark work blocked or retrying.
 
 The GitHub read of the default branch is part of pre-claim discovery. Continuous
-launch retries its transient failures under the [poll limits](configuration.md#top-level);
+launch retries its transient failures under the [poll limits](polling.md);
 Git fetch and local checkout or instruction failures still stop immediately.
 
 `ub-agents.yaml` is reloaded before each new execution claim. If the refreshed
