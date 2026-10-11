@@ -398,17 +398,22 @@ PR the first row is the issue it closes.
 
 ## Footer and states
 
+Follow mode uses `1-3 tabs ? keys q quit`, with contextual hints added when
+needed. The narrow Work list uses `? keys q quit`. Footers omit selection and
+opening hints in every layout and overlay; arrow keys and Enter retain their
+behavior and remain listed in `?` help.
+
 ```text
- ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s     ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s     1-3 tabs r poll now ? keys q quit
 
 macOS attached view with keep awake on:
- ub-agents v0.2.1 · uberblick-ai/ub-agents · awake · next poll 26s    ↑↓ select ⏎ open 1-3 tabs g reload r poll now c awake ? keys q quit
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · ☕ · next poll 26s    1-3 tabs g reload r poll now c Stay awake ? keys q quit
 
-Narrow macOS view (c awake drops first; awake stays visible):
- v0.2.1 · uberblick-ai/ub-agents · awake · poll 26s             ↑↓ select ⏎ open r poll now ? keys q quit
+Narrow macOS view (c Stay awake drops first; ☕ stays visible):
+ v0.2.1 · uberblick-ai/ub-agents · ☕ · poll 26s             r poll now ? keys q quit
 
 After r:
- ub-agents v0.2.1 · uberblick-ai/ub-agents · polling          ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · polling          1-3 tabs r poll now ? keys q quit
 
 r within the 10-second cooldown, or during a GitHub rate-limit wait:
  ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s · poll now available in 8s
@@ -424,7 +429,7 @@ Update available (themed banner above both panes):
  ⬆ This launcher runs code 3 commits behind origin/main · restart the launcher
 
 External SIGTERM (normal panes remain visible):
- ub-agents v0.1.11 · stopping                                ↑↓ select 1-3 tabs ? keys q quit
+ ub-agents v0.1.11 · stopping                                1-3 tabs ? keys q quit
 
 After q (whole screen, centered):
 
@@ -474,25 +479,26 @@ during rate-limit waits; `--no-ui` launches are unaffected.
 
 `c` toggles keep awake in an attached macOS view from every pane, tab and overlay.
 It is off at each launch. The launcher owns one `caffeinate -i -w <launcher PID>`
-helper, allowing display sleep without persistent setting changes. The `awake`
-token appears after the repository only after the helper starts, and clears
+helper, allowing display sleep without persistent setting changes. The `☕`
+indicator appears after the repository only after the helper starts, and clears
 on toggle off or helper exit. The launcher publishes changes over the attached
 channel immediately, without a discovery poll. Failures briefly replace the
 footer with a reason, like the copied-text notice, while assignments continue.
-The `c awake` hint follows `r poll now` only when it fits; it drops before any
-existing poll/reload hint. `awake` remains visible even at narrow widths.
+The `c Stay awake` hint follows `r poll now` only when it fits; it drops before any
+existing poll/reload hint. `☕` remains visible even at narrow widths and counts
+as two terminal cells when fitting the footer to one line.
 
 The left footer uses the displayed snapshot's repository, as in the window title,
-after the version and before the optional `awake` token and existing activity or
+after the version and before the optional `☕` indicator and existing activity or
 diagnostics. Work, item and raw-access footers share this order in attached and
 standalone views. A missing repository or `reading session` omits the segment and
-its separator; keep awake off and standalone views omit `awake` and its separator.
+its separator; keep awake off and standalone views omit `☕` and its separator.
 Long repository names shorten with a trailing `…` within their segment, preserving
-the version, enabled awake token and separators. Every footer fills its available
-terminal-cell width without wrapping or overlapping its right-side keys.
+the version, enabled keep-awake indicator and separators. Every footer fills its
+available terminal-cell width without wrapping or overlapping its right-side keys.
 After the existing key fitting, the repository gets up to 24 cells before
-activity is shortened, capped by the space left after the version, awake token
-and a separator plus activity ellipsis. Extra room expands the repository when
+activity is shortened, capped by the space left after the version, keep-awake
+indicator and a separator plus activity ellipsis. Extra room expands the repository when
 the full activity fits. Key-shortening decisions still use the full left-side
 text, so long names can drop optional hints before the name itself shortens.
 

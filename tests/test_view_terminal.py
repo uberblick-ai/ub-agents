@@ -251,9 +251,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertEqual(value['rows'], 5)
                     self.assertEqual(value['upper_bottom'], value['recent_y'])
                     self.assertEqual(len(value['recent'].splitlines()), 2)
-                    repository = r'example…' if size[0] == 60 else r'example/repo'
-                    self.assertRegex(value['footer'], rf'^v0\.1\.11 · {repository} · poll \d+s')
-                    self.assertTrue(value['footer'].endswith('↑↓ select ⏎ open ? keys q quit'))
+                    self.assertRegex(value['footer'], r'^v0\.1\.11 · example/repo · poll \d+s')
+                    self.assertTrue(value['footer'].endswith('? keys q quit'))
                 terminal.send(b'\r')
                 opened = terminal.checkpoint(lambda value: value['item'] and value['focus'] == 'output'
                                     and 'no outcome reported' in value['status'])
@@ -504,7 +503,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                               env={'NO_COLOR': None}) as terminal:
                     transcript = terminal.transcript
                     initial = terminal.checkpoint(lambda value: value['starts'] and value['focus'] is not None
-                                    and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
+                                    and value['footer'].endswith('1-3 tabs g reload ? keys q quit'))
                     window_title = 'ub-agents launch — example/repo'.encode()
                     self.assertTrue(b'\x1b]0;' + window_title + b'\x07' in transcript,
                                     'Terminal output is missing the window-title OSC sequence')
@@ -882,9 +881,9 @@ raise SystemExit(main())
                     terminal.send(b'\x1b')
                     terminal.checkpoint(lambda value: value['screen'] == 'Screen')
                     terminal.send(b'f')
-                    terminal.expect('↑↓ select'.encode())
+                    terminal.expect(b'1-3 tabs')
                     terminal.checkpoint(lambda value: value['follow']
-                                        and value['footer'].endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
+                                        and value['footer'].endswith('1-3 tabs g reload ? keys q quit'))
                     self.assertNotIn(b'FOLLOW', transcript)
                     before_size = log.stat().st_size
                     terminal.send(b'k' if quit_key == b'x' else quit_key)
@@ -1247,7 +1246,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertNotIn(b'FORMATTED', transcript)
                 self.assertNotIn(b'FOLLOW', transcript)
                 self.assertIn('ub-agents v9.8.7 · example/repo · running assignment', initial['footer'])
-                self.assertTrue(initial['footer'].endswith('↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'))
+                self.assertTrue(initial['footer'].endswith('1-3 tabs g reload ? keys q quit'))
                 self.assertEqual(initial['footer_height'], 1)
                 self.assertFalse(initial['pill_visible'])
                 self.assertEqual(initial['notice'], '')
@@ -1324,7 +1323,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertIn('malformed: Expecting property', malformed['footer'])
                 terminal.resize(80, 24)
                 smaller = terminal.checkpoint(lambda value: value['terminal_size'] == [80, 24]
-                                     and value['footer'].endswith('↑↓ select ⏎ open ? keys q quit'))
+                                     and value['footer'].endswith('? keys q quit'))
                 self.assertNotIn('minimum', smaller['footer'])
                 terminal.resize(110, 32)
                 state['ended'] = False

@@ -136,29 +136,36 @@ The footer shows the displayed session's repository after the version:
 raw-access views share this footer, including standalone views. A snapshot without
 a repository, or `reading session`, omits the segment and its separator. Long names
 shorten with a trailing `…` inside the repository segment, keeping the version,
-enabled awake token and separators intact without wrapping or overlapping keys.
+enabled keep-awake indicator and separators intact without wrapping or
+overlapping keys.
 Busy activity text shortens before the repository loses its readable prefix,
-subject to the space left for the version and enabled awake token.
+subject to the space left for the version and enabled keep-awake indicator.
+
+The wide follow-mode footer uses `1-3 tabs ? keys q quit`, with contextual hints
+added when needed. The narrow Work list uses `? keys q quit`; the item view adds
+`Esc back 1-3 tabs`. Arrow keys still select rows and `Enter` opens them, with
+both described in `?` help instead of the footer.
 
 On macOS, press `c` in any pane, tab or overlay of the attached view to toggle
 keep awake. It starts off at every launch. Once the launcher's built-in
 `caffeinate -i -w <launcher PID>` helper starts, the footer shows
-`ub-agents v0.2.1 · uberblick-ai/ub-agents · awake · next poll 26s`, or
-`v0.2.1 · uberblick-ai/ub-agents · awake · poll 26s` in a
+`ub-agents v0.2.1 · uberblick-ai/ub-agents · ☕ · next poll 26s`, or
+`v0.2.1 · uberblick-ai/ub-agents · ☕ · poll 26s` in a
 narrow layout. The state updates immediately without waiting for a queue poll.
-With keep awake off or in a standalone view, `awake` and its separator are omitted.
-The `c awake` hint appears next to `r poll now` when it fits and drops first as
-space narrows; `awake` stays visible. `?` lists the key and its macOS-only limit.
+With keep awake off or in a standalone view, `☕` and its separator are omitted.
+The `c Stay awake` hint appears next to `r poll now` when it fits and drops first as
+space narrows; `☕` stays visible and counts as two terminal cells when fitting
+the footer to one line. `?` lists the key and its macOS-only limit.
 
 Display sleep remains allowed and no permanent power setting changes. Toggle
 off, launcher exit or closing the attached view releases only this launcher's
 assertion; the PID tie also ends the helper after SIGKILL. Separate launchers
 are independent. A failed start stays off with a brief footer reason; an
-unexpected helper exit clears `awake` with a notice. Assignments keep running.
+unexpected helper exit clears `☕` with a notice. Assignments keep running.
 
 Keep awake affects the machine running the launcher. If you reach it over SSH,
 it affects the remote host and does not keep your local Mac awake. Other
-platforms omit `c awake`, mark `c` unavailable in `?` and show a brief
+platforms omit `c Stay awake`, mark `c` unavailable in `?` and show a brief
 `keep awake unavailable on this platform` notice when pressed. Standalone views,
 `--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
 machine awake.
