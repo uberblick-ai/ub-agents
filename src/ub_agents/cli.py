@@ -21,7 +21,7 @@ from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted,
                      GitHubError, InstructionError)
 from .execution import repository_checks
 from .github import GitHub
-from .help import HelpParser, InitHelpFormatter
+from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
 from .loop import Loop, _GracefulStop
 from .launch_log import launch_output
 from .labels import configured_labels, provision_labels
@@ -50,6 +50,7 @@ def parser():
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")
     check = commands.add_parser("check", help="validate the configuration and instruction files",
+                                 formatter_class=CommentHelpFormatter,
                                  description="Validate project configuration, including trusted-bots, and instruction files without executing agents. "
                                  "Use after editing the workflow or before launching it.",
                                  examples=("ub-agents check", "ub-agents check --config workflow.yaml"))
