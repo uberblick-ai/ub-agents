@@ -10,7 +10,7 @@ from unittest.mock import patch
 from ub_agents.cli import main, status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
-from ub_agents.errors import AgentError
+from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import Dependency
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
@@ -113,6 +113,36 @@ class MilestoneGateTests(unittest.TestCase):
         self.assertEqual(self.choice().item.number, 3)
         self.assertIn("needs-human", self.github.items[2].labels)
         self.assertEqual(self.loop.coordinator.history(2), [])
+
+    def test_unreadable_history_defers_approval_fallback_until_reached(self):
+        for failed in (1, 2):
+            with self.subTest(failed=failed):
+                self.github = PollGitHub(issue(1, milestone=10), issue(2, milestone=20),
+                                         issue(3, ("ready", "needs-human"), milestone=10))
+                self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+                error = GitHubError("GET", "comments", "Unreadable comments")
+                failures = [error if n in (failed, 3) else None for n in (1, 3, 2)]
+                self.github.read_results["comments"] = list(failures)
+                eager = self.make_loop()
+                expected = next(p for p in eager.plans() if p.state == "ready")
+                self.github.read_results["comments"] = list(failures)
+                self.github.reads.clear()
+                self.loop = self.make_loop()
+                self.assertEqual(self.choice(), expected)
+                self.assertEqual(self.loop.milestone_skips, eager.milestone_skips)
+                reached = [1, 2] if failed == 1 else [1]
+                self.assertEqual([args[0] for name, args in self.github.reads if name == "issue_content"], reached)
+
+    def test_coordination_failure_with_readable_approval_still_stops_selection(self):
+        self.add(issue(1, milestone=10))
+        # An author-permission failure can affect coordination while the input
+        # verdict remains readable; it must not become a claimable placeholder.
+        with patch("ub_agents.coordination.Coordinator.history", side_effect=AgentError("History failed")), \
+                patch.object(self.loop, "execute") as execute:
+            with self.assertRaisesRegex(AgentError, "History failed"):
+                self.loop.tick()
+        execute.assert_not_called()
+        self.assertEqual(self.github.writes, [])
 
     def test_lazy_choice_and_milestone_skips_match_eager_approval(self):
         fixtures = [

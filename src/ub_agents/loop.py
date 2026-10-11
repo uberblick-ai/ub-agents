@@ -529,6 +529,7 @@ class Loop:
                                   milestone_rank=milestone_ranks.get(milestone, len(milestones))))
         milestone_plans = [] if self.config.queue.milestones == "gate" else None
         lazy_approval = claiming and milestone_plans is not None
+        approval_errors = {} if lazy_approval else None
         for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
             item = candidate.item
             if self._pass_stats is not None:
@@ -550,7 +551,7 @@ class Loop:
                                      agents,
                                      reconcile_notices=reconcile_notices, checked=checked,
                                      health_notices=health_notices or reconcile_notices,
-                                     check_input=not lazy_approval)
+                                     approval_errors=approval_errors)
             for plan in plans:
                 observed = replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
@@ -570,9 +571,11 @@ class Loop:
                 if plan.item.number not in approvals:
                     approvals[plan.item.number] = self.input_check(plan.item, github, plan.matches)
                 approval = approvals[plan.item.number]
+                if approval.allowed and plan.item.number in approval_errors:
+                    raise approval_errors[plan.item.number]
                 if not approval.allowed:
                     return replace(plan, state="parked", runtime=None, reason=approval.reason,
-                                   approval_gate=approval if approval.gate else None)
+                                   approval_gate=approval if plan.history_read and approval.gate else None)
                 return plan
 
             announce = reconcile_notices or health_notices
@@ -680,7 +683,7 @@ class Loop:
         self._observe("replanned_item", item.number, events)
 
     def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,
-                    *, reconcile_notices=False, checked=None, health_notices=False, check_input=True):
+                    *, reconcile_notices=False, checked=None, health_notices=False, approval_errors=None):
         agents = self.config.agents if agents is None else agents
         starts = {a.name: check_start(item, a, matches, self.config.stop_labels,
                                      self.config.queue, blockers) for a in agents}
@@ -699,6 +702,15 @@ class Loop:
             # poll, rather than turn its unreadable approval into a parked row.
             if isinstance(exc, GitHubError) and (self._targeted_pass or exc.rate_limited or exc.retryable):
                 raise
+            if approval_errors is not None and matched:
+                # The eager fallback distinguishes unreadable approval input
+                # from a coordination-only failure. Defer that verdict too;
+                # these provisional rows are never observed or claimed as ready.
+                approval_errors[item.number] = exc
+                yield from (Plan(item, a, None, "ready" if starts[a.name].allowed else "parked",
+                                 "" if starts[a.name].allowed else starts[a.name].reason,
+                                 1, history_read=False, matches=matches) for a in matched)
+                return
             # Unreadable item input cannot authorize a claim. A transient
             # coordination failure with readable approval input still fails the poll.
             approval = self.input_check(item, github, matches) if matched else None
@@ -708,7 +720,7 @@ class Loop:
             return
         reconciled = set()
         for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
-                                             history, matched, approval, check_input=check_input):
+                                             history, matched, approval, check_input=approval_errors is None):
             plan = self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
             plan = self._health_plan(plan, checked, announce=health_notices)
             if reconcile_notices:
