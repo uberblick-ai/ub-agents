@@ -25,6 +25,8 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
         page, snapshot = self.reading.page, self.reading.log
         return {'follow': self.reading.follow, 'raw': self.reading.raw,
                 'selected': self.selected, 'anchor': output.anchor(),
+                'saved_anchor': self.reading.anchor,
+                'bottom': output.scroll_y == output.max_scroll_y,
                 'start': page.start if page else None,
                 'generation': page.generation if page else None,
                 'notice': self.reading.notice,
@@ -59,9 +61,16 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 self.assertTrue(any('✗ Exit code 7: synthetic line' in line for line in completed['screen']))
                 self.assertFalse(any('aggregated_output' in line for line in completed['lines']))
                 terminal.send(b'f')
-                paused = terminal.checkpoint(lambda value: not value['follow'])
+                terminal.checkpoint(lambda value: not value['follow'])
+                # A queued follow reflow can move the viewport after f (#369).
+                # Establish the paused baseline before testing projection changes.
+                terminal.send(b'\x1b[F')  # End
+                paused = terminal.checkpoint(lambda value: not value['follow'] and value['bottom']
+                                             and value['anchor'] is not None
+                                             and value['anchor'] == value['saved_anchor'])
                 terminal.send(b'u')
-                raw_view = terminal.checkpoint(lambda value: value['raw'])
+                raw_view = terminal.checkpoint(lambda value: value['raw']
+                                               and value['anchor'] == value['saved_anchor'])
                 self.assertTrue(any('oversized raw fragment' in line for line in raw_view['lines']))
                 self.assertTrue(any('aggregated_output' in text for text in raw_view['raw_text']))
                 terminal.send(b'u')
