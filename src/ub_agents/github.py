@@ -174,6 +174,8 @@ class Item:
     open_blocked_by: int | None = None
     author: str | None = None
     comments_count: int | None = None
+    # GitHub's REST merge check: False is GraphQL's CONFLICTING; None is unknown.
+    mergeable: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -239,7 +241,8 @@ def parse_item(data, kind, endpoint=None):
                     if kind == "issue" and dependency_total(data) is not None else None,
                     data["user"].get("login") if isinstance(data.get("user"), dict)
                     and isinstance(data["user"].get("login"), str) else None,
-                    data["comments"] if type(data.get("comments")) is int and data["comments"] >= 0 else None)
+                    data["comments"] if type(data.get("comments")) is int and data["comments"] >= 0 else None,
+                    data.get("mergeable") if kind == "pr" and type(data.get("mergeable")) is bool else None)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
             raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc

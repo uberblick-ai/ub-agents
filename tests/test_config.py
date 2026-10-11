@@ -129,6 +129,18 @@ class ConfigTests(unittest.TestCase):
                     if value != "203":
                         self.assertIn("task retrospectives", stderr.getvalue())
 
+    def test_on_conflict_names_a_declared_outcome_of_a_pr_agent_without_a_stop_label(self):
+        base = ("repository: org/project\nagents:\n  integrator:\n    command: [echo]\n    kind: pr\n"
+                "    trigger: ready-to-merge\n    outcomes:\n      merged: {}\n"
+                "      changes: {add: [needs-changes]}\n      maintainer: {add: [needs-human]}\n")
+        self.assertIsNone(self.load(base).agents[0].on_conflict)
+        self.assertEqual(self.load(base + "    on-conflict: changes\n").agents[0].on_conflict, "changes")
+        for config in (base + "    on-conflict: missing\n", base + "    on-conflict: maintainer\n",
+                       base + "    on-conflict: [changes]\n",
+                       base.replace("kind: pr", "kind: either") + "    on-conflict: changes\n"):
+            with self.subTest(config=config), self.assertRaisesRegex(AgentError, "on-conflict"):
+                self.load(config)
+
     def test_launchers_requires_a_nonempty_list_of_unique_nonblank_logins(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         self.assertIsNone(self.load(base).launchers)

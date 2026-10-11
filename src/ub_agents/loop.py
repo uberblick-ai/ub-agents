@@ -1262,6 +1262,8 @@ class Loop:
                                     expires=iso(self.coordinator.clock()), summary=approval.reason)
             self.declined(plan, approval.reason, "parked")
             return True
+        if plan.agent.on_conflict and fresh.mergeable is False and fresh.head == plan.item.head:
+            return self._route_conflict(plan, lease, fresh)
         run_dir = run_directory(self.config.root.resolve(), lease["run"])
         scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])
         preserve_scratch = False
@@ -1509,6 +1511,37 @@ class Loop:
             self._released_blockers[(plan.item.number, plan.agent.name)] = summary
         if interrupted or self.interrupt_event.is_set():
             raise KeyboardInterrupt
+        return True
+
+    def _route_conflict(self, plan, lease, current):
+        """Record the agent's on-conflict outcome without starting it.
+
+        The agent could only return GitHub's textual conflict, so the repair goes
+        straight to the role behind that outcome."""
+        self.output(f"#{plan.item.number} {plan.agent.name}: GitHub reports a conflict; "
+                    f"recording {plan.agent.on_conflict}")
+        self.coordinator.assert_owned(lease)
+        self.coordinator.update(lease, state="running", started=True, host=socket.gethostname())
+        self.github.begin_finalization()
+        self._finalizing = True
+        summary = (f"GitHub reports #{current.number} as conflicting with its base at {current.head[:7]}. "
+                   "Merge the base branch into the PR branch, resolve the conflicts, rerun the checks "
+                   "that cover the PR's changes and hand it off again.")
+        outcome = self.coordinator.report(lease, "success", summary, outcome=plan.agent.on_conflict,
+                                          agent_report=False)
+        try:
+            result, summary, effect = self.reported_verdict(lease, plan, outcome, lease, "completion")
+        except TransitionPaused as exc:
+            result, summary, effect = "blocked", str(exc), "unchanged"
+        except ValidationError as exc:
+            result, summary, effect = "blocked", str(exc), "failure"
+        self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, completed=True)
+        self.github.end_finalization()
+        self._renewal.close()
+        self._replan_finished_item(plan)
+        self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
+        if result == "blocked":
+            self._released_blockers[(plan.item.number, plan.agent.name)] = summary
         return True
 
     def earlier_branches(self, item, agent, run):

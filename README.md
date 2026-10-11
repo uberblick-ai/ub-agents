@@ -130,6 +130,8 @@ needs-human ────────▶ waits for a person
 ```
 
 Before handoff, the implementer fetches the PR's base and fixes any merge conflicts.
+If GitHub reports an approved PR as conflicting, the launcher sends it back to the
+implementer with `needs-changes` instead of starting the integrator.
 If the reviewed PR is behind its base but merges cleanly, the integrator merges
 the base into it, keeps the review and runs final checks at the new head.
 
