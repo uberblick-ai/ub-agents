@@ -138,7 +138,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             for size in ((60, 16), (80, 24), (110, 32), (160, 45)):
                 with self.subTest(size=size):
                     await pilot.resize_terminal(*size)
-                    await pilot.pause()
+                    # The resize and periodic footer refresh use separate queues.
+                    await self.ready(app, pilot, lambda:
+                                     app.query_one('#status', Static).size.width == size[0]
+                                     and app.query_one('#status', Static).render().cell_length == size[0])
                     check_footer('#status')
                     tree = app.query_one('#work', Tree)
                     tree.focus()
