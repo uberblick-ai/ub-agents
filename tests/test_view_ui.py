@@ -2441,11 +2441,107 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn('shortened', markdown.query_one('MarkdownFence').code)
                     note = app.query_one('#issue_note', Static)
                     self.assertIn('Description shortened to 2,048 characters.', note.render().plain)
-                    self.assertFalse(note.render().spans)
+                    value = note.render()
+                    for offset, char in enumerate(value.plain):
+                        if not char.isspace():
+                            style = value.get_style_at_offset(offset)
+                            self.assertTrue(style.dim)
+                            self.assertEqual(style.foreground.hex.lower(), app.theme_variables['view-muted'].lower())
                     self.assertGreater(note.region.y, markdown.region.y)
                     self.assertLess(note.region.bottom, 32)
                     await pilot.press('q')
                 app.worker.thread.join(2)
+
+    async def test_issue_metadata_wraps_and_recolors_without_muting_body_or_action_notes(self):
+        row = self.state['latest_pass']['rows'][0]
+        row.update(title='t' * 2049, description={
+            'available': True, 'text': 'Issue body stays bright.', 'omitted_characters': 100})
+        publish_snapshot(self.path, self.state)
+        loads = DescriptionLoads(RecordingDescriptionTransport(), clock=lambda: 1000)
+        loads.cooldown = 1100
+        app = View(self.root, self.path, descriptions=loads)
+        # A fixed age also proves a theme change refreshes unchanged note text.
+        with patch('ub_agents.view_data.time.time', return_value=1000):
+            async with app.run_test(size=(110, 32)) as pilot:
+                await self.ready(app, pilot)
+                await pilot.press('2')
+                note = app.query_one('#issue_note', Static)
+                note.styles.width = 24
+                for theme in ('ub-agents', 'textual-light'):
+                    with self.subTest(theme=theme):
+                        app.theme = theme
+                        await pilot.pause()
+                        value = note.render()
+                        metadata, action = value.plain.split('\nGitHub cooldown')
+                        self.assertIn('Source: snapshot · 0s old', metadata)
+                        self.assertIn('Title shortened to 2,048 characters.', metadata)
+                        self.assertIn('Description shortened in snapshot.', metadata)
+                        for offset, char in enumerate(value.plain):
+                            if not char.isspace():
+                                style = value.get_style_at_offset(offset)
+                                if offset < len(metadata):
+                                    self.assertTrue(style.dim)
+                                    self.assertEqual(style.foreground.hex.lower(), app.theme_variables['view-muted'].lower())
+                                else:
+                                    self.assertFalse(style.dim)
+                                    self.assertIsNone(style.foreground)
+                        lines = note.render_lines(note.size.region)
+                        self.assertGreater(len(lines), len(value.plain.splitlines()))
+                        header = app.query_one('#item_header', Static)
+                        header_metadata = next(segment.style for segment in
+                                               header.render_lines(header.size.region)[1] if segment.text.strip())
+                        secondary, ordinary = [], []
+                        for line in lines:
+                            for segment in line:
+                                if segment.text.strip():
+                                    is_secondary = segment.style.color == header_metadata.color
+                                    target = secondary if is_secondary else ordinary
+                                    target.append(segment.text)
+                        self.assertEqual(''.join(''.join(secondary).split()), ''.join(metadata.split()))
+                        self.assertEqual(''.join(''.join(ordinary).split()),
+                                         ''.join(('GitHub cooldown' + action).split()))
+                        body = app.query_one('#issue_body MarkdownParagraph')
+                        self.assertEqual(body.render().plain, 'Issue body stays bright.')
+                        for line in body.render_lines(body.size.region):
+                            for segment in line:
+                                if segment.text.strip():
+                                    self.assertFalse(segment.style.dim)
+                                    self.assertNotEqual(segment.style.color, header_metadata.color)
+                                    if theme == 'ub-agents':
+                                        self.assertLess(sum(header_metadata.color.get_truecolor()),
+                                                        sum(segment.style.color.get_truecolor()))
+                await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_issue_error_and_retry_notes_stay_unmuted_beside_shortening_metadata(self):
+        transport = self.description_source('GitHub', 'Title', '')
+        transport.response = None
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport, clock=lambda: 1000))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('2')
+            note = app.query_one('#issue_note', Static)
+            value = note.render()
+            self.assertIn('Description unavailable (not cached).', value.plain)
+            self.assertIn('Loading #114…', value.plain)
+            self.assertFalse(value.spans)
+            transport.response = Response(error='read failure ' + 'x' * 2049)
+            await self.ready(app, pilot, lambda: app.descriptions.pending is None)
+            value = note.render()
+            self.assertIn('Description load failed: read failure', value.plain)
+            self.assertIn('Description load error shortened to 2,048 characters.', value.plain)
+            self.assertIn('Press g on Issue to retry title/body from GitHub.', value.plain)
+            for label, secondary in (('Description load failed:', False), ('Source:', True),
+                                     ('Description load error shortened', True), ('Press g', False)):
+                offset = value.plain.index(label)
+                style = value.get_style_at_offset(offset)
+                self.assertEqual(bool(style.dim), secondary)
+                if secondary:
+                    self.assertEqual(style.foreground.hex.lower(), app.theme_variables['view-muted'].lower())
+                else:
+                    self.assertIsNone(style.foreground)
+            await pilot.press('q')
+        app.worker.thread.join(2)
 
     async def test_eligible_item_merges_agents_count_lines_and_retains_selection(self):
         description = {'available': True, 'text': 'Shared item description'}

@@ -94,7 +94,8 @@ Open Issue with `2`, a tab click, or select another item while Issue is active t
 load its missing title and description from GitHub. It shows `Loading #N…` while
 the read is pending, then caches the result. Reopening a cached item makes no read;
 press `g` to retry a failure. Descriptions are limited to 2,048 characters with a
-shortening notice. The session snapshot carries no description text and keeps
+shortening notice. Source/age and shortening notices beneath the description use
+muted secondary text. The session snapshot carries no description text and keeps
 Running, Needs attention and the first ten Eligible items ahead of hidden plans
 and older history; Eligible's heading keeps the full count when hidden plans are
 left out to fit the size limit.

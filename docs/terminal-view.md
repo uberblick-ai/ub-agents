@@ -488,7 +488,9 @@ characters stay visibly escaped. Rich/Textual markup such as `[bold]` stays lite
 images, raw HTML and entities display as source text, including in table cells;
 links cannot be opened with the mouse or keyboard, and nothing is fetched.
 The item header stays literal text with only its reference clickable;
-source/age and all notices remain inert literal text.
+source/age and all notices remain inert literal text. Source/age and shortening
+notices use the same muted, dim styling as the header metadata; load errors and
+action notes retain their usual text styling.
 Issue does not repeat the item reference or title in its
 content. Shortening notices sit outside the Markdown body, including
 when a description is cut inside a code fence. Runs and the raw log projection
