@@ -965,8 +965,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(app.query_one(selector).region.x, 3)
                 self.assertEqual(app.query_one(selector).region.width, 74)
             self.assertEqual(app.query_one('#panes Tabs').region.y, 2)
-            for value in ('1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported'):
-                self.assertIn(value, self.screenshot_text(app.export_screenshot()))
+            expected = ('1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported')
+            def screenshot_ready():
+                screen = self.screenshot_text(app.export_screenshot())
+                return all(value in screen for value in expected)
+            await self.ready(app, pilot, screenshot_ready)
+            screen = self.screenshot_text(app.export_screenshot())
+            for value in expected:
+                self.assertIn(value, screen)
             await pilot.press('2', 'escape')
             self.assertFalse(app.item_view)
             self.assertEqual(tree.cursor_node.data, app.selected)
