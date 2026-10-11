@@ -53,13 +53,9 @@ policy; role procedures belong in role files.
 Stop-report formatting, input trust, reporting and workflow-label ownership come
 from the launcher prompt and need no project copies.
 
-With `approvals: off`, current titles and bodies are input, trigger labels need no
-maintainer start, and PR heads need no approval. Feedback is limited to authors
-with `write`, `maintain` or `admin`; approval records cannot clear other feedback.
-The launcher makes no approval reads or approval-parking writes. When `approvals`
-is unset, an unreadable visibility fails the pass before any claim or parking
-write. `doctor --verbose` shows the effective value and source; `check` shows the
-configured value or that it comes from visibility, without contacting GitHub.
+Approval defaults, trusted feedback and start authorization are defined in
+[Issue and PR starts and outside input](approvals.md). `check` reports the configured
+policy locally; `doctor --verbose` resolves repository visibility when needed.
 
 `poll-seconds` defaults to 30 and sets the minimum gap between continuous
 discovery-pass starts, including observations during assignments. After running
@@ -1064,248 +1060,27 @@ completes and releases its lease; this does not mark process cleanup unconfirmed
 
 ## Commands
 
-`ub-agents`, `ub-agents -h`, `ub-agents --help` and `ub-agents help` print the
-same overview on stdout and exit 0. Operator commands and commands used inside a
-run appear in separate groups; rows omit the program name and wrap within 80 columns.
+Use `ub-agents help COMMAND` for current options and output. Help works without
+configuration, authentication or network access. The published command pages below are
+built from `site/content/commands/` in this repository. Their help blocks come
+from the executable rather than another manually maintained copy.
 
-```text
-ub-agents — project-owned engineering loops on GitHub
+| Command | Reference |
+| --- | --- |
+| `init` | [Create starter configuration and instructions](https://agents.uberblick.ai/docs/commands/init.html) |
+| `check` | [Validate configuration locally](https://agents.uberblick.ai/docs/commands/check.html) |
+| `doctor` | [Diagnose prerequisites and missing labels](https://agents.uberblick.ai/docs/commands/doctor.html) |
+| `launch` | [Run the queue or one item](https://agents.uberblick.ai/docs/commands/launch.html) |
+| `status` | [Inspect work, ownership and outcomes](https://agents.uberblick.ai/docs/commands/status.html) |
+| `cleanup` | [Preview or remove stale artifacts](https://agents.uberblick.ai/docs/commands/cleanup.html) |
+| `retry` | [Reset attempts after fixing their cause](https://agents.uberblick.ai/docs/commands/retry.html) |
+| `approve` | [Approve current input](https://agents.uberblick.ai/docs/commands/approve.html) |
+| `report` | [Report a supervised outcome](https://agents.uberblick.ai/docs/commands/report.html) |
+| `retrospective` | [Post to the configured role board](https://agents.uberblick.ai/docs/commands/retrospective.html) |
+| `read` | [Read filtered issue or PR input](https://agents.uberblick.ai/docs/commands/read.html) |
+| `help` | [Help, version and usage errors](https://agents.uberblick.ai/docs/commands/help.html) |
 
-usage: ub-agents <command> [options]
-
-commands:
-  init                   set up this repository: starter configuration, agent
-                         instructions and workflow labels
-  check                  validate the configuration and instruction files
-  doctor [--json]        check the machine, GitHub access, labels and agent
-                         runtimes
-  launch [NUMBER]        run the queue in the foreground, or handle one item
-  status [NUMBER] [--json]
-                         matching work, owners, attempts and why items wait
-  cleanup [--apply]      preview or remove stale worktrees and branches
-  retry NUMBER           let stopped work run again, with a recorded reason
-  approve NUMBER         record approval of an issue's or PR's current input
-
-inside a run, through the launcher's report_command:
-  report                 record the run's outcome
-  retrospective          post to the agent's retrospective board
-  read NUMBER            read an issue or PR as filtered JSON
-
-options:
-  -h, --help             show this help; after a command, that command's help
-  -v, --version          print the version
-  --config PATH          project configuration (default: ub-agents.yaml)
-```
-
-`help` remains available without appearing in the overview. Use `ub-agents help COMMAND`,
-`ub-agents COMMAND -h` or `ub-agents COMMAND --help` for the same compact command help.
-The usage line shows positional arguments and required options, with the remaining
-options folded into `[options]`. For example, `ub-agents help launch` prints:
-
-```text
-usage: ub-agents launch [NUMBER] [options]
-
-Run the queue in the foreground under the configured gates. Without a number,
-watch the queue; with a number, handle only that issue or PR, then exit. Use
---agent NAME to serve only one configured agent; without a number, the queue
-keeps polling until you stop it. For preparation, run --agent issue-preparer,
-stop to resolve human decisions, then launch the normal queue. Queue priority
-and milestone policy do not apply to an explicit item; all other gates do. An
-agent still needs a matching trigger label, including with --agent.
-
-options:
-  --agent NAME           serve only this configured agent (queue or NUMBER)
-  --once                 observe once, run at most one assignment, then exit
-  --no-ui                plain lines instead of the terminal view
-  --config PATH          project configuration (default: ub-agents.yaml)
-  -h, --help             show this help
-
-examples:
-  ub-agents launch
-  ub-agents launch --agent issue-preparer
-  ub-agents launch 143 --agent implementer
-```
-
-All help forms work without project configuration, GitHub authentication or network
-access, and create no files. Square brackets mean optional: `launch [NUMBER]` accepts
-an optional item number, while `retry NUMBER` and `approve NUMBER` require one.
-`retry` also requires `--reason REASON`, as shown in its command help.
-
-`ub-agents -v` and `ub-agents --version` print `ub-agents 0.2.1` and exit 0.
-An unknown command, including `ub-agents help NAME`, prints
-`ub-agents: unknown command "NAME"`, a blank line and the overview on stderr, then
-exits 2. Other usage errors exit 2 and print the command's usage line and error on
-stderr; `ub-agents launch --bogus` shows `usage: ub-agents launch [NUMBER] [options]`.
-
-- `ub-agents help [COMMAND]` shows the overview or detailed help for that command.
-- `ub-agents init [--repository owner/name] [--runtime cli:model:effort]` writes the
-  starter `ub-agents.yaml`, `.agents/ub_agents.md` and four role files next to the
-  selected `--config` file, and adds `.ub-agents/` to `.gitignore`. It never creates
-  or edits `AGENTS.md` or `CLAUDE.md`. It names the guidance each configured runtime
-  loads: Codex uses `AGENTS.md`; Claude uses `CLAUDE.md` or `.claude/CLAUDE.md`, else
-  `AGENTS.md`. It warns when a runtime loads none, because agents need project build
-  and test instructions. The shared policy's Checks section points to the discovered
-  guidance, or has placeholders when none exists. Fill in its merge gates, decision
-  authority and review focus. Every starter role uses a private worktree, including
-  issue preparation. Any existing configuration, shared policy or role starter file
-  stops init before any file writes.
-  In an interactive terminal, init reads repository labels and explains each missing
-  trigger, outcome `add`/`remove`, and stop label. It creates only those labels after
-  an explicit `y` or `yes`; the default is no. Declining makes no GitHub writes and
-  prints one runnable `gh label create` command per missing label. Without a terminal
-  (including CI and piped input), or when labels cannot be read, it prints commands
-  for all configured workflow labels and explains why. Noninteractive init makes no
-  GitHub reads or writes beyond repository inference when `--repository` is omitted.
-  It never changes or deletes existing labels or uses `--force`. Local starter files
-  are written regardless of the label-creation answer. A separate question offers to
-  enable permission arguments matching `--runtime` for every starter agent; the
-  default is no. Declining, end of input and noninteractive runs keep them commented
-  out and print the setup step; see [Runtime permissions](#runtime-permissions).
-- `ub-agents check` validates the configuration and instruction files.
-- `ub-agents doctor [--json] [--verbose]` shows every warning and failure with its
-  remedy, grouped in machine, configuration, GitHub and runtimes order. Each area
-  has one summary line for passed and skipped checks; each distinct label has one
-  result and counts once in area summaries and final failure and warning counts.
-  Areas whose non-failing checks were all skipped use `skip`; areas with only
-  warnings or failures have no summary. `--verbose` shows the full per-check list,
-  including remaining GitHub requests and the reset time in UTC from real request headers.
-  Doctor warns below 10% remaining and whenever it is rate limited.
-  It checks everything `check` does, plus Python, the platform,
-  `git`, `gh`, GitHub access, configured workflow labels, runtimes and local state.
-  A token that cannot change labels is a required failure, because the launcher
-  applies outcome transitions itself. Each missing label's result names every agent
-  and use, with one `gh label create` remedy. A label with any trigger or outcome
-  transition use is a required failure; a label used only to stop work is a warning.
-  Label matching is case-insensitive and an unreadable label list is a required
-  failure. The non-required `github-launcher-role` check warns when the launcher
-  account has `maintain` or `admin`, because agents could start and approve their
-  own work, when its role is below `write`, or when its role cannot be read.
-  It also warns about each listed account without `write` or higher or with an
-  unreadable role, and when the authenticated account is unlisted.
-  Use a dedicated account with `write`;
-  see [Issue approvals](approvals.md#repository-roles). Runtime agents without
-  effective `runtime-args` for any listed CLI, after top-level inheritance or agent
-  replacement, produce one warning naming them and linking the permission guidance.
-  After its report, interactive doctor offers to create the missing labels with the
-  same explanation and prompt as init; the default is no. It writes labels only after
-  a confirmed `y` or `yes` and never changes existing labels. It then reads labels
-  again, and its final counts and exit status reflect that second read. Declining,
-  end of input, no terminal, CI and `--json` create nothing and keep the creation
-  commands in the report. Other diagnostics make no writes.
-  When the selected configuration is missing, it reports
-  `no ub-agents.yaml here; run ub-agents init`, using the selected file's name.
-  It exits 1 when a required check fails; warnings and skips exit 0.
-  The JSON is unchanged by `--verbose` and has `version: 2`, `ok` and `checks`.
-  Each check has `id`, `status`, `required`, `agent`, `runtime`, `message` and `remedy`.
-  Label checks have the id `github-label:NAME`, `agent: null`, `runtime: null` and
-  an additional `uses` list. Each use has `agent` (null for a stop use), `meaning`
-  and `required`. The label check's `required` is true if any use is required.
-  Names are deduplicated case-insensitively, preserving the first configured spelling.
-- `ub-agents approve N` prints the current issue or PR title, body and
-  outside comments; for PRs it also prints the head, outside reviews and review
-  comments. It posts one [approval record](approvals.md#approving-current-input),
-  pinning a PR head and recording the feedback it clears. It requires the
-  authenticated `gh` account to have the `maintain` or `admin` repository role and
-  refuses input changed during display. Running the command expresses approval
-  without an interactive confirmation; it changes no labels and does not replace
-  the required maintainer start.
-- `ub-agents launch [--once] [--agent NAME]` runs the loop in the foreground.
-  Without a number, `--agent` serves only that configured agent, including its
-  pending outcome recovery and notices. Other agents' assignments, leases,
-  pending outcomes and notices are left for another launcher. Agent names come
-  from `agents:`; an unknown name is a usage error listing the configured names
-  before queue observation. If a reload removes the selected agent, the launcher
-  claims nothing and says it is no longer configured.
-  Queue priority, milestone policy and all other eligibility and supervision
-  gates still apply. `--once --agent NAME` observes once and runs at most one
-  selected assignment; continuous launch keeps polling until stopped, even
-  when no selected work is eligible. The terminal view and plain output name
-  the selected agent. Idle output distinguishes no open item with its trigger
-  labels, naming them, from waiting work counted by state, with reasons on each
-  item's row. Items this agent parked for a human decision remain counted after
-  their trigger labels are removed.
-  For example, run `ub-agents launch --agent issue-preparer` to prepare a
-  milestone's issues, using your configured preparation agent name. Watch it
-  finish or reach human decisions, stop it, resolve those decisions, then run
-  `ub-agents launch` for the normal queue. Filtering does not override milestones,
-  bypass blockers or automatically launch another agent.
-- `ub-agents launch N [--agent NAME]` evaluates only issue or PR N and exits after
-  running one assignment or recovering its pending completion. The number implies
-  `--once`; an explicit `--once` is also accepted. Queue priority and milestone
-  selection do not apply to N, including after checkout refresh.
-  All other eligibility gates apply, including
-  launcher trust, state, matching trigger labels, stop labels, approvals, dependencies,
-  ownership, attempts, backoff and runtime availability. Without `--agent`, the
-  first eligible agent in configuration order acts; with it, only that configured
-  agent is evaluated. `--agent` still requires that agent's trigger label;
-  it does not choose a default role or authorize untriggered work.
-  An unknown agent is a usage error. If no agent can act,
-  it leaves one short refusal line per evaluated agent visible after the terminal
-  view closes, or explains closed work and unmatched triggers. Plain output ends
-  with the same reasons after discovery counters. Ownership names the owning role,
-  account, host and lease end without log paths, and the owning item when another
-  item's run holds the branch; stop labels explain the Action needed
-  notice and restoring a trigger, even when no trigger remains. A decline during
-  refresh or claiming reports that final verdict. If no assignment or recovery
-  starts, it exits nonzero; GitHub read failures remain errors. Normal approval
-  parking still applies. Reads are scoped to N's inputs and gates; other work is
-  not discovered or ranked. It uses the same launch log,
-  signal handling and execution exit codes as `launch --once`.
-- `ub-agents cleanup [--apply]` previews stale owned artifacts; `--apply` rechecks and
-  removes eligible worktrees and local branches, running the project hook first.
-- `ub-agents status [NUMBER] [--json]` shows matching work, claims, consecutive failures in the `attempts` field, and outcomes.
-  Without a number, it lists the queue as usual. With a number, it evaluates only
-  that open or closed issue or PR under the same gates as `launch NUMBER`, showing
-  each evaluated agent's row: `ready` when launch would run it, or `recover` when
-  launch would recover its pending completion. Priority and milestone use the
-  item's own values, without inheritance. Queue priority and milestone policy
-  do not apply to N; all other gates do. When no rows
-  apply, it prints launch's one-line explanation, including trigger labels to add
-  or the item's closed state. It makes no GitHub writes and starts no runtime
-  maintenance. It exits 0 when it can report, even for parked, blocked or
-  untriggered work; unreadable work exits 1, and invalid numbers exit 2.
-  A live lease's summary names its actor, host, claim time, runtime and lease end,
-  including the time remaining. Times use UTC `HH:MMZ`, with a date when outside
-  the current UTC day. Only leases on this host have their recorded process group
-  inspected: live members display `running` and the path to `process.log`; an
-  exited group explains launcher completion or recovery after lease expiry. If
-  that owning run reported an outcome, the reason explains acceptance after expiry.
-  Other reasons distinguish a starting
-  run, a claim without a host, another host, outcome recovery and an unknown
-  process state with its inspection error. Inspection failures leave `status`
-  successful. It makes no additional GitHub requests, recovers or releases nothing,
-  and preserves the text for rows without a live lease, including shared-branch ownership.
-  JSON adds `process` (`running`, `exited`, `starting`, `claiming`, `other-host`,
-  `recovery` or `unknown`) and `process_reason`, both `null` without a live lease.
-  Existing JSON fields retain their values: `state` stays `owned` for a confirmed
-  running owner, and `reason` retains the ownership explanation.
-  Each agent's `reported:` (JSON `outcome`) describes that agent's live lease's run,
-  or its latest lease's run when it has no live lease. Recovery leases show the
-  original run's report. If that run has not reported, `reported:` is omitted and
-  JSON `outcome` is `null`. The JSON `lease` field shows the item's live owner, even
-  when it is another agent.
-- `ub-agents report --outcome NAME --summary TEXT [--handoff PR]` records a declared
-  successful outcome. Use `--status retry|blocked` for failures. It works only inside
-  a supervised run.
-- `<report_command> retrospective --body-file PATH` posts to the supervised
-  agent's configured discussion board and prints the comment URL; it changes no
-  run outcome. See [Agents](#agents).
-- `ub-agents retry N --reason TEXT [--agent NAME]` resets one agent's consecutive failure count on
-  an item once you have fixed the cause. It prints the reset record's link and a
-  next-step line explaining closure, stop labels to remove, trigger labels to add,
-  or pickup by a running launcher on its next poll. Labels stay unchanged; use
-  `ub-agents status` for progress and other pickup gates.
-  For `retry`, omitting `--agent` selects the first configured agent
-  whose `kind` matches the item or is `either`, and prints its name before acting.
-  Trigger labels and other eligibility gates do not affect this selection. If no
-  agent applies, the command fails without recording anything. Specify `--agent`
-  when resetting a particular agent's attempts.
-- `approve` and `retry` require a positive item number. The deprecated
-  `--number N` alias remains available for one release and is hidden from help;
-  giving the number both ways is a usage error.
-- `--config PATH` selects a different configuration file before or after any
-  project command. `report`, `retrospective` and `help` accept it only before the
-  command and read no configuration. Giving it in both positions is a usage error. For example,
-  `ub-agents --config x.yaml launch` and
-  `ub-agents launch --config x.yaml` both write `.ub-agents/launch.log` next to
-  `x.yaml`.
+`--config PATH` selects configuration before or after a project command, never both.
+`report`, `retrospective` and `help` accept it only before the command and read no
+configuration. In-run commands use the launcher's pinned context; see the
+[reporting contract](coordination.md#explicit-outcomes).
