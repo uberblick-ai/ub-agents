@@ -1240,13 +1240,22 @@ class View(App):
             notice.pad_right(max(0, width - notice.cell_len))
             return notice
         parts = ['' if self.narrow else 'ub-agents']
+        repository = ''
         if self.session:
             version = text(self.session.data.get('base_version'), '')
             if version:
                 parts[0] += ('' if self.narrow else ' ') + f'v{version}'
+            repository = text(self.session.data.get('repository'), '')
+        if repository:
+            parts.append(repository)
         if self.launcher is not None and self.awake_enabled:
             parts.append('awake')
-        awake_prefix = Text(' · '.join(part for part in parts if part)).cell_len
+        prefix_count = len(parts)
+        # Reserve an intact prefix, with at least an ellipsis for the repository.
+        prefix = parts.copy()
+        if repository:
+            prefix[1] = '…'
+        reserve = Text(' · '.join(part for part in prefix if part)).cell_len
         if self.session:
             if self.session.data.get('queue_agent'):
                 parts.append('agent ' + text(self.session.data['queue_agent']))
@@ -1310,10 +1319,24 @@ class View(App):
             if len(awake_keys) + left.cell_len + 1 <= width:
                 keys = awake_keys
         right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
-        reserve = awake_prefix if self.launcher is not None and self.awake_enabled else 0
+        if not repository and not (self.launcher is not None and self.awake_enabled):
+            reserve = 0
         right.truncate(max(0, width - reserve - 1), overflow='ellipsis')
-        left.truncate(max(0, width - right.cell_len - 1), overflow='ellipsis')
-        left.append(' ' * max(1, width - left.cell_len - right.cell_len))
+        room = max(0, width - right.cell_len - 1)
+        if repository:
+            other = Text(' · '.join(part for part in parts[:1] + parts[2:] if part))
+            name = Text(repository)
+            name.truncate(max(1, room - other.cell_len - (3 if other else 0)), overflow='ellipsis')
+            parts[1] = name.plain
+            left = Text(' · '.join(part for part in parts[:prefix_count] if part), no_wrap=True)
+            activity = Text(' · '.join(part for part in parts[prefix_count:] if part))
+            activity_room = max(0, room - left.cell_len - 3)
+            if activity and activity_room:
+                activity.truncate(activity_room, overflow='ellipsis')
+                left.append(' · ')
+                left.append_text(activity)
+        left.truncate(room, overflow='ellipsis')
+        left.append(' ' * max(0, width - left.cell_len - right.cell_len))
         left.append_text(right)
         return left
 

@@ -101,18 +101,107 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     app.awake_enabled = True
                     for width in (60, 70, 80, 100, 110, 160):
                         footer = app.footer(width, keys)
-                        prefix = 'v9.8.7 · awake' if narrow else 'ub-agents v9.8.7 · awake'
-                        self.assertTrue(footer.plain.startswith(prefix), footer.plain)
+                        prefix = 'v9.8.7' if narrow else 'ub-agents v9.8.7'
+                        self.assertTrue(footer.plain.startswith(prefix + ' · '), footer.plain)
+                        self.assertIn(' · awake', footer.plain)
                         self.assertEqual(footer.cell_len, width)
                     app.awake_enabled = False
                 app.narrow = True
                 self.assertIn('r poll now c awake', app.footer(160, keys).plain)
                 # At this width the original poll and reload hints still fit.
-                self.assertNotIn('c awake', app.footer(80, keys).plain)
-                self.assertIn('r poll now', app.footer(80, keys).plain)
-                self.assertIn('g reload', app.footer(80, keys).plain)
+                self.assertNotIn('c awake', app.footer(95, keys).plain)
+                self.assertIn('r poll now', app.footer(95, keys).plain)
+                self.assertIn('g reload', app.footer(95, keys).plain)
                 app.exit()
         app.worker.thread.join(2)
+
+    def test_repository_footer_fits_long_names_without_cutting_prefix_or_separators(self):
+        app = View(self.root, self.path, launcher=Mock())
+        self.state.update(base_version='9.8.7', activity={'state': 'polling'})
+        keys = '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'
+        for repository in ('example/repo', 'owner/' + 'r' * 54, 'owner/' + '界' * 54):
+            self.state['repository'] = repository
+            app.session = Session(self.path, self.state)
+            for narrow in (False, True):
+                app.narrow = narrow
+                version = 'v9.8.7' if narrow else 'ub-agents v9.8.7'
+                for awake in (False, True):
+                    app.awake_enabled = awake
+                    for width in range(52, 201):
+                        with self.subTest(repository=repository, narrow=narrow, awake=awake, width=width):
+                            footer = app.footer(width, keys)
+                            self.assertEqual(footer.cell_len, width)
+                            self.assertTrue(footer.plain.startswith(version + ' · '), footer.plain)
+                            left = footer.plain.split('↑↓ select')[0].split('? keys q quit')[0].rstrip()
+                            name = left.split(' · ')[1]
+                            self.assertTrue(name == repository or
+                                            (name.endswith('…') and repository.startswith(name[:-1].rstrip())), name)
+                            if awake:
+                                self.assertIn(f'{version} · {name} · awake', footer.plain)
+                            else:
+                                self.assertNotIn(' · awake', footer.plain)
+                            self.assertFalse(left.endswith('·'), left)
+                            self.assertNotIn(' ·  · ', left)
+                            if width >= 60:
+                                self.assertTrue(footer.plain.endswith('q quit'), footer.plain)
+
+    def test_repository_footer_omits_missing_snapshot_values_and_preserves_status_order(self):
+        app = View(self.root, self.path, launcher=Mock())
+        keys = '? keys q quit'
+        for narrow in (False, True):
+            app.narrow = narrow
+            self.assertEqual(app.footer(100, keys).plain.split('  ')[0],
+                             'reading session' if narrow else 'ub-agents · reading session')
+            self.state.update(base_version='9.8.7', queue_agent='worker', ended=True,
+                              activity={'state': 'running assignment'}, poll_now={'refreshing': True})
+            app.session = Session(self.path, self.state)
+            version = 'v9.8.7' if narrow else 'ub-agents v9.8.7'
+            for repository in (None, '', 123):
+                self.state['repository'] = repository
+                self.assertTrue(app.footer(200, keys).plain.startswith(
+                    version + ' · agent worker · ended · running assignment · polling'))
+                self.assertNotIn('unknown', app.footer(200, keys).plain)
+            self.state.pop('repository')
+            self.assertNotIn(' ·  · ', app.footer(200, keys).plain)
+            self.state['repository'] = 'snapshot/project'
+            app.awake_enabled = True
+            self.assertTrue(app.footer(200, keys).plain.startswith(
+                version + ' · snapshot/project · awake · agent worker · ended · running assignment · polling'))
+            app.awake_enabled = False
+            app.session = None
+
+    async def test_repository_footer_is_shared_by_work_item_and_raw_access(self):
+        self.state.update(base_version='9.8.7', repository='snapshot/project', activity={'state': 'polling'})
+        publish_snapshot(self.path, self.state)
+        for attached in (False, True):
+            app = View(self.root, self.path, launcher=Mock() if attached else None)
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                for size in ((160, 45), (109, 31)):
+                    await pilot.resize_terminal(*size)
+                    await pilot.pause()
+                    version = 'v9.8.7' if app.narrow else 'ub-agents v9.8.7'
+                    for awake in (False, True):
+                        app.keep_awake_state({'supported': True, 'enabled': awake})
+                        prefix = version + ' · snapshot/project' + (' · awake' if awake and attached else '')
+                        for surface in ('work', 'item', 'raw'):
+                            with self.subTest(attached=attached, size=size, awake=awake, surface=surface):
+                                if surface == 'item' and app.narrow:
+                                    await pilot.press('enter')
+                                elif surface == 'raw':
+                                    await pilot.press('p')
+                                footer = app.screen.query_one('#raw_status' if surface == 'raw' else '#status', Static)
+                                self.assertTrue(footer.render().plain.startswith(prefix + ' · polling'),
+                                                footer.render().plain)
+                                self.assertEqual(footer.render().cell_length, footer.size.width)
+                                self.assertEqual(footer.size.height, 1)
+                                if not attached or not awake:
+                                    self.assertNotIn(' · awake', footer.render().plain)
+                        await pilot.press('escape')
+                        if app.narrow:
+                            await pilot.press('escape')
+                app.exit()
+            app.worker.thread.join(2)
 
     async def test_awake_help_unavailable_notice_and_standalone_ignore(self):
         for attached in (False, True):
@@ -503,7 +592,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await self.ready(app, pilot)
                         status = app.query_one('#status', Static)
                         prefix = 'ub-agents ' if size[0] >= 110 else ''
-                        label = prefix + 'v9.8.7 · running assignment · polling'
+                        label = prefix + 'v9.8.7 · example/repo · running assignment · polling'
                         app.action_poll_now()
                         self.assertIn(label, status.render().plain)
                         app.action_poll_now()  # A repeated press while refreshing keeps the label.
@@ -998,15 +1087,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
-                self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
+                self.assertTrue(footer.render().plain.startswith('v9.8.7 · example/repo · poll 26s'))
                 self.assertTrue(footer.render().plain.endswith('↑↓ select ⏎ open ? keys q quit'))
                 await pilot.press('enter')
                 self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs g reload ? keys q quit'))
                 await pilot.press('f')
-                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/Dn ? keys q quit'))
                 await pilot.resize_terminal(60, 16)
                 await pilot.pause()
-                self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
+                self.assertRegex(footer.render().plain, r'^v9\.8\.7 · [^·]*… · poll 26s')
                 self.assertTrue(footer.render().plain.endswith('f follow h older u raw ? keys q quit'))
                 self.assertEqual(footer.render().cell_length, 60)
                 await pilot.press('escape')
@@ -1531,7 +1620,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
                 keys = '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'
-                self.assertIn('ub-agents v9.8.7 · next poll 30s', footer.render().plain)
+                self.assertIn('ub-agents v9.8.7 · example/repo · next poll 30s', footer.render().plain)
                 self.assertTrue(footer.render().plain.endswith(keys))
                 self.assertEqual(footer.size.height, 1)
                 self.assertEqual(footer.render().cell_length, 110)

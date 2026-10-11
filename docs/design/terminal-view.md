@@ -399,25 +399,25 @@ PR the first row is the issue it closes.
 ## Footer and states
 
 ```text
- ub-agents v0.1.11 · next poll 26s     ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s     ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
 
 macOS attached view with keep awake on:
- ub-agents v0.2.1 · awake · next poll 26s    ↑↓ select ⏎ open 1-3 tabs g reload r poll now c awake ? keys q quit
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · awake · next poll 26s    ↑↓ select ⏎ open 1-3 tabs g reload r poll now c awake ? keys q quit
 
 Narrow macOS view (c awake drops first; awake stays visible):
- v0.2.1 · awake · poll 26s             ↑↓ select ⏎ open r poll now ? keys q quit
+ v0.2.1 · uberblick-ai/ub-agents · awake · poll 26s             ↑↓ select ⏎ open r poll now ? keys q quit
 
 After r:
- ub-agents v0.1.11 · polling          ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · polling          ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
 
 r within the 10-second cooldown, or during a GitHub rate-limit wait:
- ub-agents v0.1.11 · next poll 26s · poll now available in 8s
- ub-agents v0.1.11 · rate limited until 18:02 · r unavailable
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s · poll now available in 8s
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · rate limited until 18:02 · r unavailable
 
 Paused log (pill at the bottom right of the log output, above the run status;
 footer keys switch to log keys):
                                                               ⏸ PAUSED · 37 new ↓ · f follow
- ub-agents v0.1.11 · next poll 27s     f follow h older u raw PgUp/PgDn scroll r poll now ? keys q quit
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 27s     f follow h older u raw PgUp/PgDn scroll r poll now ? keys q quit
 
 Update available (themed banner above both panes):
  ⬆ ub-agents 0.1.12 is available · you run 0.1.11 · brew update && brew upgrade ub-agents, then restart the launcher   released 2 days ago
@@ -475,12 +475,21 @@ during rate-limit waits; `--no-ui` launches are unaffected.
 `c` toggles keep awake in an attached macOS view from every pane, tab and overlay.
 It is off at each launch. The launcher owns one `caffeinate -i -w <launcher PID>`
 helper, allowing display sleep without persistent setting changes. The `awake`
-token appears directly after the version only after the helper starts, and clears
+token appears after the repository only after the helper starts, and clears
 on toggle off or helper exit. The launcher publishes changes over the attached
 channel immediately, without a discovery poll. Failures briefly replace the
 footer with a reason, like the copied-text notice, while assignments continue.
 The `c awake` hint follows `r poll now` only when it fits; it drops before any
 existing poll/reload hint. `awake` remains visible even at narrow widths.
+
+The left footer uses the displayed snapshot's repository, as in the window title,
+after the version and before the optional `awake` token and existing activity or
+diagnostics. Work, item and raw-access footers share this order in attached and
+standalone views. A missing repository or `reading session` omits the segment and
+its separator; keep awake off and standalone views omit `awake` and its separator.
+Long repository names shorten with a trailing `…` within their segment, preserving
+the version, enabled awake token and separators. Every footer fills its available
+terminal-cell width without wrapping or overlapping its right-side keys.
 
 Toggling off, exiting the launcher or closing its attached view ends only its
 helper. The PID tie also ends the assertion after SIGKILL. Other launchers are
@@ -511,7 +520,7 @@ Slow or failed checks retain the last successful result without delaying work.
   full width on the last active tab and Esc returns; overlays close first. Work
   rows use one line. Resizing keeps selection, tab, follow/pause and log position,
   showing the previously focused pane when narrowing. The footer shortens to
-  `v0.1.11 · poll 26s`. Below 60×16, only a centered enlargement request appears;
+  `v0.2.1 · uberblick-ai/ub-agents · poll 26s`. Below 60×16, only a centered enlargement request appears;
   q/Ctrl-C still work and growing restores the prior state.
 - `?` lists every key. The footer shows only the main ones.
 
