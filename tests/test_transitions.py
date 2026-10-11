@@ -224,6 +224,32 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, {'ready-to-merge', 'unrelated'})
         self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
 
+    def test_conflicting_pr_records_on_conflict_outcome_without_starting_the_agent(self):
+        self.agent = replace(self.agent, kind='pr', triggers=('ready-to-merge',), on_conflict='changes',
+                             outcomes={'merged': {'add': (), 'remove': ()},
+                                       'changes': {'add': ('needs-changes',), 'remove': ()}})
+        self.github.items = {1: replace(pr(1, labels=('ready-to-merge', 'unrelated')), mergeable=False)}
+        self.loop = self.new_loop()
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('agent started')):
+            self.assertTrue(self.loop.tick())
+        self.assertEqual(self.github.item(1).labels, {'needs-changes', 'unrelated'})
+        lease, outcome = self.loop.coordinator.history(1)
+        self.assertEqual((lease['result'], lease['attempt_effect']), ('success', 'reset'))
+        self.assertEqual((outcome['outcome'], outcome['candidate_sha']), ('changes', 'a' * 40))
+        self.assertTrue(outcome['accepted'])
+        self.assertIn('conflicting with its base', outcome['summary'])
+
+    def test_unknown_or_clean_merge_state_starts_the_agent(self):
+        self.agent = replace(self.agent, kind='pr', triggers=('ready-to-merge',), on_conflict='changes',
+                             outcomes={'merged': {'add': (), 'remove': ()},
+                                       'changes': {'add': ('needs-changes',), 'remove': ()}})
+        for mergeable in (None, True):
+            with self.subTest(mergeable=mergeable):
+                self.github = FakeGitHub(replace(pr(1, labels=('ready-to-merge',)), mergeable=mergeable))
+                self.loop = self.new_loop()
+                self.execute(name='merged')
+                self.assertEqual(self.loop.coordinator.history(1)[1]['outcome'], 'merged')
+
     def test_pr_outcome_targets_assignment_and_can_add_human_gate(self):
         self.github.items = {1: pr(1, labels=('ready', 'unrelated'))}
         self.execute(name='maintainer')
