@@ -20,7 +20,8 @@ coordination records, gate keys and notice markers are unchanged (#441, #443,
 
 - Cold starts read only reached approval input when claiming, while status and queue views batch up to 50 items with per-item fallback (#441, #443, #442, #458).
 - Terminal footers show the session's owner/repository and `☕` when keep awake is on, use `c Stay awake`, and omit selection/opening hints (#446, #448, #447, #449).
-- `ub-agents init --help` shows aligned option comments and starts its examples with plain `ub-agents init` (#450, #457).
+- `ub-agents init --help`, `check --help` and `launch --help` start with a plain command line and show aligned `#` option comments (#450, #457, #451, #459, #454, #463).
+- Source, age and shortening notes beneath issue descriptions in the terminal view use the dimmed metadata style (#452, #461).
 - Retrospectives can include optional short topic lists for later human review even when a run lost nothing (#439, #440).
 
 ## 0.2.1 — 2026-10-10
