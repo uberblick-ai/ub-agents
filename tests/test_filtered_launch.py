@@ -163,7 +163,9 @@ class FilteredLaunchTests(unittest.TestCase):
                 run.assert_called_once()
                 self.assertEqual(int(run.call_args.args[2]["UB_AGENTS_ASSIGNMENT"]), expected)
                 if policy == "gate":
-                    self.assertIn("Milestone #3 has no eligible issues for this launcher", stdout)
+                    line = "Milestone #3 has no eligible issues for this launcher"
+                    self.assertNotIn(line, stdout)
+                    self.assertEqual(self.loop.observer.publisher.snapshots[-1]["milestone_skips"], [line])
                 self.assertNotIn(1, self.github.store)
 
     def test_filtered_plans_keep_approval_and_ownership_gates(self):

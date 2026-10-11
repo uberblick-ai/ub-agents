@@ -142,8 +142,10 @@ milestones, bypass blockers or automatically launch another agent.
 `ub-agents status` lists rows in this order with each item's effective priority and
 its source, adds each issue's milestone and inherited source in `order` and
 `gate` modes, and names each waiting issue's blockers. When `gate` passes over
-earlier milestones, status, the terminal view and `launch.log` explain why:
-`Milestone #N has no eligible issues for this launcher`. Concurrent launchers rank the
+earlier milestones, status and the terminal view explain why:
+`Milestone #N has no eligible issues for this launcher`. Status JSON includes these
+explanations in `milestone_skips` when nonempty; launcher output and `launch.log`
+omit them. Concurrent launchers rank the
 GitHub state each observes and try claims in that order; existing claims resolve
 contention, and there is no global order across machines. Dependency reads skip
 issues whose list summary reliably reports zero blockers; a failed read stops
