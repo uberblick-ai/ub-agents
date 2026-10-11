@@ -570,7 +570,6 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('q')
         app.worker.thread.join(2)
 
-    @unittest.skip('Flaky under parallel load; see #430')
     async def test_pr_notices_and_blocked_fallback_render_separate_resume_fold(self):
         retry = ('```sh\nub-agents retry 178 --agent worker --reason "Human resolved the blocker"\n```\n\n'
                  'Restore `ready` if absent; remove any stop label. Use these steps only for the same role.')
@@ -585,6 +584,14 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = self.app
         async with app.run_test(size=(110, 50)) as pilot:
+            def screen_text():
+                return '\n'.join(strip.text for strip in app.screen._compositor.render_strips())
+
+            async def rendered_screen(*expected):
+                # Markdown.source and mounted blocks can precede screen layout.
+                await self.ready(pilot, lambda: all(text in screen_text() for text in expected))
+                return screen_text()
+
             await self.ready(pilot, lambda: app.local_description is not None)
             app.select('plan:178:attention')
             await pilot.press('4')
@@ -610,11 +617,21 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(evidence.collapsed)
                 self.assertEqual(evidence.title, 'Reasoning and evidence')
                 self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, supporting)
-                rendered = '\n'.join(strip.text for strip in app.screen._compositor.render_strips())
+                rendered = await rendered_screen('Merging or closing #178 finishes this item;',
+                                                 resume.title, evidence.title)
                 self.assertIn('Merging or closing #178 finishes this item;', rendered)
                 self.assertIn('To send it back to worker instead', rendered)
                 self.assertNotIn('ub-agents retry', rendered)
                 self.assertNotIn('Remove the stop label', rendered)
+                self.assertNotIn('Full CI diagnostics.', rendered)
+                await pilot.click('#unblock_details CollapsibleTitle')
+                self.assertFalse(evidence.collapsed)
+                self.assertTrue(resume.collapsed)
+                rendered = await rendered_screen('Full CI diagnostics.', resume.title)
+                self.assertNotIn('ub-agents retry', rendered)
+                self.assertNotIn('Remove the stop label', rendered)
+                await pilot.click('#unblock_details CollapsibleTitle')
+                self.assertTrue(evidence.collapsed)
                 await pilot.click('#unblock_resume CollapsibleTitle')
                 self.assertFalse(resume.collapsed)
                 self.assertTrue(evidence.collapsed)
@@ -638,6 +655,10 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resume.title, 'To send it back to worker instead')
             self.assertIn('ub-agents retry 178 --agent worker', app.query_one('#unblock_resume_body', Markdown).source)
             self.assertFalse(evidence.display)
+            rendered = await rendered_screen('Approval needed',
+                                             'Merging or closing #178 finishes this item;', resume.title)
+            self.assertNotIn('ub-agents retry', rendered)
+            self.assertNotIn('Reasoning and evidence', rendered)
             await pilot.press('q')
         app.worker.thread.join(2)
 
