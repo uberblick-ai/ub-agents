@@ -1240,13 +1240,22 @@ class View(App):
             notice.pad_right(max(0, width - notice.cell_len))
             return notice
         parts = ['' if self.narrow else 'ub-agents']
+        repository = ''
         if self.session:
             version = text(self.session.data.get('base_version'), '')
             if version:
                 parts[0] += ('' if self.narrow else ' ') + f'v{version}'
+            repository = text(self.session.data.get('repository'), '')
+        if repository:
+            parts.append(repository)
         if self.launcher is not None and self.awake_enabled:
             parts.append('☕')
-        awake_prefix = Text(' · '.join(part for part in parts if part)).cell_len
+        prefix_count = len(parts)
+        # Reserve an intact prefix, with at least an ellipsis for the repository.
+        prefix = parts.copy()
+        if repository:
+            prefix[1] = '…'
+        reserve = Text(' · '.join(part for part in prefix if part)).cell_len
         if self.session:
             if self.session.data.get('queue_agent'):
                 parts.append('agent ' + text(self.session.data['queue_agent']))
@@ -1269,8 +1278,8 @@ class View(App):
                 try:
                     until = datetime.fromisoformat(activity['until'].replace('Z', '+00:00'))
                     if until.tzinfo is not None:
-                        prefix = 'poll' if self.narrow else 'next poll'
-                        value = f'{prefix} {max(0, ceil((until - now).total_seconds()))}s'
+                        poll_label = 'poll' if self.narrow else 'next poll'
+                        value = f'{poll_label} {max(0, ceil((until - now).total_seconds()))}s'
                 except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
                     pass
             if limited is not None:
@@ -1310,10 +1319,30 @@ class View(App):
             if len(awake_keys) + left.cell_len + 1 <= width:
                 keys = awake_keys
         right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
-        reserve = awake_prefix if self.launcher is not None and self.awake_enabled else 0
+        if not repository and not (self.launcher is not None and self.awake_enabled):
+            reserve = 0
         right.truncate(max(0, width - reserve - 1), overflow='ellipsis')
-        left.truncate(max(0, width - right.cell_len - 1), overflow='ellipsis')
-        left.append(' ' * max(1, width - left.cell_len - right.cell_len))
+        room = max(0, width - right.cell_len - 1)
+        if repository:
+            # Keep a readable name before shortening activity, then let it grow
+            # when the full activity fits. Reserve a separator and activity ellipsis
+            # where possible without cutting the version or awake token.
+            other = Text(' · '.join(part for part in parts[:1] + parts[2:] if part))
+            fixed = Text(' · '.join(part for part in parts[:1] + parts[2:prefix_count] if part))
+            activity = Text(' · '.join(part for part in parts[prefix_count:] if part))
+            name = Text(repository)
+            name_room = max(1, room - fixed.cell_len - (3 if fixed else 0) - (4 if activity else 0))
+            preferred = max(min(24, name.cell_len), room - other.cell_len - (3 if other else 0))
+            name.truncate(min(name_room, preferred), overflow='ellipsis')
+            parts[1] = name.plain
+            left = Text(' · '.join(part for part in parts[:prefix_count] if part), no_wrap=True)
+            activity_room = max(0, room - left.cell_len - 3)
+            if activity and activity_room:
+                activity.truncate(activity_room, overflow='ellipsis')
+                left.append(' · ')
+                left.append_text(activity)
+        left.truncate(room, overflow='ellipsis')
+        left.append(' ' * max(0, width - left.cell_len - right.cell_len))
         left.append_text(right)
         return left
 

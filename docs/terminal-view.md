@@ -540,8 +540,17 @@ Repeated `q` presses do nothing on either screen, and repeated Ctrl-C presses do
 nothing on the Stopping screen. External SIGTERM keeps the normal panes with
 the existing `■ stopping` row state.
 
-The one-line footer shows the snapshot's launcher version and activity on the
-left: waiting counts down as `next poll Ns`; other activities say `polling`,
+The one-line footer shows the snapshot's launcher version, repository and activity
+on the left: `ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s`.
+The repository comes from the displayed snapshot, as in the window title, and
+appears in Work, the item view and raw-access overlays, attached or standalone.
+Missing repository values and `reading session` omit the segment and its separator.
+Long names shorten with a trailing `…` inside the repository segment; the footer
+stays on one row without cutting the version, enabled keep-awake indicator or
+separators, or overlapping the right-side keys.
+Busy activity text shortens before the repository loses its readable prefix;
+the repository shortens further only when the remaining space requires it.
+Waiting counts down as `next poll Ns`; other activities say `polling`,
 `running assignment` or `stopping`. Stale, ended and malformed snapshots are
 labelled there, including the malformed error, without a snapshot-age counter.
 In an attached view, `r` starts the next poll immediately or requests a read-only
@@ -566,7 +575,8 @@ limits or the regular poll interval. Standalone views do not offer or act on `r`
 and keep the `next poll Ns` countdown during rate-limit waits.
 In the narrow layout, the `ub-agents` prefix is omitted and `next poll Ns` becomes
 `poll Ns`,
-for example `v0.1.11 · poll 26s` or `v0.1.11 · running assignment · polling`.
+for example `v0.2.1 · uberblick-ai/ub-agents · poll 26s` or
+`v0.2.1 · uberblick-ai/ub-agents · running assignment · polling`.
 Other activity and diagnostic labels keep their
 text. The list's right side reads `? keys q quit`; the item view
 reads `Esc back 1-3 tabs ? keys q quit`. On Log, the footer adds `g reload`,
@@ -586,9 +596,12 @@ does not fit.
 On macOS, `c` toggles keep awake from any pane, tab or overlay. It starts off at
 every launch and remembers nothing. The launcher holds one `caffeinate -i -w`
 idle-sleep assertion tied to its own PID; display sleep remains allowed and no
-permanent setting changes. The footer adds `☕` immediately after the version
-only once the helper starts: `ub-agents v0.2.1 · ☕ · next poll 26s`, or
-`v0.2.1 · ☕ · poll 26s` in the narrow layout. State updates arrive over the
+permanent setting changes. The footer adds `☕` after the repository
+only once the helper starts:
+`ub-agents v0.2.1 · uberblick-ai/ub-agents · ☕ · next poll 26s`, or
+`v0.2.1 · uberblick-ai/ub-agents · ☕ · poll 26s` in the narrow layout.
+With no repository it follows the version; with keep awake off or in standalone
+views the token and its separator are omitted. State updates arrive over the
 attached channel without waiting for a discovery poll. The `c Stay awake` hint sits
 next to `r poll now` when there is room and disappears first at narrow widths,
 preserving the existing poll/reload hints. The `☕` indicator stays visible and
@@ -866,7 +879,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    shortened at the minimum width and denial counts kept whole. Select
    another item and confirm its history replaces the prior table without a
    GitHub request; include an item with missing filing data and omitted runs.
-   Check the single footer line shows the snapshot's version and activity, including
+   Check the single footer line shows the snapshot's version, repository and activity, including
    the waiting countdown and stopping state, with readable main keys at 110 columns.
    Check stale, ended and malformed snapshots are labelled, with the malformed error,
    without a minimum-size hint. There is no snapshot age or

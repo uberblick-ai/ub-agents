@@ -130,6 +130,17 @@ Rate-limit waits show `rate limited until HH:MM · r unavailable`.
 `launch --once` and `launch N` do not refresh the queue during an assignment;
 pressing `r` then leaves the footer at `running assignment`.
 
+The footer shows the displayed session's repository after the version:
+`ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s`, or
+`v0.2.1 · uberblick-ai/ub-agents · poll 26s` in a narrow layout. Work, item and
+raw-access views share this footer, including standalone views. A snapshot without
+a repository, or `reading session`, omits the segment and its separator. Long names
+shorten with a trailing `…` inside the repository segment, keeping the version,
+enabled keep-awake indicator and separators intact without wrapping or
+overlapping keys.
+Busy activity text shortens before the repository loses its readable prefix,
+subject to the space left for the version and enabled keep-awake indicator.
+
 The wide follow-mode footer uses `1-3 tabs ? keys q quit`, with contextual hints
 added when needed. The narrow Work list uses `? keys q quit`; the item view adds
 `Esc back 1-3 tabs`. Arrow keys still select rows and `Enter` opens them, with
@@ -138,10 +149,12 @@ both described in `?` help instead of the footer.
 On macOS, press `c` in any pane, tab or overlay of the attached view to toggle
 keep awake. It starts off at every launch. Once the launcher's built-in
 `caffeinate -i -w <launcher PID>` helper starts, the footer shows
-`ub-agents v0.2.1 · ☕ · next poll 26s`, or `v0.2.1 · ☕ · poll 26s` in a
+`ub-agents v0.2.1 · uberblick-ai/ub-agents · ☕ · next poll 26s`, or
+`v0.2.1 · uberblick-ai/ub-agents · ☕ · poll 26s` in a
 narrow layout. The state updates immediately without waiting for a queue poll.
-The `c Stay awake` hint appears next to `r poll now` when it fits and drops first
-as space narrows; `☕` stays visible and counts as two terminal cells when fitting
+With keep awake off or in a standalone view, `☕` and its separator are omitted.
+The `c Stay awake` hint appears next to `r poll now` when it fits and drops first as
+space narrows; `☕` stays visible and counts as two terminal cells when fitting
 the footer to one line. `?` lists the key and its macOS-only limit.
 
 Display sleep remains allowed and no permanent power setting changes. Toggle

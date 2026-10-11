@@ -102,7 +102,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             self.assertNotIn(' · awake', footer.plain)
                             self.assertEqual('☕' in footer.plain, enabled)
                             if enabled:
-                                prefix = 'v9.8.7 · ☕ · ' if narrow else 'ub-agents v9.8.7 · ☕ · '
+                                prefix = 'v9.8.7 · ' if narrow else 'ub-agents v9.8.7 · '
                                 self.assertTrue(footer.plain.startswith(prefix), footer.plain)
                             self.assertEqual(footer.cell_len, width)
                             # The coffee symbol occupies two cells but one code point.
@@ -111,11 +111,141 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.narrow = True
                 self.assertIn('r poll now c Stay awake ? keys', app.footer(160, keys).plain)
                 # At this width the original poll and reload hints still fit.
-                self.assertNotIn('c Stay awake', app.footer(60, keys).plain)
-                self.assertIn('r poll now', app.footer(60, keys).plain)
-                self.assertIn('g reload', app.footer(60, keys).plain)
+                self.assertNotIn('c Stay awake', app.footer(80, keys).plain)
+                self.assertIn('r poll now', app.footer(80, keys).plain)
+                self.assertIn('g reload', app.footer(80, keys).plain)
                 app.exit()
         app.worker.thread.join(2)
+
+    def test_repository_footer_fits_long_names_without_cutting_prefix_or_separators(self):
+        app = View(self.root, self.path, launcher=Mock())
+        self.state.update(base_version='9.8.7', activity={'state': 'polling'})
+        keys = '1-3 tabs g reload ? keys q quit'
+        for repository in ('example/repo', 'owner/' + 'r' * 54, 'owner/' + '界' * 54):
+            self.state['repository'] = repository
+            app.session = Session(self.path, self.state)
+            for narrow in (False, True):
+                app.narrow = narrow
+                version = 'v9.8.7' if narrow else 'ub-agents v9.8.7'
+                for awake in (False, True):
+                    app.awake_enabled = awake
+                    for width in range(52, 201):
+                        with self.subTest(repository=repository, narrow=narrow, awake=awake, width=width):
+                            footer = app.footer(width, keys)
+                            self.assertEqual(footer.cell_len, width)
+                            self.assertTrue(footer.plain.startswith(version + ' · '), footer.plain)
+                            left = footer.plain.split('1-3 tabs')[0].split('? keys q quit')[0].rstrip()
+                            name = left.split(' · ')[1]
+                            self.assertTrue(name == repository or
+                                            (name.endswith('…') and repository.startswith(name[:-1].rstrip())), name)
+                            if width >= (80 if narrow else 110):
+                                self.assertTrue(name.startswith('example/' if repository == 'example/repo' else 'owner/'),
+                                                footer.plain)
+                            if awake:
+                                self.assertIn(f'{version} · {name} · ☕', footer.plain)
+                            else:
+                                self.assertNotIn(' · ☕', footer.plain)
+                            self.assertFalse(left.endswith('·'), left)
+                            self.assertNotIn(' ·  · ', left)
+                            if width >= 60:
+                                self.assertTrue(footer.plain.endswith('q quit'), footer.plain)
+
+    def test_repository_footer_keeps_readable_names_during_launcher_activity(self):
+        app = View(self.root, self.path, launcher=Mock())
+        now = datetime.now(timezone.utc)
+        later = (now + timedelta(seconds=300)).isoformat()
+        self.state.update(base_version='9.8.7', repository='uberblick-ai/ub-agents')
+        app.session = Session(self.path, self.state)
+        states = (
+            ('implementer', {'state': 'running assignment'}, {'refreshing': True},
+             'agent implementer · running assignment · polling'),
+            ('', {'state': 'running assignment'}, {'rate_limit_until': later},
+             'running assignment · rate limited until'),
+            ('', {'state': 'waiting', 'until': later}, {'cooldown_until': later},
+             'next poll 300s · poll now available in 300s'),
+        )
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            for agent, activity, control, expected in states:
+                self.state.update(queue_agent=agent, activity=activity, poll_now=control)
+                for width in (80, 100, 110, 130, 160, 200):
+                    app.narrow = width < 110
+                    version = 'v9.8.7' if app.narrow else 'ub-agents v9.8.7'
+                    keys = ('? keys q quit' if app.narrow else
+                            '1-3 tabs g reload ? keys q quit')
+                    for awake in (False, True):
+                        app.awake_enabled = awake
+                        with self.subTest(agent=agent, activity=activity, control=control, width=width, awake=awake):
+                            footer = app.footer(width, keys)
+                            self.assertEqual(footer.cell_len, width)
+                            self.assertTrue(footer.plain.startswith(version + ' · uberblick-ai/ub'), footer.plain)
+                            name = footer.plain.split(' · ')[1]
+                            self.assertTrue(name == self.state['repository'] or name.endswith('…'), footer.plain)
+                            if awake:
+                                self.assertIn(f'{version} · {name} · ☕ · ', footer.plain)
+                            else:
+                                self.assertNotIn(' · ☕', footer.plain)
+                            self.assertTrue(footer.plain.endswith('q quit'), footer.plain)
+                            if width == 200:
+                                self.assertIn(expected, footer.plain)
+
+    def test_repository_footer_omits_missing_snapshot_values_and_preserves_status_order(self):
+        app = View(self.root, self.path, launcher=Mock())
+        keys = '? keys q quit'
+        for narrow in (False, True):
+            app.narrow = narrow
+            self.assertEqual(app.footer(100, keys).plain.split('  ')[0],
+                             'reading session' if narrow else 'ub-agents · reading session')
+            self.state.update(base_version='9.8.7', queue_agent='worker', ended=True,
+                              activity={'state': 'running assignment'}, poll_now={'refreshing': True})
+            app.session = Session(self.path, self.state)
+            version = 'v9.8.7' if narrow else 'ub-agents v9.8.7'
+            for repository in (None, '', 123):
+                self.state['repository'] = repository
+                self.assertTrue(app.footer(200, keys).plain.startswith(
+                    version + ' · agent worker · ended · running assignment · polling'))
+                self.assertNotIn('unknown', app.footer(200, keys).plain)
+            self.state.pop('repository')
+            self.assertNotIn(' ·  · ', app.footer(200, keys).plain)
+            self.state['repository'] = 'snapshot/project'
+            app.awake_enabled = True
+            self.assertTrue(app.footer(200, keys).plain.startswith(
+                version + ' · snapshot/project · ☕ · agent worker · ended · running assignment · polling'))
+            app.awake_enabled = False
+            app.session = None
+
+    async def test_repository_footer_is_shared_by_work_item_and_raw_access(self):
+        self.state.update(base_version='9.8.7', repository='snapshot/project', activity={'state': 'polling'})
+        publish_snapshot(self.path, self.state)
+        for attached in (False, True):
+            app = View(self.root, self.path, launcher=Mock() if attached else None)
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                for size in ((160, 45), (109, 31)):
+                    await pilot.resize_terminal(*size)
+                    await pilot.pause()
+                    version = 'v9.8.7' if app.narrow else 'ub-agents v9.8.7'
+                    for awake in (False, True):
+                        app.keep_awake_state({'supported': True, 'enabled': awake})
+                        prefix = version + ' · snapshot/project' + (' · ☕' if awake and attached else '')
+                        for surface in ('work', 'item', 'raw'):
+                            with self.subTest(attached=attached, size=size, awake=awake, surface=surface):
+                                if surface == 'item' and app.narrow:
+                                    await pilot.press('enter')
+                                elif surface == 'raw':
+                                    await pilot.press('p')
+                                footer = app.screen.query_one('#raw_status' if surface == 'raw' else '#status', Static)
+                                self.assertTrue(footer.render().plain.startswith(prefix + ' · polling'),
+                                                footer.render().plain)
+                                self.assertEqual(footer.render().cell_length, footer.size.width)
+                                self.assertEqual(footer.size.height, 1)
+                                if not attached or not awake:
+                                    self.assertNotIn(' · ☕', footer.render().plain)
+                        await pilot.press('escape')
+                        if app.narrow:
+                            await pilot.press('escape')
+                app.exit()
+            app.worker.thread.join(2)
 
     async def test_footer_hides_selection_hints_without_changing_navigation_or_help(self):
         self.state['base_version'] = '9.8.7'
@@ -563,7 +693,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await self.ready(app, pilot)
                         status = app.query_one('#status', Static)
                         prefix = 'ub-agents ' if size[0] >= 110 else ''
-                        label = prefix + 'v9.8.7 · running assignment · polling'
+                        label = prefix + 'v9.8.7 · example/repo · running assignment · polling'
                         app.action_poll_now()
                         self.assertIn(label, status.render().plain)
                         app.action_poll_now()  # A repeated press while refreshing keeps the label.
@@ -936,8 +1066,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(app.query_one(selector).region.x, 3)
                 self.assertEqual(app.query_one(selector).region.width, 74)
             self.assertEqual(app.query_one('#panes Tabs').region.y, 2)
-            for value in ('1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported'):
-                self.assertIn(value, self.screenshot_text(app.export_screenshot()))
+            expected = ('1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported')
+            def screenshot_ready():
+                screen = self.screenshot_text(app.export_screenshot())
+                return all(value in screen for value in expected)
+            await self.ready(app, pilot, screenshot_ready)
+            screen = self.screenshot_text(app.export_screenshot())
+            for value in expected:
+                self.assertIn(value, screen)
             await pilot.press('2', 'escape')
             self.assertFalse(app.item_view)
             self.assertEqual(tree.cursor_node.data, app.selected)
@@ -1058,15 +1194,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
-                self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
+                self.assertTrue(footer.render().plain.startswith('v9.8.7 · example/repo · poll 26s'))
                 self.assertTrue(footer.render().plain.endswith('? keys q quit'))
                 await pilot.press('enter')
                 self.assertTrue(footer.render().plain.endswith('Esc back 1-3 tabs g reload ? keys q quit'))
                 await pilot.press('f')
-                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'))
+                self.assertTrue(footer.render().plain.endswith('f follow h older u raw PgUp/Dn ? keys q quit'))
                 await pilot.resize_terminal(60, 16)
                 await pilot.pause()
-                self.assertTrue(footer.render().plain.startswith('v9.8.7 · poll 26s'))
+                self.assertTrue(footer.render().plain.startswith('v9.8.7 · example/r… · … '))
                 self.assertTrue(footer.render().plain.endswith('f follow h older u raw ? keys q quit'))
                 self.assertEqual(footer.render().cell_length, 60)
                 await pilot.press('escape')
@@ -1591,7 +1727,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot)
                 footer = app.query_one('#status', Static)
                 keys = '1-3 tabs g reload ? keys q quit'
-                self.assertIn('ub-agents v9.8.7 · next poll 30s', footer.render().plain)
+                self.assertIn('ub-agents v9.8.7 · example/repo · next poll 30s', footer.render().plain)
                 self.assertTrue(footer.render().plain.endswith(keys))
                 self.assertEqual(footer.size.height, 1)
                 self.assertEqual(footer.render().cell_length, 110)
@@ -1818,6 +1954,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 for visible in (True, False):
                     note.display = visible
                     await pilot.pause()
+                    await self.settled(app, output)
                     self.assertTrue(app.reading.follow)
                     self.assertEqual(output.scroll_y, output.max_scroll_y)
             await pilot.press('q')

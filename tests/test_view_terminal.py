@@ -214,6 +214,7 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
                  'header': self.query_one('#item_header').render().plain,
                  'status': self.query_one('#run_status').render().plain,
                  'footer': self.query_one('#status').render().plain,
+                 'footer_cells': self.query_one('#status').render().cell_length,
                  'screen': type(self.screen).__name__,
                  'modal': self.screen.query_one('#raw_details').render().plain
                           if self.screen.query('#raw_details') else '',
@@ -234,7 +235,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                                       and value['narrow'] == (width < 110 or height < 32)
                                       and value['floor'] == (width < 60 or height < 16)
                                       and (value['floor'] and len(value['visible']) == 1
-                                           or not value['floor'] and
+                                           or not value['floor'] and value['footer_cells'] == width and
                                            (not value['narrow'] or
                                             value['item_width' if value['item'] else 'work_width'] == width)))
                 initial = terminal.checkpoint(lambda value: value['starts'] and value['cursor'] == value['selected'])
@@ -250,7 +251,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     self.assertEqual(value['rows'], 5)
                     self.assertEqual(value['upper_bottom'], value['recent_y'])
                     self.assertEqual(len(value['recent'].splitlines()), 2)
-                    self.assertRegex(value['footer'], r'^v0\.1\.11 · poll \d+s')
+                    self.assertRegex(value['footer'], r'^v0\.1\.11 · example/repo · poll \d+s')
                     self.assertTrue(value['footer'].endswith('? keys q quit'))
                 terminal.send(b'\r')
                 opened = terminal.checkpoint(lambda value: value['item'] and value['focus'] == 'output'
@@ -529,7 +530,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                         for width in (110, 70, 170):
                             terminal.resize(width, 32)
                             keys = ('f follow h older u raw PgUp/PgDn scroll g reload ? keys q quit'
-                                    if width >= 110 else 'f follow h older u raw PgUp/Dn ? keys q quit')
+                                    if width >= 110 else 'f follow h older u raw ? keys q quit')
                             current = terminal.checkpoint(lambda value: value['text'] == banner['text']
                                             and value['display'] and value['height'] == 1
                                             and value['terminal_width'] == width
@@ -1244,7 +1245,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                                      and '#114 Cached title' in value['header'] and not value['pill_visible'])
                 self.assertNotIn(b'FORMATTED', transcript)
                 self.assertNotIn(b'FOLLOW', transcript)
-                self.assertIn('ub-agents v9.8.7 · running assignment', initial['footer'])
+                self.assertIn('ub-agents v9.8.7 · example/repo · running assignment', initial['footer'])
                 self.assertTrue(initial['footer'].endswith('1-3 tabs g reload ? keys q quit'))
                 self.assertEqual(initial['footer_height'], 1)
                 self.assertFalse(initial['pill_visible'])
