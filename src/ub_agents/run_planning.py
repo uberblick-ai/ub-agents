@@ -75,7 +75,7 @@ class RunPlanning:
         self.planner.discovery_budget = loop.discovery_budget
         # Retain discovery inputs, not the launcher's client or pass-local state.
         for name in ("items", "closed_items", "comments_index", "cache", "comment_store",
-                     "reconciled_comments", "comment_window_start", "repository_index"):
+                     "reconciled_comments", "comment_window_start", "repository_index", "bulk_inputs"):
             setattr(self.planner.discovery, name, deepcopy(getattr(loop.discovery, name)))
         self.planner.coordinator.clock = loop.coordinator.clock
         self.planner.usage = loop.usage

@@ -17,7 +17,7 @@ from .checkout_setup import discard_unused_baseline, preserve_baseline, run_setu
 from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .denials import collect_denials
-from .discovery import Discovery
+from .discovery import ApprovalInput, Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
@@ -25,7 +25,8 @@ from .execution import ScratchDirectory, Workspace, command_for, repository_chec
 from .finalization import FinalizationReads
 from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
-from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS, closing_issues, links_issue
+from .github import (APPROVAL_BATCH_SIZE, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS,
+                     closing_issues, links_issue)
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
@@ -346,10 +347,19 @@ class Loop:
         if matches is None or matches.configured != self.config.agents:
             matches = AgentMatches.for_item(item, self.config.agents)
         triggers = matches.trigger_labels
-        return input_approvals.filter_input(github, item, self.approvals, triggers,
-                                           actor=self.coordinator.actor, launchers=self.config.launchers,
-                                           trusted_bots=self.config.trusted_bots,
-                                           raise_read_errors=self._targeted_pass)
+        def check():
+            return input_approvals.filter_input(github, item, self.approvals, triggers,
+                                               actor=self.coordinator.actor, launchers=self.config.launchers,
+                                               trusted_bots=self.config.trusted_bots,
+                                               raise_read_errors=self._targeted_pass)
+        approval = check()
+        if (isinstance(github, Discovery) and item.number in github.bulk_inputs
+                and approval.gate == "input" and isinstance(approval.snapshot.get("title"), dict)):
+            # Title gates embed the complete REST rename, including its ID and
+            # actor. Reread both inputs so persisted keys and fresh parking match.
+            github.fallback_approval_input(item.number)
+            approval = check()
+        return approval
 
     @staticmethod
     def _rank(plan, priority):
@@ -530,7 +540,9 @@ class Loop:
         milestone_plans = [] if self.config.queue.milestones == "gate" else None
         lazy_approval = claiming and milestone_plans is not None
         approval_errors = {} if lazy_approval else None
-        for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
+        batch_input = (not lazy_approval and self.approvals == "on"
+                       and callable(getattr(github.github, "approval_inputs", None)))
+        def evaluate(candidate):
             item = candidate.item
             if self._pass_stats is not None:
                 self._pass_stats.candidates.add(item.number)
@@ -551,17 +563,33 @@ class Loop:
                                      agents,
                                      reconcile_notices=reconcile_notices, checked=checked,
                                      health_notices=health_notices or reconcile_notices,
-                                     approval_errors=approval_errors)
+                                     approval_errors=approval_errors, defer_input=batch_input)
             for plan in plans:
+                if isinstance(plan, ApprovalInput):
+                    yield plan
+                    continue
                 observed = replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
-                if milestone_plans is None:
-                    self._observe_plan(observed, github)
-                    yield observed
-                else:
-                    milestone_plans.append(observed)
+                yield observed
+
+        candidates = sorted(ranked, key=lambda plan: self._rank(plan, priority))
+        if batch_input and not claiming:
+            plans = github.approval_plans(candidates, evaluate, APPROVAL_BATCH_SIZE)
+        else:
+            plans = (plan for candidate in candidates for plan in evaluate(candidate))
+        for observed in plans:
+            if isinstance(observed, ApprovalInput):
+                # Claiming can stop at recovery before a later agent on the
+                # same item needs input. Preserve that generator boundary.
+                github.prepare_approval_inputs([observed.item])
+                continue
+            if milestone_plans is None:
+                self._observe_plan(observed, github)
+                yield observed
+            else:
+                milestone_plans.append(observed)
         if milestone_plans is not None:
             approvals = {}
             def approve(plan):
@@ -569,6 +597,8 @@ class Loop:
                     return plan
                 github.scope = plan.item.number
                 if plan.item.number not in approvals:
+                    if self.approvals == "on":
+                        github.prepare_approval_inputs([plan.item])
                     approvals[plan.item.number] = self.input_check(plan.item, github, plan.matches)
                 approval = approvals[plan.item.number]
                 if approval.allowed and plan.item.number in approval_errors:
@@ -683,7 +713,8 @@ class Loop:
         self._observe("replanned_item", item.number, events)
 
     def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,
-                    *, reconcile_notices=False, checked=None, health_notices=False, approval_errors=None):
+                    *, reconcile_notices=False, checked=None, health_notices=False, approval_errors=None,
+                    defer_input=False):
         agents = self.config.agents if agents is None else agents
         starts = {a.name: check_start(item, a, matches, self.config.stop_labels,
                                      self.config.queue, blockers) for a in agents}
@@ -713,6 +744,8 @@ class Loop:
                 return
             # Unreadable item input cannot authorize a claim. A transient
             # coordination failure with readable approval input still fails the poll.
+            if matched and defer_input:
+                yield ApprovalInput(item)
             approval = self.input_check(item, github, matches) if matched else None
             if approval is None or approval.allowed:
                 raise
@@ -720,7 +753,11 @@ class Loop:
             return
         reconciled = set()
         for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
-                                             history, matched, approval, check_input=approval_errors is None):
+                                             history, matched, approval, check_input=approval_errors is None,
+                                             defer_input=defer_input):
+            if isinstance(plan, ApprovalInput):
+                yield plan
+                continue
             plan = self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
             plan = self._health_plan(plan, checked, announce=health_notices)
             if reconcile_notices:
@@ -746,7 +783,7 @@ class Loop:
         return plan
 
     def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,
-                            history, matched, approval, *, check_input=True):
+                            history, matched, approval, *, check_input=True, defer_input=False):
         latest = latest_leases(history)
         for agent in agents:
             record = latest.get((item.number, agent.name))
@@ -776,6 +813,8 @@ class Loop:
                         continue
                 if check_input and plan.state in {"ready", "blocked", "backoff"} and agent in matched:
                     if approval is None:
+                        if defer_input:
+                            yield ApprovalInput(item)
                         approval = self.input_check(item, github, matches)
                     if not approval.allowed:
                         gate = approval if plan.state == "ready" and approval.gate else None

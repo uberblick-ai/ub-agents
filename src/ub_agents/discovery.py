@@ -1,10 +1,18 @@
 """Read-only, in-memory discovery inputs; never used for claims or writes."""
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from itertools import islice
 
+from .approvals import validate_content
 from .errors import AgentError
+from .github import APPROVAL_BATCH_SIZE, Item
 from .records import seconds
+
+
+@dataclass(frozen=True)
+class ApprovalInput:
+    item: Item
 
 
 class Discovery:
@@ -27,11 +35,14 @@ class Discovery:
         self.pass_roles = {}
         self.pass_errors = {}
         self.pass_comments = set()
+        self.bulk_inputs = set()
+        self.pass_approval_inputs = set()
 
     def observe(self, lookback_seconds):
         self.pass_roles = {}
         self.pass_errors = {}
         self.pass_comments = set()
+        self.pass_approval_inputs = set()
         items = {item.number: item for item in self.github.observe(details=False)}
         comments = self.github.repository_comments(lookback_seconds=lookback_seconds)
         if self.repository != self.github.repository:
@@ -80,7 +91,67 @@ class Discovery:
         self.items = items
         self.comments_index = index
         self.repository_index = groups
+        self.bulk_inputs.intersection_update(
+            n for n in self.bulk_inputs if ("timeline", (n,), None) in self.cache)
         return dict(items), comments
+
+    def prepare_approval_inputs(self, items):
+        operation = getattr(self.github, "approval_inputs", None)
+        if operation is None:
+            return
+        missing = {}
+        for item in items:
+            content = "issue_content" if item.kind == "issue" else "pr_content"
+            if (item.number not in self.pass_approval_inputs
+                    and (content, (item.number,), None) not in self.cache
+                    and ("timeline", (item.number,), None) not in self.cache):
+                missing[item.number] = item
+        pending = list(missing.values())
+        for start in range(0, len(pending), APPROVAL_BATCH_SIZE):
+            batch = pending[start:start + APPROVAL_BATCH_SIZE]
+            self.pass_approval_inputs.update(i.number for i in batch)
+            try:
+                inputs = operation(batch)
+            except (AgentError, KeyError, TypeError, ValueError, AttributeError):
+                continue  # One attempted batch, then the ordinary per-item path.
+            for item in batch:
+                if item.number not in inputs:
+                    continue
+                content, timeline = inputs[item.number]
+                try:
+                    validate_content(content)
+                except (AgentError, KeyError, TypeError, ValueError, AttributeError):
+                    continue
+                name = "issue_content" if item.kind == "issue" else "pr_content"
+                self.cache[(name, (item.number,), None)] = deepcopy(content)
+                self.cache[("timeline", (item.number,), None)] = deepcopy(timeline)
+                self.bulk_inputs.add(item.number)
+
+    def fallback_approval_input(self, number):
+        # Preserve comment and permission sharing; replace both approval reads.
+        for name in ("issue_content", "pr_content", "timeline"):
+            self.cache.pop((name, (number,), None), None)
+        self.bulk_inputs.discard(number)
+
+    def approval_plans(self, candidates, evaluate, batch_size):
+        """Prefetch observation input; consumers must not claim buffered plans."""
+        candidates = iter(candidates)
+        while batch := list(islice(candidates, batch_size)):
+            prepared, inputs = [], []
+            for candidate in batch:
+                self.scope = candidate.item.number
+                reader, before = iter(evaluate(candidate)), []
+                for plan in reader:
+                    if isinstance(plan, ApprovalInput):
+                        inputs.append(plan.item)
+                        break
+                    before.append(plan)
+                prepared.append((candidate, before, reader))
+            self.prepare_approval_inputs(inputs)
+            for candidate, before, reader in prepared:
+                self.scope = candidate.item.number
+                yield from before
+                yield from reader
 
     @staticmethod
     def _comment_index(comments):
@@ -122,6 +193,7 @@ class Discovery:
 
     def invalidate(self, number):
         self.pass_comments.discard(number)
+        self.bulk_inputs.discard(number)
         self.cache = {key: value for key, value in self.cache.items()
                       if not (key[0] in self.ITEM_READS and key[1][0] == number)
                       and not (key[0] == "role" and key[2] == number)}

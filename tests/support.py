@@ -571,14 +571,27 @@ class DiscoveryCostRunner:
 
     def __call__(self, command, **kwargs):
         import subprocess
-        from urllib.parse import urlsplit
+        from urllib.parse import parse_qs, urlsplit
         from ub_agents.records import iso
         self.calls.append(command)
         endpoint = command[command.index("--include") + 1]
         path = urlsplit(endpoint).path
         if path == "graphql":
             data = json.loads(kwargs["input"])
-            if "userContentEdits" in data["query"]:
+            if "timelineItems" in data["query"]:
+                import re
+                repository = {}
+                for alias, number in re.findall(r"(item[0-9]+): issue\(number:([0-9]+)\)", data["query"]):
+                    row = self.rows[int(number) - 1]
+                    repository[alias] = {"title": row["title"], "body": row["body"],
+                        "createdAt": row["created_at"], "lastEditedAt": None, "author": None,
+                        "userContentEdits": {"nodes": [], "totalCount": 0,
+                                             "pageInfo": {"hasNextPage": False}},
+                        "timelineItems": {"nodes": [{"__typename": "LabeledEvent", "createdAt": iso(50),
+                            "actor": {"login": "maintainer", "__typename": "User"},
+                            "label": {"name": "ready", "updatedAt": iso(0)}}],
+                            "totalCount": 1, "pageInfo": {"hasNextPage": False}}}
+            elif "userContentEdits" in data["query"]:
                 row = self.rows[data["variables"]["number"] - 1]
                 repository = {"issue": {"title": row["title"], "body": row["body"],
                     "createdAt": row["created_at"], "lastEditedAt": None,
@@ -599,7 +612,8 @@ class DiscoveryCostRunner:
         elif path.endswith("/comments"):
             response = self.comments[int(path.split("/")[-2])]
         elif path.endswith("/issues"):
-            response = self.rows
+            page = int(parse_qs(urlsplit(endpoint).query).get("page", ["1"])[0])
+            response = self.rows[(page - 1) * 100:page * 100]
         elif path.endswith("/dependencies/blocked_by"):
             response = []
         else:
