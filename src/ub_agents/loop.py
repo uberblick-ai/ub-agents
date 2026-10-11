@@ -575,12 +575,16 @@ class Loop:
                 yield observed
 
         candidates = sorted(ranked, key=lambda plan: self._rank(plan, priority))
-        if batch_input:
-            # Claiming stops early, so never prefetch another candidate's input.
-            plans = github.approval_plans(candidates, evaluate, 1 if claiming else APPROVAL_BATCH_SIZE)
+        if batch_input and not claiming:
+            plans = github.approval_plans(candidates, evaluate, APPROVAL_BATCH_SIZE)
         else:
             plans = (plan for candidate in candidates for plan in evaluate(candidate))
         for observed in plans:
+            if isinstance(observed, ApprovalInput):
+                # Claiming can stop at recovery before a later agent on the
+                # same item needs input. Preserve that generator boundary.
+                github.prepare_approval_inputs([observed.item])
+                continue
             if milestone_plans is None:
                 self._observe_plan(observed, github)
                 yield observed

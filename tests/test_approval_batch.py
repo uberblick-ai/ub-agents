@@ -15,7 +15,7 @@ from ub_agents.github import APPROVAL_BATCH_SIZE, GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import iso
 from ub_agents.run_planning import RunPlanning
-from tests.support import DiscoveryCostRunner, agent, config, issue, pr, stub_refresh
+from tests.support import DiscoveryCostRunner, PollGitHub, agent, config, issue, pr, stub_refresh
 
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "approval_inputs.json").read_text())
@@ -272,6 +272,50 @@ class ApprovalBatchTests(unittest.TestCase):
             with patch("ub_agents.github.timestamp", return_value=1000):
                 self.assertEqual(list(loop.iter_plans(claiming=claiming)), plans)
             self.assertFalse(any(c[c.index("--include") + 1] == "graphql" for c in runner.calls))
+
+    def test_claiming_recovery_does_not_evaluate_later_agents_or_read_approval(self):
+        for later_state in ("ready", "recover"):
+            with self.subTest(later_state=later_state):
+                first = agent(self.root, name="first")
+                later = agent(self.root, name="later")
+                github = PollGitHub(issue(1))
+                loop = Loop(config(self.root, first, later), github, "operator", output=lambda _: None)
+                now = 1000
+                loop.coordinator.clock = lambda: now
+
+                def pending(role):
+                    plan = loop.coordinator.plan(github.item(1), role, ())
+                    lease = loop.coordinator.claim(plan)
+                    loop.coordinator.update(lease, state="running", started=True)
+                    loop.coordinator.report(lease, "success", "Completed", outcome="done")
+
+                if later_state == "recover":
+                    pending(later)
+                    now += 61
+                pending(first)
+                now += 61
+                coordinator = loop._planning_coordinator(loop.discovery)
+                self.assertEqual(coordinator.plan(github.item(1), later, ()).state, later_state)
+                github.reads.clear()
+                github.writes.clear()
+                with patch.object(github, "approval_inputs", return_value={}, create=True) as batch, \
+                        patch.object(loop, "_planning_coordinator", return_value=coordinator), \
+                        patch.object(coordinator, "plan", wraps=coordinator.plan) as planned, \
+                        patch.object(loop, "reconcile_blocked_notices") as reconcile, \
+                        patch.object(loop, "recover", return_value=True) as recover, \
+                        patch.object(loop, "execute") as execute:
+                    self.assertTrue(loop.tick())
+                recover.assert_called_once()
+                self.assertEqual((recover.call_args.args[0].agent, recover.call_args.args[0].state),
+                                 (first, "recover"))
+                self.assertEqual([call.args[1] for call in planned.call_args_list], [first])
+                batch.assert_not_called()
+                self.assertFalse(any(name in {"issue_content", "pr_content", "timeline"}
+                                     for name, _ in github.reads))
+                reconcile.assert_called_once()
+                self.assertEqual({r["agent"] for r in reconcile.call_args.args[0]}, {first.name})
+                execute.assert_not_called()
+                self.assertEqual(github.writes, [])
 
     def test_milestone_claiming_batches_only_reached_plans_and_preserves_call_ceiling(self):
         class MilestoneRunner(DiscoveryCostRunner):

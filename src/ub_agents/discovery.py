@@ -134,7 +134,7 @@ class Discovery:
         self.bulk_inputs.discard(number)
 
     def approval_plans(self, candidates, evaluate, batch_size):
-        """Pause only actual approval requests; preserve candidate/yield order."""
+        """Prefetch observation input; consumers must not claim buffered plans."""
         candidates = iter(candidates)
         while batch := list(islice(candidates, batch_size)):
             prepared, inputs = [], []
