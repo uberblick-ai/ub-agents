@@ -367,7 +367,7 @@ class Loop:
         return sorted(plans,
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
-    def _milestone_plans(self, plans, milestones):
+    def _milestone_plans(self, plans, milestones, *, approve=None, announce=False):
         # Eligibility must be known before choosing a milestone. Merge the
         # milestone-first queue with unlisted issues one choice at a time: the
         # exception compares against the next eligible milestone issue, not a
@@ -383,16 +383,37 @@ class Loop:
         assigned = deque(sorted(assigned, key=lambda plan: (plan.milestone_rank, rank(plan))))
         unlisted = deque(sorted(unlisted, key=rank))
         other = deque(sorted(other, key=rank))
+        evaluate = approve or (lambda plan: plan)
+
+        def approved_head():
+            while assigned:
+                assigned[0] = evaluate(assigned[0])
+                if assigned[0].state == "ready":
+                    return assigned[0]
+                yield assigned.popleft()
+            return None
+
+        # Both priority exceptions need the next approved milestone issue, even
+        # when an unlisted issue or existing work will ultimately go first.
+        head = yield from approved_head()
+        if approve is not None:
+            self._milestone_diagnostics((head,) if head else (), milestones, announce=announce)
         while assigned or unlisted:
             queue = (unlisted if unlisted and
                      (not assigned or rank(unlisted[0])[0] < rank(assigned[0])[0]) else assigned)
-            next_issue = queue.popleft()
+            next_issue = evaluate(queue.popleft())
+            if next_issue.state != "ready":
+                yield next_issue
+                continue
             # Existing work keeps priority order and wins equal-priority ties
             # against the new issue selected by the milestone policy.
             while other and rank(other[0])[0] <= rank(next_issue)[0]:
-                yield other.popleft()
+                yield evaluate(other.popleft())
             yield next_issue
-        yield from other
+            if queue is assigned:
+                yield from approved_head()
+        for plan in other:
+            yield evaluate(plan)
 
     def _milestone_diagnostics(self, plans=(), milestones=(), *, announce=False):
         eligible = {p.milestone for p in plans if p.item.kind == "issue" and p.state == "ready"}
@@ -410,7 +431,7 @@ class Loop:
         return tuple(a for a in self.config.agents
                      if self._launch_agent is None or a.name == self._launch_agent)
 
-    def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False):
+    def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False, claiming=False):
         agents = self.queue_agents()
         selected = {a.name for a in agents}
         self._queue_waits = {}
@@ -507,6 +528,8 @@ class Loop:
                                   milestone_source=milestone_source,
                                   milestone_rank=milestone_ranks.get(milestone, len(milestones))))
         milestone_plans = [] if self.config.queue.milestones == "gate" else None
+        lazy_approval = claiming and milestone_plans is not None
+        approval_errors = {} if lazy_approval else None
         for candidate in sorted(ranked, key=lambda plan: self._rank(plan, priority)):
             item = candidate.item
             if self._pass_stats is not None:
@@ -527,7 +550,8 @@ class Loop:
             plans = self._item_plans(item, now, github, coordinator, matches, blockers,
                                      agents,
                                      reconcile_notices=reconcile_notices, checked=checked,
-                                     health_notices=health_notices or reconcile_notices)
+                                     health_notices=health_notices or reconcile_notices,
+                                     approval_errors=approval_errors)
             for plan in plans:
                 observed = replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
@@ -539,9 +563,27 @@ class Loop:
                 else:
                     milestone_plans.append(observed)
         if milestone_plans is not None:
-            self._milestone_diagnostics(milestone_plans, milestones,
-                                        announce=reconcile_notices or health_notices)
-            for observed in self._milestone_plans(milestone_plans, milestones):
+            approvals = {}
+            def approve(plan):
+                if plan.state != "ready":
+                    return plan
+                github.scope = plan.item.number
+                if plan.item.number not in approvals:
+                    approvals[plan.item.number] = self.input_check(plan.item, github, plan.matches)
+                approval = approvals[plan.item.number]
+                if approval.allowed and plan.item.number in approval_errors:
+                    raise approval_errors[plan.item.number]
+                if not approval.allowed:
+                    return replace(plan, state="parked", runtime=None, reason=approval.reason,
+                                   approval_gate=approval if plan.history_read and approval.gate else None)
+                return plan
+
+            announce = reconcile_notices or health_notices
+            if not lazy_approval:
+                self._milestone_diagnostics(milestone_plans, milestones, announce=announce)
+            for observed in self._milestone_plans(milestone_plans, milestones,
+                                                  approve=approve if lazy_approval else None,
+                                                  announce=announce):
                 self._observe_plan(observed, github)
                 yield observed
         if self._launch_agent is not None:
@@ -641,7 +683,7 @@ class Loop:
         self._observe("replanned_item", item.number, events)
 
     def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,
-                    *, reconcile_notices=False, checked=None, health_notices=False):
+                    *, reconcile_notices=False, checked=None, health_notices=False, approval_errors=None):
         agents = self.config.agents if agents is None else agents
         starts = {a.name: check_start(item, a, matches, self.config.stop_labels,
                                      self.config.queue, blockers) for a in agents}
@@ -660,6 +702,15 @@ class Loop:
             # poll, rather than turn its unreadable approval into a parked row.
             if isinstance(exc, GitHubError) and (self._targeted_pass or exc.rate_limited or exc.retryable):
                 raise
+            if approval_errors is not None and matched:
+                # The eager fallback distinguishes unreadable approval input
+                # from a coordination-only failure. Defer that verdict too;
+                # these provisional rows are never observed or claimed as ready.
+                approval_errors[item.number] = exc
+                yield from (Plan(item, a, None, "ready" if starts[a.name].allowed else "parked",
+                                 "" if starts[a.name].allowed else starts[a.name].reason,
+                                 1, history_read=False, matches=matches) for a in matched)
+                return
             # Unreadable item input cannot authorize a claim. A transient
             # coordination failure with readable approval input still fails the poll.
             approval = self.input_check(item, github, matches) if matched else None
@@ -669,7 +720,7 @@ class Loop:
             return
         reconciled = set()
         for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
-                                             history, matched, approval):
+                                             history, matched, approval, check_input=approval_errors is None):
             plan = self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
             plan = self._health_plan(plan, checked, announce=health_notices)
             if reconcile_notices:
@@ -695,7 +746,7 @@ class Loop:
         return plan
 
     def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,
-                            history, matched, approval):
+                            history, matched, approval, *, check_input=True):
         latest = latest_leases(history)
         for agent in agents:
             record = latest.get((item.number, agent.name))
@@ -723,7 +774,7 @@ class Loop:
                     if reason := coordinator.trust.reason(coordinator.actor):
                         yield replace(plan, state="blocked", runtime=None, reason=reason, history=tuple(history))
                         continue
-                if plan.state in {"ready", "blocked", "backoff"} and agent in matched:
+                if check_input and plan.state in {"ready", "blocked", "backoff"} and agent in matched:
                     if approval is None:
                         approval = self.input_check(item, github, matches)
                     if not approval.allowed:
@@ -765,7 +816,7 @@ class Loop:
     def _tick(self):
         config = self.config
         present = set()
-        for plan in self.iter_plans(reconcile_notices=True):
+        for plan in self.iter_plans(reconcile_notices=True, claiming=True):
             self._pass_stats.candidates.add(plan.item.number)
             present.add((plan.item.number, plan.agent.name))
             self._before_claim()
@@ -1086,7 +1137,7 @@ class Loop:
             previous_plan = plan
             refreshed_item = None
             if self._launch_number is None:
-                plans = self.iter_plans(health_notices=True)
+                plans = self.iter_plans(health_notices=True, claiming=True)
             else:
                 refreshed_item, plans = self.item_plans(self._launch_number, self._launch_agent, health_notices=True)
             plan = next((p for p in plans if p.item.number == plan.item.number
