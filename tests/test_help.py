@@ -93,22 +93,20 @@ examples:
   ub-agents doctor --json
 """
 
-LAUNCH_HELP = """usage: ub-agents launch [NUMBER] [options]
+LAUNCH_HELP = """ub-agents launch
+usage: ub-agents launch [NUMBER] [options]
 
 Run the queue in the foreground under the configured gates. Without a number,
 watch the queue; with a number, handle only that issue or PR, then exit. Use
 --agent NAME to serve only one configured agent; without a number, the queue
-keeps polling until you stop it. For preparation, run --agent issue-preparer,
-stop to resolve human decisions, then launch the normal queue. Queue priority
-and milestone policy do not apply to an explicit item; all other gates do. An
-agent still needs a matching trigger label, including with --agent.
+keeps polling until you stop it.
 
 options:
-  --agent NAME           serve only this configured agent (queue or NUMBER)
-  --once                 observe once, run at most one assignment, then exit
-  --no-ui                plain lines instead of the terminal view
-  --config PATH          project configuration (default: ub-agents.yaml)
-  -h, --help             show this help
+  --agent NAME           # serve only this configured agent (queue or NUMBER)
+  --once                 # observe once, run at most one assignment, then exit
+  --no-ui                # plain lines instead of the terminal view
+  --config PATH          # project configuration (default: ub-agents.yaml)
+  -h, --help             # show this help
 
 examples:
   ub-agents launch
@@ -307,18 +305,18 @@ class HelpTests(unittest.TestCase):
         for name, command in self.command_line.commands().items():
             with self.subTest(command=name):
                 details = self.invoke(["help", name])[1]
-                self.assertEqual(details.splitlines()[1 if name in {"init", "check", "doctor"} else 0],
+                self.assertEqual(details.splitlines()[1 if name in {"init", "check", "launch", "doctor"} else 0],
                                  f"usage: ub-agents {name} {expected[name]}")
                 for action in command._actions:
                     if action.option_strings and action.required and action.help != argparse.SUPPRESS:
                         self.assertIn(f"{action.help} (required)", " ".join(details.split()))
                 help_row = ("  -h, --help               # show this help\n" if name == "init" else
-                            "  -h, --help             # show this help\n" if name in {"check", "doctor"} else
+                            "  -h, --help             # show this help\n" if name in {"check", "launch", "doctor"} else
                             "  -h, --help             show this help\n")
                 self.assertIn(help_row, details)
                 self.assertNotIn("show this help message and exit", details)
                 # Descriptions and other commands' option rows wrap within 80
-                # columns. Init/check/doctor options and example commands remain literal.
+                # columns. Init/check/launch/doctor options and example commands remain literal.
                 for line in details.split("\n\n", 1)[1].split("\nexamples:")[0].splitlines():
                     width = 82 if name == "init" and line.startswith("  ") else 80
                     self.assertLessEqual(len(line), width, line)
