@@ -114,7 +114,6 @@ class Loop:
         self._launcher_reason = None
         self._has_trigger = None
         self.milestone_skips = ()
-        self._shown_milestone_skips = ()
         self._maintaining = False
         self._github_waiting = False
         self._github_reservation = None
@@ -377,7 +376,7 @@ class Loop:
         return sorted(plans,
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
-    def _milestone_plans(self, plans, milestones, *, approve=None, announce=False):
+    def _milestone_plans(self, plans, milestones, *, approve=None):
         # Eligibility must be known before choosing a milestone. Merge the
         # milestone-first queue with unlisted issues one choice at a time: the
         # exception compares against the next eligible milestone issue, not a
@@ -407,7 +406,7 @@ class Loop:
         # when an unlisted issue or existing work will ultimately go first.
         head = yield from approved_head()
         if approve is not None:
-            self._milestone_diagnostics((head,) if head else (), milestones, announce=announce)
+            self._milestone_diagnostics((head,) if head else (), milestones)
         while assigned or unlisted:
             queue = (unlisted if unlisted and
                      (not assigned or rank(unlisted[0])[0] < rank(assigned[0])[0]) else assigned)
@@ -425,17 +424,12 @@ class Loop:
         for plan in other:
             yield evaluate(plan)
 
-    def _milestone_diagnostics(self, plans=(), milestones=(), *, announce=False):
+    def _milestone_diagnostics(self, plans=(), milestones=()):
         eligible = {p.milestone for p in plans if p.item.kind == "issue" and p.state == "ready"}
         first = next((rank for rank, number in enumerate(milestones) if number in eligible), len(milestones))
         self.milestone_skips = tuple(f"Milestone #{number} has no eligible issues for this launcher"
                                      for number in milestones[:first])
         self._observe("milestone_skips", self.milestone_skips)
-        if announce:
-            for line in self.milestone_skips:
-                if line not in self._shown_milestone_skips:
-                    self.output(line)
-            self._shown_milestone_skips = self.milestone_skips
 
     def queue_agents(self):
         return tuple(a for a in self.config.agents
@@ -504,8 +498,7 @@ class Loop:
                                    priority=priority.effective(item.labels), matches=matches))
         if not candidates:
             if self.config.queue.milestones == "gate":
-                self._milestone_diagnostics(milestones=milestones,
-                                            announce=reconcile_notices or health_notices)
+                self._milestone_diagnostics(milestones=milestones)
             if self._launch_agent is not None:
                 self._observe("queue_idle", self.idle_message())
             return
@@ -608,12 +601,10 @@ class Loop:
                                    approval_gate=approval if plan.history_read and approval.gate else None)
                 return plan
 
-            announce = reconcile_notices or health_notices
             if not lazy_approval:
-                self._milestone_diagnostics(milestone_plans, milestones, announce=announce)
+                self._milestone_diagnostics(milestone_plans, milestones)
             for observed in self._milestone_plans(milestone_plans, milestones,
-                                                  approve=approve if lazy_approval else None,
-                                                  announce=announce):
+                                                  approve=approve if lazy_approval else None):
                 self._observe_plan(observed, github)
                 yield observed
         if self._launch_agent is not None:

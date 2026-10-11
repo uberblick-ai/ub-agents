@@ -82,21 +82,53 @@ class LaunchTests(unittest.TestCase):
                 wait.assert_not_called()
                 self.assertEqual(github.writes, [])
 
-    def test_gate_logs_why_untriggered_earlier_milestone_is_skipped(self):
-        github = FakeGitHub(issue(1, labels=(), milestone=12), issue(2, milestone=13))
-        github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (12, 13)]
-        settings = replace(self.config, queue=Queue(milestones="gate"))
-        with patch("ub_agents.cli.load_config", return_value=settings), \
-                patch("ub_agents.cli.GitHub", return_value=github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch.object(Loop, "execute", return_value=True) as execute, \
-                redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(main(self.argv + ["--once"]), 0)
-        self.assertEqual(execute.call_args.args[0].item.number, 2)
-        line = "Milestone #12 has no eligible issues for this launcher"
-        self.assertIn(line, output.getvalue())
-        self.assertIn(line, self.log_lines())
-        self.assertNotIn("Waiting for active milestone", self.log.read_text())
+    def test_gate_skips_unavailable_milestones_without_launcher_output(self):
+        from tests.support import MemoryPublisher
+        for once in (True, False):
+            for labels in (("ready",), ("ready", "needs-human"), ()):
+                with self.subTest(once=once, labels=labels):
+                    github = FakeGitHub(issue(1, labels=(), milestone=12),
+                                        issue(2, labels=labels, milestone=13))
+                    github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (12, 13)]
+                    settings = replace(self.config, queue=Queue(milestones="gate"))
+                    publisher = MemoryPublisher()
+
+                    def execute_later(loop, plan):
+                        if not once:
+                            loop.stop_event.set()
+                        return True
+
+                    def stop_waiting(loop, *_):
+                        loop.stop_event.set()
+
+                    with patch("ub_agents.cli.load_config", return_value=settings), \
+                            patch("ub_agents.cli.GitHub", return_value=github), \
+                            patch("ub_agents.cli.repository_checks", return_value=[]), \
+                            patch("ub_agents.observations.Publisher", return_value=publisher), \
+                            patch.object(Loop, "execute", autospec=True, side_effect=execute_later) as execute, \
+                            patch.object(Loop, "_wait", autospec=True, side_effect=stop_waiting), \
+                            redirect_stdout(io.StringIO()) as output:
+                        args = ["--once"] if once else []
+                        self.assertEqual(main(self.argv + args + ["--no-ui"]), 0)
+                    if labels == ("ready",):
+                        execute.assert_called_once()
+                        self.assertEqual(execute.call_args.args[1].item.number, 2)
+                        skipped = (12,)
+                    else:
+                        execute.assert_not_called()
+                        skipped = (12, 13)
+                        if labels:
+                            reason = "#2 worker: parked — Stop label needs-human is present"
+                            self.assertIn(reason, output.getvalue())
+                            self.assertIn(reason, self.log_lines())
+                        else:
+                            self.assertIn("No open issue or PR has a trigger label", output.getvalue())
+                    expected = [f"Milestone #{n} has no eligible issues for this launcher" for n in skipped]
+                    self.assertEqual(publisher.snapshots[-1]["milestone_skips"], expected)
+                    for line in expected:
+                        self.assertNotIn(line, output.getvalue())
+                        self.assertNotIn(line, self.log.read_text())
+                    self.assertNotIn("Waiting for active milestone", self.log.read_text())
 
     def test_idle_message_names_all_triggers_once_in_configuration_order(self):
         self.config = config(self.root,

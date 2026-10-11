@@ -317,7 +317,7 @@ class MilestoneGateTests(unittest.TestCase):
         memory = MemoryPublisher()
         self.loop.observer = Observations(self.loop.config, "operator", None, memory)
         self.assertEqual(self.choice().item.number, 3)
-        self.assertIn(expected, lines)
+        self.assertNotIn(expected, lines)
         self.assertEqual(memory.snapshots[-1]["milestone_skips"], [expected])
         with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github):

@@ -84,7 +84,7 @@ dependencies: wait
 
 ## See the order
 
-`ub-agents status` and `status --json` list ready new issues in the order this launcher would start them, with each item's priority and where it came from. In `order` and `gate`, issues also show their effective milestone and inherited source. When `gate` passes over earlier milestones, status, the terminal view and `launch.log` explain why, for example `Milestone #12 has no eligible issues for this launcher`. JSON includes `milestone_skips` when nonempty.
+`ub-agents status` and `status --json` list ready new issues in the order this launcher would start them, with each item's priority and where it came from. In `order` and `gate`, issues also show their effective milestone and inherited source. When `gate` passes over earlier milestones, status and the terminal view explain why, for example `Milestone #12 has no eligible issues for this launcher`. JSON includes `milestone_skips` when nonempty. Launcher output and `launch.log` omit these routine explanations.
 
 ```sh
 ub-agents status
