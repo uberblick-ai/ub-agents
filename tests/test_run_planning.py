@@ -198,11 +198,11 @@ class RunPlanningTests(unittest.TestCase):
         with patch.object(worker, '_wait', side_effect=[False, True]), \
                 patch.object(worker.planner, 'iter_plans', side_effect=plans):
             worker._run()
-        self.assertEqual(len(transport.calls), 97)  # 96 worker calls and one launcher call.
+        self.assertEqual(len(transport.calls), 38)  # 37 worker calls and one launcher call.
         self.assertEqual((source.gh_calls, source.quota_requests, source.graphql_calls), (1, 1, 0))
         self.assertEqual(len(self.lines), 1)
-        self.assertRegex(self.lines[0], r'^Discovery pass observation: .*gh calls=96, REST quota=65, '
-                         r'HTTP 304=0, GraphQL calls=31; candidates reached=30$')
+        self.assertRegex(self.lines[0], r'^Discovery pass observation: .*gh calls=37, REST quota=35, '
+                         r'HTTP 304=0, GraphQL calls=2; candidates reached=30$')
 
     def test_discovery_copies_are_independent_in_both_directions(self):
         self.github.create_comment(1, 'Feedback')
@@ -211,7 +211,7 @@ class RunPlanningTests(unittest.TestCase):
         worker = RunPlanning(self.loop, self.now)
         source, copied = self.loop.discovery, worker.planner.discovery
         names = ('items', 'closed_items', 'comments_index', 'cache', 'comment_store',
-                 'reconciled_comments', 'comment_window_start', 'repository_index')
+                 'reconciled_comments', 'comment_window_start', 'repository_index', 'bulk_inputs')
         snapshot = {name: deepcopy(getattr(copied, name)) for name in names}
         self.assertEqual({name: getattr(source, name) for name in names}, snapshot)
         self.assertIs(copied.github, worker.planner.github)

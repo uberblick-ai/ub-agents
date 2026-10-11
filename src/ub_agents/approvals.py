@@ -241,14 +241,10 @@ def is_record(comment):
             re.match(r"<!-- ub-agents:v[0-9]+ -->", comment["body"]) is not None)
 
 
-def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None, *,
-                 trusted_bots=(), read_only=False, expected=None):
-    content = github.issue_content(number) if kind == "issue" else github.pr_content(number)
+def validate_content(content):
+    """Validate identical history completeness for both approval read paths."""
     if not isinstance(content["title"], str) or not isinstance(content["body"], str):
         raise ValueError("invalid content")
-    if expected and (content["title"], content["body"], content.get("head")) != (
-            expected.title, expected.body, expected.head):
-        return ApprovalCheck(False, "Assignment changed while reading approval input; retry")
     created = seconds(content["createdAt"])
     edits = content["edits"]
     for edit in edits:
@@ -261,6 +257,18 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
             raise ValueError("incomplete body history")
     if sum(seconds(e["editedAt"]) == created for e in edits) > 1:
         raise ValueError("cannot distinguish creation from same-second edits")
+
+
+def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None, *,
+                 trusted_bots=(), read_only=False, expected=None):
+    content = github.issue_content(number) if kind == "issue" else github.pr_content(number)
+    if not isinstance(content["title"], str) or not isinstance(content["body"], str):
+        raise ValueError("invalid content")
+    if expected and (content["title"], content["body"], content.get("head")) != (
+            expected.title, expected.body, expected.head):
+        return ApprovalCheck(False, "Assignment changed while reading approval input; retry")
+    validate_content(content)
+    created, edits = seconds(content["createdAt"]), content["edits"]
     timeline = github.timeline(number)
     roles = Roles(github, trusted_bots=trusted_bots, strict=read_only)
     starts, renames = [], []

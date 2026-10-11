@@ -43,7 +43,8 @@ class GitHubTests(unittest.TestCase):
                                 GitHub("org/project", runner), "operator")
                     rows = status_rows(loop) if status else list(loop.iter_plans())
                     self.assertEqual(len(rows), 30)
-                    self.assertEqual(len(runner.calls), 66)
+                    self.assertEqual(len(runner.calls), 7)
+                    self.assertEqual(loop.github.graphql_calls, 2)  # Dependencies and one approval batch.
                     paths = [urlsplit(c[c.index("--include") + 1]).path for c in runner.calls]
                     self.assertEqual(sum(p.endswith("/comments") and not p.endswith("/issues/comments")
                                          for p in paths), 0)
@@ -403,6 +404,7 @@ class GitHubTests(unittest.TestCase):
                 runner = QueueRunner(size)
                 loop = Loop(config(root, agent(root)), GitHub("org/project", runner), "operator")
                 with patch.object(loop, "input_check", return_value=ApprovalCheck(True, "Approved")), \
+                        patch.object(loop.discovery, "prepare_approval_inputs"), \
                         patch.object(loop, "execute", return_value=True):
                     self.assertTrue(loop.tick())
                     first_count = len(runner.calls)

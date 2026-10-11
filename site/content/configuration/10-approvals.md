@@ -18,6 +18,8 @@ approvals: off
 
 A maintainer starts every issue by adding a trigger label. Edits and comments from outside the team need a maintainer's approval before an agent reads them.
 
+Cold status and queue-view observation passes read content, body revisions and label/title events in GraphQL batches of up to 50 items whose plans need approval checks. Claiming passes read one reached item at a time and stop at the first claim. Incomplete histories, unsafe event mappings and title-edit gates fall back to the full per-item reads; an unusable batch can add one attempted call. Unchanged discovery inputs stay cached. Fresh claim and approval-parking checks, `read`, role checks and comment reads keep their per-item paths.
+
 ```sh
 ub-agents approve 214
 ```
