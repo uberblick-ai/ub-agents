@@ -31,6 +31,8 @@ Unmilestoned issues, including issues whose milestone is outside that list, go a
 
 A cold claiming pass under `gate` plans all candidates before reading approval input. It reads approval only for otherwise claimable plans as selection reaches them, stopping at the first claim. The next approved milestone issue is checked before comparing unlisted issues or existing work with it. Approval parking is posted only for reached plans. Status and queue-view observations still evaluate every row; cold observations share the discovery budget and can delay later idle passes beyond `poll-seconds`. Claiming immediately after work bypasses budget admission.
 
+With approvals on, cold status and observation passes batch required content, body-history and label/title-event reads for up to 50 items per GraphQL query. Claiming passes use one-item batches to preserve selection's early stop. Unsafe or incomplete batch input falls back per item, including title-edit gates whose persisted evidence needs REST events.
+
 `order` ranks priority first, then uses the same milestone order for equal-priority new issues, with unmilestoned issues last. Higher priority wins even in a later or no milestone. `ignore` skips milestone selection and reads.
 
 Explicit `launch N [--agent NAME]` and `status N` skip queue

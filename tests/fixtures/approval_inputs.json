@@ -1,0 +1,97 @@
+{
+  "content": {
+    "title": "Requirements", "body": "Acceptance criteria",
+    "createdAt": "2026-01-01T00:00:00Z", "lastEditedAt": null,
+    "author": {"login": "operator", "__typename": "User"},
+    "userContentEdits": {
+      "nodes": [], "totalCount": 0, "pageInfo": {"hasNextPage": false, "endCursor": null}
+    }
+  },
+  "pr": {
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "headRepository": {"nameWithOwner": "org/project"}
+  },
+  "start": {
+    "rest": {"id": 501, "event": "labeled", "created_at": "2026-01-01T00:00:05Z",
+      "actor": {"id": 1, "login": "maintainer", "type": "User", "site_admin": false},
+      "label": {"name": "ready"}},
+    "graphql": {"__typename": "LabeledEvent", "createdAt": "2026-01-01T00:00:05Z",
+      "actor": {"login": "maintainer", "__typename": "User"},
+      "label": {"name": "ready", "updatedAt": "2025-12-31T00:00:00Z"}}
+  },
+  "cases": [
+    {"name": "approved", "allowed": true, "start": true},
+    {"name": "parked", "allowed": false, "start": false,
+      "content": {"author": {"login": "outsider", "__typename": "User"}}},
+    {"name": "trusted rename", "allowed": true, "start": true,
+      "content": {"title": "Changed title"},
+      "events": [{
+        "rest": {"id": 502, "event": "renamed", "created_at": "2026-01-01T00:00:10Z",
+          "actor": {"id": 2, "login": "operator", "type": "User", "site_admin": false},
+          "rename": {"from": "Requirements", "to": "Changed title"}},
+        "graphql": {"__typename": "RenamedTitleEvent", "createdAt": "2026-01-01T00:00:10Z",
+          "actor": {"login": "operator", "__typename": "User"},
+          "previousTitle": "Requirements", "currentTitle": "Changed title"}
+      }]},
+    {"name": "outside rename before start", "allowed": true, "start": true,
+      "content": {"title": "Changed title"},
+      "events": [{
+        "rest": {"id": 503, "event": "renamed", "created_at": "2026-01-01T00:00:04Z",
+          "actor": {"id": 3, "login": "outsider", "type": "User", "site_admin": false},
+          "rename": {"from": "Requirements", "to": "Changed title"}},
+        "graphql": {"__typename": "RenamedTitleEvent", "createdAt": "2026-01-01T00:00:04Z",
+          "actor": {"login": "outsider", "__typename": "User"},
+          "previousTitle": "Requirements", "currentTitle": "Changed title"}
+      }]},
+    {"name": "outside title gate", "allowed": false, "start": true, "fallback": true,
+      "content": {"title": "Changed title"},
+      "events": [{
+        "rest": {"id": 504, "event": "renamed", "created_at": "2026-01-01T00:00:10Z",
+          "actor": {"id": 3, "login": "outsider", "type": "User", "site_admin": false},
+          "rename": {"from": "Requirements", "to": "Changed title"}},
+        "graphql": {"__typename": "RenamedTitleEvent", "createdAt": "2026-01-01T00:00:10Z",
+          "actor": {"login": "outsider", "__typename": "User"},
+          "previousTitle": "Requirements", "currentTitle": "Changed title"}
+      }]},
+    {"name": "body edited after start", "allowed": false, "start": true,
+      "content": {"body": "Edited criteria", "lastEditedAt": "2026-01-01T00:00:10Z",
+        "userContentEdits": {"totalCount": 1, "pageInfo": {"hasNextPage": false, "endCursor": null},
+          "nodes": [{"editedAt": "2026-01-01T00:00:10Z", "editor": {"login": "outsider", "__typename": "User"},
+            "diff": "Edited criteria", "deletedAt": null}]}}},
+    {"name": "deleted edit", "allowed": false, "start": true,
+      "content": {"lastEditedAt": "2026-01-01T00:00:10Z",
+        "userContentEdits": {"totalCount": 1, "pageInfo": {"hasNextPage": false, "endCursor": null},
+          "nodes": [{"editedAt": "2026-01-01T00:00:10Z", "editor": {"login": "outsider", "__typename": "User"},
+            "diff": null, "deletedAt": "2026-01-01T00:00:11Z"}]}}},
+    {"name": "null editor", "allowed": false, "start": true,
+      "content": {"lastEditedAt": "2026-01-01T00:00:10Z",
+        "userContentEdits": {"totalCount": 1, "pageInfo": {"hasNextPage": false, "endCursor": null},
+          "nodes": [{"editedAt": "2026-01-01T00:00:10Z", "editor": null,
+            "diff": "Acceptance criteria", "deletedAt": null}]}}},
+    {"name": "bot actor", "allowed": false, "start": false,
+      "content": {"author": {"login": "outsider", "__typename": "User"}},
+      "events": [{
+        "rest": {"id": 505, "event": "labeled", "created_at": "2026-01-01T00:00:05Z",
+          "actor": {"id": 4, "login": "helper[bot]", "type": "Bot"}, "label": {"name": "ready"}},
+        "graphql": {"__typename": "LabeledEvent", "createdAt": "2026-01-01T00:00:05Z",
+          "actor": {"login": "helper", "__typename": "Bot"},
+          "label": {"name": "ready", "updatedAt": "2025-12-31T00:00:00Z"}}
+      }]},
+    {"name": "ghost actor", "allowed": false, "start": false,
+      "content": {"author": {"login": "outsider", "__typename": "User"}},
+      "events": [{
+        "rest": {"id": 506, "event": "labeled", "created_at": "2026-01-01T00:00:05Z",
+          "actor": {"id": 10137, "login": "ghost", "type": "User"}, "label": {"name": "ready"}},
+        "graphql": {"__typename": "LabeledEvent", "createdAt": "2026-01-01T00:00:05Z",
+          "actor": null, "label": {"name": "ready", "updatedAt": "2025-12-31T00:00:00Z"}}
+      }]},
+    {"name": "label renamed after application", "allowed": true, "start": false, "fallback": true,
+      "events": [{
+        "rest": {"id": 507, "event": "labeled", "created_at": "2026-01-01T00:00:05Z",
+          "actor": {"id": 1, "login": "maintainer", "type": "User"}, "label": {"name": "ready"}},
+        "graphql": {"__typename": "LabeledEvent", "createdAt": "2026-01-01T00:00:05Z",
+          "actor": {"login": "maintainer", "__typename": "User"},
+          "label": {"name": "renamed label", "updatedAt": "2026-01-01T00:00:06Z"}}
+      }]}
+  ]
+}

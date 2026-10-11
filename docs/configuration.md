@@ -57,6 +57,16 @@ Approval defaults, trusted feedback and start authorization are defined in
 [Issue and PR starts and outside input](approvals.md). `check` reports the configured
 policy locally; `doctor --verbose` resolves repository visibility when needed.
 
+With approvals on, cold status and queue-view observation passes read current
+content, body revisions and label/title events in GraphQL batches of up to 50
+items. Only items whose plans need an input check enter a batch. Claiming passes
+read one reached item at a time so stopping at the first claim reads no later
+approval input, including under `milestones: gate`. Incomplete histories, unsafe
+event mappings and title-edit gates use the existing per-item reads in full;
+an unusable batch can add one attempted call before fallback. Unchanged discovery
+inputs remain cached. Fresh checks before claims and approval parking, `read`,
+role checks and comment reads keep their existing per-item paths.
+
 `poll-seconds` defaults to 30 and sets the minimum gap between continuous
 discovery-pass starts, including observations during assignments. After running
 or recovering work, the next claiming pass starts immediately. Idle and observation

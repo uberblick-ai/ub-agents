@@ -12,6 +12,83 @@ from .errors import AgentError, GitHubError
 from .records import iso, positive_int, seconds, timestamp
 
 REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+# Two first:100 connections per item: 100 connections / 100 = one point.
+APPROVAL_BATCH_SIZE = 50
+
+
+def content_fields(issue, kind):
+    """The same current-content fields for individual and discovery reads."""
+    current = {key: issue[key] for key in ("title", "body", "createdAt", "lastEditedAt")}
+    current["author"] = issue.get("author")
+    if kind == "pullRequest":
+        repository = issue["headRepository"]
+        repository = repository["nameWithOwner"] if repository is not None else None
+        if repository is not None and (not isinstance(repository, str)
+                                       or not re.fullmatch(REPOSITORY, repository)):
+            raise ValueError("invalid PR head repository")
+        current |= {"author": issue["author"], "head": issue["headRefOid"],
+                    "head_repository": repository}
+        if not isinstance(current["head"], str) or not re.fullmatch(r"[0-9a-f]{40}", current["head"]):
+            raise ValueError("invalid PR head")
+    return current
+
+
+def approval_query(items):
+    fields = """title body createdAt lastEditedAt author { login __typename }
+      userContentEdits(first:100) {
+        totalCount nodes { editedAt editor { login __typename } diff deletedAt }
+        pageInfo { hasNextPage endCursor }
+      }
+      timelineItems(first:100, itemTypes:[LABELED_EVENT, RENAMED_TITLE_EVENT]) {
+        totalCount nodes {
+          __typename
+          ... on LabeledEvent { createdAt actor { login __typename } label { name updatedAt } }
+          ... on RenamedTitleEvent { createdAt actor { login __typename } previousTitle currentTitle }
+        }
+        pageInfo { hasNextPage endCursor }
+      }"""
+    selections = []
+    for item in items:
+        kind = "issue" if item.kind == "issue" else "pullRequest"
+        head = "headRefOid headRepository { nameWithOwner }" if item.kind == "pr" else ""
+        selections.append(f"item{item.number}: {kind}(number:{item.number}) {{ {fields} {head} }}")
+    return ("query($owner:String!, $name:String!) { repository(owner:$owner, name:$name) { "
+            + " ".join(selections) + " } rateLimit { cost } }")
+
+
+def complete_approval_page(connection):
+    nodes, page = connection["nodes"], connection["pageInfo"]
+    if (not isinstance(nodes, list) or len(nodes) > 100
+            or type(connection["totalCount"]) is not int or connection["totalCount"] != len(nodes)
+            or page["hasNextPage"] is not False):
+        raise ValueError("incomplete approval page")
+    return nodes
+
+
+def approval_timeline(nodes):
+    """Map only timeline fields whose approval meaning matches REST."""
+    events = []
+    for node in nodes:
+        at = seconds(node["createdAt"])
+        actor = node["actor"]
+        if actor is not None:
+            if actor["__typename"] not in {"User", "Bot"} or not isinstance(actor["login"], str):
+                raise ValueError("unrecognised timeline actor")
+            actor = {"login": actor["login"], "type": actor["__typename"]}
+        event = {"actor": actor, "created_at": node["createdAt"]}
+        if node["__typename"] == "LabeledEvent":
+            label = node["label"]
+            if not isinstance(label["name"], str) or seconds(label["updatedAt"]) >= at:
+                raise ValueError("label may have changed since application")
+            event |= {"event": "labeled", "label": {"name": label["name"]}}
+        elif node["__typename"] == "RenamedTitleEvent":
+            if not all(isinstance(node[key], str) for key in ("previousTitle", "currentTitle")):
+                raise ValueError("invalid rename")
+            event |= {"event": "renamed", "rename": {"from": node["previousTitle"], "to": node["currentTitle"]}}
+        else:
+            raise ValueError("unrecognised timeline event")
+        events.append(event)
+    return events
 
 
 def repository_visibility(raw):
@@ -330,6 +407,36 @@ class GitHub:
     def pr_content(self, number):
         return self._content(number, "pullRequest")
 
+    def approval_inputs(self, items):
+        """One discovery batch; omitted items must use both individual reads.
+
+        Oversized histories use the existing paginated readers in full. No
+        first-page content or events survive that fallback, even if they change.
+        """
+        if not items:
+            return {}
+        owner, name = self.repository.split("/", 1)
+        data = self.graphql(approval_query(items), {"owner": owner, "name": name})
+        try:
+            repository = data["repository"]
+            # A partial batch supplies no approval input, including valid aliases.
+            if any(not isinstance(repository[f"item{i.number}"], dict) for i in items):
+                raise ValueError("incomplete approval batch")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GitHubError("POST", "graphql", "Incomplete approval batch") from exc
+        result = {}
+        for item in items:
+            try:
+                node = repository[f"item{item.number}"]
+                node["author"]  # Requested nullable fields must still be present.
+                content = content_fields(node, "issue" if item.kind == "issue" else "pullRequest")
+                content["edits"] = complete_approval_page(node["userContentEdits"])
+                events = approval_timeline(complete_approval_page(node["timelineItems"]))
+                result[item.number] = content, events
+            except (AgentError, KeyError, TypeError, ValueError):
+                continue  # Mapping uncertainty affects this item, never authority.
+        return result
+
     def _content(self, number, kind):
         """Read current content and every body revision, including its editor.
 
@@ -358,18 +465,7 @@ class GitHub:
                 if raw.get("errors"):
                     raise ValueError("GraphQL errors")
                 issue = raw["data"]["repository"][kind]
-                current = {key: issue[key] for key in ("title", "body", "createdAt", "lastEditedAt")}
-                current["author"] = issue.get("author")
-                if kind == "pullRequest":
-                    head_repository = issue["headRepository"]
-                    head_repository = head_repository["nameWithOwner"] if head_repository is not None else None
-                    if head_repository is not None and (not isinstance(head_repository, str)
-                                                       or not re.fullmatch(REPOSITORY, head_repository)):
-                        raise ValueError("invalid PR head repository")
-                    current |= {"author": issue["author"], "head": issue["headRefOid"],
-                                "head_repository": head_repository}
-                    if not isinstance(current["head"], str) or not re.fullmatch(r"[0-9a-f]{40}", current["head"]):
-                        raise ValueError("invalid PR head")
+                current = content_fields(issue, kind)
                 if content is not None and current != content:
                     raise ValueError("issue changed while reading history")
                 content = current
