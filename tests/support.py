@@ -3,6 +3,7 @@ from dataclasses import replace
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -10,6 +11,32 @@ import threading
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
 from ub_agents.records import MARKER, body, payload, records
+
+
+class RecordingAwakeProcess:
+    """An owned helper with controllable exit and bounded termination."""
+    def __init__(self, code=None, ignore_terminate=False):
+        self.returncode = code
+        self.ignore_terminate = ignore_terminate
+        self.calls = []
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        self.calls.append(('wait', timeout))
+        if self.returncode is None:
+            raise subprocess.TimeoutExpired('caffeinate', timeout)
+        return self.returncode
+
+    def terminate(self):
+        self.calls.append(('terminate',))
+        if not self.ignore_terminate:
+            self.returncode = -15
+
+    def kill(self):
+        self.calls.append(('kill',))
+        self.returncode = -9
 
 
 class RecordingDescriptionTransport:

@@ -1,6 +1,7 @@
 """Terminal view child that `ub-agents launch` starts. UI imports occur only after attachment."""
 
 import argparse
+import json
 from pathlib import Path
 import select
 import signal
@@ -46,17 +47,35 @@ class LauncherConnection:
 
     def mounted(self, app):
         def watch():
+            pending = b''
             while not self.stopping.is_set():
                 if select.select([self.channel], [], [], 0.1)[0]:
-                    self.channel.recv(1024)  # stop or EOF; never another action
-                    try:
-                        app.call_from_thread(app.exit)
-                    except RuntimeError:
-                        pass
-                    return
+                    data = self.channel.recv(1024)
+                    if not data:
+                        self.exit_app(app)
+                        return
+                    pending += data
+                    while b'\n' in pending:
+                        message, pending = pending.split(b'\n', 1)
+                        if message == b'stop':
+                            self.exit_app(app)
+                            return
+                        if message.startswith(b'awake '):
+                            try:
+                                state = json.loads(message[6:])
+                                app.call_from_thread(app.keep_awake_state, state)
+                            except (ValueError, RuntimeError):
+                                pass
         self.thread = threading.Thread(target=watch, name='launcher-lifetime', daemon=True)
         self.thread.start()
         self.send('ready')
+
+    @staticmethod
+    def exit_app(app):
+        try:
+            app.call_from_thread(app.exit)
+        except RuntimeError:
+            pass
 
     def interrupt(self):
         self.send('interrupt')
@@ -66,6 +85,9 @@ class LauncherConnection:
 
     def poll(self):
         self.send('poll')
+
+    def awake(self):
+        self.send('awake')
 
     def close(self):
         self.stopping.set()

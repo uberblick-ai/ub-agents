@@ -395,15 +395,24 @@ no configuration change for an existing single-account setup with write access.
 
 ```yaml
 checkout-setup:
-  command: [mise, run, install]
+  command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']
   when-changed: [pnpm-lock.yaml, mise.toml]
   timeout-seconds: 600
 ```
 
+This optional project hook runs in the Python launcher, before the agent starts.
+Without `checkout-setup`, no setup command runs. ub-agents does not require mise:
+choose the command for your project, such as `[npm, ci]` for an npm project.
+
+The mise example trusts only this checkout's `mise.toml` before installing.
+Every new worktree has a new path, so trusting the control checkout alone is not
+enough. Agent runtime command permissions do not apply to this hook. The explicit
+`sh -c` runs the two steps in order; if trust fails, install does not run.
+
 Use this to reinstall the control checkout's dependencies when a launcher pulls
 a lockfile or tool configuration change, and install dependencies in new private
-worktrees. Without `checkout-setup`, no command runs.
-`command` is a nonempty argv list, run without a shell in the checkout being set up.
+worktrees.
+`command` is a nonempty argv list, executed directly in the checkout being set up; name a shell explicitly when needed.
 `when-changed` is a nonempty list of literal repository-relative file paths;
 absolute paths, directories and `..` components are rejected. Paths can name files added or
 deleted by the pull. `timeout-seconds` is a positive number, defaults to 600,
@@ -443,6 +452,8 @@ from the agent's `process.log`.
 
 For a PR reviewer, setup installs the PR head's lockfile, so its install scripts
 run before the agent does; the agent would run them anyway to test the PR.
+A private-worktree setup failure counts toward the item's retry limit. Fix the hook or environment before using `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"` to reset exhausted attempts.
+
 A failure ends the run before the agent starts, cleans up the private worktree,
 and reports the cause and log as a workspace-preparation failure. Interruption
 terminates setup like an interrupted agent. Timeout and interruption terminate

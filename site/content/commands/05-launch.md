@@ -130,6 +130,27 @@ Rate-limit waits show `rate limited until HH:MM · r unavailable`.
 `launch --once` and `launch N` do not refresh the queue during an assignment;
 pressing `r` then leaves the footer at `running assignment`.
 
+On macOS, press `c` in any pane, tab or overlay of the attached view to toggle
+keep awake. It starts off at every launch. Once the launcher's built-in
+`caffeinate -i -w <launcher PID>` helper starts, the footer shows
+`ub-agents v0.2.1 · awake · next poll 26s`, or `v0.2.1 · awake · poll 26s` in a
+narrow layout. The state updates immediately without waiting for a queue poll.
+The `c awake` hint appears next to `r poll now` when it fits and drops first as
+space narrows; `awake` stays visible. `?` lists the key and its macOS-only limit.
+
+Display sleep remains allowed and no permanent power setting changes. Toggle
+off, launcher exit or closing the attached view releases only this launcher's
+assertion; the PID tie also ends the helper after SIGKILL. Separate launchers
+are independent. A failed start stays off with a brief footer reason; an
+unexpected helper exit clears `awake` with a notice. Assignments keep running.
+
+Keep awake affects the machine running the launcher. If you reach it over SSH,
+it affects the remote host and does not keep your local Mac awake. Other
+platforms omit `c awake`, mark `c` unavailable in `?` and show a brief
+`keep awake unavailable on this platform` notice when pressed. Standalone views,
+`--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
+machine awake.
+
 Continuous launch retries transient discovery and claim POST failures, including
 empty or truncated responses reported by `gh` as `unexpected end of JSON input`.
 It waits 5 seconds initially, doubles the delay up to 60 seconds, and stops after
