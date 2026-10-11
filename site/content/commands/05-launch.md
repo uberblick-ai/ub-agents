@@ -39,7 +39,8 @@ The three milestone modes are `gate`, `order` and `ignore`. `gate` chooses the
 earliest milestone with eligible work for this launcher, allowing later work
 when earlier issues cannot start. Only strictly higher-priority unmilestoned
 work can precede its next eligible issue. Passed-over milestones are explained
-in the terminal view and `launch.log`.
+in the terminal view and `status`, and in `status --json` as `milestone_skips`.
+Launcher output and `launch.log` omit these routine explanations.
 
 `ub-agents launch N [--agent NAME]` exits nonzero when it starts no assignment or
 recovery, leaving one short refusal line per evaluated agent visible after the
