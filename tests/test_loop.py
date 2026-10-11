@@ -57,7 +57,14 @@ class LoopTests(unittest.TestCase):
         prompt = self.loop.prompt_for(configured, lease, context, "Project rules")
         line = RETROSPECTIVE_PROMPT.format(report_command=context['report_command'])
         self.assertIn(line, prompt)
-        for rule in ('extra run or review round', 'about fifteen minutes', 'post at most once per item',
+        for rule in ('Include a loss paragraph only when the run', 'extra run or review round',
+                     'about fifteen minutes', 'post at most once per item',
+                     'Would have helped: topic A, topic B', 'Suggest creating: topic C, topic D',
+                     'Topic lines may be posted even when the run lost nothing',
+                     'No post is required on every run', 'omitting each when empty',
+                     'Reuse a name from an existing record or earlier post when one fits',
+                     'No per-topic rationale, scores, identifiers or other structure',
+                     'Always link the item', "without repeating an earlier run's post",
                      'boards are public', 'environment values, local paths, hostnames or log excerpts',
                      'file-writing tool', 'failed post blocks nothing'):
             self.assertIn(rule, line)
