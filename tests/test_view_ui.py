@@ -34,6 +34,118 @@ from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_awake_key_all_panes_and_overlays_waits_for_launcher_state(self):
+        self.state['latest_pass']['rows'].append(
+            {'item': 20, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
+        publish_snapshot(self.path, self.state)
+        launcher = Mock()
+        app = View(self.root, self.path, launcher=launcher)
+        async with app.run_test(size=(160, 45)) as pilot:
+            await self.ready(app, pilot)
+            app.select(next(k for k, row in app.rows.items() if row.group == 'Needs attention'))
+            await self.ready(app, pilot, lambda: app.unblock_visible)
+            app.keep_awake_state({'supported': True, 'enabled': False})
+            presses = 0
+            for tab in ('1', '2', '3', '4'):
+                await pilot.press(tab)
+                for pane in ('#work', '#recent', '#output'):
+                    app.query_one(pane).focus()
+                    await pilot.press('c')
+                    presses += 1
+                    self.assertFalse(app.awake_enabled)
+            app.select(next(k for k, row in app.rows.items() if row.log))
+            await self.ready(app, pilot)
+            await pilot.press('1')
+            for overlay in ('?', 'p'):
+                await pilot.press(overlay, 'c')
+                presses += 1
+                app.keep_awake_state({'supported': True, 'enabled': True})
+                footer = app.screen.query_one('#raw_status', Static)
+                self.assertIn(' · awake · ', footer.render().plain)
+                await pilot.press('escape')
+                app.keep_awake_state({'supported': True, 'enabled': False})
+                self.assertNotIn(' · awake · ', app.query_one('#status', Static).render().plain)
+            self.assertEqual(launcher.awake.call_count, presses)
+            launcher.poll.assert_not_called()
+            launcher.interrupt.assert_not_called()
+            await pilot.press('q', 'c')
+            self.assertEqual(launcher.awake.call_count, presses)
+            app.exit()
+        app.worker.thread.join(2)
+
+    async def test_awake_footer_hint_drops_first_and_token_survives_narrow_widths(self):
+        now = datetime.now(timezone.utc)
+        self.state['base_version'] = '9.8.7'
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=26)).isoformat()}
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path, launcher=Mock())
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                keys = '↑↓ select ⏎ open 1-3 tabs g reload ? keys q quit'
+                for narrow in (False, True):
+                    app.narrow = narrow
+                    for width in range(60, 161):
+                        app.awake_supported = False
+                        baseline = app.footer(width, keys).plain
+                        app.awake_supported = True
+                        footer = app.footer(width, keys).plain
+                        self.assertEqual('r poll now' in footer, 'r poll now' in baseline)
+                        self.assertEqual('g reload' in footer, 'g reload' in baseline)
+                        if 'c awake' in footer:
+                            self.assertIn('r poll now c awake', footer)
+                        else:
+                            self.assertEqual(footer, baseline)
+                        self.assertNotIn(' · awake', footer)
+                    app.awake_enabled = True
+                    for width in (60, 70, 80, 100, 110, 160):
+                        footer = app.footer(width, keys)
+                        prefix = 'v9.8.7 · awake' if narrow else 'ub-agents v9.8.7 · awake'
+                        self.assertTrue(footer.plain.startswith(prefix), footer.plain)
+                        self.assertEqual(footer.cell_len, width)
+                    app.awake_enabled = False
+                app.narrow = True
+                self.assertIn('r poll now c awake', app.footer(160, keys).plain)
+                # At this width the original poll and reload hints still fit.
+                self.assertNotIn('c awake', app.footer(80, keys).plain)
+                self.assertIn('r poll now', app.footer(80, keys).plain)
+                self.assertIn('g reload', app.footer(80, keys).plain)
+                app.exit()
+        app.worker.thread.join(2)
+
+    async def test_awake_help_unavailable_notice_and_standalone_ignore(self):
+        for attached in (False, True):
+            app = View(self.root, self.path, launcher=Mock() if attached else None)
+            async with app.run_test(size=(160, 45)) as pilot:
+                await self.ready(app, pilot)
+                app.keep_awake_state({'supported': False, 'enabled': False})
+                self.assertNotIn('c awake', app.query_one('#status', Static).render().plain)
+                await pilot.press('?')
+                help_text = app.screen.query_one('#raw_details', Static).render().plain
+                self.assertEqual('c   Toggle' in help_text, attached)
+                if attached:
+                    self.assertIn('macOS only; unavailable on this platform', help_text)
+                    await pilot.press('c')
+                    app.launcher.awake.assert_called_once_with()
+                    app.keep_awake_state({'supported': False, 'enabled': False,
+                                          'notice': 'keep awake unavailable on this platform'})
+                    footer = app.screen.query_one('#raw_status', Static)
+                    self.assertEqual(footer.render().plain.strip(), 'keep awake unavailable on this platform')
+                    app.awake_notice_until = 0
+                    app.update_status()
+                    self.assertNotIn('unavailable', footer.render().plain)
+                    await pilot.press('escape')
+                    app.keep_awake_state({'supported': True, 'enabled': False})
+                    await pilot.press('?')
+                    self.assertIn('macOS only)', app.screen.query_one('#raw_details', Static).render().plain)
+                else:
+                    await pilot.press('c')
+                    self.assertEqual(app.awake_notice, '')
+                    self.assertFalse(app.awake_enabled)
+                app.exit()
+            app.worker.thread.join(2)
+
     async def test_mouse_release_and_y_copy_exact_selection_in_panes_and_overlays(self):
         launcher = Mock()
         app = View(self.root, self.path, launcher=launcher)

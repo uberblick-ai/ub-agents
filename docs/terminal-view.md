@@ -510,6 +510,7 @@ Claude and Codex Log transcripts are described below.
 | `u` | Toggle formatted/raw projection of the same page |
 | `p` | Show the full raw file path, byte ranges and retention diagnostics; `Escape` closes it |
 | `r` (attached launcher) | Poll GitHub now while idle, or refresh the queue read-only during a continuous launch's run; at most once per 10 seconds |
+| `c` (attached launcher, macOS) | Toggle keeping the launcher's machine awake while idle; display sleep remains allowed |
 | `Page Up`, `Page Down`, `Home`, `End` | Scroll the active tab or overlay; scrolling up in Log pauses follow |
 | Mouse drag and release | Copy the selected text to the clipboard through OSC 52, including in the `p` and `?` overlays |
 | `y` | Copy the current selection again; do nothing without a selection |
@@ -578,6 +579,30 @@ alongside the other keys and narrow `Enter` and `Esc`.
 Attached views also include `r poll now` among the main footer keys on every tab
 and pane. Narrow layouts drop it before shortening the existing keys when it
 does not fit.
+
+On macOS, `c` toggles keep awake from any pane, tab or overlay. It starts off at
+every launch and remembers nothing. The launcher holds one `caffeinate -i -w`
+idle-sleep assertion tied to its own PID; display sleep remains allowed and no
+permanent setting changes. The footer adds `awake` immediately after the version
+only once the helper starts: `ub-agents v0.2.1 · awake · next poll 26s`, or
+`v0.2.1 · awake · poll 26s` in the narrow layout. State updates arrive over the
+attached channel without waiting for a discovery poll. The `c awake` hint sits
+next to `r poll now` when there is room and disappears first at narrow widths,
+preserving the existing poll/reload hints. The `awake` token stays visible.
+
+A missing or failed helper leaves keep awake off and briefly shows a reason in
+the footer, such as `keep awake unavailable: caffeinate not found`. An unexpected
+helper exit clears the token and shows a short notice. The loop and any running
+assignment continue. Toggling off, launcher exit or the attached view closing
+releases only that launcher's helper; tying it to the launcher PID also ends it
+after SIGKILL. Separate launchers own separate assertions.
+
+The request applies to the machine running the launcher. Over SSH it affects the
+remote host, so it does not keep the local Mac awake. Other platforms omit the
+footer hint, mark `c` unavailable in `?`, and show
+`keep awake unavailable on this platform` when pressed. Standalone views,
+`--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
+machine awake.
 
 A pill at the bottom right of the log output, above the run status, appears only
 when paused or behind. It shows PAUSED or BEHIND, nonzero unread entries and byte

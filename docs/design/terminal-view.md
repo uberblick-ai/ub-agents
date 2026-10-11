@@ -401,6 +401,12 @@ PR the first row is the issue it closes.
 ```text
  ub-agents v0.1.11 · next poll 26s     ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
 
+macOS attached view with keep awake on:
+ ub-agents v0.2.1 · awake · next poll 26s    ↑↓ select ⏎ open 1-3 tabs g reload r poll now c awake ? keys q quit
+
+Narrow macOS view (c awake drops first; awake stays visible):
+ v0.2.1 · awake · poll 26s             ↑↓ select ⏎ open r poll now ? keys q quit
+
 After r:
  ub-agents v0.1.11 · polling          ↑↓ select ⏎ open 1-3 tabs r poll now ? keys q quit
 
@@ -465,6 +471,24 @@ run. Rate-limit waits and poll-retry backoff cannot be shortened. Countdown text
 remains `Ns`. Narrow footers may omit `r poll now` before shortening existing keys.
 Standalone views omit the key and ignore it, keeping the `next poll Ns` countdown
 during rate-limit waits; `--no-ui` launches are unaffected.
+
+`c` toggles keep awake in an attached macOS view from every pane, tab and overlay.
+It is off at each launch. The launcher owns one `caffeinate -i -w <launcher PID>`
+helper, allowing display sleep without persistent setting changes. The `awake`
+token appears directly after the version only after the helper starts, and clears
+on toggle off or helper exit. The launcher publishes changes over the attached
+channel immediately, without a discovery poll. Failures briefly replace the
+footer with a reason, like the copied-text notice, while assignments continue.
+The `c awake` hint follows `r poll now` only when it fits; it drops before any
+existing poll/reload hint. `awake` remains visible even at narrow widths.
+
+Toggling off, exiting the launcher or closing its attached view ends only its
+helper. The PID tie also ends the assertion after SIGKILL. Other launchers are
+independent. The effect is on the launcher machine: SSH to a remote host cannot
+keep the local Mac awake. Other platforms omit the hint, mark `c` unavailable in
+`?` and briefly show `keep awake unavailable on this platform` when pressed.
+`?` describes the key and its macOS-only limit. Standalone views, `--no-ui` and
+non-TTY launches neither offer nor act on it.
 
 The update banner is one themed row above both panes and the shared item header,
 with the release age at the right when space permits. It truncates to the terminal
