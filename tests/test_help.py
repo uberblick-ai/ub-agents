@@ -43,6 +43,23 @@ options:
   --config PATH          project configuration (default: ub-agents.yaml)
 """
 
+INIT_HELP = """ub-agents init
+usage: ub-agents init [options]
+
+Create starter configuration and agent instructions for a project. Use when
+adopting ub-agents; existing files will never be overwritten.
+
+options:
+  --repository OWNER/REPO  # repository owner/name (otherwise inferred through gh)
+  --runtime RUNTIME        # initial cli:model:effort for starter agents
+  --config PATH            # project configuration (default: ub-agents.yaml)
+  -h, --help               # show this help
+
+examples:
+  ub-agents init
+  ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high
+"""
+
 LAUNCH_HELP = """usage: ub-agents launch [NUMBER] [options]
 
 Run the queue in the foreground under the configured gates. Without a number,
@@ -108,6 +125,11 @@ class HelpTests(unittest.TestCase):
         for argv in (["launch", "-h"], ["launch", "--help"], ["help", "launch"]):
             with self.subTest(argv=argv):
                 self.assertEqual(self.invoke(argv), (0, LAUNCH_HELP, ""))
+
+    def test_init_help_matches_requested_layout(self):
+        for argv in (["init", "-h"], ["init", "--help"], ["help", "init"]):
+            with self.subTest(argv=argv):
+                self.assertEqual(self.invoke(argv), (0, INIT_HELP, ""))
 
     def test_every_registered_command_has_one_aligned_overview_row(self):
         overview = self.invoke([])[1]
@@ -246,16 +268,20 @@ class HelpTests(unittest.TestCase):
         for name, command in self.command_line.commands().items():
             with self.subTest(command=name):
                 details = self.invoke(["help", name])[1]
-                self.assertEqual(details.splitlines()[0], f"usage: ub-agents {name} {expected[name]}")
+                self.assertEqual(details.splitlines()[1 if name == "init" else 0],
+                                 f"usage: ub-agents {name} {expected[name]}")
                 for action in command._actions:
                     if action.option_strings and action.required and action.help != argparse.SUPPRESS:
                         self.assertIn(f"{action.help} (required)", " ".join(details.split()))
-                self.assertIn("  -h, --help             show this help\n", details)
+                help_row = ("  -h, --help               # show this help\n" if name == "init" else
+                            "  -h, --help             show this help\n")
+                self.assertIn(help_row, details)
                 self.assertNotIn("show this help message and exit", details)
-                # Descriptions and option rows wrap within 80 columns; existing
-                # example commands remain literal, including long report forms.
+                # Descriptions and other commands' option rows wrap within 80
+                # columns. Init options and example commands remain literal.
                 for line in details.split("\n\n", 1)[1].split("\nexamples:")[0].splitlines():
-                    self.assertLessEqual(len(line), 80, line)
+                    width = 82 if name == "init" and line.startswith("  ") else 80
+                    self.assertLessEqual(len(line), width, line)
         self.assertIn("choose --status or --outcome (required)",
                       " ".join(self.invoke(["help", "report"])[1].split()))
 
@@ -284,6 +310,10 @@ class HelpTests(unittest.TestCase):
                            (["approve", "143", "--number", "143"], "approve"),
                            (["--config", "x.yaml", "check", "--config", "x.yaml"], "check"),
                            (["report"], "report"), (["read"], "read"),
+                           (["init", "--bogus"], "init"),
+                           (["init", "--repository"], "init"),
+                           (["init", "--runtime"], "init"),
+                           (["init", "--config"], "init"),
                            (["launch", "--bogus"], "launch"),
                            (["launch", "not-a-number"], "launch"),
                            (["launch", "--agent"], "launch"),
