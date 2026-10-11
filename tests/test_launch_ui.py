@@ -210,6 +210,7 @@ from ub_agents.config import Runtime
 from ub_agents.execution import supervise
 from ub_agents.errors import AgentError
 from ub_agents.loop import Loop
+from ub_agents.launch_ui import ui_command
 root = pathlib.Path(sys.argv[2])
 (root / 'ub-agents.yaml').touch()
 mode = sys.argv[3]
@@ -256,7 +257,8 @@ with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop
      patch('ub_agents.cli.GitHub', return_value=github), patch('ub_agents.cli.Loop', side_effect=create), \\
      patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch_checks'), \\
      patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
-     patch('ub_agents.loop.supervise', side_effect=run):
+     patch('ub_agents.loop.supervise', side_effect=run), \\
+     patch('ub_agents.launch_ui.ui_command', side_effect=lambda: escape_ack_command(ui_command())):
     result = main(['--config', str(root / 'ub-agents.yaml'), 'launch', *sys.argv[4:]])
 (root / 'result.json').write_text(json.dumps({'exit': result, 'history': loop.coordinator.history(116),
     'labels': sorted(github.items[116].labels) if 116 in github.items else []}))

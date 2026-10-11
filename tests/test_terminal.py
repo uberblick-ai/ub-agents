@@ -2,7 +2,9 @@
 
 import os
 from pathlib import Path
+import signal
 import tempfile
+import threading
 import unittest
 
 from tests.terminal import Terminal
@@ -39,6 +41,43 @@ ProofApp().run()
 
 
 class TerminalHarnessTests(unittest.TestCase):
+    def test_escape_waits_for_a_paused_child_before_sending_the_next_key(self):
+        # Simulate scheduler starvation, not Textual's suspend/resume lifecycle.
+        script = PROOF_APP.replace('self.keys = []',
+            'self.keys = []\n        import signal\n'
+            '        signal.signal(signal.SIGCONT, signal.SIG_DFL)')
+        with tempfile.TemporaryDirectory() as directory:
+            proof = Path(directory) / 'proof.json'
+            with Terminal(script, proof, 'argument', proof=proof,
+                          env={'ESCDELAY': '1', 'PROOF_ENV': 'extra'}) as terminal:
+                terminal.checkpoint()
+                finished = threading.Event()
+                errors = []
+                def send_escape():
+                    try:
+                        terminal.send(b'\x1b')
+                    except BaseException as error:
+                        errors.append(error)
+                    finally:
+                        finished.set()
+                sender = threading.Thread(target=send_escape)
+                try:
+                    terminal.process.send_signal(signal.SIGSTOP)
+                    _, status = os.waitpid(terminal.process.pid, os.WUNTRACED)
+                    self.assertTrue(os.WIFSTOPPED(status))
+                    sender.start()
+                    self.assertFalse(finished.wait(0.5), 'Escape returned while the child was paused')
+                finally:
+                    terminal.process.send_signal(signal.SIGCONT)
+                    if sender.ident is not None:
+                        sender.join(6)
+                self.assertFalse(sender.is_alive())
+                self.assertEqual(errors, [])
+                terminal.send(b'a')
+                self.assertEqual(terminal.checkpoint()['keys'], ['escape', 'a'])
+                terminal.send(b'q')
+                terminal.wait_exit()
+
     def test_escape_delay_from_spawned_environment_prevents_alt_keys(self):
         for delay in ('1', '200', 'invalid', None):
             with self.subTest(delay=delay), tempfile.TemporaryDirectory() as directory:

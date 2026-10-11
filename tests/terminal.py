@@ -30,7 +30,7 @@ class Terminal:
         self.transcript = bytearray()
         self._offset = 0
         self._files = tempfile.TemporaryDirectory()
-        self._delay_path = Path(self._files.name) / 'escape-delay'
+        self._escape_path = Path(self._files.name) / 'escape-ack'
         self.master, self.slave = pty.openpty()
         self.modes = termios.tcgetattr(self.slave)
         self.process = None
@@ -41,16 +41,31 @@ class Terminal:
                     environment.pop(key, None)
                 else:
                     environment[key] = value
-        # Read the actual constant in the selected interpreter and environment,
-        # including Textual's default and validation of ESCDELAY.
+        # Acknowledge parsing in the child; elapsed time in the parent cannot
+        # prove that a delayed input thread has consumed a standalone Escape.
+        escape_probe = f'''
+from pathlib import Path as _ProofPath
+from textual.driver import Driver as _ProofDriver
+from textual.events import Key as _ProofKey
+_process_message = _ProofDriver.process_message
+def _process_with_escape_ack(self, message):
+    _process_message(self, message)
+    if isinstance(message, _ProofKey) and message.key == 'escape':
+        _ProofPath({str(self._escape_path)!r}).touch()
+_ProofDriver.process_message = _process_with_escape_ack
+'''
         prelude = f'''
 import sys
 sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})
 from tests.terminal import checkpoint_view
 sys.stdin = sys.__stdin__
-from pathlib import Path as _ProofPath
-from textual.constants import ESCAPE_DELAY as _escape_delay
-_ProofPath({str(self._delay_path)!r}).write_text(str(_escape_delay))
+{escape_probe}
+def escape_ack_command(command):
+    # Preserve the isolated interpreter and script arguments of a nested view.
+    if command[1] != '-I':
+        raise ValueError('Expected an isolated Python helper command')
+    wrapper = {escape_probe!r} + '\\nimport runpy, sys\\nsys.argv = sys.argv[1:]\\nrunpy.run_path(sys.argv[0], run_name="__main__")'
+    return [*command[:2], '-c', wrapper, *command[2:]]
 '''
         try:
             self._set_size(*size)
@@ -106,17 +121,13 @@ _ProofPath({str(self._delay_path)!r}).write_text(str(_escape_delay))
         """Send keys; a standalone Escape is resolved before any subsequent input.
 
         Escape sequences (arrows, Page Up, etc.) stay intact. Send a lone Escape
-        separately; the delay is measured by the spawned app. Textual's POSIX
-        driver ticks the parser on a 100 ms selector poll. Allow two complete
-        delay-and-poll intervals so the input thread also gets scheduling time.
+        separately; wait for the child's parser to acknowledge it before
+        writing another key, without changing its configured Escape delay.
         """
         if keys == b'\x1b':
-            self.wait_for(self._delay_path.exists)
-            delay = float(self._delay_path.read_text())
+            self._escape_path.unlink(missing_ok=True)
             os.write(self.master, keys)
-            deadline = time.monotonic() + 2 * (delay + 0.1)
-            while time.monotonic() < deadline:
-                self._read(max(0, deadline - time.monotonic()))
+            self.wait_for(self._escape_path.exists, message='Standalone Escape was not parsed')
         else:
             os.write(self.master, keys)
 
