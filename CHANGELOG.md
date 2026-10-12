@@ -17,6 +17,8 @@ notes are copied from that section.
 
 ### Changed
 
+- The Unblock view shows decisions once and folds same-role resume instructions into a separate section (#475, #476).
+- Formatted and Raw labels show the log-mode toggle shortcut directly beside the selector (#477, #478).
 - Routine empty-milestone explanations no longer appear in launcher output or `launch.log`; status and terminal views retain them (#466, #467).
 - `ub-agents doctor --help` starts with a plain command line and shows aligned `#` option comments, matching other setup commands (#453, #462).
 
