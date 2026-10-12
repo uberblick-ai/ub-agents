@@ -390,6 +390,13 @@ an available action-needed comment, every blocked agent keeps its own
 the cached notice or these fallbacks below the description, with resume steps
 and supporting evidence expanded.
 
+A trusted comment starts with its own short lead and asks, followed by each
+decision option once. Unblock does not prepend the plan reason, run summary or
+role/state prose already shown in the header. If several roles need attention,
+the comment appears once; other roles with different blockers get compact
+`role · state` sections with their own short reasons, without the notice summary
+appended to them. Issue keeps the full per-role context above its description.
+
 The comment body uses Issue's inert Markdown rules and 2,048-character limit,
 with a visible shortening notice. The action-needed marker, `**Action needed**`
 title are removed first. New notices keep Claim/Outcome links with the folded
@@ -398,8 +405,10 @@ no-outcome variant. New notices show the reason, any independent asks, numbered 
 options with the first recommended. PR run-outcome notices then show "Merging or
 closing #N finishes this item; nothing else is needed." visibly, with resume
 steps in a separate collapsed "To send it back to AGENT instead" control.
-Issue notices and notices whose item type could not be read keep visible "Then
-resume" steps. Approval-gate notices keep their visible resume steps. Option
+Issue notices and notices whose item type could not be read fold their "Then
+resume AGENT:" steps under "To resume AGENT". The retry command, label steps
+and same-role guidance stay together in that control; the reporter's asks stay
+visible above the option list. Approval-gate notices keep their visible resume steps. Option
 commands render as separate code blocks; single-backtick inline code is preserved.
 Without options the asks keep their previous layout, followed by the same
 item-specific resume structure. The separate "Reasoning and evidence" control
@@ -419,12 +428,14 @@ shows why the load cannot start and queues nothing; a later activation may try
 again while no result is cached. Selecting another item while Unblock stays
 active starts no read.
 
-When a blocked row has no available notice, Unblock shows its published blocked
-reason. For a PR it also shows the "Merging or closing #N finishes this item;
+When a row has no available notice, Unblock labels its published reason as a
+fallback. For a blocked PR it also shows the "Merging or closing #N finishes this item;
 nothing else is needed." line and puts the notice's resume command,
 `ub-agents retry N --agent AGENT --reason "Human resolved the blocker"`, in a
-collapsed "To send it back to AGENT instead" control. Issues and unknown item
-types keep the command visible under "Then resume AGENT:".
+collapsed "To send it back to AGENT instead" control. Blocked issues and unknown
+item types use a collapsed "To resume AGENT" control. Multiple blocked roles
+keep separate commands together under "To resume these agents" (or "To send it
+back to these agents instead" for a PR).
 This fallback remains visible while loading and when GitHub finds no trusted
 notice or the read fails. It reminds the operator to restore a matching trigger
 and remove stop labels; a different next role still uses the project's correction
