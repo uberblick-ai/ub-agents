@@ -1437,6 +1437,44 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         pane.call_after_refresh(events[1].set)
         await asyncio.wait_for(asyncio.gather(*(event.wait() for event in events)), 5)
 
+    async def test_log_restore_before_scrollbar_state_catches_up(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            await self.settled(app, output)
+            self.assertGreater(output.max_scroll_y, 10)
+            anchor = output.positions[10]
+            hidden = (anchor[0] - 1, anchor[1])
+            cases = (
+                ('paused', False, anchor, anchor[0], 0, 10),
+                ('clamped', False, output.positions[-1], output.positions[-1][0], 0, output.max_scroll_y),
+                ('hidden', False, hidden, anchor[0], 0, 10),
+                ('follow', True, anchor, anchor[0], 0, output.max_scroll_y),
+                ('home', False, None, None, output.max_scroll_y, 0),
+            )
+            for name, follow, saved, target, start, expected in cases:
+                with self.subTest(name=name):
+                    app.reading.follow, app.reading.anchor = follow, saved
+                    output.scroll_to(y=start, animate=False, immediate=True)
+                    # A reflow can update max_scroll_y before Textual updates
+                    # the scrollbar flag. Restore must work in that window.
+                    scrollbar = output.show_vertical_scrollbar
+                    output.show_vertical_scrollbar = False
+                    try:
+                        self.assertFalse(output.allow_vertical_scroll)
+                        output.restore(app.reading, saved, target)
+                        self.assertEqual(output.scroll_y, expected)
+                        self.assertEqual(app.reading.anchor, saved)
+                        if name in ('paused', 'hidden'):
+                            self.assertEqual(output.anchor(), saved)
+                        if name == 'hidden':
+                            self.assertEqual(output.held_y, expected)
+                    finally:
+                        output.show_vertical_scrollbar = scrollbar
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_compact_claude_styles_single_line_tools_and_hidden_anchor(self):
         # Replay recorded messages and synthetic counts, omitting only the huge
         # successful result so this page fits the bounded initial attachment.

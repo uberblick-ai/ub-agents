@@ -325,15 +325,17 @@ class LogPane(ScrollbarVisibility, ScrollView):
         if self.reading is not reading:
             return
         self.held_anchor = self.held_y = None
+        # After a reflow, max_scroll_y can be current while the scrollbar
+        # flags still prohibit scrolling. Force the restore; bounds still clamp.
         if reading and reading.follow:
-            self.scroll_end(animate=False, immediate=True)
+            self.scroll_end(animate=False, immediate=True, force=True)
         elif anchor and self.positions:
             candidates = [(index, position) for index, position in enumerate(self.positions) if position[0] == target]
             if candidates:
                 y = min(candidates, key=lambda item: abs(item[1][1] - anchor[1]))[0]
-                self.scroll_to(y=y, animate=False, immediate=True)
+                self.scroll_to(y=y, animate=False, immediate=True, force=True)
         elif not anchor:
-            self.scroll_home(animate=False, immediate=True)
+            self.scroll_home(animate=False, immediate=True, force=True)
         if reading and not reading.follow and anchor and (target != anchor[0] or not self.positions):
             self.held_anchor, self.held_y = anchor, int(self.scroll_y)
         self.refresh()
