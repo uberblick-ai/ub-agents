@@ -1,3 +1,3 @@
 """A deliberately small GitHub-backed execution loop."""
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
