@@ -728,6 +728,17 @@ class ViewDataTests(unittest.TestCase):
         formatted = Description(body='# Poi**nte**rs\nreference\n')
         self.assertEqual(formatted.pointers, '# Poi**nte**rs\nreference\n')
 
+    def test_pointers_preserve_unicode_separators_without_shifting_section_lines(self):
+        for separator in ('\u2028', '\u2029'):
+            lead = f'a{separator}b{separator}c\n'
+            section = f'## Pointers\n- first{separator}second\n### Tests\nreference'
+            for ending, tail in (('\n', '## Next\nkeep\n'), ('\n', ''), ('', '')):
+                with self.subTest(separator=repr(separator), ending=ending, tail=tail):
+                    pointers = section + ending
+                    description = Description(body=lead + pointers + tail)
+                    self.assertEqual(description.body, lead + tail)
+                    self.assertEqual(description.pointers, pointers)
+
     def test_only_first_pointers_section_is_removed_and_limited_separately(self):
         first = '# Pointers\n' + 'x' * POINTERS_LIMIT
         tail = '\n# Other\nmain\n# Pointers\nsecond section'

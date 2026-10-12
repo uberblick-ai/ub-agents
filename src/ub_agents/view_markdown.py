@@ -1,5 +1,7 @@
 """Shared inert Markdown parsing for Issue rendering and section extraction."""
 
+import re
+
 from markdown_it import MarkdownIt
 
 
@@ -23,8 +25,10 @@ def description_parser():
 def pointer_sections(body):
     """Remove the first Pointers heading and its section, preserving source text."""
     tokens = description_parser().parse(body)
+    # Match markdown-it's LF line numbers without splitting Unicode separators.
+    lines = re.split(r'(?<=\n)', body)
     start = level = None
-    end = len(body.splitlines(keepends=True))
+    end = len(lines)
     for index, token in enumerate(tokens):
         if token.type != 'heading_open':
             continue
@@ -41,5 +45,4 @@ def pointer_sections(body):
                 start, level = token.map[0], heading_level
     if start is None:
         return body, ''
-    lines = body.splitlines(keepends=True)
     return ''.join(lines[:start] + lines[end:]), ''.join(lines[start:end])
