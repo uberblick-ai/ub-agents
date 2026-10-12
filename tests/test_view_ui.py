@@ -956,7 +956,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             work, panes = app.query_one('#work_pane'), app.query_one('#panes')
             self.assertEqual(work.border_title, 'Work · pass complete · omitted 2')
             self.assertEqual(app.query_one('#log_mode', Static).render().plain,
-                             '│ Formatted  Raw')
+                             '│ Formatted  Raw (u)')
             self.assertEqual(work.styles.border_top[0], 'round')
             self.assertEqual(panes.styles.border_top[0], 'round')
             self.assertEqual(work.styles.border_top[1].hex.lower(), '#b79cff')
@@ -1029,6 +1029,73 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             for key, title in (('2', 'Issue'), ('3', 'Runs'), ('1', 'Log')):
                 await pilot.press(key)
                 self.assertEqual(panes.border_title, title)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+        self.assertFalse(app.worker.thread.is_alive())
+
+    async def test_mode_shortcut_fits_all_tabs_and_preserves_active_styles_in_both_themes(self):
+        self.state['latest_pass']['rows'].append(
+            {'item': 20, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path, descriptions=DescriptionLoads(RecordingDescriptionTransport()))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            app.select(next(k for k, row in app.rows.items() if row.group == 'Needs attention'))
+            await self.ready(app, pilot, lambda: app.unblock_visible)
+            app.query_one(Tree).move_cursor(app.nodes[app.selected])
+            panes = app.query_one(ItemTabs)
+            indicator = app.query_one('#log_mode', Static)
+            tabs = app.query_one('#panes Tabs', Tabs)
+            for theme in ('ub-agents', 'textual-light'):
+                app.theme = theme
+                for size, hint in (((110, 32), ' (u)'), ((60, 16), ' u')):
+                    await pilot.resize_terminal(*size)
+                    if app.narrow and not app.item_view:
+                        await pilot.press('enter')
+                    await self.ready(app, pilot, lambda: indicator.render().plain.endswith(hint))
+                    for key, tab in (('1', 'log'), ('2', 'issue'), ('3', 'runs'), ('4', 'unblock')):
+                        await pilot.press(key)
+                        for raw in (False, True):
+                            if app.reading.raw != raw:
+                                await pilot.press('u')
+                            with self.subTest(theme=theme, size=size, tab=tab, raw=raw):
+                                self.assertEqual(panes.active, tab)
+                                self.assertEqual(app.reading.raw, raw)
+                                mode = indicator.render()
+                                self.assertEqual(mode.plain, '│ Formatted  Raw' + hint)
+                                accent = app.theme_variables['view-accent'].lower()
+                                muted = app.theme_variables['view-muted'].lower()
+                                formatted = mode.get_style_at_offset(mode.plain.index('Formatted'))
+                                raw_style = mode.get_style_at_offset(mode.plain.index('Raw'))
+                                self.assertEqual(formatted.foreground.hex.lower(), muted if raw else accent)
+                                self.assertEqual(bool(formatted.underline), not raw)
+                                self.assertFalse(formatted.reverse)
+                                self.assertEqual(raw_style.foreground.hex.lower(), accent if raw else muted)
+                                self.assertEqual(bool(raw_style.reverse), raw)
+                                self.assertFalse(raw_style.underline)
+                                shortcut = mode.get_style_at_offset(mode.plain.index('u'))
+                                self.assertEqual(shortcut.foreground.hex.lower(), muted)
+                                self.assertNotEqual(shortcut.foreground.hex.lower(), accent)
+                                self.assertFalse(shortcut.underline)
+                                self.assertFalse(shortcut.reverse)
+                                visible_tabs = [tab for tab in app.query('#panes Tab') if tab.display]
+                                self.assertEqual(len(visible_tabs), 4)
+                                self.assertEqual(indicator.region.x, visible_tabs[-1].region.right)
+                                self.assertEqual(indicator.region.y, tabs.region.y)
+                                self.assertEqual(indicator.region.height, 1)
+                                self.assertEqual(indicator.region.width, mode.cell_length)
+                                self.assertLessEqual(indicator.region.right, panes.content_region.right)
+                                strip = app.screen._compositor.render_strips()[tabs.region.y]
+                                self.assertEqual(strip.crop(indicator.region.x, indicator.region.right).text,
+                                                 mode.plain)
+                                for widget in visible_tabs:
+                                    self.assertEqual(strip.crop(widget.region.x, widget.region.right).text.strip(),
+                                                     widget.label.plain)
+                                self.assertEqual(strip.crop(panes.region.right - 1, panes.region.right).text, '│')
+                                reading = (app.reading.raw, app.reading.follow, app.reading.anchor)
+                                await pilot.click('#log_mode')
+                                self.assertEqual(panes.active, tab)
+                                self.assertEqual((app.reading.raw, app.reading.follow, app.reading.anchor), reading)
             await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())

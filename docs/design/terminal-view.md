@@ -42,7 +42,7 @@ switches, snapshot refreshes, saved-position restores and resizing do not show a
 ```text
 ╭─ Work · pass complete ─────────────────────╮ ╭─ Log ───────────────────────────────────────────────────────╮
 │                                            │ │                                                             │
-│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Log  2 Issue  3 Runs │ Formatted  Raw                   │
+│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Log  2 Issue  3 Runs │ Formatted  Raw (u)               │
 │  ⠹ #163 Compact timestamped Claude… 04:12  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │    implementer · this launcher · attempt…  │ │  #163 Show Claude log entries as compact timestamped lines  │
 │  Needs attention · 2 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │  implementer · codex · attempt 1                            │
@@ -185,8 +185,12 @@ color; the other border and title are dim.
 
 ## Item pane
 
-The current tabs read `1 Log  2 Issue  3 Runs │ Formatted  Raw`. Formatted/Raw is
-an inert indicator of the selected log's `u` mode, visible on every tab. The active
+The current tabs read `1 Log  2 Issue  3 Runs │ Formatted  Raw (u)`. Formatted/Raw is
+an inert indicator of the selected log's mode, visible on every tab. The muted
+`(u)` hint names the toggle key and uses neither underline nor reverse. When the
+full hint would exceed the available tab-bar width, it shortens to `u`; this fits
+the 60-column item view with all four tabs. Formatted stays accented and
+underlined when active; Raw stays accented and reversed when active. The active
 tab is inverted with one space on either side of its label, the others are dim,
 and a thin dashed rule replaces Textual's underline. The tab bar starts at the
 pane's two-column inset; labels sit one column right of the shared header.
@@ -205,7 +209,7 @@ Missing values are omitted. The running assignment shows `attempt N`; planned wo
 ```text
 ╭─ Log ────────────────────────────────────────────────────────────────────────────╮
 │                                                                                  │
-│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                        │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw (u)                                    │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  #163 Show Claude log entries as compact timestamped lines                       │
 │  implementer · codex gpt-6.1-sol xhigh · attempt 1                               │
@@ -248,7 +252,7 @@ Missing values are omitted. The running assignment shows `attempt N`; planned wo
 ```text
 ╭─ Issue ─────────────────────────────────────────────────────────────────────────╮
 │                                                                                 │
-│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                       │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw (u)                                   │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  #156 Drop old coordination record formats                                      │
 │  issue · ready · prepared by issue-preparer                                     │
@@ -293,7 +297,7 @@ view comes later; for now the tab is read-only.
 ```text
 ╭─ Unblock ────────────────────────────────────────────────────────────────────────╮
 │                                                                                  │
-│   1 Log  2 Issue  3 Runs  4 Unblock │ Formatted  Raw                             │
+│   1 Log  2 Issue  3 Runs  4 Unblock │ Formatted  Raw (u)                         │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  ⌥168 Render Issue descriptions as Markdown                                      │
 │  integrator · blocked · waiting 24m · since 12:12                                │
@@ -378,7 +382,7 @@ PR the first row is the issue it closes.
 ```text
 ╭─ Runs ─────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                        │
-│   1 Log  2 Issue  3 Runs │ Formatted  Raw                                              │
+│   1 Log  2 Issue  3 Runs │ Formatted  Raw (u)                                          │
 │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │  ⌥167 Group the terminal view's work list into sections                                │
 │  closes #159 · filed by bk-one · 3 runs                                                │
@@ -554,7 +558,7 @@ Colors, as Textual theme variables with these dark-theme values:
   Running #6cb6ff · Needs attention #ff8b7f · Eligible #7ee2a0
   diff + #7ee2a0 · diff - #ff8b7f
 Focused pane: accent border with its title in the border ("Work", "Log", "Issue"); unfocused: #2a303b border.
-Tab bar: active tab inverted (dark text on light), others dim; "Formatted" underlined in accent when on.
+Tab bar: active tab inverted (dark text on light), others dim; active "Formatted" underlined in accent, active "Raw" reversed in accent; "(u)" (or "u" at narrow widths) muted without underline or reverse.
 ```
 
 The view registers this palette as its default `ub-agents` Textual theme. Custom

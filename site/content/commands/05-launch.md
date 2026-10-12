@@ -91,6 +91,11 @@ While a new run's log file has not appeared yet, Log shows `No log output yet.`
 without a read error and follows output automatically once it appears. Other read
 failures, including a log that disappears after being read, still show `Read error`.
 
+The item tab bar shows `│ Formatted  Raw (u)` on every tab. Press `u` to toggle
+the selected log's mode; the active label stays accented (Formatted underlined,
+Raw reversed). The muted shortcut shortens to `u` when space is tight, including
+the 60-column item view with all four tabs. Clicking the indicator has no effect.
+
 Claude image reads and other oversized JSON records use the normal compact Log
 formatting. Successful tool results add no payload line; errors keep their first
 line. An incomplete record shows one notice until its newline arrives, and
