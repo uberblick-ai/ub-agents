@@ -14,15 +14,17 @@ Stopped items are listed under **Needs attention** in `ub-agents launch`. Select
 Each item appears once, with contributing agents and states comma-separated,
 followed by distinct reasons comma-separated. The count is items and the waiting
 time is the longest known wait. Unblock remains available while any contributing
-agent needs attention. Unblock and Issue show every contributing agent's state
-and reasons, including a plan reason that differs from the displayed notice.
-Issue also shows the cached notice or fallback resume steps below its description.
+agent needs attention. Unblock starts with the trusted comment's short lead,
+asks and distinct options, without repeating its summary or the states already
+in the header. Other roles with different blockers get compact labelled sections
+with their own short reasons. Issue keeps every contributing agent's full state
+and reasons, and shows the cached notice or fallback resume steps below its description.
 
-For a PR run-outcome notice, merging or closing the PR finishes the item; nothing else is needed. To return it to the same agent instead, expand **To send it back to AGENT instead**. The resume steps are separate from the collapsed **Reasoning and evidence** section. Issue notices keep their visible **Then resume AGENT:** steps, as do notices whose item type could not be read. Approval-gate notices keep their visible authorization and resume steps, and older notices display as before.
+For a PR run-outcome notice, merging or closing the PR finishes the item; nothing else is needed. To return it to the same agent instead, expand **To send it back to AGENT instead**. Issue notices and notices whose item type could not be read fold their same-role steps under **To resume AGENT**. These controls contain the retry command, label steps and same-role guidance, separate from the collapsed **Reasoning and evidence** section. The reporter's requested actions stay visible above the decision options. Both controls start collapsed; click a title or focus it and press Enter to expand it. Approval-gate notices keep their visible authorization and resume steps, and older notices display as before.
 
-If a blocked item's comment is unavailable, Unblock shows its blocked reason and the same structure: PRs show the completion line and fold the `ub-agents retry N --agent AGENT --reason "Human resolved the blocker"` command under **To send it back to AGENT instead**; issues and unknown item types keep the command visible. A failed blocked notice post is retried on later launcher passes until the item resumes.
-Merged items keep a separate retry command for each blocked agent; PR fallback
-steps share a **To send it back to these agents instead** fold.
+If an item's comment is unavailable, Unblock labels its reason as a fallback. Blocked PRs show the completion line and fold the `ub-agents retry N --agent AGENT --reason "Human resolved the blocker"` command under **To send it back to AGENT instead**; blocked issues and unknown item types use **To resume AGENT**. A failed blocked notice post is retried on later launcher passes until the item resumes.
+Merged items keep a separate retry command for each blocked agent, together in
+**To resume these agents** or, for PRs, **To send it back to these agents instead**.
 
 ## GitHub failed after a completed run
 

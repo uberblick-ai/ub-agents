@@ -6,9 +6,9 @@ import re
 import time
 from typing import ClassVar
 
-from .view_data import Description, attention_agents, attention_context, description_text, mapping, text
-from .attention import attention_state, stamp, waiting_time
-from .notices import outcome_resume, retry_command
+from .view_data import Description, attention_agents, description_text, mapping, text
+from .attention import attention_state, notice_summary, short_reason, stamp, waiting_time
+from .notices import notice_reason, outcome_resume, retry_command
 
 ACTION_MARKER = '<!-- ub-agents:action-needed '
 LINKS = re.compile(r'^\[Claim\]\(.*?\) · (?:\[Outcome\]\(.*?\)|No outcome was reported\.)$')
@@ -38,9 +38,12 @@ def comment_sections(body):
 
 
 def resume_section(body):
-    """Extract the separate PR resume fold from the visible notice portion."""
-    wrapper = re.search(r'<details>\n<summary>(To send it back to [^<\n]+ instead)</summary>\n\n', body)
+    """Extract same-role workflow steps, leaving approval-gate steps visible."""
+    wrapper = re.search(r'<details>\n<summary>(To send it back to [^<\n]+ instead|To resume [^<\n]+)</summary>\n\n', body)
     if not wrapper:
+        tail = re.search(r'(?m)^Then resume ([^:\n]+):\n\n', body)
+        if tail:
+            return body[:tail.start()].strip(), f'To resume {tail[1]}', body[tail.end():].strip()
         return body, '', ''
     steps = body[wrapper.end():].rstrip()
     if steps.endswith('\n\n</details>'):
@@ -110,38 +113,74 @@ def local_action(row, session):
                          comment_id=str(notice.get('id') or ''))
 
 
-def unblock_body(row, comment):
+def plan_reason(row):
+    """Remove observer-added notice text and generated same-role retry prose."""
+    reason = description_text(row.reason)
+    summary = description_text(text(row.data.get('attention_reason'), ''))
+    prefix = re.match(r'^(?:Last run blocked|Stop label .+? is present): ', reason)
+    start = prefix.end() if prefix else 0
+    if summary and reason[start:].endswith(': ' + summary):
+        reason = reason[:-len(': ' + summary)]
+    return re.sub(r'; inspect (?:outcome|failures) and use ub-agents retry \d+ --agent \S+ --reason TEXT$', '', reason)
+
+
+def other_role_context(row, body):
+    """Show other causes without the notice summary appended by the observer."""
+    visible, supporting = comment_sections(body)
+    lead, title, _ = resume_section(visible)
+    role = (title.removeprefix('To resume ') if title.startswith('To resume ') else
+            title.removeprefix('To send it back to ').removesuffix(' instead'))
+    reasons = {notice_summary(part) for part in (lead, supporting) if part}
+    sections = []
+    for agent in row.attention_rows:
+        if agent.agent == role:
+            continue
+        reason = short_reason(plan_reason(agent).removeprefix('Last run blocked: '))
+        if reason and reason not in reasons:
+            sections.append(f'### {agent.agent} · {attention_state(agent)[1]}\n\n{notice_reason(reason)}')
+    return lead, '\n\n'.join(sections)
+
+
+def fallback_body(row):
     if row and len(row.attention_rows) > 1:
-        context = attention_context(row)
-        if comment.available:
-            return context + '\n\n' + comment.body
         bodies, resumes = [], []
         for agent in row.attention_rows:
-            body = unblock_body(agent, comment)
+            body = fallback_body(agent)
             lead, _, resume = resume_section(body)
             if lead:
                 bodies.append(f'### {agent.agent} · {attention_state(agent)[1]}\n\n{lead}')
             if resume:
                 resumes.append(f'### {agent.agent}\n\n{resume}')
-        body = '\n\n'.join((context, *bodies))
+        body = '\n\n'.join(bodies)
         if resumes:
-            body += ('\n\n<details>\n<summary>To send it back to these agents instead</summary>\n\n' +
+            title = ('To send it back to these agents instead' if row.data.get('kind') == 'pr'
+                     else 'To resume these agents')
+            body += (f'\n\n<details>\n<summary>{title}</summary>\n\n' +
                      '\n\n'.join(resumes) + '\n\n</details>')
         return body
-    context = (attention_context(row) + '\n\n' if row and row.attention_rows and
-               text(row.data.get('attention_reason'), '') and
-               text(row.data.get('attention_reason'), '') != row.reason else '')
-    if comment.available:
-        return context + comment.body
+    context = plan_reason(row) if row else ''
+    summary = description_text(text(row.data.get('attention_reason'), '')) if row else ''
+    if summary and summary not in context:
+        context = '\n\n'.join(part for part in (context, summary) if part)
     if row and row.state == 'blocked' and needs_attention(row):
-        reason = description_text(row.reason)
         steps = (f"```sh\n{retry_command(row.item, row.agent)}\n```\n\n"
                  "Restore a matching trigger if absent; remove any stop label. "
                  "Use these steps only when resuming the same role; follow the project's "
                  "correction or handoff route if a different role must act next.")
         resume = outcome_resume(row.item, text(row.agent), steps, is_pr=row.data.get('kind') == 'pr')
-        return f"{context}{reason}\n\n{resume}"
+        return f"{context}\n\n{resume}".strip()
     return context.strip()
+
+
+def unblock_body(row, comment):
+    if comment.available:
+        if row and len(row.attention_rows) > 1:
+            lead, context = other_role_context(row, comment.body)
+            if context:
+                return lead + '\n\n' + context + comment.body[len(lead):]
+        return comment.body
+    body = fallback_body(row)
+    return '**Fallback: action-needed comment unavailable.**\n\n' + body if body else ''
 
 
 def unblock_metadata(row, comment, session, now=None):

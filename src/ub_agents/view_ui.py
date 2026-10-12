@@ -556,12 +556,12 @@ class View(App):
                 with TabPane('4 Unblock', id='unblock'):
                     with PaneScroll():
                         yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
-                        with Collapsible(title='To send it back instead',
-                                         collapsed=True, id='unblock_resume'):
-                            yield Markdown('', id='unblock_resume_body', parser_factory=description_parser, open_links=False)
                         with Collapsible(title='Reasoning and evidence',
                                          collapsed=True, id='unblock_details'):
                             yield Markdown('', id='unblock_details_body', parser_factory=description_parser, open_links=False)
+                        with Collapsible(title='To send it back instead',
+                                         collapsed=True, id='unblock_resume'):
+                            yield Markdown('', id='unblock_resume_body', parser_factory=description_parser, open_links=False)
                         yield Static('', id='unblock_note', markup=False)
         yield Static('', id='status', markup=False)
 

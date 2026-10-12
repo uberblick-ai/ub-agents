@@ -191,7 +191,8 @@ class UnblockDataTests(unittest.TestCase):
         self.session.data['action_needed'] = {}
         for comment in (local_action(row, self.session),
                         ActionComment(omitted=True),
-                        ActionComment(error='No trusted action-needed comment was found.')):
+                        ActionComment(error='No trusted action-needed comment was found.'),
+                        ActionComment(error='GitHub read failed.')):
             with self.subTest(comment=comment):
                 body = unblock_body(row, comment)
                 self.assertIn(row.reason, body)
@@ -199,7 +200,7 @@ class UnblockDataTests(unittest.TestCase):
                 self.assertIn('same role', body)
                 self.assertIn('different role', body)
                 visible, title, steps = resume_section(body)
-                self.assertEqual(visible, row.reason + '\n\n'
+                self.assertEqual(visible, '**Fallback: action-needed comment unavailable.**\n\n' + row.reason + '\n\n'
                                  'Merging or closing #178 finishes this item; nothing else is needed.')
                 self.assertEqual(title, 'To send it back to worker instead')
                 self.assertIn('ub-agents retry 178', steps)
@@ -211,17 +212,111 @@ class UnblockDataTests(unittest.TestCase):
         self.assertEqual(unblock_body(row, comment), comment.body)
         self.assertEqual(unblock_body(self.row, ActionComment()), '')
 
-    def test_issue_and_unknown_kind_fallback_keep_visible_resume_steps(self):
-        expected = ('Last run blocked: decision pending\n\nThen resume worker:\n\n'
-                    '```sh\nub-agents retry 178 --agent worker --reason "Human resolved the blocker"\n```\n\n'
-                    'Restore a matching trigger if absent; remove any stop label. '
-                    "Use these steps only when resuming the same role; follow the project's "
-                    'correction or handoff route if a different role must act next.')
+    def test_fallback_does_not_repeat_retry_prose_embedded_in_the_plan_reason(self):
+        for reason, expected in (
+                ('Last run blocked: decision pending; inspect outcome and use '
+                 'ub-agents retry 178 --agent worker --reason TEXT: Maintainer: decide.',
+                 'Last run blocked: decision pending\n\nMaintainer: decide.'),
+                ('Attempt limit exhausted; inspect failures and use '
+                 'ub-agents retry 178 --agent worker --reason TEXT: Maintainer: decide.',
+                 'Attempt limit exhausted\n\nMaintainer: decide.')):
+            row = replace(self.row, state='blocked', reason=reason,
+                          data={**self.row.data, 'kind': 'issue', 'attention_reason': 'Maintainer: decide.'})
+            body = unblock_body(row, ActionComment())
+            lead, title, steps = resume_section(body)
+            self.assertEqual(lead, '**Fallback: action-needed comment unavailable.**\n\n' + expected)
+            self.assertEqual(title, 'To resume worker')
+            self.assertEqual(steps.count('ub-agents retry'), 1)
+
+    def test_issue_and_unknown_kind_fallback_fold_same_role_resume_steps(self):
         for kind in ('issue', None):
             with self.subTest(kind=kind):
                 row = replace(self.row, state='blocked', reason='Last run blocked: decision pending',
                               data={**self.row.data, 'kind': kind})
-                self.assertEqual(unblock_body(row, ActionComment()), expected)
+                visible, title, steps = resume_section(unblock_body(row, ActionComment()))
+                self.assertEqual(visible, '**Fallback: action-needed comment unavailable.**\n\n' + row.reason)
+                self.assertEqual(title, 'To resume worker')
+                self.assertIn('ub-agents retry 178 --agent worker --reason "Human resolved the blocker"', steps)
+                self.assertIn('same role', steps)
+                self.assertIn('different role', steps)
+                self.assertNotIn('ub-agents retry', visible)
+
+    def test_existing_issue_notice_replaces_appended_blocked_summary_and_folds_workflow(self):
+        reason = 'Two decisions are needed before preparation can continue.'
+        asks = ['Maintainer: answer on the issue and relabel it for preparation.']
+        options = ['Maintainer: accept the current behavior.', 'Maintainer: request a revision.']
+        summary = (reason + ' Verdict counts: 4 accept, 1 defer. Revision: abcdef1234567890. '
+                   'Supporting document: 2ba38647-9a28-4b0b-a9fe-48233e6c8396. '
+                   'Tests: 57 passed. Options: ' + ' '.join(options))
+        steps = ('```sh\nub-agents retry 178 --agent reviewer --reason "Human resolved the blocker"\n```\n\n'
+                 'Remove `needs-human` and restore `needs-review`. '
+                 'Use these steps only when resuming the same role (`reviewer`).')
+        notice = action_body(ACTION_MARKER + 'existing -->', asks, summary, options=options,
+                             reason=summary, resume=outcome_resume(178, 'reviewer', steps))
+        self.session.data['action_needed']['178']['text'] = notice
+        agent = replace(self.row, agent='reviewer', state='blocked',
+                        reason='Last run blocked: ' + summary + ': ' + reason,
+                        data={**self.row.data, 'kind': 'issue', 'attention_reason': reason})
+        row = replace(agent, attention_rows=(agent,))
+        cached = local_action(row, self.session)
+        body = unblock_body(row, cached)
+        self.assertEqual(body, cached.body)
+        visible, supporting = comment_sections(body)
+        visible, title, workflow = resume_section(visible)
+        self.assertTrue(visible.startswith(reason))
+        self.assertEqual(visible.count(reason), 1)
+        self.assertIn('**' + asks[0] + '**', visible)
+        for index, option in enumerate(options, 1):
+            self.assertEqual(visible.count(option), 1)
+            self.assertIn(f'{index}. {option}', visible)
+        for hidden in ('Last run blocked', 'reviewer · blocked', 'Verdict counts', 'abcdef1234567890',
+                       '2ba38647', '57 passed', 'Then resume', 'ub-agents retry', 'needs-human', 'same role'):
+            self.assertNotIn(hidden, visible)
+        self.assertEqual(supporting, summary)
+        self.assertEqual(title, 'To resume reviewer')
+        self.assertEqual(workflow, steps)
+        # Approval-gate workflow is authorization, and keeps its visible layout.
+        approval = action_body(ACTION_MARKER + 'approval-start -->', ['Maintainer: authorize this item.'],
+                               'Input needs approval.', resume='Then resume:\n\nRemove `needs-human`.')
+        lead, _ = comment_sections(comment_body(approval))
+        self.assertEqual(resume_section(lead), (lead, '', ''))
+
+    def test_trusted_notice_renders_once_with_other_roles_own_short_causes(self):
+        summary = 'Preparation needs a decision. Review diagnostics: 4 accept, 1 defer.'
+        notice = action_body(ACTION_MARKER + 'existing -->', ['Maintainer: answer on the issue.'], summary,
+                             options=['Maintainer: accept.', 'Maintainer: revise.'], reason=summary,
+                             resume=outcome_resume(178, 'reviewer', 'Restore `needs-review`.'))
+        cached = ActionComment(body=comment_body(notice), available=True)
+        reviewer = replace(self.row, agent='reviewer', state='blocked',
+                           reason='Last run blocked: ' + summary + ': Preparation needs a decision.',
+                           data={**self.row.data, 'attention_reason': 'Preparation needs a decision.'})
+        implementer = replace(reviewer, agent='implementer',
+                              reason='Resource access is unavailable. Full resource diagnostics: '
+                                     'ticket 1234: Preparation needs a decision.')
+        same_cause = replace(reviewer, agent='preparer', reason='Last run blocked: Preparation needs a decision.')
+        parked = replace(reviewer, agent='integrator', state='parked',
+                         reason='Stop label `needs-human` is present: Preparation needs a decision.')
+        row = replace(implementer, attention_rows=(implementer, reviewer, same_cause, parked))
+        body = unblock_body(row, cached)
+        lead, supporting = comment_sections(body)
+        lead, title, workflow = resume_section(lead)
+        self.assertTrue(lead.startswith('Preparation needs a decision.'))
+        self.assertEqual(lead.count('Preparation needs a decision.'), 1)
+        self.assertEqual(lead.count('Maintainer: answer on the issue.'), 1)
+        for option in ('Maintainer: accept.', 'Maintainer: revise.'):
+            self.assertEqual(lead.count(option), 1)
+        self.assertIn('### implementer · blocked\n\nResource access is unavailable.', lead)
+        for absent in ('reviewer · blocked', 'preparer · blocked', 'integrator · parked', 'Full resource diagnostics', 'ticket 1234',
+                       'Review diagnostics', 'Last run blocked'):
+            self.assertNotIn(absent, lead)
+        self.assertEqual(supporting, summary)
+        self.assertEqual(title, 'To resume reviewer')
+        self.assertEqual(workflow, 'Restore `needs-review`.')
+        # Sharing a lead sentence does not hide a role with a different blocker.
+        different_cause = replace(same_cause, reason='Last run blocked: Preparation needs a decision. '
+                                 'A separate resource approval is needed.: Preparation needs a decision.')
+        row = replace(row, attention_rows=(reviewer, different_cause))
+        self.assertIn('### preparer · blocked', unblock_body(row, cached))
 
     def test_merged_attention_preserves_every_agent_reason_and_retry_fallback(self):
         first = replace(self.row, agent='reviewer', state='blocked', reason='Earlier review defer',
@@ -244,16 +339,17 @@ class UnblockDataTests(unittest.TestCase):
                     self.assertIn(agent.reason, body)
                     self.assertEqual(body.count(f'ub-agents retry 178 --agent {agent.agent}'), 1)
                 lead, title, resume = resume_section(body)
-                if kind == 'pr':
-                    self.assertNotIn('ub-agents retry', lead)
-                    self.assertEqual(title, 'To send it back to these agents instead')
-                    for agent in agents:
-                        self.assertIn(f'ub-agents retry 178 --agent {agent.agent}', resume)
-                else:
-                    self.assertEqual(resume, '')
+                self.assertNotIn('ub-agents retry', lead)
+                self.assertEqual(title, 'To send it back to these agents instead' if kind == 'pr'
+                                 else 'To resume these agents')
+                for agent in agents:
+                    self.assertIn(f'ub-agents retry 178 --agent {agent.agent}', resume)
                 notice = local_action(row, self.session)
                 displayed = unblock_body(row, notice)
-                self.assertIn(context, displayed)
+                for agent in agents:
+                    self.assertIn(agent.agent + ' · blocked', displayed)
+                    self.assertIn(agent.reason, displayed)
+                self.assertNotIn('Sonner conflicts', displayed)
                 self.assertIn(notice.body, displayed)
         metadata, waiting = unblock_metadata(row, ActionComment(), self.session,
                                              stamp('2026-10-05T12:36:00Z'))
@@ -539,7 +635,12 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(fold.display)
             self.assertEqual(fold.title, 'Reasoning and evidence')
             lead = app.query_one('#unblock_body', Markdown).source
-            self.assertIn(resume, lead)
+            self.assertNotIn(resume, lead)
+            workflow = app.query_one('#unblock_resume', Collapsible)
+            self.assertTrue(workflow.display)
+            self.assertTrue(workflow.collapsed)
+            self.assertEqual(workflow.title, 'To resume worker')
+            self.assertIn('ub-agents retry 178', app.query_one('#unblock_resume_body', Markdown).source)
             for ask in asks:
                 tokens = description_parser().parse(lead)
                 rendered = ''.join(child.content for token in tokens for child in token.children or []
@@ -638,8 +739,10 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 app.update_unblock()
                 self.assertFalse(resume.collapsed)
                 app.select('plan:179:attention')
-                self.assertFalse(resume.display)
-                self.assertIn('Then resume worker:', app.query_one('#unblock_body', Markdown).source)
+                self.assertTrue(resume.display)
+                self.assertTrue(resume.collapsed)
+                self.assertEqual(resume.title, 'To resume worker')
+                self.assertIn('Fallback', app.query_one('#unblock_body', Markdown).source)
                 app.select('plan:178:attention')
                 self.assertTrue(resume.collapsed)
             self.state['action_needed'] = {}
@@ -663,13 +766,17 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_options_and_old_notices_render_in_unblock(self):
-        summary = 'Local CI is red. Full CI diagnostics.'
+        summary = ('Local CI is red. Verdict counts: 4 accept, 1 defer. Revision: abcdef1234567890. '
+                   'Document: 2ba38647-9a28-4b0b-a9fe-48233e6c8396. Tests: 57 passed. Full CI diagnostics.')
         resume = 'Then resume worker:\n\n```sh\nub-agents retry 178 --agent worker\n```\n\nRestore `ready` if absent.'
         options = ['Maintainer: run CI outside supervision: `mise run ci SHA`',
                    'Maintainer: merge a fix isolating `UB_AGENTS_RUN_CONFIG` in tests.']
         body = action_body(ACTION_MARKER + 'options -->', ['Owner: approve `storage`.'], summary,
                            options=options, reason=summary, resume=resume)
         self.state['action_needed']['178']['text'] = body
+        row = self.state['latest_pass']['rows'][-2]
+        row.update(kind='issue', state='blocked', reason='Last run blocked: ' + summary + ': Local CI is red.',
+                   attention_reason='Local CI is red.')
         publish_snapshot(self.path, self.state)
         app = self.app
         async with app.run_test(size=(110, 40)) as pilot:
@@ -679,18 +786,45 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             lead = app.query_one('#unblock_body', Markdown).source
             self.assertTrue(lead.startswith('Local CI is red.'))
             for text in ('Owner: approve `storage`.', 'To unblock, do one of:', '(recommended)',
-                         '2. Maintainer:', resume):
+                         '2. Maintainer:'):
                 self.assertIn(text, lead)
+            for hidden in (resume, 'Last run blocked', 'Verdict counts', 'abcdef1234567890', '2ba38647', '57 passed'):
+                self.assertNotIn(hidden, lead)
+            for option in ('Maintainer: run CI outside supervision', 'Maintainer: merge a fix'):
+                self.assertEqual(lead.count(option), 1)
             tokens = description_parser().parse(lead)
             self.assertEqual([token.content.strip() for token in tokens if token.type == 'fence'],
-                             ['mise run ci SHA', 'ub-agents retry 178 --agent worker'])
-            await self.ready(pilot, lambda: len(app.query_one('#unblock_body', Markdown).query('MarkdownFence')) == 2)
+                             ['mise run ci SHA'])
+            await self.ready(pilot, lambda: len(app.query_one('#unblock_body', Markdown).query('MarkdownFence')) == 1)
             code = [child.content for token in tokens for child in token.children or [] if child.type == 'code_inline']
             self.assertIn('storage', code)
             self.assertIn('UB_AGENTS_RUN_CONFIG', code)
             fold = app.query_one('#unblock_details', Collapsible)
             self.assertTrue(fold.collapsed)
             self.assertEqual(app.query_one('#unblock_details_body', Markdown).source, summary)
+            workflow = app.query_one('#unblock_resume', Collapsible)
+            self.assertTrue(workflow.collapsed)
+            self.assertEqual(workflow.title, 'To resume worker')
+            self.assertEqual(app.query_one('#unblock_resume_body', Markdown).source,
+                             resume.split('\n\n', 1)[1])
+            workflow.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            self.assertFalse(workflow.collapsed)
+            self.assertTrue(fold.collapsed)
+            await pilot.click('#unblock_resume CollapsibleTitle')
+            self.assertTrue(workflow.collapsed)
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            self.assertFalse(fold.collapsed)
+            self.assertTrue(workflow.collapsed)
+            await pilot.click('#unblock_details CollapsibleTitle')
+            self.assertTrue(fold.collapsed)
+            await pilot.press('2')
+            actions = app.query_one('#issue_actions', Markdown).source
+            self.assertIn('Owner: approve `storage`.', actions)
+            self.assertIn('ub-agents retry 178 --agent worker', actions)
+            self.assertIn(summary, actions)
+            await pilot.press('4')
             for old in (OLD_FOLDED_NOTICE, OLD_PROSE_NOTICE):
                 self.state['action_needed']['178']['text'] = old
                 publish_snapshot(self.path, self.state)
@@ -787,7 +921,8 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(pilot, lambda: not app.current_action().available and
                              'not verified' in app.query_one('#unblock_note', Static).render().plain)
             self.assertIn('Attempt limit exhausted', app.query_one('#unblock_body', Markdown).source)
-            self.assertIn('ub-agents retry 179 --agent worker', app.query_one('#unblock_body', Markdown).source)
+            self.assertIn('Fallback', app.query_one('#unblock_body', Markdown).source)
+            self.assertIn('ub-agents retry 179 --agent worker', app.query_one('#unblock_resume_body', Markdown).source)
             self.assertIn('not verified', app.query_one('#unblock_note', Static).render().plain)
             await pilot.press('g', 'q')
         app.worker.thread.join(2)
@@ -895,7 +1030,8 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one(ItemTabs).active, 'unblock')
             self.assertEqual(self.transport.calls, [])
             self.assertIn('write or higher', app.query_one('#unblock_note', Static).render().plain)
-            self.assertEqual(app.query_one('#unblock_body', Markdown).source, '')
+            self.assertIn('Fallback', app.query_one('#unblock_body', Markdown).source)
+            self.assertIn('Approval needed', app.query_one('#unblock_body', Markdown).source)
             await pilot.press('g')
             self.assertEqual(len(self.transport.calls), 1)
             await pilot.press('q')
