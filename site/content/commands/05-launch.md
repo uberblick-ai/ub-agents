@@ -110,6 +110,21 @@ Running, Needs attention and the first ten Eligible items ahead of hidden plans
 and older history; Eligible's heading keeps the full count when hidden plans are
 left out to fit the size limit.
 
+Issue extracts the first Markdown `Pointers` heading before applying the
+2,048-character main-body limit. Any heading level and case count; headings in
+code fences do not. The section keeps nested subsections and ends at the next
+heading of the same or a higher level. It appears only in a collapsed **Pointers**
+fold below the main body, using the same inert Markdown and link rules. Click its
+title or focus it and press Enter to expand or collapse it. The fold has a separate
+8,192-character limit and shows any shortening notice inside it. Descriptions
+without Pointers show no fold. Item or description changes collapse it again;
+unchanged redraws and snapshot refreshes keep its state.
+
+Run context, GitHub and snapshot descriptions all use this extraction. A shortened
+snapshot warns that Pointers may be missing or incomplete. The fold adds no reads
+or load triggers and keeps the existing response limit. Run context and the issue
+text delivered to agents stay unchanged; the GitHub issue is not edited.
+
 Pane and overlay scrollbars stay hidden until you scroll. Each muted bar uses
 one reserved column, so appearing or disappearing never shifts the content.
 It hides after 1.5 seconds of inactivity; hovering or dragging keeps it visible.

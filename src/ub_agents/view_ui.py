@@ -10,7 +10,6 @@ import sys
 import time
 from weakref import WeakKeyDictionary
 
-from markdown_it import MarkdownIt
 from rich.control import Control
 from rich.segment import Segment
 from rich.style import Style
@@ -28,6 +27,7 @@ from .view_clipboard import copy_with_pbcopy, local_pbcopy
 from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
                         related_assignment, related_plan, run_status, text, work_pane)
 from .view_github import DescriptionLoads
+from .view_markdown import description_parser
 from .view_unblock import (ActionComment, comment_sections, local_action, needs_attention,
                            resume_section, trust_reason, unblock_body, unblock_metadata)
 from .view_runs import run_status as history_status, runs_view
@@ -124,23 +124,6 @@ class ItemTabs(TabbedContent):
                 yield Static('', id='log_mode', markup=False)
                 yield Static('', id='tab_rule', markup=False)
                 yield ItemHeader('', id='item_header', markup=False)
-
-
-def description_parser():
-    # Show links, images and HTML as source text, without interactive targets.
-    # Entities stay literal so parsing cannot introduce escaped control characters.
-    parser = MarkdownIt('commonmark', {'html': False}).disable(
-        ['link', 'autolink', 'image', 'reference', 'entity']).enable(['table', 'strikethrough'])
-
-    def line_breaks(state):
-        # Textual otherwise renders Markdown soft breaks as spaces.
-        for token in state.tokens:
-            for child in token.children or ():
-                if child.type == 'softbreak':
-                    child.type = 'hardbreak'
-
-    parser.core.ruler.after('inline', 'description_line_breaks', line_breaks)
-    return parser
 
 
 class RawAccess(ModalScreen):
@@ -466,7 +449,7 @@ class View(App):
     #output { height: 1fr; scrollbar-gutter: stable; overflow-x: hidden; }
     #run_status { height: 2; overflow: hidden; }
     #log_state { height: 1; content-align: right middle; }
-    #issue_body, #issue_actions, #unblock_body { padding: 0; }
+    #issue_body, #issue_pointers_body, #issue_actions, #unblock_body { padding: 0; }
     MarkdownFence { color: $foreground; background: $panel; }
     MarkdownBlockQuote { border: none; background: $panel; }
     MarkdownHorizontalRule { border-bottom: dashed $view-muted; }
@@ -512,6 +495,7 @@ class View(App):
         self.descriptions = descriptions or DescriptionLoads()
         self.local_description = None
         self.issue_load_key = None
+        self.issue_pointers_key = None
         self.unblock_visible = False
         self.unblock_details_key = None
         self.session = None
@@ -559,6 +543,9 @@ class View(App):
                     with PaneScroll():
                         yield Static('Context unavailable.', id='issue_text', markup=False)
                         yield Markdown('', id='issue_body', parser_factory=description_parser, open_links=False)
+                        with Collapsible(title='Pointers', collapsed=True, id='issue_pointers'):
+                            yield Markdown('', id='issue_pointers_body', parser_factory=description_parser, open_links=False)
+                            yield Static('', id='issue_pointers_note', markup=False)
                         yield Markdown('', id='issue_actions', parser_factory=description_parser, open_links=False)
                         yield Static('', id='issue_note', markup=False)
                 with TabPane('3 Runs', id='runs'):
@@ -975,6 +962,9 @@ class View(App):
         self.last_runs = None
         self.local_description = None
         self.issue_load_key = None
+        self.issue_pointers_key = None
+        self.query_one('#issue_pointers', Collapsible).collapsed = True
+        self.query_one('#issue_pointers', Collapsible).display = False
         self.query_one('#issue_text', Static).update('Reading cached context…')
         self.update_runs()
         self.query_one('#issue_body', Markdown).update('')
@@ -1064,6 +1054,17 @@ class View(App):
                 self.descriptions.request(key)
         description = local if local.available else (self.descriptions.get(key) or local)
         row = self.rows.get(self.selected)
+        pointers = description.pointers if row and description.available and not description.error else ''
+        fold = self.query_one('#issue_pointers', Collapsible)
+        fold.display = bool(pointers)
+        markdown = self.query_one('#issue_pointers_body', Markdown)
+        if pointers != markdown.source:
+            markdown.update(pointers)
+        self.update_static(self.query_one('#issue_pointers_note', Static), Text(description.pointers_notice))
+        pointers_key = (key, description.title, description.body_digest, description.incomplete)
+        if pointers_key != self.issue_pointers_key:
+            fold.collapsed = True
+            self.issue_pointers_key = pointers_key
         details = Text()
         muted = theme_style(self, 'view-muted', dim=True)
         for index, (line, secondary) in enumerate(description.detail_lines()):
