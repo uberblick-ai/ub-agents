@@ -274,7 +274,15 @@ Plan snapshots contain no description text. Opening Issue with `2`, a tab click,
 or a selection change while Issue is active loads missing title/body through the
 view's existing GitHub cache and shows `Loading #N…`. Cached reads and run context
 need no repeat request; a cached failure requires `g` to retry. Bodies retain the
-2,048-character limit and separate shortening notice.
+2,048-character limit and separate shortening notice after extracting the first
+Pointers heading and its section into a collapsed fold below the main body.
+Nested headings stay inside the section; fenced code headings do not count.
+The fold renders the same inert Markdown, retains up to 8,192 characters and
+keeps its shortening notice inside. Click its title or focus it and press Enter
+to toggle it. Item or description changes collapse it; unchanged refreshes retain
+its state. Shortened snapshot descriptions warn that Pointers may be missing or
+incomplete, including in a partial fold's title. Extraction changes no delivery
+text, GitHub reads or load triggers.
 
 ### Unblock
 

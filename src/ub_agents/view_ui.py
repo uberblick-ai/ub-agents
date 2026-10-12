@@ -962,9 +962,13 @@ class View(App):
         self.last_runs = None
         self.local_description = None
         self.issue_load_key = None
-        self.issue_pointers_key = None
-        self.query_one('#issue_pointers', Collapsible).collapsed = True
-        self.query_one('#issue_pointers', Collapsible).display = False
+        row = self.rows.get(self.selected)
+        identity = (self.description_key(), row.item if row else None)
+        fold = self.query_one('#issue_pointers', Collapsible)
+        if self.issue_pointers_key is None or self.issue_pointers_key[:2] != identity:
+            self.issue_pointers_key = None
+            fold.collapsed = True
+        fold.display = False
         self.query_one('#issue_text', Static).update('Reading cached context…')
         self.update_runs()
         self.query_one('#issue_body', Markdown).update('')
@@ -1056,12 +1060,14 @@ class View(App):
         row = self.rows.get(self.selected)
         pointers = description.pointers if row and description.available and not description.error else ''
         fold = self.query_one('#issue_pointers', Collapsible)
+        fold.title = 'Pointers (snapshot may be incomplete)' if description.incomplete else 'Pointers'
         fold.display = bool(pointers)
         markdown = self.query_one('#issue_pointers_body', Markdown)
         if pointers != markdown.source:
             markdown.update(pointers)
         self.update_static(self.query_one('#issue_pointers_note', Static), Text(description.pointers_notice))
-        pointers_key = (key, description.title, description.body_digest, description.incomplete)
+        pointers_key = (key, row.item if row else None, description.title,
+                        description.body_digest, description.incomplete)
         if pointers_key != self.issue_pointers_key:
             fold.collapsed = True
             self.issue_pointers_key = pointers_key

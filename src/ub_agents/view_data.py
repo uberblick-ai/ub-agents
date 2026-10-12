@@ -418,14 +418,13 @@ class Description:
         body = description_text(self.body)
         object.__setattr__(self, 'body_digest', sha256(body.encode('utf-8')).hexdigest())
         pointers = ''
-        if self.extract_pointers and 'pointers' in body.casefold():
+        if self.extract_pointers and body:
             from .view_markdown import pointer_sections
             body, pointers = pointer_sections(body)
         pointer_notices = []
         if len(pointers) > POINTERS_LIMIT:
             pointer_notices.append(f'Pointers shortened to {POINTERS_LIMIT:,} characters.')
         if self.incomplete:
-            notices.append(POINTERS_INCOMPLETE)
             pointer_notices.append(POINTERS_INCOMPLETE)
         object.__setattr__(self, 'pointers', pointers[:POINTERS_LIMIT])
         object.__setattr__(self, 'pointers_notice', '\n'.join(pointer_notices))
@@ -438,6 +437,8 @@ class Description:
         if len(error) > DESCRIPTION_LIMIT:
             notices.append('Description load error shortened to 2,048 characters.')
         object.__setattr__(self, 'error', error[:DESCRIPTION_LIMIT])
+        if self.incomplete:
+            notices.append(POINTERS_INCOMPLETE)
         object.__setattr__(self, 'notice', '\n'.join(notices))
 
     def detail_lines(self, now=None):

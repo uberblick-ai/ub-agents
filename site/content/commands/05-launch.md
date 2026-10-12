@@ -121,7 +121,8 @@ without Pointers show no fold. Item or description changes collapse it again;
 unchanged redraws and snapshot refreshes keep its state.
 
 Run context, GitHub and snapshot descriptions all use this extraction. A shortened
-snapshot warns that Pointers may be missing or incomplete. The fold adds no reads
+snapshot warns that Pointers may be missing or incomplete, including in a partial
+fold's title. The fold adds no reads
 or load triggers and keeps the existing response limit. Run context and the issue
 text delivered to agents stay unchanged; the GitHub issue is not edited.
 

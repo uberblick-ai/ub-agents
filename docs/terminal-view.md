@@ -368,7 +368,8 @@ load; unchanged redraws and snapshot refreshes preserve its state.
 
 This extraction applies to run `context.json`, GitHub loads and snapshot text.
 A snapshot marked as shortened warns that the Pointers section may be missing or
-incomplete, even if a partial section is shown. Opening or expanding the fold adds
+incomplete, even if a partial section is shown; a partial fold's title also says
+the snapshot may be incomplete. Opening or expanding the fold adds
 no GitHub reads; existing load triggers, request counts and the response limit
 stay the same. Display extraction does not change run context or the issue text
 delivered to agents, and does not edit the GitHub issue.
@@ -507,7 +508,7 @@ characters stay visibly escaped. Rich/Textual markup such as `[bold]` stays lite
 images, raw HTML and entities display as source text, including in table cells;
 links cannot be opened with the mouse or keyboard, and nothing is fetched.
 The item header stays literal text with only its reference clickable;
-source/age and all notices remain inert literal text. Source/age and shortening
+source/age and all notices remain inert literal text. Source/age and description shortening
 notices use the same muted, dim styling as the header metadata; load errors and
 action notes retain their usual text styling.
 Issue does not repeat the item reference or title in its

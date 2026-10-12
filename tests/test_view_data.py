@@ -725,6 +725,8 @@ class ViewDataTests(unittest.TestCase):
                 description = Description(body=body)
                 self.assertEqual(description.body, body)
                 self.assertEqual(description.pointers, '')
+        formatted = Description(body='# Poi**nte**rs\nreference\n')
+        self.assertEqual(formatted.pointers, '# Poi**nte**rs\nreference\n')
 
     def test_only_first_pointers_section_is_removed_and_limited_separately(self):
         first = '# Pointers\n' + 'x' * POINTERS_LIMIT
