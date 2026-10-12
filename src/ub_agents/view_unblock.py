@@ -117,7 +117,9 @@ def plan_reason(row):
     """Remove observer-added notice text and generated same-role retry prose."""
     reason = description_text(row.reason)
     summary = description_text(text(row.data.get('attention_reason'), ''))
-    if summary and reason.endswith(': ' + summary):
+    prefix = re.match(r'^(?:Last run blocked|Stop label .+? is present): ', reason)
+    start = prefix.end() if prefix else 0
+    if summary and reason[start:].endswith(': ' + summary):
         reason = reason[:-len(': ' + summary)]
     return re.sub(r'; inspect (?:outcome|failures) and use ub-agents retry \d+ --agent \S+ --reason TEXT$', '', reason)
 
@@ -128,14 +130,14 @@ def other_role_context(row, body):
     lead, title, _ = resume_section(visible)
     role = (title.removeprefix('To resume ') if title.startswith('To resume ') else
             title.removeprefix('To send it back to ').removesuffix(' instead'))
-    reasons = {notice_reason(notice_summary(part)) for part in (lead, supporting) if part}
+    reasons = {notice_summary(part) for part in (lead, supporting) if part}
     sections = []
     for agent in row.attention_rows:
         if agent.agent == role:
             continue
-        reason = notice_reason(short_reason(plan_reason(agent).removeprefix('Last run blocked: ')))
+        reason = short_reason(plan_reason(agent).removeprefix('Last run blocked: '))
         if reason and reason not in reasons:
-            sections.append(f'### {agent.agent} · {attention_state(agent)[1]}\n\n{reason}')
+            sections.append(f'### {agent.agent} · {attention_state(agent)[1]}\n\n{notice_reason(reason)}')
     return lead, '\n\n'.join(sections)
 
 

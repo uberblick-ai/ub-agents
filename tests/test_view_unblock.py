@@ -293,8 +293,10 @@ class UnblockDataTests(unittest.TestCase):
         implementer = replace(reviewer, agent='implementer',
                               reason='Resource access is unavailable. Full resource diagnostics: '
                                      'ticket 1234: Preparation needs a decision.')
-        same_cause = replace(reviewer, agent='preparer')
-        row = replace(implementer, attention_rows=(implementer, reviewer, same_cause))
+        same_cause = replace(reviewer, agent='preparer', reason='Last run blocked: Preparation needs a decision.')
+        parked = replace(reviewer, agent='integrator', state='parked',
+                         reason='Stop label `needs-human` is present: Preparation needs a decision.')
+        row = replace(implementer, attention_rows=(implementer, reviewer, same_cause, parked))
         body = unblock_body(row, cached)
         lead, supporting = comment_sections(body)
         lead, title, workflow = resume_section(lead)
@@ -304,12 +306,17 @@ class UnblockDataTests(unittest.TestCase):
         for option in ('Maintainer: accept.', 'Maintainer: revise.'):
             self.assertEqual(lead.count(option), 1)
         self.assertIn('### implementer · blocked\n\nResource access is unavailable.', lead)
-        for absent in ('reviewer · blocked', 'preparer · blocked', 'Full resource diagnostics', 'ticket 1234',
+        for absent in ('reviewer · blocked', 'preparer · blocked', 'integrator · parked', 'Full resource diagnostics', 'ticket 1234',
                        'Review diagnostics', 'Last run blocked'):
             self.assertNotIn(absent, lead)
         self.assertEqual(supporting, summary)
         self.assertEqual(title, 'To resume reviewer')
         self.assertEqual(workflow, 'Restore `needs-review`.')
+        # Sharing a lead sentence does not hide a role with a different blocker.
+        different_cause = replace(same_cause, reason='Last run blocked: Preparation needs a decision. '
+                                 'A separate resource approval is needed.: Preparation needs a decision.')
+        row = replace(row, attention_rows=(reviewer, different_cause))
+        self.assertIn('### preparer · blocked', unblock_body(row, cached))
 
     def test_merged_attention_preserves_every_agent_reason_and_retry_fallback(self):
         first = replace(self.row, agent='reviewer', state='blocked', reason='Earlier review defer',
