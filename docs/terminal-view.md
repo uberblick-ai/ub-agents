@@ -701,6 +701,9 @@ also show a red `✗` line.
 In Claude's formatted pane, a cut-off first record at a tail start or an older
 page's starting byte boundary shows one dim `· earlier output skipped · h older`
 line, with none of its bytes in formatted mode. `h` reads toward earlier output.
+A JSON object that begins on an older page but continues past its end shows a dim
+`· incomplete Claude record omitted · full record in Raw` notice instead of its
+JSON prefix.
 Raw mode retains that fragment's bytes and every record, including hidden progress
 records; the `p` raw-access screen is unchanged.
 
@@ -837,9 +840,9 @@ limit and hidden-entry boundary, plus eviction, skip and shortening counts.
 Press `h` to recover earlier bytes from disk. A paused page is independent of reader
 and renderer retention. Text is limited by the formatter to 2,048 characters per
 projection, with shortening markers. `u` is also a bounded projection: use `p`
-and an external pager for the full raw file. Oversized and split records are never
-interpreted as complete events. Except for the skipped-output marker at a page's
-start, their fragments retain the labelled raw display.
+and an external pager for the full raw file. Claude and Codex use the projections
+and notices described above for oversized and split JSON records. Other fragments
+retain the labelled raw display.
 
 Replacement, rotation and truncation reset the reader without mixing generations.
 A paused older generation remains visibly labelled until follow resumes. Older

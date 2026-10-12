@@ -94,8 +94,9 @@ failures, including a log that disappears after being read, still show `Read err
 Claude image reads and other oversized JSON records use the normal compact Log
 formatting. Successful tool results add no payload line; errors keep their first
 line. An incomplete record shows one notice until its newline arrives, and
-malformed oversized records show a diagnostic pointing to Raw. Raw mode and `p`
-keep access to the original record. See the
+malformed oversized records show a diagnostic pointing to Raw. Older pages also
+omit JSON prefixes that continue past the page's end. Raw mode and `p` keep access
+to the original record. See the
 [Log projection details](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md)
 for the bounds and fragment handling.
 

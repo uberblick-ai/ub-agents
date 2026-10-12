@@ -108,6 +108,9 @@ class ViewReader(LogReader):
                 value = project(bytes(parser.pending), None, kind)
                 if self.runtime == 'codex':
                     value = record_notice(value, 'incomplete Codex record omitted')
+                elif (self.runtime == 'claude' and not parser.raw_kind and
+                      parser.pending.lstrip().startswith(b'{')):
+                    value = record_notice(value, 'incomplete Claude record omitted')
                 refs += (EntryRef(parser.record_start, parser.offset, parser.total_entries + 1,
                                   value),)
             after = os.fstat(stream.fileno())

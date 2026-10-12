@@ -221,6 +221,45 @@ class OversizedClaudeTests(unittest.TestCase):
         self.assertIn('QUJD', page.refs[0].value.display(raw=True))
         self.assertLessEqual(page.end - page.start, PAGE_BYTES)
 
+    def test_history_pages_to_byte_zero_omit_image_json_and_preserve_raw(self):
+        call = record(content=[tool(name='Read')])
+        data = call + encoded(image_result()) + record() * 20
+        self.path.write_bytes(data)
+        reader = ViewReader(self.path, 'claude')
+        plain = ViewReader(self.path, 'command')
+        self.drain(reader)
+        self.drain(plain)
+        page = reader.page()
+        pages = 0
+        while page.start:
+            end = page.start
+            page = reader.older(end, reader.resets)
+            original = plain.older(end, plain.resets)
+            self.assertLess(page.start, end)
+            self.assertEqual(page.end, end)
+            self.assertLessEqual(page.end - page.start, PAGE_BYTES)
+            self.assertLessEqual(len(page.refs), MAX_ENTRIES + 1)
+            self.assertEqual([(ref.start, ref.end) for ref in page.refs],
+                             [(ref.start, ref.end) for ref in original.refs])
+            self.assertEqual([ref.value.raw for ref in page.refs],
+                             [ref.value.raw for ref in original.refs])
+            for ref, old in zip(page.refs, original.refs):
+                if ref.value.kind.startswith('partial '):
+                    self.assertEqual(ref.value.display(raw=True), old.value.display(raw=True))
+                self.assertNotIn('QUJD', ref.value.display())
+                self.assertNotIn('{"type"', ref.value.display())
+            pages += 1
+        self.assertGreater(pages, 1)
+        self.assertEqual(page.refs[0].value.kind, 'tool call')
+        fragment = page.refs[-1]
+        self.assertEqual(fragment.start, len(call))
+        self.assertEqual(fragment.end, page.end)
+        self.assertIn('incomplete Claude record omitted', fragment.value.display())
+        self.assertEqual(fragment.value.styles[-1][2], 'dim')
+        self.assertIn('partial raw record (page end)', fragment.value.display(raw=True))
+        self.assertIn('QUJD', fragment.value.display(raw=True))
+        self.assertEqual(self.path.read_bytes(), data)
+
     def test_oversized_write_and_edit_keep_full_line_counts_and_pair_following_results(self):
         for name in ('Write', 'Edit'):
             for trailing_newline in (False, True):
