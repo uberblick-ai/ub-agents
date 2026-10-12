@@ -11,8 +11,9 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.view import main
-from ub_agents.view_data import (Description, Session, choose_session, item_context, load_session,
-                                 item_header, outcome_text, outcomes_today, read_json, run_status, text, work_pane, work_rows)
+from ub_agents.view_data import (Description, POINTERS_LIMIT, Session, choose_session, item_context, load_session,
+                                 item_header, local_description, outcome_text, outcomes_today, read_json, run_status,
+                                 text, work_pane, work_rows)
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
 from ub_agents.view_worker import LocalWorker, Request
 from ub_agents.config import Queue
@@ -687,6 +688,90 @@ class ViewDataTests(unittest.TestCase):
         self.assertIn('Description shortened', description.details())
         exact = Description('t' * 2048, 'x' * 2048)
         self.assertEqual(exact.notice, '')
+
+    def test_pointers_extracted_before_limit_with_nested_sections_and_following_body(self):
+        lead = '# Work\n' + 'Acceptance criterion.\n' * 150
+        pointers = ('## Pointers\n\n### Corpus\n[corpus](https://example.invalid/corpus)\n\n'
+                    '### Tests\n`tests/test_view_data.py`\n\n')
+        tail = '## Next\nRemaining body\n'
+        description = Description(body=lead + pointers + tail)
+        self.assertEqual(description.body, (lead + tail)[:2048])
+        self.assertEqual(description.pointers, pointers)
+        self.assertNotIn('corpus', description.body)
+        self.assertIn('Description shortened', description.notice)
+        self.assertEqual(description.pointers_notice, '')
+
+    def test_pointer_heading_levels_case_setext_and_fences(self):
+        for level in range(1, 7):
+            with self.subTest(level=level):
+                heading = '#' * level + ' pOiNtErS ###\n'
+                section = heading + 'reference\n'
+                if level < 6:
+                    section += '#' * (level + 1) + ' Nested\nmore references\n'
+                tail = '# End\nmain\n'
+                description = Description(body='intro\n\n' + section + tail)
+                self.assertEqual(description.pointers, section)
+                self.assertEqual(description.body, 'intro\n\n' + tail)
+        for opening, closing in (('```md', '```'), ('~~~~', '~~~~'), ('```', '````')):
+            with self.subTest(fence=opening):
+                lead = f'{opening}\n## Pointers\nfake\n{closing}\n\n'
+                section = 'Pointers\n--------\nreal\n\n'
+                description = Description(body=lead + section + 'End\n===\nmain\n')
+                self.assertEqual(description.pointers, section)
+                self.assertEqual(description.body, lead + 'End\n===\nmain\n')
+        for body in ('## Pointers elsewhere\ntext', '```\n# Pointers\nunclosed fence',
+                     '    ## Pointers\n    indented code', 'ordinary body\n'):
+            with self.subTest(body=body):
+                description = Description(body=body)
+                self.assertEqual(description.body, body)
+                self.assertEqual(description.pointers, '')
+        formatted = Description(body='# Poi**nte**rs\nreference\n')
+        self.assertEqual(formatted.pointers, '# Poi**nte**rs\nreference\n')
+
+    def test_pointers_preserve_unicode_separators_without_shifting_section_lines(self):
+        for separator in ('\u2028', '\u2029'):
+            lead = f'a{separator}b{separator}c\n'
+            section = f'## Pointers\n- first{separator}second\n### Tests\nreference'
+            for ending, tail in (('\n', '## Next\nkeep\n'), ('\n', ''), ('', '')):
+                with self.subTest(separator=repr(separator), ending=ending, tail=tail):
+                    pointers = section + ending
+                    description = Description(body=lead + pointers + tail)
+                    self.assertEqual(description.body, lead + tail)
+                    self.assertEqual(description.pointers, pointers)
+
+    def test_only_first_pointers_section_is_removed_and_limited_separately(self):
+        first = '# Pointers\n' + 'x' * POINTERS_LIMIT
+        tail = '\n# Other\nmain\n# Pointers\nsecond section'
+        description = Description(body=first + tail)
+        self.assertEqual(description.pointers, (first + '\n')[:POINTERS_LIMIT])
+        self.assertEqual(description.body, tail[1:])
+        self.assertEqual(description.notice, '')
+        self.assertEqual(description.pointers_notice, 'Pointers shortened to 8,192 characters.')
+        exact = Description(body='# Pointers\n' + 'x' * (POINTERS_LIMIT - len('# Pointers\n')))
+        self.assertEqual(exact.pointers_notice, '')
+
+    def test_snapshot_pointers_missing_or_partial_are_marked_incomplete(self):
+        for body in ('Main body cut here', '## Pointers\nPartial reference'):
+            with self.subTest(body=body):
+                self.state['latest_pass']['rows'][0]['description'] = {
+                    'available': True, 'text': body, 'omitted_characters': 50}
+                session = Session(self.path, self.state)
+                description = local_description(work_rows(session, self.root)[0], session)
+                self.assertTrue(description.incomplete)
+                self.assertIn('Pointers section may be missing or incomplete', description.notice)
+                self.assertIn('Pointers section may be missing or incomplete', description.pointers_notice)
+
+    def test_context_projection_keeps_delivery_text_unchanged(self):
+        context_path = self.log.parent / 'context.json'
+        body = 'Main\n\n## Pointers\n[reference](https://example.invalid)\n'
+        context = json.dumps({'title': 'Full issue', 'body': body}).encode()
+        context_path.write_bytes(context)
+        snapshot = self.path.read_bytes()
+        session = load_session(self.path)
+        description = local_description(work_rows(session, self.root)[0], session)
+        self.assertEqual(description.pointers, '## Pointers\n[reference](https://example.invalid)\n')
+        self.assertEqual(context_path.read_bytes(), context)
+        self.assertEqual(self.path.read_bytes(), snapshot)
 
     def test_description_detail_lines_preserve_text_age_and_non_metadata_notices(self):
         description = Description(source='run context.json', observed_at=1000,

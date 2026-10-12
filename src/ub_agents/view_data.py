@@ -1,12 +1,14 @@
 """Bounded local inputs for the development view; no workflow authority."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
 import stat
 import time
+from typing import ClassVar
 
 from .log_format import CONTROLS, inert, shorten
 from .run_config import run_directory
@@ -16,6 +18,8 @@ SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
 SESSION_LIMIT = 256
 DESCRIPTION_LIMIT = 2048
+POINTERS_LIMIT = 8192
+POINTERS_INCOMPLETE = 'Pointers section may be missing or incomplete because the snapshot description was shortened.'
 WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Recent activity')
 ELIGIBLE_LIMIT = 10
 
@@ -403,11 +407,29 @@ class Description:
     notice: str = ''
     error: str = ''
     kind: str = ''
+    incomplete: bool = field(default=False, kw_only=True)
+    pointers: str = field(default='', init=False)
+    pointers_notice: str = field(default='', init=False)
+    body_digest: str = field(default='', init=False)
+    extract_pointers: ClassVar[bool] = True
 
     def __post_init__(self):
         notices = [self.notice] if self.notice else []
+        body = description_text(self.body)
+        object.__setattr__(self, 'body_digest', sha256(body.encode('utf-8')).hexdigest())
+        pointers = ''
+        if self.extract_pointers and body:
+            from .view_markdown import pointer_sections
+            body, pointers = pointer_sections(body)
+        pointer_notices = []
+        if len(pointers) > POINTERS_LIMIT:
+            pointer_notices.append(f'Pointers shortened to {POINTERS_LIMIT:,} characters.')
+        if self.incomplete:
+            pointer_notices.append(POINTERS_INCOMPLETE)
+        object.__setattr__(self, 'pointers', pointers[:POINTERS_LIMIT])
+        object.__setattr__(self, 'pointers_notice', '\n'.join(pointer_notices))
         for field, label in (('title', 'Title'), ('body', 'Description')):
-            value = description_text(getattr(self, field))
+            value = body if field == 'body' else description_text(self.title)
             if len(value) > DESCRIPTION_LIMIT:
                 notices.append(f'{label} shortened to 2,048 characters.')
             object.__setattr__(self, field, value[:DESCRIPTION_LIMIT])
@@ -415,6 +437,8 @@ class Description:
         if len(error) > DESCRIPTION_LIMIT:
             notices.append('Description load error shortened to 2,048 characters.')
         object.__setattr__(self, 'error', error[:DESCRIPTION_LIMIT])
+        if self.incomplete:
+            notices.append(POINTERS_INCOMPLETE)
         object.__setattr__(self, 'notice', '\n'.join(notices))
 
     def detail_lines(self, now=None):
@@ -462,7 +486,8 @@ def local_description(row, session):
         age = session.age()
         stamp = time.time() - age if age is not None else None
         notice = 'Description shortened in snapshot.' if description.get('omitted_characters') else ''
-        return Description(title, description['text'], 'snapshot', stamp, True, notice, kind=source.get('kind', ''))
+        return Description(title, description['text'], 'snapshot', stamp, True, notice,
+                           kind=source.get('kind', ''), incomplete=bool(description.get('omitted_characters')))
     context_path = row.context
     if context_path is None:
         # A plan row can refer to the session's current or earlier own run.

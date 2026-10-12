@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import re
 import time
+from typing import ClassVar
 
 from .view_data import Description, attention_agents, attention_context, description_text, mapping, text
 from .attention import attention_state, stamp, waiting_time
@@ -58,6 +59,7 @@ def trust_reason(author, authors):
 
 @dataclass(frozen=True)
 class ActionComment(Description):
+    extract_pointers: ClassVar[bool] = False
     created_at: str = ''
     author: str = ''
     comment_id: str = ''

@@ -21,10 +21,11 @@ from tests.support import MemoryPublisher, RecordingDescriptionTransport, agent,
 from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
+from ub_agents.view_data import POINTERS_LIMIT
 
 from textual import messages
 from textual.geometry import Size
-from textual.widgets import Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
+from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, MilestoneNotice, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
@@ -2424,6 +2425,165 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await pilot.press('q')
                 app.worker.thread.join(2)
 
+    async def test_pointers_from_every_source_survive_main_body_limit_and_are_inert(self):
+        lead = '# Work\n\n' + 'Acceptance criterion.\n' * 150
+        pointers = ('## Pointers\n\n### Corpus\n- **Corpus** [reference](https://example.invalid)\n\n'
+                    '### Tests\n`tests/test_view_ui.py`\n\n'
+                    '<b>HTML</b> ![image](https://example.invalid/image.png) &#27;\n'
+                    '\n```text\nreference\x1b[31m\n```\n')
+        expected = pointers.replace('\x1b', r'\x1b')
+        for source in ('snapshot', 'run context.json', 'GitHub'):
+            with self.subTest(source=source):
+                self.path, self.log, self.state = fixture(self.root)
+                transport = self.description_source(source, 'Title', lead + pointers)
+                app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                with patch.object(app, 'open_url', side_effect=AssertionError('opened link')), \
+                     patch.object(Markdown, 'load', side_effect=AssertionError('loaded link')), \
+                     patch('subprocess.Popen', side_effect=AssertionError('unexpected process')):
+                    async with app.run_test(size=(110, 32)) as pilot:
+                        await self.ready(app, pilot)
+                        await pilot.press('2')
+                        await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
+                        fold = app.query_one('#issue_pointers', Collapsible)
+                        markdown = app.query_one('#issue_pointers_body', Markdown)
+                        self.assertTrue(fold.display)
+                        self.assertTrue(fold.collapsed)
+                        self.assertEqual(app.query_one('#issue_body', Markdown).source, lead[:2048])
+                        self.assertEqual(markdown.source, expected)
+                        self.assertIn('Description shortened', app.query_one('#issue_note', Static).render().plain)
+                        fold.query_one('CollapsibleTitle').focus()
+                        await pilot.press('enter')
+                        await self.ready(app, pilot, lambda: not fold.collapsed)
+                        await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH3')) == 2)
+                        paragraphs = [block.render() for block in markdown.query('MarkdownParagraph')]
+                        rendered = '\n'.join(part.plain for part in paragraphs)
+                        self.assertIn('[reference](https://example.invalid)', rendered)
+                        self.assertIn('<b>HTML</b>', rendered)
+                        self.assertIn('![image](https://example.invalid/image.png) &#27;', rendered)
+                        self.assertTrue(all(isinstance(span.style, str) or not span.style.meta
+                                            for part in paragraphs for span in part.spans))
+                        self.assertIn(r'\x1b[31m', markdown.query_one('MarkdownFence').code)
+                        markdown.post_message(Markdown.LinkClicked(markdown, 'https://example.invalid'))
+                        await pilot.press('enter')
+                        await self.ready(app, pilot, lambda: fold.collapsed)
+                        self.assertEqual(len(transport.calls), 1 if source == 'GitHub' else 0)
+                        await pilot.press('q')
+                app.worker.thread.join(2)
+
+    async def test_pointers_state_survives_redraw_refresh_and_resets_on_description_and_selection(self):
+        body = 'Main\n\n## Pointers\nfirst reference\n'
+        transport = self.description_source('snapshot', 'Title', body)
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('2')
+            fold = app.query_one('#issue_pointers', Collapsible)
+            await self.ready(app, pilot, lambda: fold.display)
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            self.assertFalse(fold.collapsed)
+            app.update_issue()
+            app.refresh()
+            self.state['published_at'] = datetime.now(timezone.utc).isoformat()
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.session.data['published_at'] == self.state['published_at'])
+            self.assertFalse(fold.collapsed)
+            # Even a change beyond the Pointers limit is a description change.
+            long_body = body + 'x' * POINTERS_LIMIT
+            self.state['latest_pass']['rows'][0]['description']['text'] = long_body
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.local_description.pointers_notice)
+            self.assertTrue(fold.collapsed)
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            self.state['latest_pass']['rows'][0]['description']['text'] = long_body + 'changed'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: fold.collapsed)
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            app.select('plan:12')
+            self.assertTrue(fold.collapsed)
+            self.assertFalse(fold.display)
+            await self.ready(app, pilot, lambda: app.local_description is not None)
+            app.select('assignment:owned-run')
+            await self.ready(app, pilot, lambda: fold.display)
+            self.assertTrue(fold.collapsed)
+            self.assertEqual(app.query_one('#issue_pointers_body', Markdown).source,
+                             ('## Pointers\nfirst reference\n' + 'x' * POINTERS_LIMIT)[:POINTERS_LIMIT])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_pointers_keep_state_when_refresh_moves_same_item_between_plan_sections(self):
+        transport = self.description_source('snapshot', 'Title', 'Main\n\n## Pointers\nreference\n')
+        self.state['latest_pass']['rows'][1].update(
+            title='Title', description=self.state['latest_pass']['rows'][0]['description'].copy())
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            app.select('plan:12')
+            await pilot.press('2')
+            fold = app.query_one('#issue_pointers', Collapsible)
+            await self.ready(app, pilot, lambda: fold.display)
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            self.assertFalse(fold.collapsed)
+            self.state['latest_pass']['rows'][1]['state'] = 'parked'
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.selected == 'plan:12:attention' and fold.display)
+            self.assertFalse(fold.collapsed)
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_pointers_limit_notice_stays_inside_fold_after_cut_code_fence(self):
+        pointers = '## Pointers\n\n```text\n' + 'x' * POINTERS_LIMIT + '\n```'
+        transport = self.description_source('run context.json', 'Title', 'Main\n\n' + pointers)
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('2')
+            fold = app.query_one('#issue_pointers', Collapsible)
+            await self.ready(app, pilot, lambda: fold.display)
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            markdown = app.query_one('#issue_pointers_body', Markdown)
+            note = app.query_one('#issue_pointers_note', Static)
+            await self.ready(app, pilot, lambda: len(markdown.query('MarkdownFence')) == 1)
+            self.assertEqual(markdown.source, pointers[:POINTERS_LIMIT])
+            self.assertIn('Pointers shortened to 8,192 characters.', note.render().plain)
+            self.assertIn(fold, note.ancestors)
+            self.assertNotIn('shortened', markdown.query_one('MarkdownFence').code)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_shortened_snapshot_warns_about_missing_or_partial_pointers_without_extra_requests(self):
+        for body in ('Main without pointers', 'Main\n\n## Pointers\npartial reference'):
+            with self.subTest(body=body):
+                self.path, self.log, self.state = fixture(self.root)
+                transport = self.description_source('snapshot', 'Title', body)
+                self.state['latest_pass']['rows'][0]['description']['omitted_characters'] = 3000
+                publish_snapshot(self.path, self.state)
+                app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+                async with app.run_test(size=(110, 32)) as pilot:
+                    await self.ready(app, pilot)
+                    await pilot.press('2')
+                    await self.ready(app, pilot, lambda: 'may be missing' in (app.last_context or ''))
+                    self.assertIn('Pointers section may be missing or incomplete',
+                                  app.query_one('#issue_note', Static).render().plain)
+                    fold = app.query_one('#issue_pointers', Collapsible)
+                    self.assertEqual(fold.display, '## Pointers' in body)
+                    if fold.display:
+                        self.assertEqual(fold.title, 'Pointers (snapshot may be incomplete)')
+                        fold.query_one('CollapsibleTitle').focus()
+                        await pilot.press('enter')
+                        self.assertIn('Pointers section may be missing or incomplete',
+                                      app.query_one('#issue_pointers_note', Static).render().plain)
+                    await pilot.press('g')
+                    self.assertEqual(transport.calls, [])
+                    await pilot.press('q')
+                app.worker.thread.join(2)
+
     async def test_shortened_code_fence_keeps_plain_notice_for_every_source(self):
         body = '# Start\n\n```text\n' + 'x' * 3000 + '\n```\nEnd'
         for source in ('snapshot', 'run context.json', 'GitHub'):
@@ -2436,6 +2596,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press('2', 'g')
                     await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
                     markdown = app.query_one('#issue_body', Markdown)
+                    self.assertFalse(app.query_one('#issue_pointers', Collapsible).display)
                     await self.ready(app, pilot, lambda: len(markdown.query('MarkdownFence')) == 1)
                     self.assertEqual(markdown.source, body[:2048])
                     self.assertNotIn('shortened', markdown.query_one('MarkdownFence').code)
@@ -2472,10 +2633,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         app.theme = theme
                         await pilot.pause()
                         value = note.render()
-                        metadata, action = value.plain.split('\nGitHub cooldown')
+                        metadata, action = value.plain.split('\nPointers section')
                         self.assertIn('Source: snapshot · 0s old', metadata)
                         self.assertIn('Title shortened to 2,048 characters.', metadata)
                         self.assertIn('Description shortened in snapshot.', metadata)
+                        self.assertIn('may be missing or incomplete', action)
+                        self.assertIn('GitHub cooldown', action)
                         for offset, char in enumerate(value.plain):
                             if not char.isspace():
                                 style = value.get_style_at_offset(offset)
@@ -2499,7 +2662,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                     target.append(segment.text)
                         self.assertEqual(''.join(''.join(secondary).split()), ''.join(metadata.split()))
                         self.assertEqual(''.join(''.join(ordinary).split()),
-                                         ''.join(('GitHub cooldown' + action).split()))
+                                         ''.join(('Pointers section' + action).split()))
                         body = app.query_one('#issue_body MarkdownParagraph')
                         self.assertEqual(body.render().plain, 'Issue body stays bright.')
                         for line in body.render_lines(body.size.region):

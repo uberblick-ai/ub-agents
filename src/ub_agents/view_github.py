@@ -11,7 +11,7 @@ import signal
 import subprocess
 import time
 
-from .view_data import Description, mapping
+from .view_data import Description, description_text, mapping
 from .launcher_code import descriptors, helper_command
 from .view_unblock import ACTION_MARKER, ActionComment, comment_body, stamp, trust_reason
 
@@ -47,8 +47,10 @@ class Response:
     action: ActionComment | None = None
 
     def __post_init__(self):
-        description = Description(self.title, self.body, notice=self.notice, error=self.error)
-        for field in ('title', 'body', 'notice', 'error'):
+        # Keep the bounded transport's full body until the cache extracts Pointers.
+        description = Description(self.title, notice=self.notice, error=self.error)
+        object.__setattr__(self, 'body', description_text(self.body))
+        for field in ('title', 'notice', 'error'):
             object.__setattr__(self, field, getattr(description, field))
 
 

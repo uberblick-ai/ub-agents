@@ -355,6 +355,25 @@ the view's description cache. While pending, it shows `Loading #N…`. An availa
 run `context.json` or cached GitHub result needs no read, including an empty or
 shortened body. Reopening Issue never retries a cached failure; press `g` to retry.
 
+Issue extracts the first Markdown heading named `Pointers` (case-insensitive, at
+any level) before shortening the main body to 2,048 characters. Headings inside
+code fences do not count. The section ends at the next heading of the same or a
+higher level, keeping nested subsections inside it. Its text appears only in a
+collapsed **Pointers** fold below the main body, with the same inert Markdown and
+link rules. No section means no fold. Click its title or focus it and press Enter
+to expand or collapse it. Pointers have a separate 8,192-character limit; a
+shortening notice stays inside the fold, outside its Markdown. Selecting another
+item or changing its description collapses it again, including after a GitHub
+load; unchanged redraws and snapshot refreshes preserve its state.
+
+This extraction applies to run `context.json`, GitHub loads and snapshot text.
+A snapshot marked as shortened warns that the Pointers section may be missing or
+incomplete, even if a partial section is shown; a partial fold's title also says
+the snapshot may be incomplete. Opening or expanding the fold adds
+no GitHub reads; existing load triggers, request counts and the response limit
+stay the same. Display extraction does not change run context or the issue text
+delivered to agents, and does not edit the GitHub issue.
+
 Unblock shows the latest trusted action-needed comment for a parked or blocked
 item, including an exhausted attempt limit. Its bold header keeps the item
 reference and title. Its dim second line shows each contributing agent and the
@@ -489,7 +508,7 @@ characters stay visibly escaped. Rich/Textual markup such as `[bold]` stays lite
 images, raw HTML and entities display as source text, including in table cells;
 links cannot be opened with the mouse or keyboard, and nothing is fetched.
 The item header stays literal text with only its reference clickable;
-source/age and all notices remain inert literal text. Source/age and shortening
+source/age and all notices remain inert literal text. Source/age and description shortening
 notices use the same muted, dim styling as the header metadata; load errors and
 action notes retain their usual text styling.
 Issue does not repeat the item reference or title in its
@@ -816,8 +835,9 @@ launcher and Ctrl-C interrupts it; either key closes only a standalone view.
 
 Descriptions show their source and age: run context file modification time or
 GitHub load completion time; missing local timestamps
-say age unavailable. Each title/body projection is limited to 2,048 characters
-plus a visible shortening notice. Successful and failed GitHub reads stay only
+say age unavailable. Each title/main-body projection is limited to 2,048 characters
+plus a visible shortening notice; the separate Pointers fold retains up to 8,192
+characters with its own notice. Successful and failed GitHub reads stay only
 in memory, in a 128-item least-recently-used cache shared by Issue and Unblock across rows for the same
 repository/item. Revisiting a cached item never calls GitHub; a failed read needs
 `g` to retry. Evicted items can load again through `g` or opening the relevant tab.
