@@ -780,6 +780,28 @@ class ViewLogTests(unittest.TestCase):
         self.assertIn('partial raw record (page end)', fragment.display(raw=True))
         self.assertNotIn('earlier output skipped', fragment.display(raw=True))
 
+    def test_older_page_end_omits_json_prefix_and_keeps_non_json_raw(self):
+        for prefix in (b'{"type": "assistant", ', b' \t{"type": "assistant", ', b'plain output '):
+            with self.subTest(prefix=prefix):
+                data = prefix + b'x' * PAGE_BYTES * 2 + b'\n'
+                self.log.write_bytes(data)
+                reader = ViewReader(self.log, 'claude')
+                self.drain(reader)
+                end = len(prefix) + 100
+                page = reader.older(end, reader.resets)
+                self.assertEqual((page.start, page.end), (0, end))
+                self.assertEqual(len(page.refs), 1)
+                fragment = page.refs[0]
+                self.assertEqual((fragment.start, fragment.end), (0, end))
+                self.assertEqual(fragment.value.raw, data[:end].decode().replace('\t', r'\t'))
+                self.assertIn('partial raw record (page end)', fragment.value.display(raw=True))
+                if prefix == b'plain output ':
+                    self.assertIn(data[:end].decode(), fragment.value.display())
+                else:
+                    self.assertIn('incomplete Claude record omitted', fragment.value.display())
+                    self.assertEqual(fragment.value.styles[-1][2], 'dim')
+                    self.assertNotIn('{"type"', fragment.value.display())
+
     def test_older_page_skips_cut_off_init_and_folds_latest_tool_progress(self):
         from tests.test_log_reader import record, progress, result, tool
         init = json.dumps({'type': 'system', 'subtype': 'init', 'tools': ['private-tool'] * 5000}).encode() + b'\n'

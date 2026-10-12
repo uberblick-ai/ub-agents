@@ -91,6 +91,15 @@ While a new run's log file has not appeared yet, Log shows `No log output yet.`
 without a read error and follows output automatically once it appears. Other read
 failures, including a log that disappears after being read, still show `Read error`.
 
+Claude image reads and other oversized JSON records use the normal compact Log
+formatting. Successful tool results add no payload line; errors keep their first
+line. An incomplete record shows one notice until its newline arrives, and
+malformed oversized records show a diagnostic pointing to Raw. Older pages also
+omit JSON prefixes that continue past the page's end. Raw mode and `p` keep access
+to the original record. See the
+[Log projection details](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md)
+for the bounds and fragment handling.
+
 Open Issue with `2`, a tab click, or select another item while Issue is active to
 load its missing title and description from GitHub. It shows `Loading #N…` while
 the read is pending, then caches the result. Reopening a cached item makes no read;

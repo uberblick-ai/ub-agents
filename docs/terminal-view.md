@@ -701,9 +701,29 @@ also show a red `✗` line.
 In Claude's formatted pane, a cut-off first record at a tail start or an older
 page's starting byte boundary shows one dim `· earlier output skipped · h older`
 line, with none of its bytes in formatted mode. `h` reads toward earlier output.
-Raw mode retains that fragment's bytes and every record, including hidden progress records;
-the `p` raw-access screen is unchanged. Other split, oversized, unfinished and
-non-JSON fragments keep their labelled raw display.
+A JSON object that begins on an older page but continues past its end shows a dim
+`· incomplete Claude record omitted · full record in Raw` notice instead of its
+JSON prefix.
+Raw mode retains that fragment's bytes and every record, including hidden progress
+records; the `p` raw-access screen is unchanged.
+
+Oversized Claude JSON objects produce one compact projection when their JSON can
+be validated within the existing bounds. Successful tool results, including
+images, add no payload line; base64 and other result content stay in Raw. Failed
+results keep their red `✗` and first error line, with the usual tool-name pairing.
+Assistant text, tool calls and unfamiliar types or blocks render as for smaller
+records, with long text shortened.
+
+While an oversized record is arriving, Formatted shows one dim
+`· incomplete Claude record omitted · full record in Raw` line. Its newline
+replaces that line with the projection, and the next record formats normally.
+Oversized non-object lines, malformed or truncated JSON, excessive nesting and
+JSON structure that exceeds the validation budget show one dim
+`· oversized Claude record omitted · full record in Raw` diagnostic. Raw mode
+retains every bounded fragment with its existing labels, escaping and shortening;
+the original bytes on disk are unchanged. Incremental validation keeps bounded
+state without changing read, record, pending-buffer, entry or page limits.
+Other unfinished and non-JSON fragments keep their labelled raw display.
 
 Codex's formatted Log pane uses the same time column, symbols, assistant styling,
 red failures, escaping and projection limits. It is checked against complete,
@@ -820,9 +840,9 @@ limit and hidden-entry boundary, plus eviction, skip and shortening counts.
 Press `h` to recover earlier bytes from disk. A paused page is independent of reader
 and renderer retention. Text is limited by the formatter to 2,048 characters per
 projection, with shortening markers. `u` is also a bounded projection: use `p`
-and an external pager for the full raw file. Oversized and split records are never
-interpreted as complete events. Except for the skipped-output marker at a page's
-start, their fragments retain the labelled raw display.
+and an external pager for the full raw file. Claude and Codex use the projections
+and notices described above for oversized and split JSON records. Other fragments
+retain the labelled raw display.
 
 Replacement, rotation and truncation reset the reader without mixing generations.
 A paused older generation remains visibly labelled until follow resumes. Older

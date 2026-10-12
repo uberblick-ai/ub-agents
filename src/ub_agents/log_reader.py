@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import stat
 
-from .log_format import (ClaudeFormatter, CodexFormatter, Entry, MAX_RECORD, codex_notice,
+from .log_format import (ClaudeFormatter, CodexFormatter, Entry, MAX_RECORD, record_notice,
                          entry, inert, raw_entry, shorten, skipped_entry, with_elapsed)
 from .log_json import BoundedJSON
 
@@ -72,7 +72,7 @@ class LogReader:
         self.pending = bytearray()
         self.capture = None
         self.raw_kind = None
-        self.codex_json = None
+        self.record_json = None
         self.offset = self.initial_size = self.size = 0
         self.file_id = None
         self.anchor = b""
@@ -100,7 +100,7 @@ class LogReader:
         self._tail_start = self.offset > 0
         self.pending.clear()
         self.capture = self.raw_kind = None
-        self.codex_json = None
+        self.record_json = None
         self.anchor = b""
         self.formatter.reset()
         self.generation_start = self.total_entries
@@ -128,10 +128,10 @@ class LogReader:
         trailing = b""
         kind = self.raw_kind
         boundary = self.runtime == 'codex' and kind and kind.startswith('partial ')
-        if (oversized and self.runtime == 'codex' and not kind and
+        if (oversized and self.runtime in ('claude', 'codex') and not kind and
                 raw.lstrip().startswith(b'{')):
-            self.codex_json = BoundedJSON()
-            self.codex_json.feed(raw)
+            self.record_json = BoundedJSON()
+            self.record_json.feed(raw)
         if oversized:
             if not kind:
                 kind = "oversized raw fragment (>128 KiB)"
@@ -145,7 +145,7 @@ class LogReader:
             trailing, _ = decoder.getstate()
             if trailing:
                 raw = raw[:-len(trailing)]
-        if kind and self.codex_json is None:
+        if kind and self.record_json is None:
             self.formatter.last_call = None
         skipped = self.runtime == "claude" and kind in (
             "partial first raw record (tail start)",
@@ -154,18 +154,21 @@ class LogReader:
                  raw_entry(raw, self.capture, kind) if kind else
                  self.formatter.decode(raw, self.capture) if self.runtime in ("claude", "codex") else
                  raw_entry(raw, self.capture))
-        if self.codex_json is not None or boundary:
+        claude_span = self.runtime == 'claude' and kind and kind.startswith('oversized ')
+        if self.record_json is not None or boundary or claude_span:
             original = raw_entry(raw, self.capture, kind)
             if oversized:
                 # Preserve each bounded raw fragment, but give the span just one
                 # formatted preview until its terminating newline arrives.
                 value = replace(original, text='', compact=True)
             elif boundary:
-                value = codex_notice(original, 'earlier Codex output omitted')
-            else:
-                value = self.formatter.oversized(self.codex_json, b'', self.capture)
+                value = record_notice(original, 'earlier Codex output omitted')
+            elif self.record_json is not None:
+                value = self.formatter.oversized(self.record_json, b'', self.capture)
                 value = replace(value, raw=original.raw, raw_kind=original.kind,
                                 shortened=value.shortened or original.shortened)
+            else:
+                value = record_notice(original, 'oversized Claude record omitted')
         self._append(value, end)
         if end is not None:
             self.record_start = end - len(trailing)
@@ -183,14 +186,14 @@ class LogReader:
             take = min(end - index, MAX_RECORD - len(self.pending))
             piece = chunk[index:index + take]
             self.pending.extend(piece)
-            if self.codex_json is not None:
-                self.codex_json.feed(piece)
+            if self.record_json is not None:
+                self.record_json.feed(piece)
             index += take
             if index < len(chunk) and chunk[index] == 10:
                 self._emit(end=self.offset + index + 1)
                 index += 1
                 self.capture = self.raw_kind = None
-                self.codex_json = None
+                self.record_json = None
             elif len(self.pending) == MAX_RECORD and index < len(chunk):
                 self._emit(oversized=True, end=self.offset + index)
             else:
@@ -198,14 +201,18 @@ class LogReader:
         return index
 
     def preview(self):
-        """Unfinished Codex spans have one notice; their bytes remain in Raw."""
+        """Unfinished projected spans have one notice; their bytes remain in Raw."""
         boundary = self.runtime == 'codex' and self.raw_kind and self.raw_kind.startswith('partial ')
-        if not self.pending and self.codex_json is None and not boundary:
+        claude_span = (self.runtime == 'claude' and self.raw_kind and
+                       self.raw_kind.startswith('oversized '))
+        if not self.pending and self.record_json is None and not boundary and not claude_span:
             return None
         value = raw_entry(bytes(self.pending), self.capture,
                           self.raw_kind or "unfinished raw record")
         if self.runtime == 'codex':
-            return codex_notice(value, 'incomplete Codex record omitted')
+            return record_notice(value, 'incomplete Codex record omitted')
+        if claude_span:
+            return record_notice(value, 'incomplete Claude record omitted')
         return value
 
     def snapshot(self):
