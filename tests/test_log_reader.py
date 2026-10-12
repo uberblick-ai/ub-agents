@@ -145,11 +145,13 @@ class FormattingTests(unittest.TestCase):
                 self.assertLessEqual(len(display), MAX_TEXT)
                 self.assertIn(SHORTENED, display)
 
-    def test_oversized_valid_json_is_never_interpreted(self):
+    def test_oversized_valid_json_has_a_bounded_projection(self):
         raw = record(content=[{"type": "text", "text": "a" * MAX_RECORD}])
         value = self.decode(raw)
-        self.assertIn("oversized raw", value.kind)
-        self.assertIsNone(value.event)
+        self.assertEqual(value.kind, "assistant")
+        self.assertTrue(value.compact)
+        self.assertIn(SHORTENED, value.text)
+        self.assertLessEqual(len(value.text), MAX_TEXT)
 
     def test_only_aware_iso_producer_timestamps_are_accepted(self):
         valid = self.decode(record(timestamp="2026-10-03T14:00:00+02:00"))
@@ -374,6 +376,8 @@ class ReadingTests(unittest.TestCase):
         snapshot = self.drain(reader)
         fragments = snapshot.entries[:-1]
         self.assertTrue(all("oversized raw" in e.kind for e in fragments))
+        self.assertEqual(sum(bool(e.text) for e in fragments), 1)
+        self.assertIn("full record in Raw", fragments[-1].text)
         self.assertEqual(snapshot.entries[-1].kind, "assistant")
         self.assertGreater(snapshot.shortened_entries, 0)
         self.assertTrue(all(len(e.display()) <= MAX_TEXT for e in snapshot.entries))
@@ -397,8 +401,9 @@ class ReadingTests(unittest.TestCase):
         snapshot = self.drain(reader)
         self.assertEqual(len(snapshot.entries), 2)
         self.assertTrue(all("oversized raw" in e.kind for e in snapshot.entries))
-        self.assertTrue(all("\ufffd" not in e.text for e in snapshot.entries))
-        self.assertEqual(snapshot.entries[-1].text, "€café")
+        self.assertTrue(all("\ufffd" not in e.raw for e in snapshot.entries))
+        self.assertEqual(snapshot.entries[-1].raw, "€café")
+        self.assertIn("full record in Raw", snapshot.entries[-1].text)
 
     def test_no_newline_flood_bounds_pending_and_labels_shortened_preview(self):
         reader = self.reader()
@@ -406,7 +411,9 @@ class ReadingTests(unittest.TestCase):
         snapshot = self.drain(reader)
         self.assertLessEqual(snapshot.pending_bytes, MAX_RECORD)
         self.assertIn("oversized raw", snapshot.unfinished.kind)
-        self.assertIn(SHORTENED, snapshot.unfinished.display())
+        self.assertIn("incomplete Claude record omitted", snapshot.unfinished.display())
+        self.assertIn(SHORTENED, snapshot.unfinished.display(raw=True))
+        self.assertTrue(all(not e.text for e in snapshot.entries))
         self.assertGreater(snapshot.shortened_entries, 0)
 
     def test_truncation_discards_old_unfinished_bytes_and_capture_time(self):

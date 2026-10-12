@@ -449,7 +449,7 @@ class CodexReadingTests(unittest.TestCase):
         self.assertTrue(all(entry.text == '' for entry in unfinished.entries))
         self.assertIn('incomplete Codex record omitted', unfinished.unfinished.text)
         self.assertEqual(unfinished.unfinished.styles[-1][2], 'dim')
-        self.assertIsNotNone(reader.codex_json)
+        self.assertIsNotNone(reader.record_json)
         self.append(b'\n' + encoded(recorded_item('agent_message')))
         finished = self.drain(reader)
         visible = [entry for entry in finished.entries if entry.text]
@@ -457,7 +457,7 @@ class CodexReadingTests(unittest.TestCase):
         self.assertEqual(visible[0].event, NOW.isoformat())
         self.assertFalse(any('omitted' in entry.text for entry in finished.entries))
         self.assertNotIn('\ufffd', ''.join(entry.display(raw=True) for entry in finished.entries))
-        self.assertIsNone(reader.codex_json)
+        self.assertIsNone(reader.record_json)
         self.assertIsNone(finished.unfinished)
         self.assertEqual(self.path.read_bytes(), raw + encoded(recorded_item('agent_message')))
         # Compare every raw fragment to the unchanged plain-runtime reader.

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import os
 import stat
 
-from .log_format import codex_notice, raw_entry, skipped_entry
+from .log_format import record_notice, raw_entry, skipped_entry
 from .log_reader import ANCHOR_BYTES, EntryRef, LogReader, MAX_ENTRIES, READ_BUDGET
 
 PAGE_BYTES = READ_BUDGET
@@ -107,7 +107,7 @@ class ViewReader(LogReader):
                            'page boundary' in parser.raw_kind else raw_entry)
                 value = project(bytes(parser.pending), None, kind)
                 if self.runtime == 'codex':
-                    value = codex_notice(value, 'incomplete Codex record omitted')
+                    value = record_notice(value, 'incomplete Codex record omitted')
                 refs += (EntryRef(parser.record_start, parser.offset, parser.total_entries + 1,
                                   value),)
             after = os.fstat(stream.fileno())

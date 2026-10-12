@@ -2,8 +2,8 @@
 
 Based on the accepted #111 Claude adapter and standard-library pretty-printer.
 Codex shapes are checked against the owned 0.160.0 JSONL recordings.
-Other runtimes and non-JSON diagnostics retain their raw display. Codex records
-and boundary spans have bounded, compact projections even when oversized.
+Other runtimes retain their raw display. Claude and Codex JSON records have
+bounded, compact projections even when oversized.
 """
 
 from collections import OrderedDict
@@ -98,7 +98,7 @@ def skipped_entry(raw, capture, kind):
     return replace(original, text=text, compact=True, styles=((10, len(text), "dim"),))
 
 
-def codex_notice(original, text):
+def record_notice(original, text):
     text = _time_column(None, original.capture) + "· " + text + " · full record in Raw"
     return replace(original, text=text, compact=True, styles=((10, len(text), "dim"),),
                    raw_kind=original.raw_kind or original.kind)
@@ -135,6 +135,9 @@ def _one_line(value, limit=160):
 
 
 def _line_count(value):
+    from .log_json import ShortenedText
+    if isinstance(value, ShortenedText):
+        return value.lines
     return value.count("\n") + (1 if value and not value.endswith("\n") else 0)
 
 
@@ -258,7 +261,7 @@ class StructuredFormatter:
         except (ValueError, TypeError, RecursionError, OverflowError):
             if oversized:
                 self.last_call = None
-                return codex_notice(raw_entry(raw, capture), "oversized Codex record omitted")
+                return record_notice(raw_entry(raw, capture), "oversized Codex record omitted")
             # A complete JSON object always has a compact fallback, even when a
             # known record has an unfamiliar shape. Never print its JSON here.
             kind, lines, calls, last_call = "other", [self._label(data)], [], None
@@ -289,6 +292,27 @@ class StructuredFormatter:
 
 class ClaudeFormatter(StructuredFormatter):
     _progress = staticmethod(_progress)
+
+    def decode(self, raw, capture=None):
+        if len(raw) <= MAX_RECORD:
+            return super().decode(raw, capture)
+        if not raw.lstrip().startswith(b'{'):
+            self.last_call = None
+            return record_notice(raw_entry(raw, capture, "oversized raw fragment (>128 KiB)"),
+                                 "oversized Claude record omitted")
+        from .log_json import BoundedJSON
+        parser = BoundedJSON()
+        for index in range(0, len(raw), 32 * 1024):
+            parser.feed(raw[index:index + 32 * 1024])
+        return self.oversized(parser, raw, capture)
+
+    def oversized(self, parser, raw, capture=None):
+        data = parser.finish()
+        if data is None:
+            self.last_call = None
+            return record_notice(raw_entry(raw, capture), "oversized Claude record omitted")
+        # Unfamiliar valid shapes use the same labels as smaller Claude records.
+        return self.project(data, raw, capture)
 
     def _project(self, data):
         kind = data.get("type")
@@ -398,7 +422,7 @@ class CodexFormatter(StructuredFormatter):
         if len(raw) <= MAX_RECORD or not raw.lstrip().startswith(b'{'):
             value = super().decode(raw, capture)
             if not value.compact and raw.lstrip().startswith(b'{'):
-                return codex_notice(value, "incomplete or unrecognized Codex record omitted")
+                return record_notice(value, "incomplete or unrecognized Codex record omitted")
             return value
         from .log_json import BoundedJSON
         parser = BoundedJSON()
@@ -416,7 +440,7 @@ class CodexFormatter(StructuredFormatter):
         if data is None or not _identifier(data.get('type')) or any(
                 isinstance(label, ShortenedText) for label in labels):
             self.last_call = None
-            return codex_notice(raw_entry(raw, capture), "oversized Codex record omitted")
+            return record_notice(raw_entry(raw, capture), "oversized Codex record omitted")
         return self.project(data, raw, capture, oversized=True)
 
     @staticmethod

@@ -701,9 +701,26 @@ also show a red `✗` line.
 In Claude's formatted pane, a cut-off first record at a tail start or an older
 page's starting byte boundary shows one dim `· earlier output skipped · h older`
 line, with none of its bytes in formatted mode. `h` reads toward earlier output.
-Raw mode retains that fragment's bytes and every record, including hidden progress records;
-the `p` raw-access screen is unchanged. Other split, oversized, unfinished and
-non-JSON fragments keep their labelled raw display.
+Raw mode retains that fragment's bytes and every record, including hidden progress
+records; the `p` raw-access screen is unchanged.
+
+Oversized Claude JSON objects produce one compact projection when their JSON can
+be validated within the existing bounds. Successful tool results, including
+images, add no payload line; base64 and other result content stay in Raw. Failed
+results keep their red `✗` and first error line, with the usual tool-name pairing.
+Assistant text, tool calls and unfamiliar types or blocks render as for smaller
+records, with long text shortened.
+
+While an oversized record is arriving, Formatted shows one dim
+`· incomplete Claude record omitted · full record in Raw` line. Its newline
+replaces that line with the projection, and the next record formats normally.
+Oversized non-object lines, malformed or truncated JSON, excessive nesting and
+JSON structure that exceeds the validation budget show one dim
+`· oversized Claude record omitted · full record in Raw` diagnostic. Raw mode
+retains every bounded fragment with its existing labels, escaping and shortening;
+the original bytes on disk are unchanged. Incremental validation keeps bounded
+state without changing read, record, pending-buffer, entry or page limits.
+Other unfinished and non-JSON fragments keep their labelled raw display.
 
 Codex's formatted Log pane uses the same time column, symbols, assistant styling,
 red failures, escaping and projection limits. It is checked against complete,

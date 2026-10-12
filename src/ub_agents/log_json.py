@@ -14,6 +14,11 @@ from .log_format import MAX_RECORD, MAX_TEXT, SHORTENED
 class ShortenedText(str):
     """A validated string whose middle was omitted before projection."""
 
+    def __new__(cls, value, lines):
+        result = super().__new__(cls, value)
+        result.lines = lines
+        return result
+
 
 def _object(pairs):
     result = {}
@@ -35,7 +40,9 @@ class BoundedJSON:
         self.unicode = None
         self.surrogate = None
         self.length = self.depth = self.strings = 0
-        self.cuts = set()
+        self.newlines = 0
+        self.last = ''
+        self.cuts = {}
         self.invalid = False
 
     def _append(self, value):
@@ -58,6 +65,8 @@ class BoundedJSON:
 
     def _retain(self, char):
         self.length += 1
+        self.newlines += char == '\n'
+        self.last = char
         if len(self.head) < MAX_TEXT:
             self.head.append(char)
         else:
@@ -105,11 +114,13 @@ class BoundedJSON:
                     value = ''.join(self.head) + (SHORTENED if cut else '') + ''.join(self.tail)
                     self._append(json.dumps(value, ensure_ascii=True).encode())
                     if cut:
-                        self.cuts.add(self.strings)
+                        self.cuts[self.strings] = self.newlines + (self.last != '\n')
                     self.strings += 1
                     self.head.clear()
                     self.tail.clear()
                     self.length = 0
+                    self.newlines = 0
+                    self.last = ''
                     self.string = False
                 elif ord(char) < 32:
                     raise ValueError("Unescaped JSON control")
@@ -136,9 +147,9 @@ class BoundedJSON:
             def restore(value):
                 nonlocal index
                 if isinstance(value, str):
-                    cut = index in self.cuts
+                    lines = self.cuts.get(index)
                     index += 1
-                    return ShortenedText(value) if cut else value
+                    return ShortenedText(value, lines) if lines is not None else value
                 if isinstance(value, dict):
                     result = {}
                     for key, child in value.items():
