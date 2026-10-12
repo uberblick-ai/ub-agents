@@ -436,7 +436,7 @@ class View(App):
     #panes Tab.-active, #panes Tabs:focus Tab.-active {
         color: $background; background: $foreground; text-style: none;
     }
-    #log_mode { overlay: screen; position: absolute; offset: 24 0; width: 21; height: 1; }
+    #log_mode { overlay: screen; position: absolute; offset: 24 0; width: auto; height: 1; }
     #tab_rule { height: 1; color: $view-muted; }
     #panes > ContentSwitcher { height: 1fr; }
     TabPane { height: 1fr; padding: 0; }
@@ -1367,14 +1367,20 @@ class View(App):
             self.update_shutdown()
             return
         reading = self.reading
-        mode = Text('│ ', style=theme_style(self, 'view-muted'))
+        mode = Text('│ ', style=theme_style(self, 'view-muted'), no_wrap=True)
         mode.append('Formatted', style=theme_style(self, 'view-muted' if reading.raw else 'view-accent',
                                                    underline=not reading.raw))
         mode.append('  ')
         mode.append('Raw', style=theme_style(self, 'view-accent' if reading.raw else 'view-muted',
                                            reverse=reading.raw))
         indicator = self.query_one('#log_mode', Static)
-        indicator.styles.offset = (sum(tab.region.width for tab in self.query('#panes Tab') if tab.display), 0)
+        tab_width = sum(tab.region.width for tab in self.query('#panes Tab') if tab.display)
+        hint = ' (u)'
+        if tab_width + mode.cell_len + len(hint) > self.query_one(ItemTabs).content_size.width:
+            hint = ' u'
+        mode.append(hint, style=theme_style(self, 'view-muted'))
+        indicator.styles.offset = (tab_width, 0)
+        indicator.styles.width = mode.cell_len
         self.update_static(indicator, mode, layout=False)
         rule = self.query_one('#tab_rule', Static)
         self.update_static(rule, '┄' * rule.content_size.width, layout=False)

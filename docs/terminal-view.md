@@ -339,9 +339,12 @@ is omitted from the live work sections.
 
 The right pane has `1 Log`, `2 Issue` and `3 Runs` tabs, plus `4 Unblock` while the
 selected row is in Needs attention. The active tab is inverted
-and the others are dim. After a `│` separator, the inert `Formatted  Raw` indicator
-shows the selected log's `u` mode: Formatted is underlined in accent when active,
-and Raw is highlighted when active. The indicator has no key or focus target.
+and the others are dim. After a `│` separator, the inert `Formatted  Raw (u)` indicator
+shows the selected log's mode and the `u` toggle key on every tab. Formatted is
+underlined in accent when active, and Raw is reversed in accent when active. The
+muted `(u)` hint uses neither underline nor reverse; it shortens to `u` when space
+is tight, including the 60-column item view with all four tabs. Clicking the
+indicator has no effect, and it cannot receive focus.
 Each tab starts below the tab bar with
 the same two-line item header and a dashed rule. The bold first line shows `#N`
 for an issue or `⌥N` for a PR, followed by its title. The dim second line joins
