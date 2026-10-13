@@ -115,7 +115,10 @@ class SetupApp(App):
         self.query_one("#heading", Static).update(f"ub-agents setup  ·  {pages.index(self.wizard.current) + 1}/{len(pages)}\n{page.title}")
         body = self.query_one("#body", VerticalScroll)
         await body.remove_children()
-        await body.mount(Static(page.text, id="copy", markup=False))
+        preview = (self.wizard.addition_preview() if self.wizard.current in {"priority", "retrospectives"}
+                   and self.wizard.current in self.wizard.option_reviews else "")
+        copy = page.text.replace(preview, "", 1) if preview else page.text
+        await body.mount(Static(copy, id="copy", markup=False))
         draft = self.drafts.get(self.wizard.current, {})
         for field in page.fields:
             value = draft.get(field.name, field.value)
@@ -124,6 +127,9 @@ class SetupApp(App):
             else:
                 await body.mount(Static(field.label, classes="field-label", markup=False),
                                  Input(str(value), id="field-" + field.name))
+        if preview:
+            await body.mount(Static(preview + "\n\nContinue confirms these additions; Skip keeps the feature off.",
+                                    id="option-preview", markup=False))
         body.scroll_home(animate=False)
         self.query_one("#error", Static).update("")
         notes = ("Intent: shared knowledge follow-up. Consequence: no integration is enabled.\nLink destination: https://uberblick.at"
@@ -144,6 +150,10 @@ class SetupApp(App):
             fields = list(body.query(Input))
             (self.query_one("#skip") if page.optional or self.wizard.current == "permissions" else
              fields[0] if fields else self.query_one("#continue")).focus()
+        if preview:
+            # Show the checked additions before the user can confirm, including
+            # when the preceding form was taller than the viewport.
+            self.call_after_refresh(self.query_one("#option-preview").scroll_visible, animate=False, top=True)
 
     def values(self):
         values = {}

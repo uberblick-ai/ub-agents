@@ -59,7 +59,7 @@ explains its benefit and says “You can enable this later”; Skip is the defau
 Priority and retrospective entries are checked first, then the same page shows
 “This adds to <selected config path>:” with only the proposed nested YAML keys.
 Continue again confirms that preview. Changing entries requires a fresh preview;
-the additions remain proposed until Apply.
+the checked additions scroll into view before confirmation and remain proposed until Apply.
 
 - **Uberblick shared knowledge:** a shared knowledge base for agents and humans alike.
   Learn more at [https://uberblick.at](https://uberblick.at). This is an optional
