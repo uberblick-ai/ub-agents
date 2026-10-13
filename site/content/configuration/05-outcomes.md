@@ -1,6 +1,6 @@
 # Outcomes
 
-When an agent finishes, it reports a named outcome. ub-agents doctor --offlines the result on GitHub, removes the agent's trigger labels and applies the labels you declared.
+When an agent finishes, it reports a named outcome. ub-agents checks the result on GitHub, removes the agent's trigger labels and applies the labels you declared.
 
 ```yaml
 outcomes:
