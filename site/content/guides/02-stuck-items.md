@@ -53,12 +53,17 @@ ub-agents launch 219 --agent reviewer
 
 ## Leftover worktrees
 
-The launcher removes each run's worktree when the run ends. A crashed run can leave it behind. Preview, then remove what is safe to remove with [`cleanup`](/docs/commands/cleanup.html).
+The launcher removes each run's worktree when the run ends. A crashed run can
+leave it behind. Restart [`launch`](/docs/commands/launch.html) to sweep eligible
+leftover worktrees and local branches from this machine before polling, with the
+[cleanup hook](/docs/configuration/cleanup.html) before each worktree removal.
+Live, dirty, locked, other-host and uncertain artifacts stay. The launch log and
+terminal view's Startup cleanup fold show each decision and its reason; `--no-ui`
+prints plain lines. Sweep failures are logged and polling continues.
 
-```sh
-ub-agents cleanup
-ub-agents cleanup --apply
-```
+A crashed run's lease stays live until expiry, so a quick restart keeps its
+worktree until a later launch start. The sweep runs once per launch invocation,
+including `--agent`, `NUMBER` and `--once`; it does not run periodically.
 
 ## Logs
 

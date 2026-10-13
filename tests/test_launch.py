@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
-from ub_agents.errors import AgentError, GitHubError
+from ub_agents.errors import AgentError, CleanupError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import iso, seconds, timestamp
@@ -29,9 +29,10 @@ class LaunchTests(unittest.TestCase):
         isolate_runtime_state(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         (self.root / "ub-agents.yaml").touch()
         self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.enterContext(patch("ub_agents.cleanup.Cleaner.inventory", return_value=[]))
         self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
         self.log = self.root / ".ub-agents" / "launch.log"
         self.config = config(self.root)
@@ -44,6 +45,84 @@ class LaunchTests(unittest.TestCase):
             self.assertEqual(datetime.fromisoformat(stamp).utcoffset(), timedelta(0))
             lines.append(text)
         return lines
+
+    def test_startup_sweep_applies_once_in_every_mode_after_checks_before_polling(self):
+        from tests.support import MemoryPublisher
+        for arguments in ([], ["--once"], ["--agent", "worker"], ["42"],
+                          ["42", "--agent", "worker"], ["--once", "--agent", "worker"]):
+            with self.subTest(arguments=arguments):
+                events = []
+                publisher = MemoryPublisher()
+                previous_lines = len(self.log_lines()) if self.log.exists() else 0
+                lines = ["removed worktree old: Eligible released or confirmed expired run",
+                         "kept branch live: Run lease is live"]
+
+                def sweep(cleaner, *, apply):
+                    self.assertTrue(apply)
+                    self.assertEqual(events, ["checks"])
+                    events.append("sweep")
+                    for line in lines:
+                        cleaner.output(line)
+
+                def poll(loop, *args):
+                    self.assertEqual(events, ["checks", "sweep"])
+                    self.assertEqual(self.log_lines()[previous_lines:previous_lines + 2], lines)
+                    self.assertTrue(publisher.snapshots[-1]["startup_cleanup"])
+                    session = publisher.snapshots[-1]["session"]
+                    cleanup_log = self.root / ".ub-agents/sessions" / f"{session}.cleanup.log"
+                    self.assertEqual(cleanup_log.read_text().splitlines(), lines)
+                    events.append("poll")
+                    loop.stop_event.set()
+                    return True
+
+                with patch("ub_agents.cli.load_config", return_value=self.config), \
+                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli.launch_checks", side_effect=lambda *_: events.append("checks")), \
+                        patch("ub_agents.observations.Publisher", return_value=publisher), \
+                        patch("ub_agents.cleanup.Cleaner.clean", autospec=True, side_effect=sweep) as clean, \
+                        patch.object(Loop, "tick", autospec=True, side_effect=poll), \
+                        patch.object(Loop, "tick_item", autospec=True, side_effect=poll), \
+                        redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(main(self.argv + arguments + ["--no-ui"]), 0)
+                self.assertEqual(events, ["checks", "sweep", "poll"])
+                clean.assert_called_once()
+                self.assertEqual(output.getvalue().splitlines()[:2], lines)
+
+    def test_startup_sweep_failure_logs_reason_and_still_polls(self):
+        errors = (CleanupError("Termination unknown", next_step="make ps usable"),
+                  AgentError("Git removal failed"),
+                  GitHubError("GET", "issues/comments", "Denied"), OSError("Inventory unreadable"))
+        for error in errors:
+            with self.subTest(error=error):
+                def sweep(cleaner, *, apply):
+                    cleaner.output("removed worktree earlier: Eligible released or confirmed expired run")
+                    raise error
+
+                def poll():
+                    self.assertIn(str(error), self.log_lines()[-1])
+                    self.assertIn("continuing to poll", self.log_lines()[-1])
+                    return True
+
+                with patch("ub_agents.cli.load_config", return_value=self.config), \
+                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch("ub_agents.cleanup.Cleaner.clean", autospec=True, side_effect=sweep), \
+                        patch.object(Loop, "tick", side_effect=poll) as tick, \
+                        redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as stderr:
+                    self.assertEqual(main(self.argv + ["--once", "--no-ui"]), 0)
+                tick.assert_called_once()
+                self.assertIn(f"Startup cleanup failed: {error}", output.getvalue())
+                self.assertEqual(stderr.getvalue(), "")
+
+    def test_failed_repository_checks_do_not_sweep(self):
+        with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.repository_checks", return_value=[("repository", AgentError("Missing remote"))]), \
+                patch("ub_agents.cleanup.Cleaner.clean") as clean, \
+                redirect_stderr(io.StringIO()):
+            self.assertEqual(main(self.argv + ["--once"]), 1)
+        clean.assert_not_called()
 
     def test_once_always_observes_and_status_does_not_create_a_publisher(self):
         from tests.support import MemoryPublisher
@@ -383,6 +462,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.root = Path(temp.name)
         (self.root / "ub-agents.yaml").touch()
         self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.enterContext(patch("ub_agents.cleanup.Cleaner.inventory", return_value=[]))
         self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
         self.config = config(self.root)
         self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))

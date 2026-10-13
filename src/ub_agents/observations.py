@@ -151,6 +151,7 @@ class Observations:
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
             "health_notice": None,
+            "startup_cleanup": False,
             "milestone_skips": [],
             "outcomes": [], "histories": {}, "action_needed": {}, "coordination_authors": {},
             "omitted": {"plans": 0, "outcomes": 0},
@@ -329,6 +330,10 @@ class Observations:
 
     def queue_idle(self, message):
         self.state["queue_idle"] = message
+        self.emit()
+
+    def startup_cleanup(self, available):
+        self.state["startup_cleanup"] = available
         self.emit()
 
     def milestone_skips(self, messages):

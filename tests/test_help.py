@@ -27,7 +27,6 @@ commands:
   launch [NUMBER]        run the queue in the foreground, or handle one item
   status [NUMBER] [--json]
                          matching work, owners, attempts and why items wait
-  cleanup [--apply]      preview or remove stale worktrees and branches
   retry NUMBER           let stopped work run again, with a recorded reason
   approve NUMBER         record approval of an issue's or PR's current input
 
@@ -281,7 +280,7 @@ class HelpTests(unittest.TestCase):
 
     def test_command_usage_has_positionals_required_options_and_compact_optional_options(self):
         expected = {"init": "[options]", "doctor": "[options]",
-                    "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]", "cleanup": "[options]",
+                    "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]",
                     "report": "(--outcome OUTCOME | --status {retry,blocked}) --summary SUMMARY [options]",
                     "retrospective": "--body-file PATH [options]",
                     "retry": "NUMBER --reason REASON [options]", "approve": "NUMBER [options]",

@@ -61,6 +61,8 @@ def prune(directory, own, now, host):
             continue  # Another publisher may have pruned it already.
     for _, path in sorted(retained, reverse=True)[RETAINED_SESSIONS:]:
         path.unlink(missing_ok=True)
+        if path.suffix == ".json":
+            path.with_suffix(".cleanup.log").unlink(missing_ok=True)
 
 
 def write_snapshot(directory, state):

@@ -27,7 +27,7 @@ from textual import messages
 from textual.geometry import Size
 from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, MilestoneNotice, RecentActivity,
-                               RawAccess, UpdateBanner, View, pane_line)
+                               RawAccess, StartupCleanup, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, work_pane
 from ub_agents.view_theme import theme_style
@@ -1495,6 +1495,43 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['milestone_skips'] = []
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: not notice.display)
+
+    async def test_startup_cleanup_fold_keeps_every_decision_and_scrolls(self):
+        lines = [f'kept worktree run-{index}: Run lease is live [bold]literal[/bold]' for index in range(140)]
+        lines.append('Startup cleanup failed: ps unavailable; continuing to poll')
+        self.path.with_suffix('.cleanup.log').write_text('\n'.join(lines) + '\n')
+        self.state['startup_cleanup'] = True
+        publish_snapshot(self.path, self.state)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            fold = app.query_one(StartupCleanup)
+            await self.ready(app, pilot, lambda: fold.messages == tuple(lines))
+            self.assertTrue(fold.display)
+            self.assertTrue(fold.collapsed)
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            await pilot.pause()
+            rendered = fold.query_one('#cleanup_lines', Static).render().plain
+            self.assertEqual(rendered.splitlines(), lines)
+            scroll = fold.query_one('#cleanup_scroll')
+            self.assertGreater(scroll.max_scroll_y, 0)
+            scroll.scroll_end(animate=False)
+            await pilot.pause()
+            self.assertEqual(scroll.scroll_y, scroll.max_scroll_y)
+            await pilot.resize_terminal(59, 15)
+            await pilot.pause()
+            self.assertFalse(fold.display)
+            await pilot.resize_terminal(110, 32)
+            await pilot.pause()
+            self.assertTrue(fold.display)
+            self.assertFalse(fold.collapsed)
+            await pilot.resize_terminal(70, 32)
+            await pilot.pause()
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            self.assertTrue(fold.collapsed)
+            self.assertFalse(app.item_view)
 
     async def settled(self, app, pane):
         # A pilot pause can return on a busy machine before the after-refresh

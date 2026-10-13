@@ -222,8 +222,13 @@ private worktree also runs setup once before its agent starts.
 | `ub-agents status [214]` | Show the queue, or why one item is waiting |
 | `ub-agents retry 214 --reason "…"` | Let an item that failed or blocked run again |
 | `ub-agents approve 214` | Approve outside edits or a contributor's PR as agent input |
-| `ub-agents cleanup [--apply]` | Preview or remove worktrees left by crashed runs |
 | `ub-agents help COMMAND` | Show a command's options and examples |
+
+Every launch sweeps eligible leftover worktrees and local branches once before
+polling. Decisions and failures appear in the launch log and terminal view, or
+plain output with `--no-ui`; sweep failures do not stop launch. A quick restart
+keeps a crashed run's artifacts while its lease is live, until a later launch
+start after expiry. See [stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
 
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of

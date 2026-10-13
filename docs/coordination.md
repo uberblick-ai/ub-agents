@@ -688,8 +688,12 @@ Durable attempts and backoff survive restarts.
 
 At startup, launcher and `status` discovery read repository issue comments updated
 within 30 minutes plus seven days. Renewed live leases stay inside that window,
-independently of execution and cleanup timeouts. `ub-agents cleanup` still scans
-the full repository comment history. Later discovery scans poll updated comments with
+independently of execution and cleanup timeouts. The launch startup artifact sweep
+scans the full repository comment history once, after startup checks and before
+the first poll or claim, in every launch mode. It logs removal and keep decisions
+and continues to poll after a sweep failure. A quick restart keeps crashed runs
+with live leases until a later launch start after expiry; there is no periodic
+sweep. Later discovery scans poll updated comments with
 `sort=updated` and `since`, a 60-second overlap and a cursor captured before the
 scan. Each page advances `since` to one second before its last update and
 deduplicates by comment id, because page offsets skip rows when comments move. A
@@ -891,7 +895,7 @@ issue worktrees still start from the remote
 default branch. PR worktrees retain their exact candidate SHA. Agents continuing
 draft checkpoints still fetch and check out their exact heads; refresh never
 rebases them. Coordination between two launchers sharing a checkout, or a concurrent
-manual cleanup, is outside this serial execution boundary.
+startup artifact sweep, is outside this serial execution boundary.
 
 See [Stopping and restarting](operations.md#stopping-and-restarting) for signal
 handling during execution, recovery and checkout refresh, and for restarting after

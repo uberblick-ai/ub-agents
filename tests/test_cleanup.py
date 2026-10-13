@@ -421,19 +421,51 @@ class CleanupTests(unittest.TestCase):
         with patch.object(self.cleaner.coordinator, "repository_history", return_value=(index, set())):
             self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
 
-    def test_cli_preview_and_apply_dispatch(self):
+    def launch_leftovers(self, poll):
+        from contextlib import redirect_stdout
+        import io
         from ub_agents.cli import main
+        from tests.support import MemoryPublisher, isolate_runtime_state
+        isolate_runtime_state(self)
         path = self.root / "ub-agents.yaml"
         path.write_text("repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n"
                         "    outcomes: {done: {}}\n")
         with patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cleanup.Cleaner.clean") as clean:
-            self.assertEqual(main(["--config", str(path), "cleanup"]), 0)
-            clean.assert_called_once_with(apply=False)
-            clean.reset_mock()
-            self.assertEqual(main(["--config", str(path), "cleanup", "--apply"]), 0)
-            clean.assert_called_once_with(apply=True)
+                patch("ub_agents.cli.launch_checks"), \
+                patch("ub_agents.updates.Updates", return_value=None), \
+                patch("ub_agents.observations.Publisher", MemoryPublisher), \
+                patch("ub_agents.cli.Loop.tick", side_effect=poll), \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(["--config", str(path), "launch", "--once", "--no-ui"]), 0)
+        lines = output.getvalue().splitlines()
+        self.assertEqual([line.split(" ", 1)[1] for line in
+                          (self.root / ".ub-agents/launch.log").read_text().splitlines()], lines)
+        return lines
+
+    def test_launch_removes_leftovers_and_logs_before_the_first_poll(self):
+        lines = self.launch_leftovers(self.assert_removed)
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith(f"removed worktree {self.path}:"))
+        self.assertTrue(lines[1].startswith(f"removed branch {self.branch}:"))
+
+    def test_launch_keeps_unreached_branch_after_uncertain_hook_and_still_polls(self):
+        def poll():
+            self.assertTrue(self.path.exists())
+            self.assertEqual(git(self.root, "rev-parse", self.branch), self.head)
+            return True
+
+        with patch("ub_agents.cleanup.run_hook", side_effect=CleanupError("Hook termination unknown")):
+            lines = self.launch_leftovers(poll)
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0], f"kept worktree {self.path}: Hook termination unknown")
+        self.assertIn("Startup cleanup failed: Hook termination unknown", lines[1])
+        self.assertIn("continuing to poll", lines[1])
+
+    def assert_removed(self):
+        self.assertFalse(self.path.exists())
+        self.assertNotIn(self.branch, git(self.root, "branch", "--format=%(refname:short)").splitlines())
+        return True
 
     def test_recovered_outcome_still_requires_original_process_group_absence(self):
         from ub_agents.records import body, payload

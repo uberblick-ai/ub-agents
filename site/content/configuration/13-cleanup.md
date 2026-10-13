@@ -40,9 +40,17 @@ Exit zero to let the worktree be removed. Any other exit keeps the worktree and 
 
 ## Leftovers
 
-Normal runs need nothing more. [`ub-agents cleanup`](/docs/commands/cleanup.html) previews and removes what crashed runs left on this machine, plus retained branches.
+Every [`ub-agents launch`](/docs/commands/launch.html) invocation sweeps leftovers
+once after startup checks pass and before the first poll or claim, including
+`--agent`, `NUMBER` and `--once`. It removes eligible worktrees and retained local
+branches whose trusted run lease records this machine. Live leases, dirty or
+locked trees, other-host leases and uncertain artifacts are kept. Each artifact
+is rechecked; the configured cleanup hook runs before each worktree removal.
 
-```sh
-ub-agents cleanup
-ub-agents cleanup --apply
-```
+Each `removed` or `kept` line includes its reason in `.ub-agents/launch.log` and the
+terminal view's Startup cleanup fold, or plain output with `--no-ui`. A sweep
+failure is logged without stopping launch, leaving artifacts not yet reached in
+place.
+
+A crashed run's lease stays live until expiry, so a quick restart leaves its
+worktree until a later launch start. There is no periodic sweep.
