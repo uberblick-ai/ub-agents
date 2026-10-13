@@ -208,4 +208,3 @@ The Start abbreviation means Finish and start loop; scrolling body keeps the ful
 |Finish ^N      Retry ^R      Start ^L         |
 +----------------------------------------------+
 ```
-
