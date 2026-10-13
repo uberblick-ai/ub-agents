@@ -10,7 +10,6 @@ from textual.containers import Container, Grid, VerticalScroll
 from textual.widgets import Button, Checkbox, Input, Static
 
 from .doctor import public
-from .errors import AgentError
 from .init_probes import PROBE_ERRORS
 
 

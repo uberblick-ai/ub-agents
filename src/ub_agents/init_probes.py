@@ -22,10 +22,10 @@ def findings(checks):
     lines = []
     for check in checks:
         suffix = " (blocks launch; setup may continue)" if check.required and check.status in {"fail", "skip"} else ""
-        lines.append(f"{names[check.status]}: {check.message}{suffix}")
+        lines.append(f"- {names[check.status]}: {check.message}{suffix}")
         if check.remedy:
             lines.append(f"  Next: {check.remedy}")
-    return "\n\n".join(lines)
+    return "\n".join(lines)
 
 
 class Probes:
@@ -80,9 +80,10 @@ class Probes:
             try:
                 role = Roles(self.github)({"login": actor})
                 elevated = role in {"maintain", "admin"}
-                d.add("account", "warn" if elevated else "ok" if role == "write" else "warn",
+                insufficient = role is not None and role not in {"write", "maintain", "admin"}
+                d.add("account", "fail" if insufficient else "warn" if elevated or role is None else "ok",
                       f"Launcher account {actor}: repository role {role or 'unavailable'}",
-                      f"Use a separate write-access launcher account: {ACCOUNT_GUIDANCE}", required=False)
+                      f"Use a separate write-access launcher account: {ACCOUNT_GUIDANCE}", required=insufficient)
             except PROBE_ERRORS:
                 d.add("account", "skip", "Launcher repository role unavailable",
                       f"Review account access: {ACCOUNT_GUIDANCE}", required=False)
@@ -121,11 +122,19 @@ class Probes:
                 d.add("branch", "ok", f"Current branch: {branch}", required=False)
             except PROBE_ERRORS:
                 d.add("branch", "skip", "Current branch unavailable", "Run init inside a Git checkout")
+            try:
+                dirty = bool(read_git(config.root, "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"))
+                d.add("cleanliness", "warn" if dirty else "ok", "Checkout has local changes" if dirty else "Checkout is clean",
+                      "Commit or remove changes before launch; setup can continue" if dirty else None, required=False)
+            except PROBE_ERRORS:
+                d.add("cleanliness", "skip", "Checkout cleanliness unavailable", "Repair Git access before launch")
         default = metadata.get("default_branch") if metadata else None
         if isinstance(default, str) and default:
             d.add("default-branch", "ok", f"Actual default branch: {default}", required=False)
             if git_ready:
                 for id, error in control_checkout_checks(config, default, read_git):
+                    if id == "control-checkout-dirty":
+                        continue
                     d.add(id, "warn" if error else "ok", str(error) if error else
                           {"control-checkout-branch": f"Launch branch matches {default}",
                            "control-checkout-dirty": "Checkout is clean",

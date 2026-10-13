@@ -8,7 +8,7 @@ from .config import LOCAL_CONFIG
 from .errors import AgentError
 from .init_probes import Probes, PROBE_ERRORS, findings
 from .init_setup import (ROLES, apply_plan, guidance_summary, make_plan, next_steps,
-                         permission_args, priority_labels)
+                         permission_args, priority_labels, recovery_content)
 from .labels import configured_labels
 
 
@@ -199,6 +199,8 @@ class Wizard:
         return "\n".join(lines)
 
     def advance(self, values):
+        if self.current != "review":
+            self.plan.protect()
         c = self.choices
         if self.current == "welcome" and not self.started:
             self.probe()
@@ -206,7 +208,7 @@ class Wizard:
             runtime = values["runtime"].strip()
             # Build first, so invalid input cannot corrupt the last valid choices.
             from dataclasses import replace
-            proposed = make_plan(self.plan.path, self.plan.config.repository, replace(c, runtime=runtime, permissions=False))
+            proposed = make_plan(self.plan.path, self.plan.repository, replace(c, runtime=runtime, permissions=False))
             if runtime != c.runtime:
                 c.runtime, c.permissions = runtime, False
                 self.plan = proposed
@@ -257,7 +259,7 @@ class Wizard:
             self.applied = apply_plan(self.plan, self.github, self.remote_labels())
             self.current = "result"
             return
-        self.plan = make_plan(self.plan.path, self.plan.config.repository, c)
+        self.plan = make_plan(self.plan.path, self.plan.repository, c)
         pages = self.pages()
         self.current = pages[pages.index(self.current) + 1]
 
@@ -298,11 +300,11 @@ class Wizard:
             self.current = "review"
         else:
             self.current = self.pages()[self.pages().index(old) + 1]
-        self.plan = make_plan(self.plan.path, self.plan.config.repository, self.choices)
+        self.plan = make_plan(self.plan.path, self.plan.repository, self.choices)
 
     def deferred_commands(self):
         labels = configured_labels(self.plan.config) + priority_labels(self.choices)
-        done = {label.name.casefold() for label in self.remote_labels()} if self.applied and self.applied.ok else set()
+        done = {name.casefold() for name in self.applied.label_names} if self.applied else set()
         if self.probes.existing_labels is not None:
             labels = self.missing(labels)
         return [label.command(self.plan.config.repository) for label in labels if label.name.casefold() not in done]
@@ -316,9 +318,14 @@ class Wizard:
         lines.extend(result.completed)
         if result.error:
             lines.extend([result.error, *result.incomplete, "Remaining work:", *result.remaining,
-                          "Inspect completed files (and any partial file from the failed write). Repair access and complete missing files manually from the preview. "
+                          "Inspect completed files (and any partial file from the failed write). Repair access and complete missing files manually from the recovery content below. "
                           "Init refuses existing starter files; do not rerun it expecting overwrites."])
+            lines.append(recovery_content(self.plan, result))
         lines.extend([self.option_summary(), self.effective_summary(), *guidance_summary(self.plan), "Before launch:", *next_steps(self.plan)])
+        attention = [check for check in (self.probes.welcome + self.probes.prerequisites +
+                                         self.probes.checkout + self.probes.runtime) if check.status != "ok"]
+        if attention:
+            lines.extend(["Pre-apply findings needing attention (run doctor again after committing):", findings(attention)])
         commands = self.deferred_commands()
         if commands:
             lines.extend(["Deferred labels; run these commands yourself (skip any that already exist):", *commands])

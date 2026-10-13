@@ -66,7 +66,8 @@ Select features to see only their compact setup pages; every feature can be skip
 Finish shows actual files and labels, configured/skipped/deferred options, remaining
 label commands and next steps. Partial failures retain completed effects and show
 remaining work. Inspect completed and incomplete files, repair access, then complete
-missing files manually from the review preview and retry remaining label commands.
+missing files manually from the recovery content retained in the result transcript
+and retry remaining label commands.
 Init refuses existing starters; rerunning it does not overwrite or repair partial files.
 
 Setup success is distinct from launch readiness. Review the policy, run `ub-agents check`,

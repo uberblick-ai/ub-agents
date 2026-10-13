@@ -64,9 +64,11 @@ class Choices:
 @dataclass
 class Plan:
     path: Path
+    repository: str
     targets: dict[Path, str]
     ignore_before: bytes | None
     ignore_after: bytes
+    local_before: bytes | None
     config: object
     choices: Choices
 
@@ -89,6 +91,13 @@ class Plan:
         current = ignore.read_bytes() if ignore.exists() else None
         if current != self.ignore_before:
             raise AgentError(".gitignore changed during setup; cancel and run init again to review it")
+        self.protect_local()
+
+    def protect_local(self):
+        local = self.path.parent / LOCAL_CONFIG
+        current = local.read_bytes() if local.exists() else None
+        if current != self.local_before:
+            raise AgentError(f"{LOCAL_CONFIG} changed during setup; cancel and run init again to review its effective settings")
 
     def preview(self):
         lines = []
@@ -151,7 +160,9 @@ def make_plan(path, repository, choices):
     after = (before or b"") + ("\n# Local ub-agents configuration and execution artifacts\n" +
                                "\n".join(missing) + "\n").encode() if missing else (before or b"")
     # Protection runs before parsing overrides, reads from GitHub, or any mutations.
-    plan = Plan(path, targets, before, after, None, choices)
+    local = root / LOCAL_CONFIG
+    local_before = local.read_bytes() if local.exists() else None
+    plan = Plan(path, repository, targets, before, after, local_before, None, choices)
     plan.protect()
     plan.config = preview_config(content, path, {p.resolve() for p in targets})
     return plan
@@ -168,6 +179,7 @@ class Applied:
     remaining: list[str] = field(default_factory=list)
     error: str | None = None
     incomplete: list[str] = field(default_factory=list)
+    label_names: list[str] = field(default_factory=list)
 
     @property
     def ok(self):
@@ -176,7 +188,7 @@ class Applied:
 
 def apply_plan(plan, github, remote_labels=()):
     """Stop on partial failure; retain and describe successful effects, never roll back."""
-    from .doctor import public
+    from .doctor import Doctor, public
     result = Applied()
     pending = [f"Create {p}" for p in plan.targets]
     change_ignore = plan.ignore_after != (plan.ignore_before or b"")
@@ -184,6 +196,7 @@ def apply_plan(plan, github, remote_labels=()):
         pending.append(f"Update {plan.path.parent / '.gitignore'}")
     pending.append("Validate the effective configuration")
     pending.extend(f"Create label {label.name} on {plan.config.repository}" for label in remote_labels)
+    phase = "local"
     try:
         plan.protect()
         for target, content in plan.targets.items():
@@ -198,15 +211,20 @@ def apply_plan(plan, github, remote_labels=()):
                 try:
                     stream.write(content)
                     stream.flush()
-                except (OSError, UnicodeError):
+                except (OSError, UnicodeError, KeyboardInterrupt):
                     result.incomplete.append(f"Incomplete file: {target}; inspect it before recovery")
                     raise
             result.completed.append(pending.pop(0))
         if change_ignore:
-            (plan.path.parent / ".gitignore").write_bytes(plan.ignore_after)
+            ignore = plan.path.parent / ".gitignore"
+            if ignore.is_symlink() or (ignore.read_bytes() if ignore.exists() else None) != plan.ignore_before:
+                raise AgentError(".gitignore changed during apply; preserve the newer entries and finish manually")
+            ignore.write_bytes(plan.ignore_after)
             result.completed.append(pending.pop(0))
+        plan.protect_local()
         load_config(plan.path)
         result.completed.append(pending.pop(0))
+        phase = "labels"
         for label in remote_labels:
             # Recheck to preserve labels another operator created during the wizard.
             existing = {name.casefold() for name in github.labels()}
@@ -215,11 +233,28 @@ def apply_plan(plan, github, remote_labels=()):
             else:
                 github.create_label(label.name, label.description, label.color)
                 result.completed.append(pending[0])
+            result.label_names.append(label.name)
             pending.pop(0)
+    except KeyboardInterrupt:
+        result.error = "Apply interrupted; completed effects remain and remaining steps need manual recovery"
+        result.remaining = pending
     except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
-        result.error = public(str(exc)) if isinstance(exc, OSError) else "Apply failed; check access and retry the remaining steps manually"
+        result.error = (Doctor.github_failure("label creation", exc) if phase == "labels" else
+                        f"Local apply failed: {public(exc)}")
         result.remaining = pending
     return result
+
+
+def recovery_content(plan, result):
+    """Retain recovery content in the transcript after leaving the full-screen view."""
+    lines = []
+    for path, content in plan.targets.items():
+        if f"Create {path}" in result.remaining:
+            lines.extend([f"Remaining content for {path} (inspect any incomplete file first):", content])
+    ignore = plan.path.parent / ".gitignore"
+    if f"Update {ignore}" in result.remaining:
+        lines.extend([f"Remaining content for {ignore} (preserve any newer entries):", plan.ignore_after.decode("utf-8")])
+    return "\n\n".join(lines)
 
 
 def next_steps(plan):

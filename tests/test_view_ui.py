@@ -3195,7 +3195,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: app.selected == 'plan:12')
+            await self.ready(app, pilot, lambda: app.selected == 'plan:12' and app.local_description is not None)
             app.worker.close()
             app.worker.thread.join(2)
             app.busy = True
@@ -3207,6 +3207,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 '#log_mode', '#tab_rule', '#status', '#log_state', '#item_header',
                 '#log_note', '#run_status', '#unblock_note', '#runs_text')]
             widgets.append(app.screen.query_one('#raw_status', Static))
+            widgets.append(app.query_one('#issue_pointers_note', Static))
             now = datetime.now(timezone.utc).replace(microsecond=0)
             with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
                 clock.now.return_value = now
@@ -3215,9 +3216,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(Static, 'update', autospec=True) as update:
                     app.tick()
                     self.assertEqual([call.args[0] for call in update.call_args_list],
-                                     [widgets[7], widgets[8], *widgets[:3], widgets[9], *widgets[3:7]])
+                                     [widgets[10], widgets[7], widgets[8], *widgets[:3], widgets[9], *widgets[3:7]])
                     for call in update.call_args_list:
-                        self.assertEqual(call.kwargs['layout'], call.args[0] in widgets[7:9])
+                        self.assertEqual(call.kwargs['layout'], call.args[0] in [*widgets[7:9], widgets[10]])
                     update.reset_mock()
                     for tick in range(1, 31):
                         clock.now.return_value = now + timedelta(milliseconds=100 * tick)

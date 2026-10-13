@@ -147,6 +147,36 @@ class WizardTests(WizardFixture, unittest.TestCase):
         self.assertFalse(self.wizard.choices.create_priority_labels)
         self.assertEqual(self.wizard.current, 'review')
 
+    def test_priority_label_creation_requires_separate_opt_in(self):
+        self.move('features')
+        self.wizard.advance({'priority': True, 'retrospectives': False, 'knowledge': False})
+        self.wizard.advance({'labels': 'urgent, normal', 'default': 'normal'})
+        self.assertEqual(self.github.writes, [])
+        self.wizard.advance({'create_priority_labels': True})
+        self.assertEqual([label.name for label in self.wizard.remote_labels()], ['urgent', 'normal'])
+        self.assertEqual(self.github.writes, [])
+        self.wizard.advance({'confirm': True})
+        self.assertEqual([write[1] for write in self.github.writes], ['urgent', 'normal'])
+
+    def test_local_repository_override_is_effective_without_changing_selected_starter_repository(self):
+        self.path.parent.mkdir()
+        (self.path.parent / 'ub-agents.local.yaml').write_text('repository: other/project\n')
+        plan = make_plan(self.path, 'org/project', self.wizard.choices)
+        self.assertEqual(plan.repository, 'org/project')
+        self.assertEqual(plan.config.repository, 'other/project')
+        wizard = Wizard(plan, DoctorGitHub(), self.probes)
+        wizard.started = True
+        wizard.advance({})
+        self.assertIn('repository: "org/project"', wizard.plan.targets[self.path])
+        self.assertEqual(wizard.plan.config.repository, 'other/project')
+
+    def test_dangling_starter_config_symlink_refuses_before_writing(self):
+        self.path.parent.mkdir()
+        self.path.symlink_to(self.path.parent / 'missing.yaml')
+        with self.assertRaisesRegex(AgentError, 'Starter files already exist'):
+            make_plan(self.path, 'org/project', Choices('codex:model:high'))
+        self.assertFalse((self.path.parent / 'missing.yaml').exists())
+
     def test_retrospectives_verify_exact_urls_never_post_and_skip_turns_off(self):
         self.move('features')
         self.wizard.advance({'priority': False, 'retrospectives': True, 'knowledge': True})
@@ -187,6 +217,16 @@ class WizardTests(WizardFixture, unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertEqual(ignore.read_text(), 'changed\n')
 
+    def test_local_override_changed_after_review_prevents_writes(self):
+        self.move('review')
+        self.path.parent.mkdir()
+        (self.path.parent / 'ub-agents.local.yaml').write_text('repository: other/project\n')
+        self.wizard.advance({'confirm': True})
+        self.assertFalse(self.wizard.applied.ok)
+        self.assertEqual(self.wizard.applied.completed, [])
+        self.assertIn('changed during setup', self.wizard.result_text())
+        self.assertFalse(self.path.exists())
+
     def test_partial_label_failure_records_completed_effects_and_remaining_commands(self):
         self.move('files')
         self.wizard.advance({'workflow_labels': True})
@@ -219,6 +259,19 @@ class WizardTests(WizardFixture, unittest.TestCase):
         self.assertFalse((self.path.parent / '.agents/reviewer.md').exists())
         self.assertIn(f'Create {self.path.parent / ".agents/reviewer.md"}', result.remaining)
         self.assertEqual(self.github.writes, [])
+        self.wizard.applied = result
+        self.assertIn(f'Remaining content for {self.path.parent / ".agents/reviewer.md"}', self.wizard.result_text())
+
+    def test_interrupt_during_apply_reports_completed_effects_instead_of_cancelled_no_writes(self):
+        self.move('files')
+        self.wizard.advance({'workflow_labels': True})
+        self.move('review')
+        with patch.object(self.github, 'create_label', side_effect=KeyboardInterrupt):
+            self.wizard.advance({'confirm': True})
+        self.assertFalse(self.wizard.applied.ok)
+        self.assertTrue(self.path.exists())
+        self.assertIn('Apply interrupted', self.wizard.result_text())
+        self.assertNotIn('No files, directories', self.wizard.result_text())
 
     def test_failed_probes_and_unreadable_labels_remain_actionable_and_deferred(self):
         self.github.auth_error = AgentError('secret')
@@ -306,6 +359,20 @@ class WizardUITests(WizardFixture, unittest.IsolatedAsyncioTestCase):
 
 
 class DefaultsTerminalTests(unittest.TestCase):
+    def test_ci_and_each_non_tty_path_bypass_wizard_without_explicit_defaults(self):
+        for stdin_tty, stdout_tty, ci in ((False, True, ''), (True, False, ''), (True, True, '1')):
+            with self.subTest(stdin=stdin_tty, stdout=stdout_tty, ci=ci), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'workflow.yaml'
+                with patch('ub_agents.cli.sys.stdin.isatty', return_value=stdin_tty), \
+                        patch('ub_agents.init_ui.run_wizard', side_effect=AssertionError('wizard')), \
+                        patch('subprocess.run', side_effect=AssertionError('probe')), \
+                        patch('builtins.input', side_effect=AssertionError('prompt')), \
+                        patch.dict('os.environ', {'CI': ci}), redirect_stdout(io.StringIO()) as stdout:
+                    with patch.object(stdout, 'isatty', return_value=stdout_tty):
+                        self.assertEqual(main(['init', '--config', str(path), '--repository', 'org/project']), 0)
+                self.assertTrue(path.exists())
+                self.assertIn('no GitHub labels created', stdout.getvalue())
+
     def test_explicit_defaults_in_real_tty_do_not_prompt_probe_or_enter_alternate_screen(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'workflow.yaml'

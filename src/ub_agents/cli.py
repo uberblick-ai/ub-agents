@@ -152,7 +152,8 @@ def parser():
 
 
 def init_project(args):
-    from .init_setup import Choices, apply_plan, guidance_summary, infer_repository, make_plan, next_steps
+    from .init_setup import (Choices, apply_plan, guidance_summary, infer_repository, make_plan,
+                             next_steps, recovery_content)
     path = Path(args.config).absolute()
     repository = args.repository or infer_repository(path.parent)
     plan = make_plan(path, repository, Choices(args.runtime))
@@ -161,8 +162,8 @@ def init_project(args):
     if interactive:
         from .init_ui import run_wizard
         from .init_wizard import Wizard
-        return run_wizard(Wizard(plan, GitHub(repository)))
-    result = apply_plan(plan, GitHub(repository))
+        return run_wizard(Wizard(plan, GitHub(plan.config.repository)))
+    result = apply_plan(plan, GitHub(plan.config.repository))
     print(f"config: {path.name}")
     print("policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)")
     print("roles: .agents/ (issue-preparer, implementer, reviewer, integrator)")
@@ -175,14 +176,17 @@ def init_project(args):
         for step in result.completed:
             print(step)
         print(result.error)
+        for step in result.incomplete:
+            print(step)
         print("Remaining work (complete manually; init refuses existing starters):")
         for step in result.remaining:
             print(step)
+        print(recovery_content(plan, result))
     else:
         print("Setup completed; launch readiness requires review of project checks and authority.")
     for step in next_steps(plan):
         print(f"next: {step}")
-    print_commands(configured_labels(plan.config), repository,
+    print_commands(configured_labels(plan.config), plan.config.repository,
                    "Unattended defaults; GitHub labels were not read or written")
     return 0 if result.ok else 1
 
