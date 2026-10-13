@@ -32,7 +32,7 @@ class RefreshTests(unittest.TestCase):
         self.origin, self.upstream, self.root = [base / p for p in ("origin.git", "upstream", "control")]
         git(base, "init", "--bare", "-b", "main", str(self.origin))
         git(base, "clone", str(self.origin), str(self.upstream))
-        (self.upstream / ".gitignore").write_text(".ub-agents/\nignored\n")
+        (self.upstream / ".gitignore").write_text(".ub-agents/\nub-agents.local.yaml\nignored\n")
         (self.upstream / "role.md").write_text("First operator policy\n")
         (self.upstream / "ub-agents.yaml").write_text("repository: org/project\nagents:\n  worker:\n"
                                                     "    runtime: codex:model:high\n"
@@ -373,6 +373,88 @@ class RefreshTests(unittest.TestCase):
         self.assert_success(1)
         self.assert_success(3)
         self.assertEqual(self.github.item(3).labels, frozenset({"ready", "needs-review"}))
+
+    def test_local_layer_add_edit_and_removal_take_effect_at_each_run_boundary(self):
+        self.enable_reload()
+        for number in (4, 5):
+            self.github.items[number] = issue(number)
+        local = self.root / 'ub-agents.local.yaml'
+        calls = []
+
+        def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
+            calls.append((tuple(r.name for r in self.loop.config.agents[0].runtimes), tuple(command)))
+            if len(calls) == 1:
+                local.write_text('agents: {worker: {runtime: [claude:machine:low, codex:model:high]}}\n')
+            elif len(calls) == 2:
+                local.write_text('agents: {worker: {runtime: codex:edited:high}}\n')
+                # Both layers reload together, preserving base changes under overrides.
+                path = self.upstream / 'ub-agents.yaml'
+                path.write_text(path.read_text() + 'poll-seconds: 17\n')
+                self.push_policy('Updated base instructions\n')
+            elif len(calls) == 3:
+                self.assertIn('Updated base instructions', prompt)
+                self.assertEqual(self.loop.config.poll_seconds, 17)
+                local.unlink()
+            else:
+                self.assertEqual(self.loop.config.poll_seconds, 17)
+            number = int(env['UB_AGENTS_ASSIGNMENT'])
+            self.loop.coordinator.report(self.loop.coordinator.history(number)[0], 'success',
+                                         'Synthetic run finished', outcome='done')
+            return 0
+
+        with patch('ub_agents.coordination.shutil.which', side_effect=lambda cli: f'/tools/{cli}'), \
+                patch('ub_agents.loop.supervise', side_effect=run):
+            for _ in range(4):
+                self.assertTrue(self.loop.tick())
+        self.assertEqual([runtimes for runtimes, _ in calls],
+                         [('codex:model:high',), ('claude:machine:low', 'codex:model:high'),
+                          ('codex:edited:high',), ('codex:model:high',)])
+        for (_, command), cli, model in zip(calls, ('codex', 'claude', 'codex', 'codex'),
+                                            ('model', 'machine', 'edited', 'model')):
+            self.assertEqual(command[0], f'/tools/{cli}')
+            self.assertIn(model, command)
+        for number in (1, 3, 4, 5):
+            self.assert_success(number)
+
+    def test_invalid_local_reload_stops_before_claim_with_the_same_error_as_check(self):
+        self.enable_reload()
+        local = self.root / 'ub-agents.local.yaml'
+        for content in ('agents: {worker: {runtime: null}}', 'agents: ['):
+            with self.subTest(content=content):
+                local.write_text(content)
+                before = self.snapshot()
+                with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
+                        patch('ub_agents.cli.GitHub', return_value=self.github), \
+                        patch('ub_agents.cli.repository_checks', return_value=[]), \
+                        patch('ub_agents.cli.launch_checks'), \
+                        patch('ub_agents.cli.Loop', return_value=self.loop), \
+                        patch('ub_agents.coordination.shutil.which', return_value='installed'), \
+                        patch('ub_agents.loop.supervise') as execution, \
+                        patch('ub_agents.loop.Workspace.prepare') as prepare, \
+                        redirect_stderr(io.StringIO()) as launch_error, redirect_stdout(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.loop.config_path), 'launch', '--once', '--no-ui']), 1)
+                with redirect_stderr(io.StringIO()) as error:
+                    self.assertEqual(main(['--config', str(self.loop.config_path), 'check']), 1)
+                self.assertEqual(launch_error.getvalue(), error.getvalue())
+                self.assertIn(str(local), launch_error.getvalue())
+                execution.assert_not_called()
+                prepare.assert_not_called()
+                self.assertEqual(self.github.writes, [])
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(attempts(self.loop.coordinator.history(1), 'worker', timestamp()), [])
+
+    def test_operator_local_layer_is_not_copied_into_private_worktrees(self):
+        local = self.root / 'ub-agents.local.yaml'
+        local.write_text('agents: {worker: {runtime: claude:machine:low, worktree: true}}\n')
+        self.enable_reload()
+        def inspect(cwd, prompt):
+            self.assertNotEqual(cwd, self.root)
+            self.assertFalse((cwd / 'ub-agents.local.yaml').exists())
+            self.assertEqual(load_config(cwd / 'ub-agents.yaml').agents[0].runtimes,
+                             (Runtime('codex', 'model', 'high'),))
+            self.assertEqual(self.loop.config.agents[0].runtimes, (Runtime('claude', 'machine', 'low'),))
+        self.execute(inspect)
+        self.assertTrue(local.is_file())
 
     def test_reloaded_config_can_withdraw_the_planned_assignment(self):
         for edit in (lambda text: text.replace("trigger: ready", "trigger: other"),

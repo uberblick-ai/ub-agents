@@ -7,6 +7,11 @@ project guidance the runtime loads and warns if none is found. The shared policy
 references existing checks, otherwise supplies placeholders; customize it before
 launching. All starter roles use private worktrees.
 
+Init adds `.ub-agents/` and `ub-agents.local.yaml` to `.gitignore` when absent,
+preserving existing entries. It generates no local override file or machine-specific
+values. Validation includes an existing [local override layer](/docs/configuration/index.html#machine-local-overrides)
+beside the selected base file.
+
 Label creation defaults to no. Declining prints commands for missing labels; CI,
 noninteractive runs or failed label reads print commands for all configured labels.
 Existing labels are unchanged. Noninteractive setup makes no GitHub calls except

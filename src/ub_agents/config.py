@@ -11,6 +11,7 @@ from .errors import AgentError, InstructionError
 from .github import REPOSITORY
 
 DEFAULT_CONFIG = "ub-agents.yaml"
+LOCAL_CONFIG = "ub-agents.local.yaml"
 
 
 def resolve_config_path(path=None, *, root=None):
@@ -220,13 +221,58 @@ LEASE_SECONDS = 30 * 60
 LEASE_RENEW_SECONDS = 10 * 60
 
 
+def _read_config(path, *, optional=False):
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        if optional and not path.is_symlink():
+            return {}
+        raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
+    except (OSError, UnicodeError) as exc:
+        raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
+    loader = UniqueLoader(content)
+    try:
+        node = loader.get_single_node()
+        # An empty document inherits; an explicit YAML null is still a value.
+        empty = node is None or (isinstance(node, yaml.ScalarNode) and node.value == ""
+                                 and node.start_mark.index == node.end_mark.index)
+        if empty and optional:
+            return {}
+        data = loader.construct_document(node) if node is not None else None
+        if not isinstance(data, dict):
+            raise AgentError("configuration must be a mapping")
+        return data
+    except (AgentError, yaml.YAMLError) as exc:
+        raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
+    finally:
+        loader.dispose()
+
+
+def _merge_config(base, local):
+    """Merge mappings by key; all other supplied values replace the base."""
+    merged = base.copy()
+    for key, value in local.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_config(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def load_config(path):
     path = Path(path).resolve()
-    root = path.parent
+    base = _read_config(path)
+    local_path = path.parent / LOCAL_CONFIG
+    local = _read_config(local_path, optional=True)
     try:
-        data = yaml.load(path.read_text(), Loader=UniqueLoader)
-    except (OSError, yaml.YAMLError) as exc:
-        raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
+        return _parse_config(_merge_config(base, local), path.parent)
+    except AgentError as exc:
+        if not local:
+            raise
+        raise type(exc)(f"Invalid configuration {path} with local overrides {local_path}: {exc}") from exc
+
+
+def _parse_config(data, root):
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
                           "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots", "shared-instructions"},
                    "configuration")
@@ -359,7 +405,7 @@ def load_config(path):
             if different not in definitions or different == name or command:
                 raise AgentError(f"{name}: different-runtime-from must reference another runtime agent")
         kind = item.get("kind", "either")
-        if kind not in {"issue", "pr", "either"}:
+        if kind not in ("issue", "pr", "either"):
             raise AgentError(f"{name}: kind must be issue, pr, or either")
         worktree = item.get("worktree", False)
         if not isinstance(worktree, bool):

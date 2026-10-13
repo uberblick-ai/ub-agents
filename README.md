@@ -157,6 +157,29 @@ The launcher removes the trigger label and applies the outcome's labels only aft
 it has checked the agent's report on GitHub. The
 [configuration reference](docs/configuration.md) lists every key.
 
+For machine-specific settings, put an untracked `ub-agents.local.yaml` beside the
+required base file. With `--config PATH`, the local file is read from the resolved
+base file's directory, never an unrelated working directory. Local mappings merge
+recursively; supplied scalars and lists replace the entire base value. For example,
+if the base implementer uses `codex:gpt-6.1-sol:high`, keep that alternative by
+repeating it in the local replacement list:
+
+```yaml
+# ub-agents.local.yaml
+agents:
+  implementer:
+    runtime: ["codex:gpt-6.1-sol:high", "codex:machine-model:high"]
+```
+
+The implementer's other settings and other agents inherit from the base. Missing,
+empty or comment-only local files leave it unchanged. `check`, `doctor`, `init`
+validation and launch use the effective settings; launch rereads both files before
+each run, so adding, editing or removing the local file takes effect at the next
+reload. It stays in the control checkout and is not copied into private worktrees.
+`init` adds its ignore entry; existing projects should add `ub-agents.local.yaml`
+to `.gitignore` before creating it. See [local overrides](docs/configuration.md#machine-local-overrides)
+for validation and replacement rules.
+
 An optional per-agent [health check](docs/configuration.md#project-health-checks)
 pauses new claims while a project dependency is unavailable, without spending
 attempts. Claiming resumes automatically when the check passes.

@@ -4,3 +4,4 @@ __pycache__/
 build/
 dist/
 .ub-agents/
+ub-agents.local.yaml

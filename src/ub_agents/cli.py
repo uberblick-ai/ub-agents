@@ -14,7 +14,7 @@ import threading
 import uuid
 
 from . import __version__
-from .config import DEFAULT_CONFIG, load_config, resolve_config_path
+from .config import DEFAULT_CONFIG, LOCAL_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
 from .denials import denial_count
 from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted, CleanupError,
@@ -213,9 +213,11 @@ def init_project(args):
         with target.open("x") as stream:
             stream.write(content)
     ignore = root / ".gitignore"
-    if not ignore.exists() or ".ub-agents/" not in ignore.read_text().splitlines():
+    entries = ignore.read_text().splitlines() if ignore.exists() else []
+    missing = [entry for entry in (".ub-agents/", LOCAL_CONFIG) if entry not in entries]
+    if missing:
         with ignore.open("a") as stream:
-            stream.write("\n# Disposable ub-agents execution artifacts\n.ub-agents/\n")
+            stream.write("\n# Local ub-agents configuration and execution artifacts\n" + "\n".join(missing) + "\n")
     # Validate even the generated configuration; errors are actionable before launch.
     config = load_config(config_path)
     print(f"config: {config_path.name}")

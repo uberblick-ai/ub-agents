@@ -98,6 +98,43 @@ class InitTests(unittest.TestCase):
                     for name in ('AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'):
                         self.assertFalse((self.path.parent / name).exists())
 
+    def test_init_preserves_ignore_entries_and_adds_only_missing_local_entries(self):
+        for existing in ('', '.ub-agents/\n', 'ub-agents.local.yaml\n',
+                         '.ub-agents/\nub-agents.local.yaml\n', 'unrelated-without-newline'):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'starter.yaml'
+                ignore = self.path.parent / '.gitignore'
+                ignore.write_text(existing)
+                self.assertEqual(self.init()[0], 0)
+                content = ignore.read_text()
+                self.assertTrue(content.startswith(existing))
+                self.assertEqual(content.splitlines().count('.ub-agents/'), 1)
+                self.assertEqual(content.splitlines().count('ub-agents.local.yaml'), 1)
+                self.assertFalse((self.path.parent / 'ub-agents.local.yaml').exists())
+                if existing == '.ub-agents/\nub-agents.local.yaml\n':
+                    self.assertEqual(content, existing)
+
+    def test_init_validates_with_existing_local_overrides_without_changing_them(self):
+        self.path.parent.mkdir()
+        local = self.path.parent / 'ub-agents.local.yaml'
+        content = 'agents: {implementer: {runtime: claude:machine:high}}\n'
+        local.write_text(content)
+        self.assertEqual(self.init()[0], 0)
+        config = load_config(self.path)
+        implementer = next(agent for agent in config.agents if agent.name == 'implementer')
+        self.assertEqual(tuple(runtime.name for runtime in implementer.runtimes), ('claude:machine:high',))
+        self.assertEqual(local.read_text(), content)
+        self.assertIn('runtime: "codex:gpt-6.1-sol:high"', self.path.read_text())
+
+    def test_init_rejects_invalid_existing_local_overrides(self):
+        self.path.parent.mkdir()
+        local = self.path.parent / 'ub-agents.local.yaml'
+        local.write_text('agents: {implementer: {runtime: null}}\n')
+        code, _, error, _ = self.init()
+        self.assertEqual(code, 1)
+        self.assertIn(str(local), error)
+        self.assertIn('implementer runtime', error)
+
     def test_one_permission_question_covers_all_agents_and_explains_each_runtime(self):
         for runtime, grant, expected in (
             (None, 'Codex starter permissions grant full access without the sandbox',

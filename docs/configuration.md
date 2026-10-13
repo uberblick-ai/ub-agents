@@ -15,6 +15,60 @@ Inside a run use the launcher's literal `report_command` followed by `read N`.
 The launcher pins its repository and input configuration; worktree edits and
 `--config` do not override them for a supervised read.
 
+## Machine-local overrides
+
+The selected base configuration remains required and is read first. An optional,
+untracked `ub-agents.local.yaml` in the base file's resolved directory overrides
+selected settings. Relative paths in either layer resolve against that directory.
+With `--config PATH`, only the local file beside the selected base file is used;
+a local file in an unrelated working directory is ignored. A missing, empty or
+comment-only local file leaves behavior unchanged.
+
+Mappings merge recursively by key, including `agents` and each agent's settings.
+Omitted keys and other agents inherit from the base. Scalars and lists replace
+the entire base value; lists are never concatenated. There is no additive or
+deletion syntax. Explicit `null` is a supplied value and goes through normal
+schema validation, rather than meaning inherit or delete. A partial local agent
+can inherit required fields, but an agent defined only locally must be complete.
+
+For example, if the shared implementer uses `codex:gpt-6.1-sol:high`, this partial
+local definition retains it and adds a machine-only model:
+
+```yaml
+# ub-agents.local.yaml
+agents:
+  implementer:
+    runtime:
+      - codex:gpt-6.1-sol:high
+      - codex:machine-model:high
+```
+
+The runtime list replaces the whole shared runtime value, so repeat every shared
+alternative you want to keep, in the desired order. The `cli:model:effort` syntax,
+supported CLIs, runtime selection and independence rules are unchanged. Use a
+model available through the selected CLI; this layer adds no runtime adapter.
+
+Both files use strict YAML loading: keys must be unique strings, with existing
+`on`/`off` policy spellings preserved. Schema validation applies to the merged
+configuration. Malformed or unreadable local files, non-mapping top levels,
+unknown keys and invalid override values fail with an error naming the local file.
+
+`check`, `doctor`, `init` validation and launch use these effective settings.
+Launch rereads both layers at its existing reload boundary before each new run.
+Adding, editing or removing the local file takes effect at the next reload;
+removal restores base settings. An active run keeps its selected settings. The
+local file stays in the operator's control checkout and is not copied into private
+agent worktrees.
+
+`init` adds `.ub-agents/` and `ub-agents.local.yaml` to `.gitignore` when absent,
+preserving existing entries. It generates no machine-specific values or local
+file. Existing projects should add this line to their `.gitignore` before creating
+the local file, then commit only the ignore change:
+
+```gitignore
+ub-agents.local.yaml
+```
+
 ## Top level
 
 | Key | Meaning |
