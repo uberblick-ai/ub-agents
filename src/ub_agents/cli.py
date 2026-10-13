@@ -276,8 +276,8 @@ def retry_next_step(item, agent, stop_labels):
             "a running launcher picks it up on its next poll. `ub-agents status` shows its progress.")
 
 
-def launch_checks(config, github):
-    for _, error in control_checkout_checks(config, github.default_branch()):
+def launch_checks(config, github, read_git=None):
+    for _, error in control_checkout_checks(config, github.default_branch(), read_git):
         if error is not None:
             raise error
     existing = {name.casefold() for name in github.labels()}

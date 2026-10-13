@@ -59,6 +59,7 @@ class Choices:
     priority_default: str | None = None
     create_priority_labels: bool = False
     retrospectives: dict[str, int] = field(default_factory=dict)
+    board_requests: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -143,6 +144,8 @@ def make_plan(path, repository, choices):
         if role not in ROLES or type(number) is not int or number <= 0:
             raise AgentError("Retrospectives require a starter role and a positive integer discussion number")
         content = content.replace(f"  {role}:\n", f"  {role}:\n    retrospectives: {number}\n")
+    if any(role not in ROLES for role in choices.board_requests):
+        raise AgentError("Board creation requires an explicitly selected starter role")
     targets = {path: content}
     for role in ROLES:
         targets[root / ".agents" / f"{role}.md"] = templates.joinpath(f"{role}.md").read_text()
@@ -180,13 +183,14 @@ class Applied:
     error: str | None = None
     incomplete: list[str] = field(default_factory=list)
     label_names: list[str] = field(default_factory=list)
+    board_numbers: dict[str, int] = field(default_factory=dict)
 
     @property
     def ok(self):
         return self.error is None
 
 
-def apply_plan(plan, github, remote_labels=()):
+def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
     """Stop on partial failure; retain and describe successful effects, never roll back."""
     from .doctor import Doctor, public
     result = Applied()
@@ -196,9 +200,47 @@ def apply_plan(plan, github, remote_labels=()):
         pending.append(f"Update {plan.path.parent / '.gitignore'}")
     pending.append("Validate the effective configuration")
     pending.extend(f"Create label {label.name} on {plan.config.repository}" for label in remote_labels)
+    board_steps = [f"Create or reuse board {request.title!r} for {role} on {plan.config.repository}"
+                   for role, request in plan.choices.board_requests.items()]
+    pending[:0] = board_steps
     phase = "local"
     try:
         plan.protect()
+        if (plan.choices.board_requests or plan.choices.retrospectives or
+                verify_boards and any(a.retrospectives for a in plan.config.agents)):
+            from .init_boards import Boards
+            boards = Boards(github, plan.config.repository)
+            phase = "boards"
+            repo = boards.setup()
+            for number in {a.retrospectives for a in plan.config.agents if a.retrospectives}:
+                boards.verify(number)
+            for role, request in plan.choices.board_requests.items():
+                # Re-discover the explicitly requested title immediately before creating.
+                # This also makes manual recovery after a partial failure avoid duplicates.
+                board = boards.find(request.title)
+                if board is None:
+                    current = boards.request(request.title, request.category, repo)
+                    if current != request:
+                        raise AgentError("Discussion category or repository changed; review the request again before creating")
+                    result.incomplete.append(f"Board creation may have completed: {request.title!r}; inspect GitHub before retrying")
+                    board = boards.create(request)
+                    result.incomplete.pop()
+                    result.completed.append(f"Created public board {board['url']} for {role}")
+                else:
+                    result.completed.append(f"Reused public board {board['url']} for {role}")
+                verified = boards.verify(board["number"])
+                result.board_numbers[role] = verified["number"]
+                pending.pop(0)
+            # No unverified or placeholder destination is ever written, even if only
+            # some public creations succeeded. Keep their actual effects in the result.
+            plan.choices.retrospectives.update(result.board_numbers)
+            plan.choices.board_requests.clear()
+            rebuilt = make_plan(plan.path, plan.repository, plan.choices)
+            for number in {a.retrospectives for a in rebuilt.config.agents if a.retrospectives}:
+                boards.verify(number)
+            plan.targets, plan.config = rebuilt.targets, rebuilt.config
+            plan.protect()
+        phase = "local"
         for target, content in plan.targets.items():
             directories = []
             parent = target.parent
@@ -239,7 +281,8 @@ def apply_plan(plan, github, remote_labels=()):
         result.error = "Apply interrupted; completed effects remain and remaining steps need manual recovery"
         result.remaining = pending
     except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
-        result.error = (Doctor.github_failure("label creation", exc) if phase == "labels" else
+        result.error = (Doctor.github_failure("board creation/verification", exc) if phase == "boards" else
+                        Doctor.github_failure("label creation", exc) if phase == "labels" else
                         f"Local apply failed: {public(exc)}")
         result.remaining = pending
     return result

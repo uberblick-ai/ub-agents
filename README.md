@@ -88,9 +88,11 @@ ub-agents init --runtime claude:claude-opus-5-5:high   # or leave out --runtime 
 ```
 
 In a terminal, `init` opens a setup wizard: it shows what it found, collects choices
-and previews files and opted-in GitHub labels before a default-no Apply. Start with
+and previews files, opted-in GitHub labels and requested public boards before a default-no Apply. Start with
 `ub-agents init`; see the [init command guide](https://agents.uberblick.ai/docs/commands/init.html)
 for navigation, optional features and recovery. Cancel before Apply writes nothing.
+Optional steps default to Skip. Finish exits; Finish and start loop reruns readiness
+checks and invokes the normal launcher only after they pass. Setup never starts it automatically.
 The starter files are:
 
 ```text

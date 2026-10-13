@@ -2,14 +2,16 @@
 
 from dataclasses import dataclass
 import json
+import yaml
 
 from . import __version__
 from .config import LOCAL_CONFIG
-from .errors import AgentError
+from .errors import AgentError, GitHubError
 from .init_probes import Probes, PROBE_ERRORS, findings
 from .init_setup import (ROLES, apply_plan, guidance_summary, make_plan, next_steps,
                          permission_args, priority_labels, recovery_content)
 from .labels import configured_labels
+from .init_boards import Boards, MANUAL_BOARDS
 
 
 @dataclass
@@ -36,18 +38,23 @@ class Wizard:
         self.applied = None
         self.cancelled = False
         self.started = False
+        self.option_reviews = {}
+        self.board_values = {role: "" for role in ROLES} | {"category": ""}
+        self.board_info = "Discussions availability and creation/posting access will be checked when you choose destinations."
+        self.board_waiting = False
+        self.ready = False
+        self.readiness_text = "BLOCKED: launch readiness has not been checked. Fresh starters need review, a PR and merge before launch. Retry readiness after external preparation."
+        self.start_loop = False
 
     def probe(self):
         self.probes.run()
         self.started = True
 
     def pages(self):
-        pages = ["welcome", "prerequisites", "checkout", "policy", "permissions", "files", "features"]
-        if "priority" in self.choices.features:
-            pages.append("priority")
-            if self.missing(priority_labels(self.choices)):
-                pages.append("priority-labels")
-        pages.extend(name for name in ("retrospectives", "knowledge") if name in self.choices.features)
+        pages = ["welcome", "prerequisites", "checkout", "policy", "permissions", "files", "knowledge", "priority"]
+        if self.missing(priority_labels(self.choices)):
+            pages.append("priority-labels")
+        pages.append("retrospectives")
         return pages + ["review", "result"]
 
     def missing(self, labels):
@@ -107,8 +114,9 @@ class Wizard:
                          "The project's check commands must still be added to --allowedTools before launch.") +
                         "\n\nExact starter arguments:\n" + json.dumps(permission_args(cli), indent=2) +
                         "\n\nThese apply to all four roles. You can defer and edit runtime-args later. "
-                        "They are never enabled automatically. Existing local overrides still take precedence.",
-                        (Field("permissions", "Enable starter permissions for all four agents", c.permissions),), True)
+                        "They are never enabled automatically. Existing local overrides still take precedence.\n\n"
+                        "Accept and enable permissions (y) enables these exact arguments. "
+                        "Continue without permissions (n) is the default; Cancel (esc) exits without changes.")
         if self.current == "files":
             labels = configured_labels(self.plan.config)
             missing = self.missing(labels)
@@ -126,54 +134,77 @@ class Wizard:
                 text += "Missing workflow labels:\n" + "\n".join(f"{label.name}: {label.explanation}" for label in missing)
             fields = (Field("workflow_labels", "Create missing workflow labels (default no)", c.workflow_labels),) if missing else ()
             return Page("Files and workflow labels", text, fields)
-        if self.current == "features":
-            return Page("Optional features", "Choose only the features you want to look at; every feature can be skipped.\n\n"
-                        "Priority: order work by labels. Without configuration all items have equal priority.\n\n"
-                        "Retrospectives: chosen roles may read existing discussion boards and publish public reflections.\n\n"
-                        "Uberblick shared knowledge: recommended as an optional follow-up. It is never a runtime dependency.",
-                        tuple(Field(name, label, name in c.features) for name, label in
-                              (("priority", "Set queue priorities"), ("retrospectives", "Configure retrospective boards"),
-                               ("knowledge", "Learn about Uberblick shared knowledge"))), True)
         if self.current == "priority":
-            return Page("Queue priority", "Enter unique labels, separated by commas, highest priority first. "
+            return Page("Queue priority", "Priorities order eligible work within the queue rules. You can enable this later.\n\n"
+                        "Enter unique labels, separated by commas, highest priority first. "
                         "The default must be one of those labels. Leave default empty to explicitly choose no default; "
                         "unlabeled items then rank below configured labels.\n\n"
                         "Skip leaves no priority configuration, so all items have equal priority. "
-                        "Missing label creation is a separate choice.",
+                        "Missing label creation is a separate choice.\n\n" + self.addition_preview() +
+                        "\nContinue checks your entries and shows the proposed YAML; Continue again confirms it. Skip is the default.",
                         (Field("labels", "Priority labels (highest to lowest)", ", ".join(c.priority_labels)),
                          Field("default", "Default label (empty means no default)", c.priority_default or "")), True)
         if self.current == "priority-labels":
-            return Page("Missing priority labels", "Create only these missing labels, leaving existing labels unchanged:\n\n" +
+            return Page("Missing priority labels", "Labels make the chosen priority ordering usable. You can enable this later.\n\n"
+                        "Create only these missing labels, leaving existing labels unchanged:\n\n" +
                         "\n".join(label.command(self.plan.config.repository) for label in self.missing(priority_labels(c))) +
                         "\n\nDecline or Skip to configure priority without creating labels; result includes the commands.",
                         (Field("create_priority_labels", "Create missing priority labels (default no)", c.create_priority_labels),), True)
         if self.current == "retrospectives":
-            return Page("Retrospective boards", f"Choose existing discussions in {self.plan.config.repository}. "
-                        "Enter a positive integer per role; leave empty to keep that role's posting off.\n\n"
-                        "We verify each exact repository URL and read access. Posting access remains UNVERIFIED: "
-                        "no test comments are posted. Ensure the token can read discussions and post discussion comments "
-                        "(fine-grained Discussions read/write; classic tokens need repository access). "
+            return Page("Retrospective boards", "Retrospectives retain lessons from completed runs. You can enable this later.\n\n"
+                        f"Target repository: {self.plan.config.repository}. Enter an existing positive discussion number, "
+                        "or create: <chosen board title> per role. Leave empty to keep that role's posting off. "
+                        "For creation, explicitly choose an available category by name. Exact chosen titles are discovered "
+                        "and reused to avoid duplicates.\n\n" + self.board_info + "\n\n"
+                        "No writes until Apply. Requested public boards are created and verified before configuration is written. "
+                        "If manual creation or permission repair is needed, pause here, then Retry, Skip or Cancel. "
+                        "No test comments are posted. Existing destinations must report write capability and be open/unlocked. "
+                        "GitHub exposes update capability rather than a comment-permission probe; we require that conservative evidence. "
+                        "Creation itself verifies token access at Apply; account role alone does not prove token access.\n\n"
                         "Later agents publish publicly as the launcher account. For Claude, separately allow "
                         "Bash({report_command} retrospective *) on selected roles.\n\n"
-                        "Create boards yourself: https://docs.github.com/en/discussions/managing-discussions-for-your-community/creating-a-discussion\n\n"
-                        "No discussions, accounts or workspaces are created. Invalid or unreadable destinations cannot be enabled: fix and retry, or Skip.",
-                        tuple(Field(role, f"{role} discussion number", str(c.retrospectives.get(role, ""))) for role in ROLES), True)
+                        f"Manual instructions: {MANUAL_BOARDS}\n\n" + self.addition_preview() +
+                        "\nContinue verifies your choices and previews additions; Continue again confirms them. Skip is the default.",
+                        tuple(Field(role, f"{role}: number or create: title", self.board_values[role]) for role in ROLES) +
+                        (Field("category", "Category name for requested creation", self.board_values["category"]),), True)
         if self.current == "knowledge":
-            return Page("Uberblick shared knowledge", "Uberblick can share project guidance and decisions among agents. "
-                        "It is a recommended optional follow-up, never needed to run this standalone framework.\n\n"
-                        "Learn more: https://github.com/uberblick-ai/uberblick-2\n\n"
+            return Page("Uberblick shared knowledge", "Uberblick is a shared knowledge base for agents and humans alike. Learn more at https://uberblick.at\n\n"
+                        "You can enable this later. It is a recommended optional follow-up, never needed to run this standalone framework.\n\n"
                         "Follow its setup guidance separately. This wizard creates no workspace or account, requests no secrets "
-                        "and enables no integration.", optional=True)
+                        "and enables no integration. Continue keeps the follow-up link; Skip is the default.", optional=True)
         if self.current == "review":
             remote = self.remote_labels()
             text = ("Review the exact changes below. Apply defaults to no. Back edits choices; Cancel leaves everything untouched.\n\n" +
                    self.option_summary() + "\n\n" + self.effective_summary() + "\n\n" +
                    self.plan.preview() + "\n\nOpted-in remote changes:\n" +
-                   ("\n".join(label.command(self.plan.config.repository) for label in remote) or "None") +
-                   "\n\nNo launch, commit, push, merge, installation, account change or protection change is performed. "
+                   ("\n".join([*(label.command(self.plan.config.repository) for label in remote),
+                                *(request.preview(self.plan.config.repository) for request in c.board_requests.values())]) or "None") +
+                   "\n\nBoard numbers are obtained and verified at Apply, before any retrospective config is written. "
+                   "No launch, commit, push, merge, installation, account change or protection change is performed by Apply. "
                    "Setup success does not mean launch readiness.")
             return Page("Review and apply", text, (Field("confirm", "Apply these exact local and remote changes (default no)", False),))
-        return Page("Setup results", self.result_text())
+        return Page("Setup results", self.result_text() + "\n\nFinish exits. Finish and start loop explicitly checks readiness again, "
+                    "then launches only if all gates pass. Retry readiness after preparing the checkout externally. "
+                    "Review project checks, merge authority and decision-makers before choosing Start.")
+
+    def addition_preview(self):
+        c = self.choices
+        additions = {}
+        pending = []
+        if self.current == "priority" and c.priority_labels:
+            priority = {"labels": list(c.priority_labels)}
+            if c.priority_default is not None:
+                priority["default"] = c.priority_default
+            additions = {"queue": {"priority": priority}}
+        if self.current == "retrospectives":
+            if c.retrospectives:
+                additions = {"agents": {role: {"retrospectives": number} for role, number in c.retrospectives.items()}}
+            pending = [f"{role}: {request.preview(self.plan.config.repository)}\n"
+                       "No destination key is added until Apply returns a verified discussion number."
+                       for role, request in c.board_requests.items()]
+        return (f"This adds to {self.plan.path}:\n" +
+                (yaml.safe_dump(additions, sort_keys=False).rstrip() if additions else "No added keys yet.") +
+                ("\n\n" + "\n\n".join(pending) if pending else ""))
 
     def option_summary(self):
         c = self.choices
@@ -181,8 +212,10 @@ class Wizard:
                 f"Workflow label creation: {'selected' if c.workflow_labels else 'deferred'}\n"
                 f"Priority: {', '.join(c.priority_labels) or 'skipped; all items equal'}; default: {c.priority_default or 'none'}\n"
                 f"Priority label creation: {'selected' if c.create_priority_labels else 'deferred'}\n"
-                "Retrospectives: " + (", ".join(f"{role}: #{number} (read verified; posting UNVERIFIED)"
-                                               for role, number in c.retrospectives.items()) or "skipped; posting off") +
+                "Retrospectives: " + (", ".join([*(f"{role}: #{number} (read and write capability verified)"
+                                               for role, number in c.retrospectives.items()),
+                                               *(f"{role}: requested board {request.title!r}; number/write access verified at Apply"
+                                                 for role, request in c.board_requests.items())]) or "skipped; posting off") +
                 f"\nUberblick: {'optional follow-up' if 'knowledge' in c.features else 'skipped'}; no integration enabled")
 
     def effective_summary(self):
@@ -193,13 +226,13 @@ class Wizard:
             lines.append(f"{agent.name}: {runtimes}")
             for runtime in agent.runtimes:
                 lines.append(f"  {runtime.cli} arguments: {json.dumps(agent.runtime_args_for(runtime))}")
-            lines.append(f"  retrospective: #{agent.retrospectives} (posting UNVERIFIED)" if agent.retrospectives else
+            lines.append(f"  retrospective: #{agent.retrospectives} (requires verified write capability)" if agent.retrospectives else
                          "  retrospective: off")
         lines.append(f"Priority: {', '.join(config.queue.priority.labels) or 'off'}; default: {config.queue.priority.default or 'none'}")
         return "\n".join(lines)
 
     def advance(self, values):
-        if self.current != "review":
+        if self.current not in {"review", "result"}:
             self.plan.protect()
         c = self.choices
         if self.current == "welcome" and not self.started:
@@ -213,15 +246,13 @@ class Wizard:
                 c.runtime, c.permissions = runtime, False
                 self.plan = proposed
                 self.probes.check_runtime(self.plan.config)
-        elif self.current in {"permissions", "files", "priority-labels"}:
+        elif self.current == "permissions":
+            c.permissions = values.get("permissions", False)
+        elif self.current in {"files", "priority-labels"}:
             for field in self.page().fields:
                 setattr(c, field.name, values[field.name])
-        elif self.current == "features":
-            c.features = {name for name in ("priority", "retrospectives", "knowledge") if values[name]}
-            if "priority" not in c.features:
-                c.priority_labels, c.priority_default, c.create_priority_labels = (), None, False
-            if "retrospectives" not in c.features:
-                c.retrospectives.clear()
+        elif self.current == "knowledge":
+            c.features.add("knowledge")
         elif self.current == "priority":
             labels = tuple(label.strip() for label in values["labels"].split(","))
             if not labels or any(not label or "\x00" in label for label in labels):
@@ -235,33 +266,84 @@ class Wizard:
             if self.probes.existing_labels is None:
                 c.create_priority_labels = False
         elif self.current == "retrospectives":
-            selected = {}
-            for role in ROLES:
-                value = values[role].strip()
-                if value:
-                    if not value.isascii() or not value.isdecimal() or int(value) <= 0:
-                        raise AgentError(f"{role}: enter a positive integer, leave empty, or Skip")
-                    try:
-                        self.probes.discussion(int(value))
-                    except PROBE_ERRORS:
-                        raise AgentError(f"{role}: discussion #{value} is invalid or unreadable in {self.plan.config.repository}; fix/retry or Skip") from None
-                    selected[role] = int(value)
-            c.retrospectives = selected
+            self.prepare_boards(values)
         elif self.current == "review":
             if not values.get("confirm"):
                 raise AgentError("Apply defaults to no; explicitly select Apply to make changes")
             # Destinations must still be readable at the point we enable posting.
             for number in {a.retrospectives for a in self.plan.config.agents if a.retrospectives is not None}:
                 try:
-                    self.probes.discussion(number)
+                    Boards(self.github, self.plan.config.repository).verify(number)
                 except PROBE_ERRORS:
                     raise AgentError(f"Discussion #{number} can no longer be verified; go Back to fix or Skip retrospectives") from None
-            self.applied = apply_plan(self.plan, self.github, self.remote_labels())
+            self.applied = apply_plan(self.plan, self.github, self.remote_labels(), verify_boards=True)
             self.current = "result"
             return
         self.plan = make_plan(self.plan.path, self.plan.repository, c)
+        if self.current in {"priority", "retrospectives"}:
+            review = ((values.copy(), c.priority_labels, c.priority_default) if self.current == "priority" else
+                      (values.copy(), c.retrospectives.copy(), c.board_requests.copy()))
+            if self.option_reviews.get(self.current) != review:
+                self.option_reviews[self.current] = review
+                return
         pages = self.pages()
         self.current = pages[pages.index(self.current) + 1]
+
+    def prepare_boards(self, values):
+        self.board_values = {role: values.get(role, "").strip() for role in ROLES} | {"category": values.get("category", "").strip()}
+        boards = Boards(self.github, self.plan.config.repository)
+        selected, requests = {}, {}
+        try:
+            repo = boards.setup()
+            self.board_info = (f"PASS: Discussions enabled in {self.plan.config.repository}; launcher account role: {repo['viewerPermission']}. "
+                               "Available categories: " + ", ".join(c["name"] for c in repo["discussionCategories"]["nodes"]))
+            for role in ROLES:
+                value = self.board_values[role]
+                if not value:
+                    continue
+                if value.startswith("create:"):
+                    title = value[7:].strip()
+                    if not title or "\n" in title or "\x00" in title:
+                        raise AgentError(f"{role}: enter a nonempty, single-line board title")
+                    board = boards.find(title)
+                    if board:
+                        selected[role] = board["number"]
+                    else:
+                        requests[role] = boards.request(title, self.board_values["category"], repo)
+                elif value.isascii() and value.isdecimal() and int(value) > 0:
+                    selected[role] = boards.verify(int(value))["number"]
+                else:
+                    raise AgentError(f"{role}: enter a positive integer or create: title, leave empty, or Skip")
+        except PROBE_ERRORS as exc:
+            from .doctor import Doctor
+            self.board_waiting = True
+            from .doctor import public
+            detail = public(exc) if isinstance(exc, AgentError) and not isinstance(exc, GitHubError) else Doctor.github_failure("board verification", exc)
+            self.board_info = f"PAUSED: {detail}. Repair access or create the requested boards manually, then Retry; Skip keeps posting off."
+            raise AgentError(self.board_info) from None
+        self.board_waiting = False
+        self.choices.retrospectives, self.choices.board_requests = selected, requests
+
+    def retry_readiness(self):
+        if self.applied is None or not self.applied.ok:
+            self.ready = False
+            self.readiness_text = "BLOCKED: finish setup recovery before starting the loop."
+            return False
+        from .doctor import Doctor
+        from .init_readiness import readiness
+        doctor = Doctor(github=self.github, runner=self.probes.doctor.runner, which=self.probes.doctor.which)
+        try:
+            self.ready, details = readiness(self.plan.path, self.github, doctor)
+            self.readiness_text = ("PASS: launch preflight gates passed. Project policy still needs owner review.\n" if self.ready else
+                                   "BLOCKED: launch preflight gates failed. Prepare externally, then Retry readiness.\n") + details
+        except PROBE_ERRORS:
+            self.ready = False
+            self.readiness_text = "BLOCKED: readiness checks unavailable; repair access and Retry readiness."
+        return self.ready
+
+    def request_start(self):
+        self.start_loop = self.retry_readiness()
+        return self.start_loop
 
     def back(self):
         if self.current not in {"welcome", "result"}:
@@ -274,11 +356,6 @@ class Wizard:
             return
         if name == "permissions":
             self.choices.permissions = False
-        elif name == "features":
-            self.choices.features.clear()
-            self.choices.priority_labels, self.choices.priority_default = (), None
-            self.choices.create_priority_labels = False
-            self.choices.retrospectives.clear()
         elif name == "priority-labels":
             self.choices.create_priority_labels = False
         elif name == "priority":
@@ -287,20 +364,23 @@ class Wizard:
             self.choices.features.discard(name)
         elif name == "retrospectives":
             self.choices.retrospectives.clear()
+            self.choices.board_requests.clear()
+            self.board_values = {role: "" for role in ROLES} | {"category": ""}
+            self.board_waiting = False
             self.choices.features.discard(name)
         elif name == "knowledge":
             self.choices.features.discard(name)
         old = self.current
-        # The skipped optional page may disappear; use its successor from the old ordering.
         if old == "priority":
-            self.current = next((p for p in ("retrospectives", "knowledge") if p in self.choices.features), "review")
+            self.current = "retrospectives"
         elif old == "retrospectives":
-            self.current = "knowledge" if "knowledge" in self.choices.features else "review"
-        elif old == "knowledge":
             self.current = "review"
+        elif old == "knowledge":
+            self.current = "priority"
         else:
             self.current = self.pages()[self.pages().index(old) + 1]
         self.plan = make_plan(self.plan.path, self.plan.repository, self.choices)
+        self.option_reviews.pop(old, None)
 
     def deferred_commands(self):
         labels = configured_labels(self.plan.config) + priority_labels(self.choices)
@@ -311,17 +391,27 @@ class Wizard:
 
     def result_text(self):
         if self.cancelled or self.applied is None:
-            return "Setup cancelled. No files, directories or GitHub labels were changed."
+            return "Setup cancelled. No files, directories or GitHub labels or boards were changed."
         result = self.applied
         lines = ["Setup completed; launch readiness still requires project review." if result.ok else
                  "Setup partially failed. Completed effects remain; launch readiness has not been established."]
         lines.extend(result.completed)
+        if result.board_numbers:
+            lines.append("Verified board destinations: " + ", ".join(f"{role}: #{number}" for role, number in result.board_numbers.items()))
         if result.error:
             lines.extend([result.error, *result.incomplete, "Remaining work:", *result.remaining,
                           "Inspect completed files (and any partial file from the failed write). Repair access and complete missing files manually from the recovery content below. "
                           "Init refuses existing starter files; do not rerun it expecting overwrites."])
             lines.append(recovery_content(self.plan, result))
-        lines.extend([self.option_summary(), self.effective_summary(), *guidance_summary(self.plan), "Before launch:", *next_steps(self.plan)])
+            if self.choices.board_requests:
+                lines.append(f"Board recovery: inspect exact requested titles in {self.plan.config.repository}, including any creation with an unavailable response. "
+                             f"Manual instructions: {MANUAL_BOARDS}. "
+                             "If no starter file was written, rerun init and explicitly choose those same boards; verified existing titles are reused. "
+                             "If starter files were written, finish missing files manually and configure only verified destinations.")
+        lines.extend([self.option_summary(), self.effective_summary(), *guidance_summary(self.plan), "Launch readiness:",
+                      self.readiness_text, "Before launch:", *next_steps(self.plan)])
+        if "knowledge" in self.choices.features:
+            lines.append("Uberblick optional follow-up: https://uberblick.at")
         attention = [check for check in (self.probes.welcome + self.probes.prerequisites +
                                          self.probes.checkout + self.probes.runtime) if check.status != "ok"]
         if attention:

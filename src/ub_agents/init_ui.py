@@ -15,9 +15,9 @@ from .init_probes import PROBE_ERRORS
 
 class SetupApp(App):
     CSS = """
-    Screen { align: center middle; }
-    #frame { width: 92; max-width: 100%; height: 38; max-height: 100%;
-             border: round $accent; padding: 1 2; }
+    Screen { layout: vertical; }
+    #frame { width: 100%; height: 1fr;
+             border: round $accent; padding: 0 1; }
     #heading { height: auto; margin-bottom: 1; text-style: bold; }
     #body { height: 1fr; }
     #copy { height: auto; }
@@ -25,14 +25,17 @@ class SetupApp(App):
     Input { margin-bottom: 1; }
     Checkbox { height: auto; margin-top: 1; width: 100%; }
     #error { height: auto; max-height: 4; color: $warning; }
-    #actions { grid-size: 4 1; grid-gutter: 0 1; height: 3; margin-top: 1; }
-    Button { min-width: 0; width: 1fr; }
-    #frame.narrow { padding: 0 1; }
-    .narrow #actions { grid-size: 2 2; height: 6; }
+    #actions { grid-size: 4 1; grid-gutter: 0 1; height: 1; margin-top: 1; }
+    Button { min-width: 0; width: 1fr; height: 1; border: none; padding: 0; text-overflow: clip; }
+    #notes { height: 3; padding: 0 1; }
     """
     BINDINGS = [Binding("ctrl+n", "continue", "Continue / Apply", priority=True),
                 Binding("ctrl+b", "back", "Back", priority=True),
                 Binding("ctrl+s", "skip", "Skip", priority=True),
+                Binding("y", "permissions_yes", "Accept permissions", show=False),
+                Binding("n", "permissions_no", "Without permissions", show=False),
+                Binding("ctrl+r", "retry", "Retry", priority=True),
+                Binding("ctrl+l", "start", "Finish and start loop", priority=True),
                 Binding("escape", "cancel", "Cancel", priority=True),
                 Binding("ctrl+c", "cancel", "Cancel", priority=True)]
 
@@ -53,6 +56,9 @@ class SetupApp(App):
                 yield Button("Continue ^N", id="continue", variant="primary")
                 yield Button("Skip ^S", id="skip")
                 yield Button("Cancel Esc", id="cancel")
+                yield Button("Retry ^R", id="retry")
+                yield Button("Finish and start loop ^L", id="start")
+        yield Static(id="notes", markup=False)
 
     async def on_mount(self):
         await self.show_page()
@@ -66,22 +72,46 @@ class SetupApp(App):
 
     def on_resize(self, event):
         if self.is_mounted:
-            self.query_one("#frame").set_class(event.size.width < 80, "narrow")
+            self.query_one("#frame").set_class(event.size.width < 92, "narrow")
+            self.buttons()
 
     def buttons(self):
         current = self.wizard.current
+        narrow = self.size.width < 92
+        permissions = current == "permissions"
+        result = current == "result"
+        actions = self.query_one("#actions", Grid)
+        actions.styles.grid_size_columns = 3 if permissions or result else 4
+        actions.styles.grid_columns = ("1fr 1fr 1fr" if narrow else "35 34 14") if permissions else (
+            "1fr 1fr 1fr" if narrow else "1fr 1fr 2fr") if result else (
+            "7 9 7 10" if narrow else "1fr 1fr 1fr 1fr")
+        for id in ("back", "continue", "skip", "cancel", "retry", "start"):
+            self.query_one("#" + id, Button).display = id in (
+                {"continue", "skip", "cancel"} if permissions else
+                {"continue", "retry", "start"} if result else
+                {"back", "continue", "skip", "cancel"})
         self.query_one("#back", Button).disabled = self.busy or current in {"welcome", "result"}
-        self.query_one("#skip", Button).disabled = self.busy or not self.wizard.page().optional
+        skip = self.query_one("#skip", Button)
+        skip.disabled = self.busy or (not permissions and not self.wizard.page().optional)
+        skip.label = ("Without (n)" if narrow else "[Continue without permissions (n)]") if permissions else "Skip ^S"
         self.query_one("#cancel", Button).disabled = self.busy or current == "result"
+        self.query_one("#cancel", Button).label = ("Cancel esc" if narrow else "[Cancel (esc)]") if permissions else "Cancel Esc"
         forward = self.query_one("#continue", Button)
-        forward.label = "Finish ^N" if current == "result" else "Apply ^N" if current == "review" else "Continue ^N"
+        forward.label = (("Accept (y)" if narrow else "[Accept and enable permissions (y)]") if permissions else
+                         "Finish ^N" if result else "Apply ^N" if current == "review" else
+                         "Retry ^N" if self.wizard.board_waiting and current == "retrospectives" else
+                         "Next ^N" if narrow else "Continue ^N")
+        self.query_one("#retry", Button).disabled = self.busy
+        self.query_one("#retry", Button).label = "Retry ^R" if narrow else "Retry readiness ^R"
+        self.query_one("#start", Button).disabled = self.busy or not (self.wizard.applied and self.wizard.applied.ok)
+        self.query_one("#start", Button).label = "Start ^L" if narrow else "Finish and start loop ^L"
         confirm = self.query("#field-confirm")
         forward.disabled = self.busy or (current == "review" and (not confirm or not confirm.first(Checkbox).value))
 
     async def show_page(self):
         page = self.wizard.page()
         pages = self.wizard.pages()
-        self.query_one("#frame").set_class(self.size.width < 80, "narrow")
+        self.query_one("#frame").set_class(self.size.width < 92, "narrow")
         self.query_one("#heading", Static).update(f"ub-agents setup  ·  {pages.index(self.wizard.current) + 1}/{len(pages)}\n{page.title}")
         body = self.query_one("#body", VerticalScroll)
         await body.remove_children()
@@ -96,12 +126,24 @@ class SetupApp(App):
                                  Input(str(value), id="field-" + field.name))
         body.scroll_home(animate=False)
         self.query_one("#error", Static).update("")
+        notes = ("Intent: shared knowledge follow-up. Consequence: no integration is enabled.\nLink destination: https://uberblick.at"
+                 if self.wizard.current == "knowledge" else
+                 "Intent: lessons. Effect: public agent posts.\nLink: GitHub Docs (creating discussions)."
+                 if self.wizard.current == "retrospectives" else
+                 "Intent: order eligible work within queue rules. Consequence: skipped priority leaves equal ordering."
+                 if self.wizard.current in {"priority", "priority-labels"} else "")
+        self.query_one("#notes", Static).update(notes)
         self.buttons()
+        # Reused footer buttons belong to the new page immediately, even when
+        # the preceding page's button press still has its active animation.
+        for button in self.query(Button):
+            button.remove_class("-active")
         if self.wizard.current == "review":
             self.query_one("#back").focus()
         else:
             fields = list(body.query(Input))
-            (fields[0] if fields else self.query_one("#continue")).focus()
+            (self.query_one("#skip") if page.optional or self.wizard.current == "permissions" else
+             fields[0] if fields else self.query_one("#continue")).focus()
 
     def values(self):
         values = {}
@@ -125,6 +167,8 @@ class SetupApp(App):
             self.exit(self.wizard.applied.ok)
             return
         values = self.values()
+        if self.wizard.current == "permissions":
+            values = {"permissions": True}
         self.drafts[self.wizard.current] = values
         self.busy = True
         self.buttons()
@@ -149,11 +193,60 @@ class SetupApp(App):
         await self.show_page()
 
     async def action_skip(self):
-        if self.busy or not self.wizard.page().optional:
+        if self.busy:
+            return
+        if self.wizard.current == "permissions":
+            try:
+                self.wizard.advance({"permissions": False})
+            except PROBE_ERRORS as exc:
+                self.query_one("#error", Static).update(public(exc))
+                return
+            await self.show_page()
+            return
+        if not self.wizard.page().optional:
             return
         self.drafts.pop(self.wizard.current, None)
-        self.wizard.skip()
+        try:
+            self.wizard.skip()
+        except PROBE_ERRORS as exc:
+            self.query_one("#error", Static).update(public(exc))
+            return
         await self.show_page()
+
+    async def action_permissions_yes(self):
+        if self.wizard.current == "permissions":
+            await self.action_continue()
+
+    async def action_permissions_no(self):
+        if self.wizard.current == "permissions":
+            await self.action_skip()
+
+    async def action_retry(self):
+        if self.wizard.current == "retrospectives":
+            await self.action_continue()
+        elif self.wizard.current == "result" and not self.busy:
+            self.busy = True
+            self.buttons()
+            try:
+                await asyncio.to_thread(self.wizard.retry_readiness)
+                await self.show_page()
+            finally:
+                self.busy = False
+                self.buttons()
+
+    async def action_start(self):
+        if self.wizard.current != "result" or self.busy:
+            return
+        self.busy = True
+        self.buttons()
+        try:
+            if await asyncio.to_thread(self.wizard.request_start):
+                self.exit(True)
+            else:
+                await self.show_page()
+        finally:
+            self.busy = False
+            self.buttons()
 
     async def action_cancel(self):
         if self.busy:
@@ -175,19 +268,42 @@ def line_wizard(wizard):
             pages = wizard.pages()
             print(f"\n[{pages.index(wizard.current) + 1}/{len(pages)}] {page.title}\n\n{page.text}\n")
             if wizard.current == "result":
-                input("Finish [Enter] ")
-                return wizard.applied.ok
-            action = input("[b] Back  [Enter] Continue  " + ("[s] Skip  " if page.optional else "") + "[c] Cancel: ").strip().casefold()
-            if action in {"c", "cancel"}:
+                action = input("[Enter] Finish  [l] Finish and start loop  [r] Retry readiness: ").strip().casefold()
+                if action == "r":
+                    wizard.retry_readiness()
+                    continue
+                if action == "l":
+                    if wizard.request_start():
+                        return True
+                    continue
+                if action == "":
+                    return wizard.applied.ok
+                continue
+            permissions = wizard.current == "permissions"
+            prompt = ("[Accept and enable permissions (y)] [Continue without permissions (n)] [Cancel (esc)] (default n): "
+                      if permissions else "[b] Back  [Enter] Skip  [n] Continue  [r] Retry  [c] Cancel: "
+                      if page.optional else "[b] Back  [Enter] Continue  [c] Cancel: ")
+            action = input(prompt).strip().casefold()
+            if action in {"c", "cancel", "esc", "\x1b"}:
                 wizard.cancelled = True
                 return True
             if action in {"b", "back"}:
                 wizard.back()
                 continue
-            if action in {"s", "skip"} and page.optional:
-                wizard.skip()
+            if permissions:
+                if action in {"", "n", "y"}:
+                    try:
+                        wizard.advance({"permissions": action == "y"})
+                    except PROBE_ERRORS as exc:
+                        print(public(exc))
                 continue
-            if action not in {"", "continue"}:
+            if action in {"", "s", "skip"} and page.optional:
+                try:
+                    wizard.skip()
+                except PROBE_ERRORS as exc:
+                    print(public(exc))
+                continue
+            if action not in {"", "n", "r", "continue"}:
                 continue
             values = {}
             for field in page.fields:
@@ -215,4 +331,7 @@ def run_wizard(wizard):
     else:
         ok = SetupApp(wizard).run()
     print(wizard.result_text())
+    if ok and wizard.start_loop:
+        from .cli import main
+        return main(["launch", "--config", str(wizard.plan.path)]) or 0
     return 0 if ok else 1
