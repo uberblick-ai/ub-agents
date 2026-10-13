@@ -24,6 +24,23 @@ Give a list. The first one that is installed and allowed runs.
 runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.1-sol:high"]
 ```
 
+To customize one machine, supply only the agent's runtime in
+`ub-agents.local.yaml` beside the selected base file:
+
+```yaml
+# ub-agents.local.yaml
+agents:
+  implementer:
+    runtime: ["codex:gpt-6.1-sol:high", "codex:machine-model:high"]
+```
+
+The local runtime replaces the whole shared string or ordered list. This example
+keeps the base `codex:gpt-6.1-sol:high` alternative by repeating it, then adds a
+model available on this machine through Codex. Other agent settings inherit.
+Supported CLIs, selection and independence rules are unchanged; no runtime adapter
+is added. See [machine-local overrides](/docs/configuration/index.html#machine-local-overrides)
+for location, `--config`, ignore entries, validation and reload behavior.
+
 ## What runs
 
 The prompt, made of the assignment context and the agent's instructions, arrives on stdin. Every run starts a fresh session.

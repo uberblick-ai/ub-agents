@@ -99,6 +99,20 @@ agents:
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
 
+    def test_doctor_uses_local_runtime_replacement_and_names_invalid_local_file(self):
+        local = self.root / 'ub-agents.local.yaml'
+        local.write_text('agents: {worker: {runtime: claude:machine:low}}\n')
+        result = self.diagnose()
+        self.assertTrue(result['ok'])
+        self.assertEqual([check['runtime'] for check in self.checks(result, 'runtime-executable')],
+                         ['claude:machine:low'])
+        self.assertIn(('claude', 'auth', 'status'), [command for command, _ in self.runner.calls])
+        local.write_text('agents: {worker: {runtime: null}}\n')
+        failure = self.one(self.diagnose(), 'config')
+        self.assertEqual(failure['status'], 'fail')
+        self.assertIn(str(local), failure['message'])
+        self.assertIn('worker runtime', failure['message'])
+
     def test_retrospective_board_is_checked_per_agent_without_writes(self):
         self.path.write_text(self.path.read_text() + "    retrospectives: 203\n")
         runner = RecordingDiscussionRunner()
