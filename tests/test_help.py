@@ -46,12 +46,14 @@ options:
 INIT_HELP = """ub-agents init
 usage: ub-agents init [options]
 
-Create starter configuration and agent instructions for a project. Use when
-adopting ub-agents; existing files will never be overwritten.
+Guide terminal setup through a wizard with a review before Apply. Use --use-
+defaults for unattended setup; CI/non-TTY also uses defaults. Existing starter
+files will never be overwritten.
 
 options:
   --repository OWNER/REPO  # repository owner/name (otherwise inferred through gh)
   --runtime RUNTIME        # initial cli:model:effort for starter agents
+  --use-defaults           # unattended starters, even in a terminal
   --config PATH            # project configuration (default: ub-agents.yaml)
   -h, --help               # show this help
 

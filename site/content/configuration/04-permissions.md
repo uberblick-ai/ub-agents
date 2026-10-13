@@ -10,7 +10,14 @@ implementer:
 
 ## Starter permissions
 
-`ub-agents init` writes one commented top-level `runtime-args` mapping entry for the selected CLI. In a terminal it asks once whether to enable that entry for all four starter agents. Otherwise it stays commented out in `ub-agents.yaml`. The list examples below belong inside individual agent definitions.
+`ub-agents init` includes one commented top-level `runtime-args` mapping entry for
+the selected CLI. Its [setup wizard](/docs/commands/init.html) previews exact
+permissions as a separate default-off choice for all four starter agents, then
+requires review and Apply before writing it. Accept and enable permissions (y)
+selects the grant; Continue without permissions (n) is the default; Cancel (esc) exits.
+`--use-defaults`, CI and non-TTY keep them commented out without prompts.
+Existing local overrides still take precedence. The list examples below belong
+inside individual agent definitions.
 
 ## Codex
 

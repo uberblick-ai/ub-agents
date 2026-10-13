@@ -33,10 +33,10 @@
   <section>
     <h2>Get started</h2>
 <pre><code><span class="p">$ </span>cd your-project
-<span class="p">$ </span>ub-agents init     <span class="c"># ub-agents.yaml and .agents/ policy and roles</span>
+<span class="p">$ </span>ub-agents init     <span class="c"># opens the setup wizard; review before Apply</span>
 <span class="p">$ </span>ub-agents doctor   <span class="c"># checks gh, labels and agent CLIs</span>
 <span class="p">$ </span>ub-agents launch   <span class="c"># runs the loop; q stops after the current run</span></code></pre>
-    <p>The starter workflow has four roles: issue preparer, implementer, reviewer and integrator. Commit the files <code>init</code> writes and change them like any other code. The <a href="/docs/installation.html">installation guide</a> walks through it.</p>
+    <p>Start the setup wizard with <code>ub-agents init</code> in your project's checkout. It shows findings and choices before applying changes; <code>--use-defaults</code> provides unattended setup. See the <a href="/docs/commands/init.html">init command guide</a> and <a href="/docs/installation.html">installation guide</a>. Review the starter policy and merge the files before launching from a clean default-branch checkout.</p>
   </section>
 
   <section>

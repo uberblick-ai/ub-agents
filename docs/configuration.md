@@ -4,6 +4,12 @@
 errors; `ub-agents check` validates the file. Commands use this file by default;
 `--config PATH` selects another configuration file before or after the command.
 `init` writes the selected file or `ub-agents.yaml` by default.
+In a terminal it opens a setup wizard and previews exact local, opted-in label and public board
+changes before a default-no Apply. `init --use-defaults` stays prompt-free even in
+a terminal; CI/non-TTY also uses defaults without wizard probes. Permissions and
+optional features default to off, and deferred labels are printed as commands.
+Existing local overrides still take precedence. See the
+[init guide](https://agents.uberblick.ai/docs/commands/init.html) for choices and recovery.
 If the selected file is missing, `check`, `status`, `launch`, `cleanup`, `retry`,
 `approve` and unsupervised `read` exit 1 with a message naming `ub-agents init`.
 An explicit `--config PATH` is named in the message. `launch` creates no
@@ -528,6 +534,14 @@ older versions reject the unknown agent key.
 
 ### Retrospectives
 
+The init wizard offers existing verified discussion numbers or explicitly requested
+public board creation for selected roles. It discovers exact chosen titles to avoid
+duplicates, previews additions to the selected config, and creates/verifies boards
+before writing their real numbers. Manual preparation pauses with Retry/Skip/Cancel;
+Skip leaves posting off. No test comments are posted. See the
+[init guide](https://agents.uberblick.ai/docs/commands/init.html) for the conservative
+write-capability check and partial-creation recovery.
+
 Set `retrospectives: 203` on an agent to enable its supervised posting command:
 
 ```sh
@@ -981,10 +995,11 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 These list examples belong inside an agent definition. `init` instead includes
 one commented top-level mapping entry for the CLI selected by `--runtime`, inherited
 by all four starter agents, without the optional retrospective rule. In an
-interactive terminal, it explains the grant and asks once whether to enable it
-for all four agents; only `y` or `yes` enables it. No, an empty answer or end of
-input keeps the mapping commented out. When `CI` is set or stdin or stdout is not
-a terminal, it asks nothing and keeps it commented out, matching label provisioning.
+interactive terminal, the wizard shows the exact grant as a separate default-off
+choice for all four agents, using Accept and enable permissions (y), Continue without
+permissions (n, the default), and Cancel (esc). It is written only after final Apply.
+Continuing without permissions or Cancel does not enable it. `--use-defaults`, a nonempty `CI`, or non-TTY
+stdin/stdout asks nothing and keeps it commented out, matching label provisioning.
 Whenever it remains commented out, init prints a next step to uncomment or customize it before
 unattended work. The Claude starter includes a commented placeholder for project
 check commands: `--allowedTools` denies commands

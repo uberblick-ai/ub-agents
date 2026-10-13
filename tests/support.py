@@ -658,3 +658,49 @@ class DoctorGitHub(FakeGitHub):
             raise AssertionError("Existing labels must never be changed")
         self.writes.append(("create-label", name, description, color))
         self.label_names.append(name)
+
+
+class SetupGitHub(DoctorGitHub):
+    """Record wizard discussion reads and confirmed public creations."""
+    def __init__(self):
+        super().__init__()
+        self.repository = "org/project"
+        self.discussion_metadata = {"id": "repository-id", "nameWithOwner": self.repository,
+                                    "url": "https://github.com/" + self.repository,
+                                    "hasDiscussionsEnabled": True, "viewerPermission": "WRITE",
+                                    "discussionCategories": {"nodes": [{"id": "general-id", "name": "General"}],
+                                                             "pageInfo": {"hasNextPage": False}}}
+        self.boards = {203: self.board(203, "Implementer retrospectives")}
+        self.board_error = None
+        self.create_board_error = None
+        self.after_create = None
+
+    def board(self, number, title):
+        return {"id": f"board-{number}", "number": number, "title": title,
+                "url": f"https://github.com/{self.repository}/discussions/{number}",
+                "locked": False, "closed": False, "viewerCanUpdate": True}
+
+    def graphql(self, query, variables):
+        self.reads.append((query, variables.copy()))
+        if self.board_error:
+            raise self.board_error
+        if query.startswith("mutation"):
+            if self.create_board_error:
+                raise self.create_board_error
+            assert "createDiscussion(" in query, "No test comments may be posted"
+            assert variables["repositoryId"] == self.discussion_metadata["id"]
+            assert variables["categoryId"] == "general-id"
+            number = max(self.boards, default=200) + 1
+            self.boards[number] = self.board(number, variables["title"])
+            self.writes.append(("create-board", number, variables.copy()))
+            if self.after_create:
+                self.after_create(self.boards[number])
+            return {"createDiscussion": {"discussion": self.boards[number].copy()}}
+        if "discussionCategories" in query:
+            return {"repository": deepcopy(self.discussion_metadata)}
+        if "discussion(number:" in query:
+            return {"repository": {"discussion": deepcopy(self.boards.get(variables["number"]))}}
+        if "discussions(first:" in query:
+            return {"repository": {"discussions": {"nodes": list(deepcopy(self.boards).values()),
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
+        raise AssertionError("Unexpected setup GraphQL request")
