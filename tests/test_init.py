@@ -40,12 +40,11 @@ class InitTests(unittest.TestCase):
         with patch('ub_agents.cli.GitHub', return_value=self.github), \
                 patch('subprocess.run', self.runner), \
                 patch('ub_agents.labels.sys.stdin.isatty', return_value=terminal), \
-                patch.dict('os.environ', {'CI': ci}), \
+                patch.dict('os.environ', {'CI': ci or ('true' if terminal and stdout_terminal is not False else '')}), \
                 patch('builtins.input', side_effect=respond) as prompt, \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             with patch.object(stdout, 'isatty', return_value=terminal if stdout_terminal is None else stdout_terminal):
                 code = main(['--config', str(self.path), 'init']
-                            + ['--use-defaults']
                             + (['--runtime', runtime] if runtime else [])
                             + ([] if infer else ['--repository', 'org/project']))
         return code, stdout.getvalue(), stderr.getvalue(), prompt

@@ -45,6 +45,8 @@ class Wizard:
         self.ready = False
         self.readiness_text = "BLOCKED: launch readiness has not been checked. Fresh starters need review, a PR and merge before launch. Retry readiness after external preparation."
         self.start_loop = False
+        self.publication = None
+        self.publication_text = "Local files only; no branch, commit, push or PR."
 
     def probe(self):
         self.probes.run()
@@ -96,7 +98,7 @@ class Wizard:
                         "Agents work in private worktrees and branches. Changes go through PRs; agents never push directly "
                         "to the default branch.\n\n"
                         "If you also code here, use a separate launcher checkout. Setup on a branch is fine. "
-                        "Init never switches, resets, stashes or clones a checkout.")
+                        "A reviewed setup PR can create or switch to its verified setup branch. Init never resets, stashes or clones a checkout.")
         if self.current == "policy":
             return Page("Runtime and project policy", "Choose one starter runtime for all four roles (cli:model:effort).\n\n" +
                         "\n\n".join(guidance_summary(self.plan)) +
@@ -190,13 +192,18 @@ class Wizard:
             remote = self.remote_labels()
             text = ("Review the exact changes below. Apply defaults to no. Back edits choices; Cancel leaves everything untouched.\n\n" +
                    self.option_summary() + "\n\n" + self.effective_summary() + "\n\n" +
+                   self.publication_text + "\n\n" +
                    self.plan.preview() + "\n\nOpted-in remote changes:\n" +
                    ("\n".join([*(label.command(self.plan.config.repository) for label in remote),
                                 *(request.preview(self.plan.config.repository) for request in c.board_requests.values())]) or "None") +
                    "\n\nBoard numbers are obtained and verified at Apply, before any retrospective config is written. "
-                   "No launch, commit, push, merge, installation, account change or protection change is performed by Apply. "
+                   "Apply performs only the reviewed effects. No launch, merge, auto-merge, installation or protection change is performed. "
                    "Setup success does not mean launch readiness.")
-            return Page("Review and apply", text, (Field("confirm", "Apply these exact local and remote changes (default no)", False),))
+            return Page("Review and apply", text,
+                        (Field("setup_pr", "Create setup PR (off means local files only)", c.setup_pr),
+                         Field("setup_branch", "Setup branch (renamable)", c.setup_branch),
+                         Field("branch_confirm", "Authorize creating or switching to this setup branch (default no)", False),
+                         Field("confirm", "Apply these exact local and remote changes (default no)", False)))
         return Page("Setup results", self.result_text() + "\n\nFinish exits. Finish and start loop explicitly checks readiness again, "
                     "then launches only if all gates pass. Retry readiness after preparing the checkout externally. "
                     "Review project checks, merge authority and decision-makers before choosing Start.")
@@ -288,8 +295,16 @@ class Wizard:
         elif self.current == "retrospectives":
             self.prepare_boards(values)
         elif self.current == "review":
+            proposed = values.get("setup_pr", c.setup_pr)
+            branch = values.get("setup_branch", c.setup_branch).strip()
+            if (proposed, branch) != (c.setup_pr, c.setup_branch):
+                c.setup_pr, c.setup_branch = proposed, branch
+                self.prepare_publication()
+                return
             if not values.get("confirm"):
                 raise AgentError("Apply defaults to no; explicitly select Apply to make changes")
+            if c.setup_pr and (self.publication is None or not values.get("branch_confirm")):
+                raise AgentError("Review setup PR prerequisites and explicitly authorize creating or switching to the setup branch")
             # Destinations must still be readable at the point we enable posting.
             for number in {a.retrospectives for a in self.plan.config.agents if a.retrospectives is not None}:
                 try:
@@ -298,10 +313,15 @@ class Wizard:
                     raise AgentError(f"Discussion #{number} can no longer be verified; go Back to fix selected destinations. "
                                      f"Check {self.plan.path.parent / LOCAL_CONFIG} for protected local overrides; "
                                      "Cancel and edit those outside init before restarting.") from None
+            branch_effect = self.publication.begin() if c.setup_pr else None
             self.applied = apply_plan(self.plan, self.github, self.remote_labels(), verify_boards=True)
+            if branch_effect:
+                self.applied.completed.insert(0, branch_effect)
+                if self.applied.ok:
+                    self.publication.publish(self.applied)
             self.current = "result"
             return
-        self.plan = make_plan(self.plan.path, self.plan.repository, c)
+        self.plan = make_plan(self.plan.path, self.plan.repository, c, resume=self.plan.resume_state)
         if self.current in {"priority", "retrospectives"}:
             review = ((values.copy(), c.priority_labels, c.priority_default) if self.current == "priority" else
                       (values.copy(), c.retrospectives.copy(), c.board_requests.copy()))
@@ -310,6 +330,21 @@ class Wizard:
                 return
         pages = self.pages()
         self.current = pages[pages.index(self.current) + 1]
+        if self.current == "review":
+            self.prepare_publication()
+
+    def prepare_publication(self):
+        from .init_pr import SetupPR
+        self.publication = None
+        self.publication_text = "Local files only; no branch, commit, push or PR."
+        if self.choices.setup_pr:
+            try:
+                self.publication = SetupPR(self.plan, self.github, self.probes.doctor.runner,
+                                           self.choices.setup_branch).inspect()
+                self.publication_text = self.publication.preview()
+            except PROBE_ERRORS as exc:
+                from .doctor import public
+                self.publication_text = "Setup PR deferred: " + public(exc) + ". Choose local files only, or Cancel and repair externally."
 
     def prepare_boards(self, values):
         self.board_values = {role: values.get(role, "").strip() for role in ROLES} | {"category": values.get("category", "").strip()}
@@ -353,6 +388,22 @@ class Wizard:
             return False
         from .doctor import Doctor
         from .init_readiness import readiness
+        if self.choices.setup_pr:
+            number = self.applied.pr_number
+            if number is None:
+                self.ready = False
+                self.readiness_text = "BLOCKED: finish setup PR publication first."
+                return False
+            try:
+                pr = self.github.request(f"repos/{self.plan.repository}/pulls/{number}")
+                if not pr.get("merged_at"):
+                    self.ready = False
+                    self.readiness_text = f"BLOCKED: review and merge {self.applied.pr_url} under project policy, then prepare a clean default-branch checkout and Retry readiness."
+                    return False
+            except PROBE_ERRORS:
+                self.ready = False
+                self.readiness_text = "BLOCKED: setup PR merge could not be verified; repair access and Retry readiness."
+                return False
         doctor = Doctor(github=self.github, runner=self.probes.doctor.runner, which=self.probes.doctor.which)
         try:
             self.ready, details = readiness(self.plan.path, self.github, doctor)
@@ -396,8 +447,10 @@ class Wizard:
             self.choices.create_priority_labels = False
         else:
             self.clear_feature(name)
-        self.plan = make_plan(self.plan.path, self.plan.repository, self.choices)
+        self.plan = make_plan(self.plan.path, self.plan.repository, self.choices, resume=self.plan.resume_state)
         self.current = next(page for page in pages[pages.index(name) + 1:] if page in self.pages())
+        if self.current == "review":
+            self.prepare_publication()
 
     def deferred_commands(self):
         labels = configured_labels(self.plan.config) + priority_labels(self.choices)

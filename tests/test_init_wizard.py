@@ -649,16 +649,17 @@ class WizardUITests(WizardFixture, unittest.IsolatedAsyncioTestCase):
 
 
 class DefaultsTerminalTests(unittest.TestCase):
-    def test_defaults_with_existing_retrospective_override_do_not_probe_or_mutate_github(self):
+    def test_implicit_defaults_with_existing_retrospective_override_do_not_probe_or_mutate_github(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / 'workflow.yaml'
             (root / 'ub-agents.local.yaml').write_text('agents:\n  implementer:\n    retrospectives: 203\n')
             with patch('subprocess.run', side_effect=AssertionError('probe')), \
                     patch('builtins.input', side_effect=AssertionError('prompt')), \
-                    patch('ub_agents.cli.GitHub', return_value=object()), redirect_stdout(io.StringIO()):
+                    patch('ub_agents.cli.GitHub', return_value=object()), \
+                    patch('ub_agents.cli.sys.stdin.isatty', return_value=False), redirect_stdout(io.StringIO()):
                 # Construction is allowed; no read or write is allowed on this path.
-                self.assertEqual(main(['init', '--config', str(path), '--repository', 'org/project', '--use-defaults']), 0)
+                self.assertEqual(main(['init', '--config', str(path), '--repository', 'org/project']), 0)
             self.assertEqual(load_config(path).agents[1].retrospectives, 203)
 
     def test_ci_and_each_non_tty_path_bypass_wizard_without_explicit_defaults(self):
@@ -675,18 +676,24 @@ class DefaultsTerminalTests(unittest.TestCase):
                 self.assertTrue(path.exists())
                 self.assertIn('no GitHub labels created', stdout.getvalue())
 
-    def test_explicit_defaults_in_real_tty_do_not_prompt_probe_or_enter_alternate_screen(self):
+    def test_explicit_defaults_in_real_tty_publish_without_prompt_or_alternate_screen(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'workflow.yaml'
             script = '''
 from unittest.mock import patch
 from ub_agents.cli import main
+from ub_agents.init_setup import Choices, make_plan
+from tests.test_init_pr import PRRunner, PRGitHub
+from pathlib import Path
 import sys
-with patch('builtins.input', side_effect=AssertionError('prompt')), patch('subprocess.run', side_effect=AssertionError('probe')):
+plan = make_plan(Path(sys.argv[1]), 'org/project', Choices('codex:gpt-6.1-sol:high'))
+runner = PRRunner(plan)
+github = PRGitHub(runner)
+with patch('builtins.input', side_effect=AssertionError('prompt')), patch('subprocess.run', runner), patch('ub_agents.cli.GitHub', return_value=github):
     sys.exit(main(['--config', sys.argv[1], 'init', '--repository', 'org/project', '--use-defaults']))
 '''
             with Terminal(script, path, env={'CI': None}) as terminal:
-                terminal.expect(b'Defaults:', b'gh label create')
+                terminal.expect(b'Defaults:', b'https://github.com/org/project/pull/7')
                 terminal.wait_exit(sequences=False)
                 self.assertNotIn(b'\x1b[?1049h', terminal.transcript)
             self.assertTrue(path.exists())

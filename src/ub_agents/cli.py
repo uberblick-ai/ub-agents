@@ -44,13 +44,14 @@ def parser():
     init = commands.add_parser("init", help="set up this repository: starter configuration, agent instructions and workflow labels",
                                formatter_class=InitHelpFormatter,
                                description="Guide terminal setup through a wizard with a review before Apply. "
-                               "Use --use-defaults for unattended setup; CI/non-TTY also uses defaults. "
+                               "--use-defaults consents to an unattended setup branch, commit, push and PR. "
+                               "CI/non-TTY without that flag writes local files only. "
                                "Existing starter files will never be overwritten.",
                                examples=("ub-agents init",
                                          "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")
-    init.add_argument("--use-defaults", action="store_true", help="unattended starters, even in a terminal")
+    init.add_argument("--use-defaults", action="store_true", help="consent to unattended setup branch, commit, push and PR; skip optional features")
     check = commands.add_parser("check", help="validate the configuration and instruction files",
                                  formatter_class=CommentHelpFormatter,
                                  description="Validate project configuration, including trusted-bots, and instruction files without executing agents. "
@@ -156,14 +157,26 @@ def init_project(args):
                              next_steps, recovery_content)
     path = Path(args.config).absolute()
     repository = args.repository or infer_repository(path.parent)
-    plan = make_plan(path, repository, Choices(args.runtime))
+    from .init_pr import SetupPR, saved_attempt
+    attempt = saved_attempt(path)
+    choices = Choices(args.runtime, setup_pr=args.use_defaults,
+                      setup_branch=attempt["branch"] if attempt else "setup-ub-agents")
+    plan = make_plan(path, repository, choices, resume=attempt)
     interactive = (not args.use_defaults and not os.environ.get("CI")
                    and sys.stdin.isatty() and sys.stdout.isatty())
     if interactive:
+        choices.setup_pr = True
         from .init_ui import run_wizard
         from .init_wizard import Wizard
         return run_wizard(Wizard(plan, GitHub(plan.config.repository)))
-    result = apply_plan(plan, GitHub(plan.config.repository))
+    github = GitHub(plan.config.repository)
+    publication = SetupPR(plan, github, branch=choices.setup_branch).inspect() if args.use_defaults else None
+    branch_effect = publication.begin() if publication else None
+    result = apply_plan(plan, github)
+    if publication:
+        result.completed.insert(0, branch_effect)
+        if result.ok:
+            publication.publish(result)
     print(f"config: {path.name}")
     print("policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)")
     print("roles: .agents/ (issue-preparer, implementer, reviewer, integrator)")
@@ -184,6 +197,9 @@ def init_project(args):
         print(recovery_content(plan, result))
     else:
         print("Setup completed; launch readiness requires review of project checks and authority.")
+    if publication:
+        for step in result.completed:
+            print(step)
     for step in next_steps(plan):
         print(f"next: {step}")
     print_commands(configured_labels(plan.config), plan.config.repository,

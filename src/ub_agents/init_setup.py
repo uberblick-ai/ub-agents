@@ -60,6 +60,8 @@ class Choices:
     create_priority_labels: bool = False
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)
+    setup_pr: bool = False
+    setup_branch: str = "setup-ub-agents"
 
 
 @dataclass
@@ -72,9 +74,12 @@ class Plan:
     local_before: bytes | None
     config: object
     choices: Choices
+    resumed: dict = field(default_factory=dict)
+    resume_state: dict | None = None
 
     def protect(self):
-        existing = [str(p) for p in self.targets if p.exists() or p.is_symlink()]
+        existing = [str(p) for p in self.targets if (p.exists() or p.is_symlink()) and
+                    (p.is_symlink() or p not in self.resumed or p.read_text() != self.resumed[p])]
         if existing:
             raise AgentError(f"Starter files already exist; nothing overwritten: {', '.join(existing)}")
         root = self.path.parent
@@ -112,7 +117,7 @@ class Plan:
         return "\n\n".join(lines)
 
 
-def make_plan(path, repository, choices):
+def make_plan(path, repository, choices, *, resume=None):
     path = Path(path).absolute()
     if path.is_symlink():
         raise AgentError(f"Starter files already exist; nothing overwritten: {path}")
@@ -158,6 +163,9 @@ def make_plan(path, repository, choices):
         "{checks}", checks)
     ignore = root / ".gitignore"
     before = ignore.read_bytes() if ignore.exists() else None
+    original = before
+    if resume:
+        before = resume["ignore_before"].encode() if resume["ignore_before"] is not None else None
     entries = (before or b"").decode("utf-8").splitlines()
     missing = [entry for entry in (".ub-agents/", LOCAL_CONFIG) if entry not in entries]
     after = (before or b"") + ("\n# Local ub-agents configuration and execution artifacts\n" +
@@ -165,7 +173,19 @@ def make_plan(path, repository, choices):
     # Protection runs before parsing overrides, reads from GitHub, or any mutations.
     local = root / LOCAL_CONFIG
     local_before = local.read_bytes() if local.exists() else None
-    plan = Plan(path, repository, targets, before, after, local_before, None, choices)
+    resumed = {}
+    if resume:
+        if resume["repository"] != repository or resume["config"] != path.name:
+            raise AgentError("Init recovery belongs to a different repository or config path")
+        expected = {str(p.relative_to(root)): text for p, text in targets.items()}
+        if after != (before or b""):
+            expected[".gitignore"] = after.decode()
+        if expected != resume["files"]:
+            raise AgentError("Init recovery differs from these choices; retry the original choices or finish manually")
+        resumed = targets.copy()
+        if original not in {before, after}:
+            raise AgentError(".gitignore changed since setup; inspect it before recovery")
+    plan = Plan(path, repository, targets, original, after, local_before, None, choices, resumed, resume)
     plan.protect()
     plan.config = preview_config(content, path, {p.resolve() for p in targets})
     return plan
@@ -184,6 +204,8 @@ class Applied:
     incomplete: list[str] = field(default_factory=list)
     label_names: list[str] = field(default_factory=list)
     board_numbers: dict[str, int] = field(default_factory=dict)
+    pr_number: int | None = None
+    pr_url: str | None = None
 
     @property
     def ok(self):
@@ -242,6 +264,10 @@ def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
             plan.protect()
         phase = "local"
         for target, content in plan.targets.items():
+            if target in plan.resumed and target.exists():
+                result.completed.append(f"Reused verified file {target}")
+                pending.pop(0)
+                continue
             directories = []
             parent = target.parent
             while not parent.exists():
@@ -310,7 +336,8 @@ def next_steps(plan):
     if plan.choices.retrospectives and cli == "claude":
         steps.append('Review permission to post: add "Bash({report_command} retrospective *)" to the chosen roles only.')
     steps.extend([f"Run ub-agents check --config {plan.path}.",
-                  "Review, commit and push the starter files through a PR; merge them into the default branch.",
+                  ("Review and merge the actual setup PR under project policy." if plan.choices.setup_pr else
+                   "Review, commit and push the starter files through a PR; merge them into the default branch."),
                   "Use a clean default-branch launcher checkout; run ub-agents doctor before ub-agents launch."])
     return steps
 
