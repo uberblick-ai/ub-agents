@@ -1509,7 +1509,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: fold.messages == tuple(lines))
             self.assertTrue(fold.display)
             self.assertTrue(fold.collapsed)
-            fold.collapsed = False
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
             await pilot.pause()
             rendered = fold.query_one('#cleanup_lines', Static).render().plain
             self.assertEqual(rendered.splitlines(), lines)
@@ -1525,6 +1526,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertTrue(fold.display)
             self.assertFalse(fold.collapsed)
+            await pilot.resize_terminal(70, 32)
+            await pilot.pause()
+            fold.query_one('CollapsibleTitle').focus()
+            await pilot.press('enter')
+            self.assertTrue(fold.collapsed)
+            self.assertFalse(app.item_view)
 
     async def settled(self, app, pane):
         # A pilot pause can return on a busy machine before the after-refresh

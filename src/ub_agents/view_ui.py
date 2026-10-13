@@ -652,6 +652,9 @@ class View(App):
     def check_action(self, action, parameters):
         if self.shutdown is not None:
             return action in {'quit', 'stop_now'}
+        if (self.query_one(StartupCleanup).has_focus_within
+                and action in {'open_item', 'page_up', 'page_down', 'home', 'end'}):
+            return False
         item_actions = {'follow', 'raw', 'history', 'path', 'load_description',
                         'tab', 'page_up', 'page_down', 'home', 'end'}
         if self.too_small and action in item_actions | {'help', 'open_item', 'back', 'focus_next', 'focus_previous'}:
