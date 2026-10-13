@@ -9,7 +9,7 @@ from ub_agents.cli import main
 
 
 class ArgumentTests(unittest.TestCase):
-    commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",), ("status", "42"),
+    commands = (("init",), ("doctor",), ("doctor", "--offline"), ("launch",), ("status",), ("status", "42"),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"),
                 ("approve", "42"), ("read", "42"))
 
@@ -162,7 +162,7 @@ class ArgumentTests(unittest.TestCase):
 
 
 class MissingConfigTests(unittest.TestCase):
-    commands = (("check",), ("status",), ("status", "42"), ("launch",), ("launch", "--once"),
+    commands = (("status",), ("status", "42"), ("launch",), ("launch", "--once"),
                 ("cleanup",), ("retry", "42", "--reason", "Fixed"), ("approve", "42"), ("read", "42"))
 
     def test_missing_config_names_init_and_creates_nothing(self):

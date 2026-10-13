@@ -256,11 +256,13 @@ def test_formula(run, fetch, python, workspace, archive, formula, version):
     command(run, [interpreter, "-m", "pip", "--isolated", "check"])
     project = workspace / "test-project"
     project.mkdir()
+    command(run, ["git", "init"], cwd=project)
+    command(run, ["git", "remote", "add", "origin", "https://github.com/example/project.git"], cwd=project)
     cli = venv / "bin/ub-agents"
     lines = []
     for args, expected_output in (([cli, "--version"], f"ub-agents {version}"),
                                  ([cli, "init", "--repository", "example/project"], None),
-                                 ([cli, "check"], "Valid configuration: example/project"),
+                                 ([cli, "doctor", "--offline"], "0 required failures"),
                                  ([interpreter, "-c", "from ub_agents.view_ui import View"], None)):
         label = ' '.join(str(arg) for arg in args[1:])
         output = command(run, args, cwd=project).stdout.strip()

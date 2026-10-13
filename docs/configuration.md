@@ -1,7 +1,7 @@
 # Configuration reference
 
 `ub-agents.yaml` sits at the root of the repository the agents work on. Unknown keys are
-errors; `ub-agents check` validates the file. Commands use this file by default;
+errors; `ub-agents doctor --offline` validates the file. Commands use this file by default;
 `--config PATH` selects another configuration file before or after the command.
 `init` writes the selected file or `ub-agents.yaml` by default.
 In a terminal it opens a setup wizard and previews exact local, opted-in label and public board
@@ -10,10 +10,17 @@ a terminal; CI/non-TTY also uses defaults without wizard probes. Permissions and
 optional features default to off, and deferred labels are printed as commands.
 Existing local overrides still take precedence. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html) for choices and recovery.
-If the selected file is missing, `check`, `status`, `launch`, `cleanup`, `retry`,
+If the selected file is missing, `status`, `launch`, `cleanup`, `retry`,
 `approve` and unsupervised `read` exit 1 with a message naming `ub-agents init`.
 An explicit `--config PATH` is named in the message. `launch` creates no
 `.ub-agents/` or `launch.log` without configuration; `doctor` keeps its diagnostic report.
+
+`doctor --offline` validates configuration, instructions and local prerequisites
+without GitHub credentials, network access or agent CLIs. It also checks that the
+configuration is at the Git repository root, origin matches `repository`, and
+`.ub-agents/` is ignored. GitHub, control-checkout readiness and agent command/runtime
+checks report `skip`; approvals show only the configured value. Use `--verbose`
+for individual results or `--json` for structured output. Required failures exit 1.
 
 `ub-agents read N` prints an open or closed issue or PR as filtered JSON under
 these input policies; see [reading other items](approvals.md#reading-other-issues-and-prs).
@@ -59,7 +66,7 @@ Both files use strict YAML loading: keys must be unique strings, with existing
 configuration. Malformed or unreadable local files, non-mapping top levels,
 unknown keys and invalid override values fail with an error naming the local file.
 
-`check`, `doctor`, `init` validation and launch use these effective settings.
+`doctor`, `init` validation and launch use these effective settings.
 Launch rereads both layers at its existing reload boundary before each new run.
 Adding, editing or removing the local file takes effect at the next reload;
 removal restores base settings. An active run keeps its selected settings. The
@@ -98,7 +105,7 @@ ub-agents.local.yaml
 [launcher contract](coordination.md#run-prompt) and its role instructions. It is
 optional; configurations without it need no changes. Like role instruction files,
 it must exist, remain inside the project (including symlink targets), and be readable
-UTF-8. `check`, `doctor` and the pre-run reload validate it; invalid files stop the
+UTF-8. `doctor` and the pre-run reload validate it; invalid files stop the
 launcher before a claim or charged attempt. Text comes from the refreshed control
 checkout and stays fixed for the run, even if a candidate edits the policy.
 
@@ -114,7 +121,7 @@ Stop-report formatting, input trust, reporting and workflow-label ownership come
 from the launcher prompt and need no project copies.
 
 Approval defaults, trusted feedback and start authorization are defined in
-[Issue and PR starts and outside input](approvals.md). `check` reports the configured
+[Issue and PR starts and outside input](approvals.md). `doctor --offline` reports the configured
 policy locally; `doctor --verbose` resolves repository visibility when needed.
 
 With approvals on, cold status and queue-view observation passes read current
@@ -156,7 +163,7 @@ logins and share a queue. Optional `launchers` narrows trust to a nonempty list:
 launchers: [bot-a, alice]
 ```
 
-Logins match case-insensitively. `check` rejects a value that is not a list, is
+Logins match case-insensitively. `doctor --offline` rejects a value that is not a list, is
 empty, contains non-string or blank logins, or repeats a login (including with
 different case). Listed accounts still need `write` or higher. Unlisted authors
 are ignored without a role read for coordination. Any trusted account, including
@@ -258,7 +265,7 @@ cleanup:
 
 Without `cleanup`, no hook runs. `command` must be a nonempty argv list; no shell
 or substitutions are used. The timeout defaults to 60 seconds and must be finite,
-positive and at most 3600 seconds. `ub-agents check` rejects unknown keys and invalid
+positive and at most 3600 seconds. `ub-agents doctor --offline` rejects unknown keys and invalid
 values. The command runs with the operator's configuration checkout as its working
 directory, so `./scripts/...` resolves there, even when a candidate changes its own
 configuration or scripts.
@@ -482,7 +489,7 @@ Each agent has exactly one of `runtime` or `command`.
 |---|---|
 | `trigger` | Label, or list of labels, that selects the agent, subject to maintainer starts and approvals. |
 | `outcomes` | Named successful outcomes and their project-defined label transitions. Required. |
-| `retrospectives` | Optional positive integer discussion number in `repository`; the agent's retrospective board. `check` validates the value offline; `doctor` checks that the discussion exists in that repository. |
+| `retrospectives` | Optional positive integer discussion number in `repository`; the agent's retrospective board. `doctor --offline` validates the value offline; `doctor` checks that the discussion exists in that repository. |
 | `kind` | `issue`, `pr` or `either` (default). |
 | `runtime` | `cli:model:effort` with `codex` or `claude` as the CLI, or a list of alternatives tried in order. |
 | `instructions` | The agent's task file. Required with `runtime`. Validated and reread from the refreshed control checkout before each new run. |
@@ -525,7 +532,7 @@ claiming, and `launch --once` exits normally.
 `ub-agents status` runs the check itself, including without a launcher on the same
 machine. When the check passes, claiming resumes automatically without `retry`.
 Checks do not interrupt active runs or prevent recovery of recorded outcomes, and
-they do not reset previously parked items. `check` validates the argv list without
+they do not reset previously parked items. `doctor --offline` validates the argv list without
 running it; `doctor` does not run it either. These project checks are separate from
 [daily runtime maintenance](#daily-runtime-maintenance).
 
@@ -635,8 +642,8 @@ instruction file stops the launcher for the operator to fix and restart; it
 charges no attempt and does not mark the assignment blocked or retrying. Refresh
 runs only between supervised executions and cleanup hooks, and is skipped for
 durable-outcome recovery. Each run keeps its claimed configuration and prompt text.
-An invalid reloaded configuration stops with a nonzero exit and the same error as
-`ub-agents check`, without charging an assignment attempt.
+An invalid reloaded configuration stops with a nonzero exit and the configuration
+error also diagnosed by `ub-agents doctor --offline`, without charging an assignment attempt.
 
 The launcher does not reload code. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signal handling
@@ -664,7 +671,7 @@ agents:
 
 `outcomes` must be a nonempty mapping of names to transitions. A transition accepts
 only `add` and `remove`, each a list of nonempty string labels (empty lists are
-allowed). Omitted lists are empty. `check` rejects unknown keys, non-string labels,
+allowed). Omitted lists are empty. `doctor --offline` rejects unknown keys, non-string labels,
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
 
@@ -753,21 +760,21 @@ Top-level `runtime-args` accepts a mapping from CLI (`codex`, `claude`) to a lis
 of strings. Runtime agents inherit it when they omit their own `runtime-args`;
 command agents do not inherit it. Each run appends only its selected CLI's list,
 including when a later run switches alternatives. A missing or empty CLI entry
-adds no arguments. `check` validates every top-level entry, even for CLIs no agent
+adds no arguments. `doctor --offline` validates every top-level entry, even for CLIs no agent
 currently uses, and rejects unknown CLI keys.
 
 An agent's `runtime-args` accepts a list applying to every alternative, or a
 per-CLI mapping. Either form replaces the entire top-level mapping, without
 extending it or falling back to it for omitted CLI keys. An explicit `[]` or `{}`
 disables inheritance. Agent mapping keys must name a known CLI present in that
-agent's runtime list. `check` names the agent and key for an invalid entry.
+agent's runtime list. `doctor --offline` names the agent and key for an invalid entry.
 
 The selected arguments are appended, with `{scratch}` replaced by the run's
 absolute scratch path and `{report_command}` by the launcher's absolute report command
 (see [Runtime permissions](#runtime-permissions)). They must not change the model
-or effort, or resume a session: `check` rejects those flags, because
+or effort, or resume a session: `doctor --offline` rejects those flags, because
 `different-runtime-from` trusts the recorded `cli:model:effort` and every run starts fresh.
-`check` validates each mapping entry with that CLI's rules; a shared list must
+`doctor --offline` validates each mapping entry with that CLI's rules; a shared list must
 satisfy every listed CLI's rules. Claude arguments must not set `-c` (its session
 continuation flag) or `--output-format` (including `--output-format=…`), because
 the launcher starts fresh sessions and owns the stream format. A redundant
@@ -854,7 +861,7 @@ runtime-updates:
 Commands run directly, without a shell, with the launcher's environment. Relative
 executable paths resolve against the configuration directory. Operators must
 supply a command that updates only that runtime, preserves its installation
-method and channel, and needs no elevated privileges. `check` rejects unknown
+method and channel, and needs no elevated privileges. `doctor --offline` rejects unknown
 keys, invalid policies or argv, direct privilege-elevation commands, and timeouts
 outside `0 < timeout-seconds <= 3600`. The default timeout is 300 seconds; version
 probes each have a separate five-second bound.
@@ -1149,8 +1156,7 @@ from the executable rather than another manually maintained copy.
 | Command | Reference |
 | --- | --- |
 | `init` | [Create starter configuration and instructions](https://agents.uberblick.ai/docs/commands/init.html) |
-| `check` | [Validate configuration locally](https://agents.uberblick.ai/docs/commands/check.html) |
-| `doctor` | [Diagnose prerequisites and missing labels](https://agents.uberblick.ai/docs/commands/doctor.html) |
+| `doctor` | [Validate locally with --offline or diagnose launch prerequisites](https://agents.uberblick.ai/docs/commands/doctor.html) |
 | `launch` | [Run the queue or one item](https://agents.uberblick.ai/docs/commands/launch.html) |
 | `status` | [Inspect work, ownership and outcomes](https://agents.uberblick.ai/docs/commands/status.html) |
 | `cleanup` | [Preview or remove stale artifacts](https://agents.uberblick.ai/docs/commands/cleanup.html) |

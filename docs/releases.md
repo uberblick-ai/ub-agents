@@ -45,12 +45,18 @@ removed as needed. Resolution uses pip's
 
 After opening the tap PR, a separate fresh virtualenv installs the tag tarball
 and only the formula's resource archives, checking their checksums, installed
-versions and dependency compatibility. It runs the formula's four tests:
+versions and dependency compatibility. Before running the formula's four tests,
+it creates a Git repository in the test project with `git init` and sets origin
+with `git remote add origin https://github.com/example/project.git`:
 
 - `ub-agents --version` output must contain `ub-agents X.Y.Z`.
 - `ub-agents init --repository example/project` must succeed.
-- `ub-agents check` output must contain `Valid configuration: example/project`.
+- `ub-agents doctor --offline` output must contain `0 required failures`.
 - `from ub_agents.view_ui import View` must import successfully.
+
+For the first release without `check`, the tap PR must also update the formula's
+`test do` block to initialize this Git repository and origin before `init`, then
+run `doctor --offline` and expect `0 required failures`.
 
 The task prints the result and comments on the tap PR. These tests replay the
 formula's steps; they do not build a Homebrew bottle. A maintainer reviews and

@@ -58,7 +58,7 @@ your project's PR workflow and merge them. Then start from a clean default-branc
 launcher checkout, without local commits ahead of origin:
 
 ```sh
-ub-agents check
+ub-agents doctor --offline
 git add ub-agents.yaml .agents .gitignore
 ub-agents doctor
 ub-agents launch

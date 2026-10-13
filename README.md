@@ -132,7 +132,7 @@ Before the first launch:
    they merge, use a clean default-branch launcher checkout and launch:
 
 ```sh
-ub-agents check
+ub-agents doctor --offline  # local validation without GitHub or agent CLIs
 git add ub-agents.yaml .agents .gitignore
 ub-agents doctor     # machine, GitHub access, labels and agent CLIs
 ub-agents launch     # runs the loop and opens the terminal view
@@ -194,7 +194,7 @@ agents:
 ```
 
 The implementer's other settings and other agents inherit from the base. Missing,
-empty or comment-only local files leave it unchanged. `check`, `doctor`, `init`
+empty or comment-only local files leave it unchanged. `doctor`, `init`
 validation and launch use the effective settings; launch rereads both files before
 each run, so adding, editing or removing the local file takes effect at the next
 reload. It stays in the control checkout and is not copied into private worktrees.

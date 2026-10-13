@@ -1,6 +1,7 @@
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
+import json
 from pathlib import Path
 import signal
 import subprocess
@@ -45,6 +46,13 @@ class RefreshTests(unittest.TestCase):
                             command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.github = FakeGitHub(issue(), issue(3))
         self.loop = Loop(config(self.root, self.worker), self.github, "operator", output=lambda *_: None)
+
+    def offline_failure(self):
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(['--config', str(self.root / 'ub-agents.yaml'),
+                                   'doctor', '--offline', '--json']), 1)
+        return next(check['message'] for check in json.loads(output.getvalue())['checks']
+                    if check['id'].split(':')[0] in {'config', 'instructions'} and check['status'] == 'fail')
 
     def commit(self, root):
         git(root, "add", "-A")
@@ -200,7 +208,7 @@ class RefreshTests(unittest.TestCase):
             self.assertTrue(prompt.endswith(role + '\n\n'))
         self.assertNotIn('First shared policy', prompts[1])
 
-    def test_invalid_shared_policy_reload_stops_before_claim_like_check(self):
+    def test_invalid_shared_policy_reload_stops_before_claim_like_offline_doctor(self):
         for condition in ('missing', 'outside', 'symlink', 'encoding', 'permissions'):
             with self.subTest(condition=condition):
                 self.setUp()
@@ -221,7 +229,7 @@ class RefreshTests(unittest.TestCase):
                     if condition == 'permissions' and path == self.root / 'policy.md':
                         raise PermissionError('Synthetic unreadable policy')
                     return original(path, *args, **kwargs)
-                launch_error, check_error = io.StringIO(), io.StringIO()
+                launch_error = io.StringIO()
                 args = ['--config', str(self.root / 'ub-agents.yaml')]
                 with patch.object(Path, 'read_text', read), \
                         patch('ub_agents.cli.GitHub', return_value=self.github), \
@@ -230,10 +238,10 @@ class RefreshTests(unittest.TestCase):
                         patch('ub_agents.loop.supervise') as execution, \
                         redirect_stderr(launch_error):
                     self.assertEqual(main(args + ['launch', '--once']), 1)
-                with patch.object(Path, 'read_text', read), redirect_stderr(check_error):
-                    self.assertEqual(main(args + ['check']), 1)
+                with patch.object(Path, 'read_text', read):
+                    message = self.offline_failure()
                 self.assertEqual(launch_error.getvalue(),
-                                 f"ub-agents: {self.root}: " + check_error.getvalue().removeprefix("ub-agents: ").strip() +
+                                 f"ub-agents: {self.root}: " + message +
                                  "; restore readable, valid instruction files and launch again\n")
                 self.assertIn('shared-instructions', launch_error.getvalue())
                 execution.assert_not_called()
@@ -416,7 +424,7 @@ class RefreshTests(unittest.TestCase):
         for number in (1, 3, 4, 5):
             self.assert_success(number)
 
-    def test_invalid_local_reload_stops_before_claim_with_the_same_error_as_check(self):
+    def test_invalid_local_reload_stops_before_claim_with_the_same_error_as_offline_doctor(self):
         self.enable_reload()
         local = self.root / 'ub-agents.local.yaml'
         for content in ('agents: {worker: {runtime: null}}', 'agents: ['):
@@ -433,9 +441,7 @@ class RefreshTests(unittest.TestCase):
                         patch('ub_agents.loop.Workspace.prepare') as prepare, \
                         redirect_stderr(io.StringIO()) as launch_error, redirect_stdout(io.StringIO()):
                     self.assertEqual(main(['--config', str(self.loop.config_path), 'launch', '--once', '--no-ui']), 1)
-                with redirect_stderr(io.StringIO()) as error:
-                    self.assertEqual(main(['--config', str(self.loop.config_path), 'check']), 1)
-                self.assertEqual(launch_error.getvalue(), error.getvalue())
+                self.assertEqual(' '.join(launch_error.getvalue().split()), f'ub-agents: {self.offline_failure()}')
                 self.assertIn(str(local), launch_error.getvalue())
                 execution.assert_not_called()
                 prepare.assert_not_called()
@@ -508,11 +514,11 @@ class RefreshTests(unittest.TestCase):
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
 
-    def test_invalid_reloaded_config_exits_with_check_error_without_charging_attempt(self):
+    def test_invalid_reloaded_config_exits_with_offline_doctor_error_without_charging_attempt(self):
         (self.upstream / "ub-agents.yaml").write_text("invalid: configuration\n")
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
-        launch_error, check_error = io.StringIO(), io.StringIO()
+        launch_error = io.StringIO()
         args = ["--config", str(self.root / "ub-agents.yaml")]
         with patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
@@ -520,9 +526,7 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.loop.supervise") as execution, \
                 redirect_stderr(launch_error):
             self.assertEqual(main(args + ["launch"]), 1)
-        with redirect_stderr(check_error):
-            self.assertEqual(main(args + ["check"]), 1)
-        self.assertEqual(launch_error.getvalue(), check_error.getvalue())
+        self.assertEqual(launch_error.getvalue(), f'ub-agents: {self.offline_failure()}\n')
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
@@ -906,12 +910,9 @@ class RefreshTests(unittest.TestCase):
         with patch("ub_agents.loop.refresh_instructions", side_effect=AssertionError("must not refresh")):
             self.loop.launch(once=True)
 
-    def test_check_rejects_unreadable_instruction_text(self):
+    def test_offline_doctor_rejects_unreadable_instruction_text(self):
         (self.root / "role.md").write_bytes(b"\xff")
-        error = io.StringIO()
-        with redirect_stderr(error):
-            self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "check"]), 1)
-        self.assertIn("instructions is unreadable", error.getvalue())
+        self.assertIn("instruction file is not readable", self.offline_failure())
 
     def test_cli_refresh_failure_exits_nonzero_without_claiming(self):
         (self.root / "untracked").write_text("Local file")

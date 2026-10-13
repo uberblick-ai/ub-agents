@@ -62,4 +62,4 @@ ub-agents retry 214 --reason "Chose local storage"
 
 ## Rules
 
-An outcome may add a stop label but never remove one. `ub-agents check` rejects it.
+An outcome may add a stop label but never remove one. `ub-agents doctor --offline` rejects it.

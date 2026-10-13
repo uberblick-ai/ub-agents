@@ -908,7 +908,7 @@ Textual, and resolves the view entrypoint. Local checks:
 
 ```sh
 .venv/bin/python -m tests
-.venv/bin/ub-agents check
+.venv/bin/ub-agents doctor --offline
 git diff --check
 ```
 
