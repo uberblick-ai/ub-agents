@@ -19,6 +19,25 @@ the same page then shows the additions before a second Continue confirms them.
 Only final default-no Apply makes changes. The [init guide](https://agents.uberblick.ai/docs/commands/init.html)
 describes navigation, unattended defaults and recovery.
 
+## Setup PR review
+
+Review shows the authenticated `gh` account, target repository, actual default
+branch and base SHA, current checkout and the proposed `setup-ub-agents` branch.
+The branch is renamable; turning off the setup PR selects local files only.
+The exact setup-only commit, push target, PR creation and selected label/board
+effects appear beside the file preview. Separate default-no confirmations authorize
+creating or switching branches and Apply. Back and Cancel before Apply leave all
+local and remote state unchanged.
+
+Results list the actual branch, commit, push and PR URL, or each completed effect
+and safe recovery steps. A verified matching attempt can reuse its protected setup
+files, commit and PR. The user reviews and merges the PR under normal project policy.
+Readiness can be retried after external preparation; Start requires the setup PR
+to be merged and every ordinary launch gate to pass in a clean default-branch checkout.
+
+`--use-defaults` explicitly consents to this branch/commit/push/PR flow without
+prompts. Implicit CI/non-TTY init without that flag retains local files only.
+
 ## Runtime permissions
 
 Select the exact starter grant; default to continuing without it. Cancel leaves no effects.

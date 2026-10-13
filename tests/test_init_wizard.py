@@ -644,6 +644,7 @@ class WizardUITests(WizardFixture, unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 self.assertEqual(self.wizard.current, 'result')
                 self.assertTrue(self.path.exists())
+                self.assertTrue(app.query_one('#start', Button).disabled)
                 self.assertIn('Finish', str(app.query_one('#continue', Button).label))
                 await pilot.press('ctrl+n')
 

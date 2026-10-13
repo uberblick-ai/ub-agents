@@ -88,7 +88,8 @@ ub-agents init --runtime claude:claude-opus-5-5:high   # or leave out --runtime 
 ```
 
 In a terminal, `init` opens a setup wizard: it shows what it found, collects choices
-and previews files, opted-in GitHub labels and requested public boards before a default-no Apply. Start with
+and previews a setup PR, files, opted-in GitHub labels and requested public boards before a default-no Apply. Review
+can select local files only. Start with
 `ub-agents init`; see the [init command guide](https://agents.uberblick.ai/docs/commands/init.html)
 for navigation, optional features and recovery. Cancel before Apply writes nothing.
 The optional-component selector starts with Uberblick, priorities and retrospectives
@@ -114,10 +115,12 @@ For unattended setup, including in a terminal:
 ub-agents init --use-defaults --repository org/project
 ```
 
-CI and non-TTY runs also use defaults without prompts. They keep permissions
-commented out, priority and retrospectives off, create no GitHub labels and enable
-no Uberblick integration. Only repository inference calls GitHub when `--repository`
-is omitted; label commands and remaining setup tasks are printed.
+The explicit `--use-defaults` flag consents to creating a setup branch, committing
+only setup files, pushing that branch and creating a GitHub setup PR. It honors
+the actual default branch and prints the branch, PR URL and remaining launch tasks.
+Permissions stay commented out and every optional feature is skipped. It creates
+no labels, boards or Uberblick resources and never merges or starts the loop.
+CI and non-TTY `init` without the flag keep local-files-only behavior without prompts.
 
 Before the first launch:
 
@@ -128,7 +131,7 @@ Before the first launch:
    uncomment the top-level `runtime-args` mapping in `ub-agents.yaml`. It supplies
    defaults per CLI; an agent's own `runtime-args` replaces them. Claude agents
    also need your check commands in `--allowedTools`.
-3. Check the setup and commit the files through your project's PR workflow. After
+3. Check the setup and review the setup PR (or commit local files through a PR). After
    they merge, use a clean default-branch launcher checkout and launch:
 
 ```sh

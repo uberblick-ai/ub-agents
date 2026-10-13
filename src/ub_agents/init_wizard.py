@@ -313,12 +313,11 @@ class Wizard:
                     raise AgentError(f"Discussion #{number} can no longer be verified; go Back to fix selected destinations. "
                                      f"Check {self.plan.path.parent / LOCAL_CONFIG} for protected local overrides; "
                                      "Cancel and edit those outside init before restarting.") from None
-            branch_effect = self.publication.begin() if c.setup_pr else None
-            self.applied = apply_plan(self.plan, self.github, self.remote_labels(), verify_boards=True)
-            if branch_effect:
-                self.applied.completed.insert(0, branch_effect)
-                if self.applied.ok:
-                    self.publication.publish(self.applied)
+            if c.setup_pr:
+                from .init_pr import apply_setup
+                self.applied = apply_setup(self.publication, self.github, self.remote_labels(), verify_boards=True)
+            else:
+                self.applied = apply_plan(self.plan, self.github, self.remote_labels(), verify_boards=True)
             self.current = "result"
             return
         self.plan = make_plan(self.plan.path, self.plan.repository, c, resume=self.plan.resume_state)
@@ -470,8 +469,9 @@ class Wizard:
             lines.append("Verified board destinations: " + ", ".join(f"{role}: #{number}" for role, number in result.board_numbers.items()))
         if result.error:
             lines.extend([result.error, *result.incomplete, "Remaining work:", *result.remaining,
-                          "Inspect completed files (and any partial file from the failed write). Repair access and complete missing files manually from the recovery content below. "
-                          "Init refuses existing starter files; do not rerun it expecting overwrites."])
+                          ("Inspect completed effects and any partial file before retrying the same reviewed setup. Verified setup attempts are reused; changed files and unrelated branches are never overwritten."
+                           if self.choices.setup_pr else
+                           "Inspect completed files (and any partial file from the failed write). Repair access and complete missing files manually from the recovery content below. Init refuses existing starter files; do not rerun it expecting overwrites.")])
             lines.append(recovery_content(self.plan, result))
             if self.choices.board_requests:
                 lines.append(f"Board recovery: inspect exact requested titles in {self.plan.config.repository}, including any creation with an unavailable response. "

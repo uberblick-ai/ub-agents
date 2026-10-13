@@ -1,6 +1,6 @@
 """Reviewed, setup-only publication with conservative ownership and recovery."""
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 from pathlib import Path
@@ -32,10 +32,16 @@ def saved_attempt(path):
         raise AgentError("Init recovery state must be a real file and directory")
     try:
         value = json.loads(state.read_text())
-        if value["version"] != 1 or not isinstance(value["files"], dict):
+        if (not isinstance(value, dict) or value["version"] != 1 or not isinstance(value["files"], dict) or
+                any(not isinstance(k, str) or not isinstance(v, str) for k, v in value["files"].items()) or
+                any(not isinstance(value.get(k), str) or not value[k] for k in
+                    ("repository", "branch", "actor", "config", "default")) or
+                not re.fullmatch(r"[0-9a-f]{40,64}", value.get("base", "")) or
+                value.get("commit") is not None and not re.fullmatch(r"[0-9a-f]{40,64}", value["commit"]) or
+                "ignore_before" not in value or value["ignore_before"] is not None and not isinstance(value["ignore_before"], str)):
             raise ValueError()
         return value
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, OSError):
         raise AgentError("Invalid init recovery state; inspect .ub-agents/init-setup.json before proceeding") from None
 
 
@@ -45,6 +51,8 @@ class SetupPR:
     github: object
     runner: object = field(default_factory=lambda: subprocess.run)
     branch: str = "setup-ub-agents"
+    effects: list[str] = field(default_factory=list)
+    uncertain: list[str] = field(default_factory=list)
 
     def git(self, *args):
         value = command(["git", "-C", str(self.plan.path.parent), *args], self.plan.path.parent, self.runner)
@@ -66,6 +74,8 @@ class SetupPR:
 
     def inspect(self):
         root = self.plan.path.parent
+        if self.plan.config.repository != self.plan.repository:
+            raise AgentError("Local repository override differs from the target; review it externally or choose local files only")
         if self.git("rev-parse", "--show-toplevel") != str(root):
             raise AgentError("Setup PR requires the config beside the Git repository root; choose local files only or move --config")
         remote = self.git("remote", "get-url", "origin")
@@ -75,7 +85,7 @@ class SetupPR:
                               f"ssh://git@github.com/{self.plan.repository}"}:
             raise AgentError("origin must point to the target repository; repair it outside init or choose local files only")
         metadata = self.github.request("repos/" + self.plan.repository)
-        if metadata.get("full_name", self.plan.repository).casefold() != self.plan.repository.casefold():
+        if metadata.get("full_name", "").casefold() != self.plan.repository.casefold():
             raise AgentError("GitHub returned a different repository")
         self.default = metadata.get("default_branch")
         if not isinstance(self.default, str) or not self.default:
@@ -143,6 +153,9 @@ class SetupPR:
 
     def verify_pr(self, pr):
         a = self.attempt
+        number = pr.get("number")
+        if type(number) is not int or number <= 0 or pr.get("html_url") != f"https://github.com/{self.plan.repository}/pull/{number}":
+            raise AgentError("Setup PR identity or URL cannot be verified")
         if (not a or not a.get("commit") or pr.get("head", {}).get("sha") != a["commit"] or
                 pr.get("head", {}).get("ref") != self.branch or
                 pr.get("head", {}).get("repo", {}).get("full_name") != self.plan.repository or
@@ -168,6 +181,7 @@ class SetupPR:
                 f"Current checkout: {self.checkout} ({self.head})\nSetup branch: {self.branch}\n"
                 f"Create or switch to {self.branch}; commit only: {', '.join(self.files())}\n"
                 f"Exact setup-only commit message: {COMMIT}\nPush: origin HEAD:refs/heads/{self.branch}\n"
+                "A new remote branch must still be absent at push time; an existing verified push is reused.\n"
                 f"Create or reuse setup PR against {self.default}; review and merge under project policy.\n"
                 "Init never merges, enables auto-merge or pushes to the default branch.")
 
@@ -178,6 +192,12 @@ class SetupPR:
         state.parent.mkdir(exist_ok=True)
         state.write_text(json.dumps(self.attempt, indent=2) + "\n")
 
+    def record_files(self):
+        self.attempt["files"] = self.files()
+        self.attempt["choices"] = asdict(self.plan.choices)
+        self.attempt["choices"]["features"] = sorted(self.plan.choices.features)
+        self.save()
+
     def begin(self):
         # Repeat every read-only safety check at the authorization boundary.
         expected = (self.head, self.base, self.actor)
@@ -185,12 +205,15 @@ class SetupPR:
         if (self.head, self.base, self.actor) != expected:
             raise AgentError("Checkout, base or account changed since Review; review setup again")
         if not self.attempt:
+            self.uncertain.append(f"Setup branch creation may have completed: {self.branch}; inspect the checkout before recovery")
             self.git("switch", "-c", self.branch, self.base)
+            self.uncertain.pop()
+            self.effects.append(f"Created and switched to setup branch {self.branch} (base {self.base})")
             self.attempt = {"version": 1, "repository": self.plan.repository, "config": self.plan.path.name,
                             "branch": self.branch, "actor": self.actor, "default": self.default,
                             "base": self.base, "files": self.files(), "ignore_before": self.plan.ignore_before.decode() if self.plan.ignore_before is not None else None,
                             "commit": None}
-            self.save()
+            self.record_files()
         return f"Setup branch: {self.branch} (base {self.base})"
 
     def publish(self, result):
@@ -207,17 +230,32 @@ class SetupPR:
                 if self.git("rev-parse", "HEAD") != self.base:
                     raise AgentError("Setup branch advanced unexpectedly; inspect it externally")
                 self.git("add", "--", *self.files())
+                result.incomplete.append("Setup commit may have completed; inspect git log and the setup paths before retrying")
                 self.git("commit", "--only", "-m", COMMIT, "--", *self.files())
                 self.attempt["commit"] = self.git("rev-parse", "HEAD")
+                result.incomplete.pop()
+                result.completed.append(f"Setup-only commit: {self.attempt['commit']}")
                 self.save()
+            else:
+                result.completed.append(f"Reused setup-only commit: {self.attempt['commit']}")
             sha = self.attempt["commit"]
             self.verify_commit(sha)
-            result.completed.append(f"Setup-only commit: {sha}")
+            if self.pr and self.pr.get("merged_at"):
+                result.pr_number, result.pr_url = self.pr["number"], self.pr["html_url"]
+                result.completed.append(f"Reused merged setup PR: {result.pr_url}")
+                return result
             remote = self.git("ls-remote", "origin", "refs/heads/" + self.branch).split()
             if remote and remote[0] != sha:
                 raise AgentError("Remote branch changed; do not overwrite it; resolve externally")
-            self.git("push", "origin", f"HEAD:refs/heads/{self.branch}")
-            result.completed.append(f"Pushed {sha} to origin/{self.branch}")
+            if not remote:
+                # The empty expected value requires absence on the server. This
+                # cannot replace an existing ref, including a branch created
+                # between ls-remote and push. Never use a broad force push.
+                self.git("push", "origin", f"HEAD:refs/heads/{self.branch}",
+                         f"--force-with-lease=refs/heads/{self.branch}:")
+                result.completed.append(f"Pushed {sha} to origin/{self.branch}")
+            else:
+                result.completed.append(f"Reused verified push: {sha} on origin/{self.branch}")
             self.attempt["pushed"] = True
             self.save()
             pulls = self.pulls()
@@ -227,16 +265,35 @@ class SetupPR:
                 self.verify_pr(pulls[0])
                 self.pr = pulls[0]
             else:
+                result.incomplete.append("Setup PR creation may have completed; inspect the recorded branch on GitHub before retrying")
                 self.pr = self.github.request("repos/" + self.plan.repository + "/pulls", "POST",
                     {"title": COMMIT, "head": self.branch, "base": self.default,
                      "body": self.marker() + "\n\nReview the setup files, project checks, permissions and authority, then merge under the project's normal policy. Init never merges or starts the loop automatically."})
                 self.verify_pr(self.pr)
+                result.incomplete.pop()
             result.pr_number = self.pr["number"]
             result.pr_url = self.pr["html_url"]
+            result.completed.append(f"Setup PR: {result.pr_url}; review and merge under project policy")
             self.attempt["pr"] = result.pr_number
             self.save()
-            result.completed.append(f"Setup PR: {result.pr_url}; review and merge under project policy")
         except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
             result.error = f"Setup PR publication stopped: {exc if isinstance(exc, AgentError) else type(exc).__name__}"
             result.remaining.append("Retry the same init command from the recorded setup branch; verified files, commit and PR are reused. Inspect GitHub after an unavailable response before retrying.")
         return result
+
+
+def apply_setup(publication, github, labels=(), *, verify_boards=False):
+    from .init_setup import Applied, apply_plan
+    try:
+        branch = publication.begin()
+    except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+        return Applied(completed=publication.effects.copy(),
+                       incomplete=publication.uncertain.copy(),
+                       error=f"Setup branch preparation stopped: {exc if isinstance(exc, AgentError) else type(exc).__name__}",
+                       remaining=["Inspect the current branch and .ub-agents/init-setup.json before retrying; never reset or overwrite an existing branch."])
+    result = apply_plan(publication.plan, github, labels, verify_boards=verify_boards,
+                        before_files=publication.record_files)
+    result.completed.insert(0, branch)
+    if result.ok:
+        publication.publish(result)
+    return result

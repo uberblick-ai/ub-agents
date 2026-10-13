@@ -119,6 +119,8 @@ class Plan:
 
 def make_plan(path, repository, choices, *, resume=None):
     path = Path(path).absolute()
+    if path.name in {LOCAL_CONFIG, ".uberblick.json", ".gitignore", ".env"} or path.name.startswith(".env."):
+        raise AgentError("Choose a separate shared config filename; local overrides, bindings and secrets cannot be the starter config")
     if path.is_symlink():
         raise AgentError(f"Starter files already exist; nothing overwritten: {path}")
     path = path.parent.resolve() / path.name
@@ -212,7 +214,7 @@ class Applied:
         return self.error is None
 
 
-def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
+def apply_plan(plan, github, remote_labels=(), *, verify_boards=False, before_files=None):
     """Stop on partial failure; retain and describe successful effects, never roll back."""
     from .doctor import Doctor, public
     result = Applied()
@@ -257,12 +259,15 @@ def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
             # some public creations succeeded. Keep their actual effects in the result.
             plan.choices.retrospectives.update(result.board_numbers)
             plan.choices.board_requests.clear()
-            rebuilt = make_plan(plan.path, plan.repository, plan.choices)
+            rebuilt = make_plan(plan.path, plan.repository, plan.choices,
+                                resume=plan.resume_state if any(p.exists() for p in plan.targets) else None)
             for number in {a.retrospectives for a in rebuilt.config.agents if a.retrospectives}:
                 boards.verify(number)
             plan.targets, plan.config = rebuilt.targets, rebuilt.config
             plan.protect()
         phase = "local"
+        if before_files:
+            before_files()
         for target, content in plan.targets.items():
             if target in plan.resumed and target.exists():
                 result.completed.append(f"Reused verified file {target}")

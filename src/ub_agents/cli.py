@@ -51,7 +51,7 @@ def parser():
                                          "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")
-    init.add_argument("--use-defaults", action="store_true", help="consent to unattended setup branch, commit, push and PR; skip optional features")
+    init.add_argument("--use-defaults", action="store_true", help="consent to setup branch, commit, push and PR")
     check = commands.add_parser("check", help="validate the configuration and instruction files",
                                  formatter_class=CommentHelpFormatter,
                                  description="Validate project configuration, including trusted-bots, and instruction files without executing agents. "
@@ -157,13 +157,23 @@ def init_project(args):
                              next_steps, recovery_content)
     path = Path(args.config).absolute()
     repository = args.repository or infer_repository(path.parent)
-    from .init_pr import SetupPR, saved_attempt
+    from .init_pr import SetupPR, apply_setup, saved_attempt
     attempt = saved_attempt(path)
     choices = Choices(args.runtime, setup_pr=args.use_defaults,
                       setup_branch=attempt["branch"] if attempt else "setup-ub-agents")
-    plan = make_plan(path, repository, choices, resume=attempt)
     interactive = (not args.use_defaults and not os.environ.get("CI")
                    and sys.stdin.isatty() and sys.stdout.isatty())
+    if attempt and interactive and attempt.get("choices"):
+        from .init_boards import BoardRequest
+        try:
+            restored = attempt["choices"].copy()
+            restored["features"] = set(restored["features"])
+            restored["priority_labels"] = tuple(restored["priority_labels"])
+            restored["board_requests"] = {role: BoardRequest(**request) for role, request in restored["board_requests"].items()}
+            choices = Choices(**restored)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise AgentError("Invalid recorded init choices; inspect .ub-agents/init-setup.json before recovery") from None
+    plan = make_plan(path, repository, choices, resume=attempt)
     if interactive:
         choices.setup_pr = True
         from .init_ui import run_wizard
@@ -171,12 +181,7 @@ def init_project(args):
         return run_wizard(Wizard(plan, GitHub(plan.config.repository)))
     github = GitHub(plan.config.repository)
     publication = SetupPR(plan, github, branch=choices.setup_branch).inspect() if args.use_defaults else None
-    branch_effect = publication.begin() if publication else None
-    result = apply_plan(plan, github)
-    if publication:
-        result.completed.insert(0, branch_effect)
-        if result.ok:
-            publication.publish(result)
+    result = apply_setup(publication, github) if publication else apply_plan(plan, github)
     print(f"config: {path.name}")
     print("policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)")
     print("roles: .agents/ (issue-preparer, implementer, reviewer, integrator)")
@@ -191,7 +196,8 @@ def init_project(args):
         print(result.error)
         for step in result.incomplete:
             print(step)
-        print("Remaining work (complete manually; init refuses existing starters):")
+        print("Remaining work (retry this verified setup or inspect partial files first):" if publication else
+              "Remaining work (complete manually; init refuses existing starters):")
         for step in result.remaining:
             print(step)
         print(recovery_content(plan, result))

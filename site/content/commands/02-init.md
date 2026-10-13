@@ -23,8 +23,20 @@ Small or dumb terminals use a readable line transcript with Back/Continue/Skip/C
 Nothing is written while collecting choices. Review shows the exact file content,
 effective configuration including existing local overrides, and every opted-in
 remote label command and requested public discussion creation, including category
-and body. Apply defaults to no and requires explicit confirmation.
-Back or Cancel before Apply changes no files, directories, labels or boards.
+and body. It also shows the target repository, authenticated `gh` identity, default
+branch and base SHA, checkout, setup branch, exact setup-only commit and push target.
+Apply defaults to no and requires explicit confirmation, including separate consent
+to create or switch to the setup branch. Review can select local files only or rename
+the proposed `setup-ub-agents` branch; changing that choice refreshes Review before Apply.
+Back or Cancel before Apply changes no files, branches, remotes, GitHub or Uberblick.
+
+The setup PR requires a clean checkout at the actual default-branch tip, with the
+config beside the repository root and `origin` pointing to the target repository.
+It commits only the config, `.agents/` starter files and reviewed `.gitignore`
+additions. Dirty or unrelated checkouts and unverified branch/PR collisions stop
+with a remedy or the local-files-only choice. Init never resets, stashes or
+overwrites a checkout. It never pushes to the default branch, merges or enables
+auto-merge. Review and merge the linked PR under the project's normal policy.
 
 ## Files and policy
 
@@ -99,22 +111,29 @@ Boards are created/reused and verified before their config is written. Partial b
 failure retains successful public creations and leaves the config unwritten. Inspect
 the exact selected titles before retrying, including any creation whose response was
 lost. If no starter files were written, rerunning init can reuse those boards.
-Init refuses existing starters; rerunning it does not overwrite or repair partial files.
+Local-files-only setup refuses existing starters. Setup PR attempts record their
+reviewed files, base, branch, account and commit in ignored `.ub-agents/init-setup.json`.
+Retry the same setup from that branch after repairing access. Only byte-identical
+setup files and a verified matching commit/PR are reused; modified files or conflicting
+branches stop without overwriting. A lost creation response is reconciled by finding
+the existing PR before another creation. Inspect GitHub and partial files before retrying.
 
 Setup success is distinct from launch readiness. Review the policy, run `ub-agents check`,
-commit the files through a PR and merge them into the default branch, then run
+review the setup PR (or commit local files through a PR) and merge it into the default branch, then run
 `ub-agents doctor` from a clean default-branch launcher checkout without ahead/divergent
 commits. Launch fetches and fast-forwards from origin before runs to pick up code,
 configuration and policy. A separate launcher checkout is recommended if you also
 code here. Agents use private worktrees/branches and PRs, never direct default-branch pushes.
-Init works on a setup branch; it never switches, resets, stashes or clones implicitly,
-commits, pushes, merges, installs software, changes accounts or alters protections.
+Init creates or switches branches, commits and pushes only through the reviewed
+setup PR choice. It never resets, stashes, clones, merges, installs software,
+changes accounts or alters protections.
 
 **Finish** exits. **Retry readiness** reruns read-only doctor checks and the existing
 launch checkout/label gates against the current configuration after external
 preparation. Unresolved starter policy placeholders and missing runtime permission
-arguments also block this wizard's start action. **Finish and start loop** explicitly
-checks readiness again, exits setup and invokes the normal launch command only when
+arguments also block this wizard's start action. Start becomes available only after
+readiness passes, including the setup PR's merge. **Finish and start loop** explicitly
+checks readiness again, verifies that its setup PR has merged, exits setup and invokes the normal launch command only when
 all gates pass. A successful retry does not launch automatically. Setup completion
 and unattended defaults never automatically launch.
 
@@ -126,14 +145,21 @@ ub-agents init --use-defaults --runtime claude:claude-opus-5-5:high \
   --config workflow.yaml
 ```
 
-`--use-defaults` bypasses every prompt even in a terminal. CI (nonempty `CI`) or
-non-TTY stdin/stdout also uses defaults without prompts. These paths honor
-`--repository`, `--runtime`, `--config` and the existing starter defaults. They leave
+`--use-defaults` is explicit consent to the same setup branch → setup-only commit →
+push → PR flow without prompts, including in a terminal. It honors `--repository`,
+`--runtime`, `--config`, the actual default branch and target repository. Required
+failures exit nonzero with recovery guidance and never wait for input. The actual
+branch and PR URL are printed with remaining launch requirements. It leaves
 permission arguments commented out, priority unconfigured, retrospectives off and
 Uberblick integration off; they create no GitHub labels. Existing local overrides
-still take precedence. A concise defaults summary, remaining tasks and label commands
-are printed. No wizard version/prerequisite lookups run. Without `--repository`,
-the existing `gh repo view --json nameWithOwner` inference is the only GitHub call.
+still take precedence. It creates no boards, hubs, workspaces or MCP entries, installs
+no software, never merges and never starts the loop. No wizard version/runtime probes run.
+
+CI (nonempty `CI`) or non-TTY stdin/stdout **without** `--use-defaults` keeps local
+files only. These implicit defaults honor the same config/runtime/repository options,
+keep permissions and optional features off, and print label commands. On this path,
+repository inference is the only GitHub call when `--repository` is omitted. Scripts
+must explicitly add `--use-defaults` to opt into PR publication.
 
 ```text
 {{help init}}

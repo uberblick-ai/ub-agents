@@ -103,7 +103,7 @@ class SetupApp(App):
                          "Next ^N" if narrow else "Continue ^N")
         self.query_one("#retry", Button).disabled = self.busy
         self.query_one("#retry", Button).label = "Retry ^R" if narrow else "Retry readiness ^R"
-        self.query_one("#start", Button).disabled = self.busy or not (self.wizard.applied and self.wizard.applied.ok)
+        self.query_one("#start", Button).disabled = self.busy or not self.wizard.ready
         self.query_one("#start", Button).label = "Start ^L" if narrow else "Finish and start loop ^L"
         confirm = self.query("#field-confirm")
         forward.disabled = self.busy or (current == "review" and (not confirm or not confirm.first(Checkbox).value))
@@ -279,7 +279,9 @@ def line_wizard(wizard):
             pages = wizard.pages()
             print(f"\n[{pages.index(wizard.current) + 1}/{len(pages)}] {page.title}\n\n{page.text}\n")
             if wizard.current == "result":
-                action = input("[Enter] Finish  [l] Finish and start loop  [r] Retry readiness: ").strip().casefold()
+                prompt = ("[Enter] Finish  [l] Finish and start loop  [r] Retry readiness: " if wizard.ready else
+                          "[Enter] Finish  [r] Retry readiness (Start waits for passed gates): ")
+                action = input(prompt).strip().casefold()
                 if action == "r":
                     wizard.retry_readiness()
                     continue

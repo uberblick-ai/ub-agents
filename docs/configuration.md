@@ -4,9 +4,12 @@
 errors; `ub-agents check` validates the file. Commands use this file by default;
 `--config PATH` selects another configuration file before or after the command.
 `init` writes the selected file or `ub-agents.yaml` by default.
-In a terminal it opens a setup wizard and previews exact local, opted-in label and public board
-changes before a default-no Apply. `init --use-defaults` stays prompt-free even in
-a terminal; CI/non-TTY also uses defaults without wizard probes. Permissions and
+In a terminal it opens a setup wizard and previews the setup branch, commit, push,
+PR, local files, opted-in labels and public boards before a default-no Apply.
+Review can choose local files only. `init --use-defaults` consents to the setup PR
+flow without prompts; CI/non-TTY without that flag writes only local starters.
+Setup PRs require the config beside the Git repository root and a clean checkout
+at the actual default-branch tip. Permissions and
 optional features default to off, and deferred labels are printed as commands.
 Existing local overrides still take precedence. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html) for choices and recovery.

@@ -10,8 +10,9 @@ You also need `git`, `gh` logged in to an account with write access to the repos
 
 Then, inside your project's checkout, start the setup wizard with `ub-agents init`.
 It shows prerequisites, collects choices and previews changes before Apply.
-Use `ub-agents init --use-defaults` for unattended setup, including in a terminal;
-CI/non-TTY also uses defaults. See the [init command guide](/docs/commands/init.html)
+Use `ub-agents init --use-defaults` to consent to an unattended setup branch,
+commit, push and PR. CI/non-TTY without the flag writes local files only.
+See the [init command guide](/docs/commands/init.html)
 for optional features, navigation and recovery.
 
 ```sh
@@ -53,8 +54,8 @@ The integrator merges only when every required review and check passes on the cu
 
 Setup success does not establish launch readiness. Review build/test commands,
 merge authority and decision-makers; finding an existing instruction file is not
-proof that the policy is ready. Check the configuration, commit the files through
-your project's PR workflow and merge them. Then start from a clean default-branch
+proof that the policy is ready. Check the configuration and review the setup PR,
+or commit local files through your project's PR workflow, then merge them. Start from a clean default-branch
 launcher checkout, without local commits ahead of origin:
 
 ```sh
@@ -66,7 +67,8 @@ ub-agents launch
 
 Use a separate launcher checkout if you also code here. Launch fetches and
 fast-forwards origin's default branch before each run; agents use private worktrees
-and PRs. Init works on a setup branch and never switches, resets, stashes or clones.
+and PRs. Init creates or switches to a setup branch only after review and explicit
+consent. It never resets, stashes or clones a checkout.
 
 Then add the `ready` label to an issue. The launcher will:
 

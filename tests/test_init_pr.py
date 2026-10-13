@@ -10,8 +10,12 @@ from unittest.mock import patch
 from tests.support import RecordingRunner, SetupGitHub
 from ub_agents.cli import main
 from ub_agents.errors import AgentError
-from ub_agents.init_pr import SetupPR, saved_attempt
+from ub_agents.doctor import Doctor
+from ub_agents.init_boards import Boards
+from ub_agents.init_probes import Probes
+from ub_agents.init_pr import SetupPR, apply_setup, saved_attempt
 from ub_agents.init_setup import Choices, apply_plan, make_plan
+from ub_agents.init_wizard import Wizard
 
 
 class PRRunner(RecordingRunner):
@@ -148,7 +152,8 @@ class SetupPRTests(unittest.TestCase):
                          *(".agents/" + role + ".md" for role in
                            ("ub_agents", "issue-preparer", "implementer", "reviewer", "integrator"))})
         self.assertEqual(self.github.writes[0][1]["base"], "trunk")
-        self.assertIn(("git", "-C", str(self.root), "push", "origin", "HEAD:refs/heads/setup-ub-agents"),
+        self.assertIn(("git", "-C", str(self.root), "push", "origin", "HEAD:refs/heads/setup-ub-agents",
+                       "--force-with-lease=refs/heads/setup-ub-agents:"),
                       [call[0] for call in self.runner.calls])
         commit = next(call[0] for call in self.runner.calls if call[0][3] == "commit")
         self.assertIn("--only", commit)
@@ -181,7 +186,9 @@ class SetupPRTests(unittest.TestCase):
 
     def test_ambiguous_pr_create_reuses_same_pr_without_duplicate(self):
         self.github.lose_create = True
-        self.assertFalse(self.apply().ok)
+        failed = self.apply()
+        self.assertFalse(failed.ok)
+        self.assertIn("PR creation may have completed", failed.incomplete[0])
         self.github.lose_create = False
         result = self.resume()
         self.assertTrue(result.ok, result.error)
@@ -194,6 +201,127 @@ class SetupPRTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentError, "nothing overwritten"):
             self.resume()
         self.assertEqual(self.path.read_text(), "operator changes")
+
+    def test_branch_effect_remains_visible_if_recovery_state_write_fails(self):
+        publication = self.publication()
+        with patch.object(publication, "save", side_effect=OSError("disk full")):
+            result = apply_setup(publication, self.github)
+        self.assertFalse(result.ok)
+        self.assertEqual(self.runner.branch, "setup-ub-agents")
+        self.assertIn("Created and switched", result.completed[0])
+        self.assertFalse(self.path.exists())
+        self.assertIn("Inspect the current branch", result.remaining[0])
+
+    def test_commit_effect_remains_visible_if_recovery_state_write_fails(self):
+        publication = self.publication()
+        publication.begin()
+        result = apply_plan(self.plan, self.github)
+        with patch.object(publication, "save", side_effect=OSError("disk full")):
+            publication.publish(result)
+        self.assertFalse(result.ok)
+        self.assertIn("Setup-only commit: " + self.runner.commit, result.completed)
+
+    def test_checkout_race_stops_before_branch_creation(self):
+        publication = self.publication()
+        self.runner.head = "c" * 40
+        result = apply_setup(publication, self.github)
+        self.assertFalse(result.ok)
+        self.assertFalse(result.completed)
+        self.assertEqual(self.runner.branch, "trunk")
+        self.assertFalse(self.path.exists())
+
+    def test_committed_attempt_with_lost_state_response_is_verified_before_reuse(self):
+        self.apply()
+        state = self.root / ".ub-agents/init-setup.json"
+        recorded = json.loads(state.read_text())
+        recorded["commit"] = None
+        state.write_text(json.dumps(recorded))
+        result = self.resume()
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(sum(call[0][3] == "commit" for call in self.runner.calls), 1)
+        self.assertEqual(len(self.github.prs), 1)
+
+    def test_reusing_merged_pr_does_not_recreate_deleted_remote_branch(self):
+        self.apply()
+        self.github.prs[0]["merged_at"] = "2026-10-13T13:00:00Z"
+        self.runner.remote = ""
+        before = sum(call[0][3] == "push" for call in self.runner.calls)
+        result = self.resume()
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(sum(call[0][3] == "push" for call in self.runner.calls), before)
+        self.assertEqual(result.pr_number, 7)
+
+    def test_matching_branch_with_foreign_pr_is_not_reused(self):
+        self.apply()
+        self.github.prs[0]["user"]["login"] = "someone-else"
+        with self.assertRaisesRegex(AgentError, "not a verified matching"):
+            self.resume()
+        self.assertEqual(len(self.github.prs), 1)
+
+    def test_local_secret_or_binding_path_cannot_be_used_as_config(self):
+        for filename in ("ub-agents.local.yaml", ".env", ".env.production", ".uberblick.json"):
+            with self.subTest(filename=filename), self.assertRaises(AgentError):
+                make_plan(self.root / filename, "org/project", Choices("codex:model:high"))
+
+    def test_existing_gitignore_entries_are_preserved_and_only_setup_additions_committed(self):
+        ignore = self.root / ".gitignore"
+        original = "# project entries\n.env\n*.sqlite\n"
+        ignore.write_text(original)
+        self.plan = make_plan(self.path, "org/project", Choices("codex:model:high", setup_pr=True))
+        result = self.apply()
+        self.assertTrue(result.ok, result.error)
+        self.assertTrue(self.runner.committed[".gitignore"].startswith(original))
+        self.assertNotIn(".env", self.runner.committed)
+
+    def test_review_requires_branch_consent_and_rechecks_merge_before_start(self):
+        doctor = Doctor(runner=self.runner, which=lambda name: "/bin/" + name)
+        wizard = Wizard(self.plan, self.github, Probes(self.plan, self.github, doctor))
+        wizard.current = "review"
+        wizard.prepare_publication()
+        with self.assertRaisesRegex(AgentError, "explicitly authorize"):
+            wizard.advance({"confirm": True})
+        self.assertFalse(self.path.exists())
+        wizard.advance({"confirm": True, "branch_confirm": True})
+        self.assertTrue(wizard.applied.ok, wizard.applied.error)
+        with patch("ub_agents.init_readiness.readiness", return_value=(True, "ordinary gates passed")) as gate:
+            self.assertFalse(wizard.request_start())
+            gate.assert_not_called()
+            self.github.prs[0]["merged_at"] = "2026-10-13T13:00:00Z"
+            self.assertTrue(wizard.request_start())
+            gate.assert_called_once()
+
+    def test_renaming_branch_refreshes_review_without_applying(self):
+        doctor = Doctor(runner=self.runner, which=lambda name: "/bin/" + name)
+        wizard = Wizard(self.plan, self.github, Probes(self.plan, self.github, doctor))
+        wizard.current = "review"
+        wizard.prepare_publication()
+        wizard.advance({"setup_branch": "my-setup", "confirm": True, "branch_confirm": True})
+        self.assertEqual(wizard.current, "review")
+        self.assertIn("my-setup", wizard.page().text)
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.github.writes)
+        self.assertFalse(next(field for field in wizard.page().fields if field.name == "confirm").value)
+
+    def test_board_numbers_are_recorded_before_files_and_reused_after_push_failure(self):
+        boards = Boards(self.github, "org/project")
+        request = boards.request("Setup lessons", "General", boards.setup())
+        choices = Choices("codex:model:high", setup_pr=True, features={"retrospectives"},
+                          board_requests={"implementer": request})
+        self.plan = make_plan(self.path, "org/project", choices)
+        self.runner.fail = "push"
+        result = apply_setup(self.publication(), self.github, verify_boards=True)
+        self.assertFalse(result.ok)
+        attempt = saved_attempt(self.path)
+        self.assertEqual(attempt["choices"]["retrospectives"], {"implementer": 204})
+        self.assertIn("retrospectives: 204", attempt["files"]["workflow.yaml"])
+        self.runner.fail = None
+        restored = Choices("codex:model:high", setup_pr=True, features={"retrospectives"},
+                           retrospectives={"implementer": 204})
+        self.plan = make_plan(self.path, "org/project", restored, resume=attempt)
+        result = apply_setup(self.publication(), self.github, verify_boards=True)
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(sum(write[0] == "create-board" for write in self.github.writes), 1)
+        self.assertEqual(len(self.github.prs), 1)
 
     def test_unattended_flag_publishes_without_prompts_or_optional_effects(self):
         output, error = io.StringIO(), io.StringIO()
