@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import replace
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,23 @@ import threading
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item
 from ub_agents.records import MARKER, body, payload, records
+
+
+def legacy_approval_body(number, title, body, comments, *, head=None, reviews=(), review_comments=()):
+    """Build a previously valid record to verify it grants no authority now."""
+    def digest(text):
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def feedback(rows):
+        return [{"id": row["id"], "body_sha256": digest(row["body"])} for row in rows]
+
+    content = json.dumps([title, body], ensure_ascii=False, separators=(",", ":"))
+    record = {"pr" if head is not None else "issue": number, "content_sha256": digest(content),
+              "comments": feedback(comments)}
+    if head is not None:
+        record |= {"head_sha": head, "reviews": feedback(reviews),
+                   "review_comments": feedback(review_comments)}
+    return f"<!-- ub-agents:approval:v1 -->\n\n```json\n{json.dumps(record, indent=2)}\n```\n"
 
 
 class RecordingAwakeProcess:

@@ -7,14 +7,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.approvals import approval_body, approve_issue, parse_approval, trusted_input
+from ub_agents.approvals import trusted_input
 from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh, legacy_approval_body
 from tests.test_approval_enforcement import feedback
 
 
@@ -96,7 +96,7 @@ class ApprovalPolicyTests(unittest.TestCase):
                     rows = [feedback(100 + i, login, login) for i, login in enumerate(
                         ("writer", "keeper", "owner", "triager", "reader", "unknown", "unreadable", "missing"))]
                     self.github.store[item.number] = rows[:]
-                    self.github.store[item.number].append(feedback(200, "maintainer", approval_body(
+                    self.github.store[item.number].append(feedback(200, "maintainer", legacy_approval_body(
                         item.number, item.title, item.body, rows, head=item.head,
                         reviews=rows if kind == "pr" else (), review_comments=rows if kind == "pr" else ())))
                     self.github.review_store[item.number] = rows[:]
@@ -108,14 +108,14 @@ class ApprovalPolicyTests(unittest.TestCase):
                         self.assertEqual((context["title"], context["body"]),
                                          ("Current outside title", "Current outside body"))
                         for name in ("comments", "reviews", "review_comments") if kind == "pr" else ("comments",):
-                            self.assertEqual([row["id"] for row in context[name]], [100, 101, 102])
+                            self.assertEqual([row["id"] for row in context[name]],
+                                             [100, 101, 102, 200] if name == "comments" else [100, 101, 102])
                         if kind == "pr":
                             self.assertEqual(context["candidate_sha"], item.head)
-                    # Head ancestry, edit history and approval parsing are forbidden.
+                    # Head ancestry and edit history are forbidden.
                     with patch.object(self.github, "timeline", side_effect=AssertionError("timeline read")), \
                             patch.object(self.github, "issue_content", side_effect=AssertionError("edit history read")), \
                             patch.object(self.github, "pr_content", side_effect=AssertionError("fork/approval read")), \
-                            patch("ub_agents.approvals.parse_approval", side_effect=AssertionError("approval read")), \
                             patch("ub_agents.approvals.eligible_head", side_effect=AssertionError("ancestry read")):
                         self.execute(verify, targeted)
                     self.assertFalse({name for name, _ in self.github.reads} &
@@ -151,13 +151,6 @@ class ApprovalPolicyTests(unittest.TestCase):
                             self.assertEqual([r['id'] for r in context[name]], [100])
                         self.assertEqual(context['feedback'], [])
                     self.execute(verify)
-                    with redirect_stdout(io.StringIO()) as output:
-                        posted = approve_issue(self.github, item.number, 'maintainer')
-                    approved = parse_approval(posted['body'], item.number, kind)
-                    for name in groups:
-                        self.assertEqual([r['id'] for r in approved[name]], [101])
-                    self.assertNotIn('<!-- ub-agents:v1 -->', output.getvalue())
-                    self.assertNotIn('<!-- ub-agents:v2 -->', output.getvalue())
 
     def test_off_fork_head_is_ready_without_approval_reads(self):
         item = pr()
@@ -185,14 +178,6 @@ class ApprovalPolicyTests(unittest.TestCase):
                 patch.object(github, "request", side_effect=request):
             plan = loop.plans()[0]
         self.assertEqual((plan.state, plan.item.head), ("ready", item.head))
-
-    def test_approve_still_posts_while_off(self):
-        self.github.login = "maintainer"
-        cfg = replace(self.loop.config, approvals="off")
-        with patch("ub_agents.cli.load_config", return_value=cfg), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), redirect_stdout(io.StringIO()):
-            self.assertEqual(main(["approve", "1"]), 0)
-        self.assertTrue(self.github.store[1][-1]["body"].startswith("<!-- ub-agents:approval:v1 -->"))
 
     def test_off_unreadable_author_lookup_excludes_input_without_parking(self):
         self.loop.config = replace(self.loop.config, approvals="off")

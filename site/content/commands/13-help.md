@@ -7,7 +7,7 @@ The bare command, `help`, `-h` and `--help` show the overview and exit 0.
 `-v` and `--version` print the installed version. Help creates no files.
 
 Usage errors exit 2 on stderr: unknown commands include the overview; other errors
-include the command's usage line. `approve` and `retry` require positive numbers;
+include the command's usage line. `retry` requires a positive number;
 the deprecated hidden `--number` alias cannot be combined with a positional number.
 
 ```text

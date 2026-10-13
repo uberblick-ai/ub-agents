@@ -30,7 +30,6 @@ commands:
                          matching work, owners, attempts and why items wait
   cleanup [--apply]      preview or remove stale worktrees and branches
   retry NUMBER           let stopped work run again, with a recorded reason
-  approve NUMBER         record approval of an issue's or PR's current input
 
 inside a run, through the launcher's report_command:
   report                 record the run's outcome
@@ -245,8 +244,8 @@ class HelpTests(unittest.TestCase):
         self.assertEqual(rows["launch"], "launch [NUMBER]")
         self.assertEqual(rows["status"], "status [NUMBER] [--json]")
         self.assertEqual(rows["retry"], "retry NUMBER")
-        self.assertEqual(rows["approve"], "approve NUMBER")
-        for name in ("retry", "approve"):
+        self.assertNotIn("approve", rows)
+        for name in ("retry",):
             self.assertNotIn("[", rows[name])
             details = self.invoke(["help", name])[1]
             self.assertNotIn("[NUMBER]", details)
@@ -257,11 +256,11 @@ class HelpTests(unittest.TestCase):
         self.assertIn("default: first matching item kind", self.invoke(["help", "retry"])[1])
 
     def test_rendering_required_number_preserves_positional_and_legacy_parsing(self):
-        for name in ("retry", "approve"):
+        for name in ("retry",):
             with self.subTest(command=name):
                 command = self.command_line.commands()[name]
                 number_action = next(action for action in command._actions if action.dest == "number")
-                options = ["--reason", "Resolved"] if name == "retry" else []
+                options = ["--reason", "Resolved"]
                 command.format_help()
                 self.command_line.format_help()
                 self.assertEqual(number_action.nargs, "?")
@@ -302,7 +301,7 @@ class HelpTests(unittest.TestCase):
                     "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]", "cleanup": "[options]",
                     "report": "(--outcome OUTCOME | --status {retry,blocked}) --summary SUMMARY [options]",
                     "retrospective": "--body-file PATH [options]",
-                    "retry": "NUMBER --reason REASON [options]", "approve": "NUMBER [options]",
+                    "retry": "NUMBER --reason REASON [options]",
                     "read": "NUMBER [options]", "help": "[COMMAND] [options]"}
         for name, command in self.command_line.commands().items():
             with self.subTest(command=name):
@@ -337,7 +336,7 @@ class HelpTests(unittest.TestCase):
         self.assertIn("usage: ub-agents extra NUMBER [options]", extra.format_help())
 
     def test_unknown_commands_print_the_error_and_overview_on_stderr(self):
-        for name in ("nope", "recover"):
+        for name in ("nope", "recover", "approve"):
             for argv in ([name], ["help", name], ["--config", "missing.yaml", name],
                          ["--config", "missing.yaml", "help", name]):
                 with self.subTest(argv=argv):
@@ -346,8 +345,6 @@ class HelpTests(unittest.TestCase):
     def test_usage_errors_print_the_usage_of_the_command_that_ran(self):
         for argv, name in ((["retry"], "retry"), (["retry", "143"], "retry"),
                            (["retry", "--agent", "implementer", "--reason", "Resolved"], "retry"),
-                           (["approve"], "approve"), (["approve", "0"], "approve"),
-                           (["approve", "143", "--number", "143"], "approve"),
                            (["--config", "x.yaml", "check", "--config", "x.yaml"], "check"),
                            (["check", "--bogus"], "check"),
                            (["check", "--config"], "check"),

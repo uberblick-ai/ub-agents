@@ -1,21 +1,18 @@
-from contextlib import redirect_stdout
 from dataclasses import replace
-import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.approvals import (approval_body, approve_issue, body_sha,
-                                check_pr, parse_approval)
-from ub_agents.cli import main, status_rows
+from ub_agents.approvals import check_pr
+from ub_agents.cli import status_rows
 from ub_agents.config import Queue
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import attempts, body, payload, timestamp
-from tests.support import AccountGitHub, FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import AccountGitHub, FakeGitHub, agent, config, issue, pr, stub_refresh, legacy_approval_body
 from tests.test_approvals import at
 
 
@@ -107,6 +104,8 @@ class EnforcementTests(unittest.TestCase):
         for text in ('**Action needed**', 'A maintainer', 'remove', '`needs-human`',
                      're-apply a trigger label', '`ready`', '`needs-changes`'):
             self.assertIn(text, notice['body'])
+        self.assertNotIn('ub-agents approve', notice['body'])
+        self.assertNotIn('approval record', notice['body'])
         writes = self.github.writes[:]
         for _ in range(3):
             self.assertFalse(self.loop.tick())
@@ -137,9 +136,11 @@ class EnforcementTests(unittest.TestCase):
                     self.outside_edit()
                 self.assert_parked(f'Outside {change} edit', writes=True)
                 notice = self.notices()[0]
-                for text in ('re-apply a trigger label', 'ub-agents approve 1',
+                for text in ('re-apply a trigger label',
                              'then remove', '`needs-human`'):
                     self.assertIn(text, notice['body'])
+                self.assertNotIn('ub-agents approve', notice['body'])
+                self.assertNotIn('approval record', notice['body'])
                 before = self.github.writes[:]
                 self.loop.tick()
                 self.loop.tick()
@@ -189,9 +190,10 @@ class EnforcementTests(unittest.TestCase):
         self.assertIn("Maintainer: approve this PR's current head and clear its human hold.", visible)
         self.assertNotIn('head is not approved', visible)
         self.assertIn('head is not approved', details)
-        for text in ('ub-agents approve 2', 'approving review of the current head',
-                     'then remove', 'Re-applying a trigger label does not approve a head'):
+        for text in ('approving review of the current head', 'then remove'):
             self.assertIn(text, notice['body'])
+        self.assertNotIn('ub-agents approve', notice['body'])
+        self.assertNotIn('approval record', notice['body'])
         self.start(2, 'needs-changes', second=20)
         self.remove_stop(2)
         before = self.github.writes[:]
@@ -208,11 +210,11 @@ class EnforcementTests(unittest.TestCase):
     def test_outside_pr_feedback_notice_has_input_reapproval_instructions(self):
         self.use_pr()
         self.start(2, 'needs-changes')
-        self.approve()
-        self.github.review_store[2] = [feedback(100, second=20, state='COMMENTED', commit_id='a' * 40)]
+        self.review()
+        self.github.review_store[2].append(feedback(100, second=20, state='COMMENTED', commit_id='a' * 40))
         self.assert_parked('Outside PR feedback', writes=True)
         self.assertIn('re-apply a trigger label', self.notices(2)[0]['body'])
-        self.assertIn('ub-agents approve 2', self.notices(2)[0]['body'])
+        self.assertNotIn('ub-agents approve', self.notices(2)[0]['body'])
         self.start(2, 'needs-changes', second=25)
         self.remove_stop(2)
         self.execute()
@@ -382,11 +384,11 @@ class EnforcementTests(unittest.TestCase):
         unapproved = feedback(102)
         edited = feedback(103, second=2)
         edited['updated_at'] = at(9)
-        record = feedback(104, 'maintainer', approval_body(1, 'Requirements', 'Acceptance criteria', [cleared]), 15)
+        record = feedback(104, 'maintainer', legacy_approval_body(1, 'Requirements', 'Acceptance criteria', [cleared]), 15)
         notice = feedback(105, 'operator', '<!-- ub-agents:action-needed old-run -->\nAction needed')
         self.github.store[1] = [cleared, trusted, unapproved, edited, record, notice]
         def verify(c):
-            self.assertEqual([r['id'] for r in c['comments']], [100, 101])
+            self.assertEqual([r['id'] for r in c['comments']], [100, 101, 104])
             prompt = self.loop.prompt_for(self.loop.plans()[0], self.loop.coordinator.history(1)[0], c, 'Read GitHub comments')
             self.assertIn('Other comments on GitHub are not assignment input', prompt)
             # Later edits do not affect this run's input or prevent completion.
@@ -404,12 +406,52 @@ class EnforcementTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
             patcher.start()
 
-    def approve(self, second=15, head=None, comments=(), reviews=(), review_comments=()):
+    def review(self, second=15, head=None):
+        self.github.review_store.setdefault(2, []).append(feedback(
+            200 + len(self.github.review_store.get(2, [])), 'maintainer', 'Approved', second,
+            state='APPROVED', commit_id=head or self.github.item(2).head))
+
+    def test_legacy_record_cannot_start_or_authorize_outside_pr_head(self):
+        self.use_pr()
         item = self.github.item(2)
-        self.github.store.setdefault(2, []).append(feedback(
-            200 + len(self.github.store.get(2, [])), 'maintainer',
-            approval_body(2, item.title, item.body, comments, head=head or item.head,
-                          reviews=reviews, review_comments=review_comments), second))
+        self.github.store[2] = [feedback(100, 'maintainer', legacy_approval_body(
+            2, item.title, item.body, [], head=item.head), 15)]
+        self.assertEqual(self.loop.input_check(item).gate, 'start')
+        self.start(2, 'needs-changes', second=20)
+        self.assertEqual(self.loop.input_check(item).gate, 'head')
+        self.review(second=25, head='b' * 40)
+        self.assertEqual(self.loop.input_check(item).gate, 'head')
+        self.review(second=30)
+        self.assertTrue(self.loop.input_check(item).allowed)
+
+    def test_legacy_record_cannot_clear_any_outside_pr_feedback(self):
+        self.use_pr()
+        self.start(2, 'needs-changes')
+        self.review()
+        groups = {'comments': self.github.store, 'reviews': self.github.review_store,
+                  'review_comments': self.github.review_comment_store}
+        rows = {}
+        for name, store in groups.items():
+            rows[name] = feedback(100, second=20)
+            if name == 'reviews':
+                rows[name] |= dict(state='COMMENTED', commit_id='a' * 40)
+            store.setdefault(2, []).append(rows[name])
+        item = self.github.item(2)
+        self.github.store[2].append(feedback(101, 'maintainer', legacy_approval_body(
+            2, item.title, item.body, [rows['comments']], head=item.head,
+            reviews=[rows['reviews']], review_comments=[rows['review_comments']]), 25))
+        check = self.loop.input_check(item)
+        self.assertFalse(check.allowed)
+        self.assertEqual(check.gate, 'input')
+        for cleared in (check.cleared_comment_ids, check.cleared_review_ids, check.cleared_review_comment_ids):
+            self.assertEqual(cleared, frozenset())
+        for name in groups:
+            self.assertNotIn(100, [r['id'] for r in check.snapshot[name]])
+        self.start(2, 'needs-changes', second=30)
+        check = self.loop.input_check(item)
+        self.assertTrue(check.allowed)
+        for name in groups:
+            self.assertIn(100, [r['id'] for r in check.snapshot[name]])
 
     def test_trusted_pr_runs_without_start_and_outside_feedback_does_not_park(self):
         self.use_pr(trusted=True)
@@ -424,9 +466,9 @@ class EnforcementTests(unittest.TestCase):
         self.start(2, 'needs-changes')
         self.remove_stop(2)
         self.assert_parked('head is not approved', writes=True)
-        self.approve(head='b' * 40)
+        self.review(head='b' * 40)
         self.assertEqual(self.loop.plans()[0].state, 'parked')
-        self.approve(second=20)
+        self.review(second=20)
         self.remove_stop(2)
         self.execute()
 
@@ -441,7 +483,7 @@ class EnforcementTests(unittest.TestCase):
     def test_post_claim_ineligible_head_is_parked_without_attempt(self):
         self.use_pr()
         self.start(2, 'needs-changes')
-        self.approve()
+        self.review()
         original = self.loop.coordinator.claim
         def claim(*args, **kwargs):
             lease = original(*args, **kwargs)
@@ -454,7 +496,7 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual((history[0]['state'], history[0]['started']), ('withdrawn', False))
         self.assertEqual(attempts(history, self.worker.name, timestamp()), [])
         self.assertEqual(self.loop.plans()[0].state, 'parked')
-        self.approve(second=25)
+        self.review(second=25)
         self.execute()
 
     def test_outside_pr_edits_pushes_and_feedback_suspend(self):
@@ -463,7 +505,7 @@ class EnforcementTests(unittest.TestCase):
                 self.setUp()
                 self.use_pr()
                 self.start(2, 'needs-changes')
-                self.approve()
+                self.review()
                 if change == 'push':
                     self.github.change(2, head='b' * 40)
                 elif change == 'title':
@@ -480,7 +522,10 @@ class EnforcementTests(unittest.TestCase):
                              'review_comments': self.github.review_comment_store}[change]
                     store.setdefault(2, []).append(row)
                 self.assertEqual(self.loop.plans()[0].state, 'parked')
-                self.approve(second=30)
+                if change == 'push':
+                    self.review(second=30)
+                else:
+                    self.start(2, 'needs-changes', second=30)
                 self.assertEqual(self.loop.plans()[0].state, 'ready')
 
     def test_pr_context_clearance_is_separate_for_each_feedback_type(self):
@@ -493,11 +538,14 @@ class EnforcementTests(unittest.TestCase):
             if name == 'reviews':
                 for row in store[2]:
                     row |= dict(state='COMMENTED', commit_id='a' * 40)
-        self.approve(comments=self.github.store[2][:1], reviews=self.github.review_store[2][:1],
-                     review_comments=self.github.review_comment_store[2][:1])
+        self.start(2, 'needs-changes', second=15)
+        for store in (self.github.store, self.github.review_store, self.github.review_comment_store):
+            for row in store[2][2:4]:
+                row['updated_at'] = at(17)
+        self.review(second=18)
         def verify(c):
             for name in ('comments', 'reviews', 'review_comments'):
-                self.assertEqual([row['id'] for row in c[name]], [100, 101])
+                self.assertEqual([row['id'] for row in c[name]], [100, 101, 204] if name == 'reviews' else [100, 101])
         self.execute(verify)
         # Later feedback edits lose clearance even after a review lifts suspension.
         for store in (self.github.store, self.github.review_store, self.github.review_comment_store):
@@ -512,7 +560,7 @@ class EnforcementTests(unittest.TestCase):
     def test_accepted_agent_revision_inherits_eligible_head_only(self):
         self.use_pr(head_repository='ORG/PROJECT')
         self.start(2, 'needs-changes')
-        self.approve()
+        self.review()
         def revise(c):
             self.github.change(2, head='b' * 40)
         self.execute(revise)
@@ -536,7 +584,7 @@ class EnforcementTests(unittest.TestCase):
     def test_eligible_head_uses_all_currently_trusted_accounts(self):
         self.use_pr()
         self.start(2, 'needs-changes')
-        self.approve()
+        self.review()
         self.github.roles['bob'] = 'write'
         self.loop = Loop(self.loop.config, AccountGitHub(self.github, 'bob'), 'bob', output=self.output.append)
         self.execute(lambda c: self.github.change(2, head='b' * 40))
@@ -559,7 +607,7 @@ class EnforcementTests(unittest.TestCase):
                 self.setUp()
                 self.use_pr(head_repository=repository)
                 self.start(2, 'needs-changes')
-                self.approve()
+                self.review()
                 self.execute(lambda c: self.github.change(2, head='b' * 40))
                 lease, outcome = self.loop.coordinator.history(2)[-2:]
                 self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
@@ -570,44 +618,13 @@ class EnforcementTests(unittest.TestCase):
                 # Relabeling cannot approve the fork's newly observed head either.
                 self.start(2, 'needs-changes', second=20)
                 self.assertEqual(self.loop.plans()[0].state, 'parked')
-                self.approve(second=25)
+                self.review(second=25)
                 self.execute()
                 # A maintainer approving review can also approve a new fork head.
                 self.github.change(2, head='c' * 40, labels=frozenset({'needs-changes'}))
                 self.github.review_store[2] = [feedback(100, 'maintainer', 'Approved', 30,
                                                        state='APPROVED', commit_id='c' * 40)]
                 self.execute()
-
-    def test_approve_pr_pins_head_and_feedback_and_refuses_display_races(self):
-        self.use_pr()
-        self.github.login = 'maintainer'
-        self.github.store[2] = [feedback(100)]
-        self.github.review_store[2] = [feedback(100, state='COMMENTED', commit_id='a' * 40)]
-        self.github.review_comment_store[2] = [feedback(100)]
-        with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
-                patch('ub_agents.cli.GitHub', return_value=self.github), redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(main(['approve', '--number', '2']), 0)
-        self.assertIn('a' * 40, output.getvalue())
-        record = parse_approval(self.github.store[2][-1]['body'], 2, 'pr')
-        self.assertEqual(record['head_sha'], 'a' * 40)
-        for name in ('comments', 'reviews', 'review_comments'):
-            self.assertEqual(record[name], [{'id': 100, 'body_sha256': body_sha('Outside input')}])
-        self.github.change(2, head='b' * 40)
-        self.start(2, 'needs-changes')
-        self.assertEqual(self.loop.plans()[0].state, 'parked')
-        original = self.github.item
-        reads = 0
-        def item(number):
-            nonlocal reads
-            reads += 1
-            if reads == 2:
-                self.github.change(2, head='c' * 40)
-            return original(number)
-        writes = self.github.writes[:]
-        with patch.object(self.github, 'item', side_effect=item), redirect_stdout(io.StringIO()):
-            with self.assertRaisesRegex(AgentError, 'changed'):
-                approve_issue(self.github, 2, 'maintainer')
-        self.assertEqual(self.github.writes, writes)
 
     def test_post_claim_unreadable_input_withdraws_without_execution_or_attempt(self):
         original = self.loop.coordinator.claim
@@ -623,14 +640,14 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual(attempts(history, self.worker.name, timestamp()), [])
         self.assertEqual(self.loop.plans()[0].state, 'parked')
 
-    def test_approval_and_review_cannot_replace_start_or_clear_same_second_input(self):
+    def test_review_cannot_replace_start_or_clear_same_second_input(self):
         self.use_pr()
-        self.approve()
+        self.review()
         self.github.review_store[2] = [feedback(100, 'maintainer', 'Approved', 20,
                                                 state='APPROVED', commit_id='a' * 40)]
         self.assertEqual(self.loop.plans()[0].state, 'parked')
         self.start(2, 'ready', second=25)
-        self.github.store[2].append(feedback(101, second=25))
+        self.github.store.setdefault(2, []).append(feedback(101, second=25))
         self.assertEqual(self.loop.plans()[0].state, 'parked')
         self.github.review_store[2].append(feedback(102, 'maintainer', 'Approved again', 30,
                                                    state='APPROVED', commit_id='a' * 40))
@@ -641,7 +658,7 @@ class EnforcementTests(unittest.TestCase):
     def test_unaccepted_unreleased_or_foreign_revision_outcomes_do_not_grant_a_head(self):
         self.use_pr()
         self.start(2, 'needs-changes')
-        self.approve()
+        self.review()
         self.execute(lambda c: self.github.change(2, head='b' * 40))
         self.github.change(2, labels=frozenset({'needs-changes'}))
         history = self.loop.coordinator.history(2)
@@ -660,8 +677,6 @@ class EnforcementTests(unittest.TestCase):
                     row['user'] = {'login': 'outsider'}
                 else:
                     # Reapproving a parent after the child run cannot retroactively grant ancestry.
-                    self.github.store[2] = [c for c in self.github.store[2]
-                                            if not c['body'].startswith('<!-- ub-agents:approval:')]
                     self.github.review_store[2] = [dict(feedback(300, 'maintainer'),
                         created_at='2027-01-01T00:00:00Z', updated_at='2027-01-01T00:00:00Z',
                         state='APPROVED', commit_id='a' * 40)]
@@ -670,18 +685,6 @@ class EnforcementTests(unittest.TestCase):
                 for row in self.github.store[2]:
                     if row['id'] == outcome['id']:
                         row['user'] = {'login': 'operator'}
-
-    def test_pr_records_reject_wrong_kinds_malformed_heads_and_duplicate_feedback(self):
-        raw = approval_body(2, 'Candidate', 'Closes #1', [], head='a' * 40)
-        for invalid in ('[]', 'null', '"text"'):
-            malformed = raw[:raw.index('{')] + invalid + "\n```\n"
-            self.assertIsNone(parse_approval(malformed, 2, 'pr'))
-        self.assertIsNone(parse_approval(raw, 2))
-        self.assertIsNone(parse_approval(approval_body(2, 'Candidate', 'Closes #1', []), 2, 'pr'))
-        self.assertIsNone(parse_approval(raw.replace('a' * 40, 'bad'), 2, 'pr'))
-        duplicate = feedback(10)
-        self.assertIsNone(parse_approval(approval_body(2, 'Candidate', 'Closes #1', [], head='a' * 40,
-                                                     reviews=[duplicate, duplicate]), 2, 'pr'))
 
     def test_editing_maintainer_review_body_preserves_approval_at_submission(self):
         self.use_pr()
@@ -706,7 +709,7 @@ class EnforcementTests(unittest.TestCase):
         reviewer = replace(self.worker, name='reviewer', kind='pr', triggers=('needs-review',))
         self.loop.config = config(self.root, preparer, reviewer, self.worker)
         self.start(2, 'needs-preparation')
-        self.approve()
+        self.review()
         self.assertEqual(self.loop.plans()[0].state, 'parked')
         self.start(2, 'needs-review', second=20)
         self.execute()
