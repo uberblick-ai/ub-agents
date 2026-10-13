@@ -54,15 +54,20 @@ unchanged. Decline or an unavailable label lookup defers creation and prints com
 
 ## Optional features
 
-Uberblick, priorities and retrospectives appear directly in that order. Each step
-explains its benefit and says “You can enable this later”; Skip is the default.
+After files and workflow labels, a compact checkbox selector explains the benefits
+of Uberblick, queue priorities and retrospectives, with “You can enable this later”
+guidance. All three start unchecked. Continue opens only selected pages, in that
+order; Skip keeps all optional components off. Selecting a component does not
+enable it: each selected page explains its benefit, repeats the enable-later
+guidance and defaults to Skip. Going back and unchecking a component clears its
+proposed settings.
 Priority and retrospective entries are checked first, then the same page shows
 “This adds to <selected config path>:” with only the proposed nested YAML keys.
 Continue again confirms that preview. Changing entries requires a fresh preview;
 the checked additions scroll into view before confirmation and remain proposed until Apply.
 
 - **Uberblick shared knowledge:** a shared knowledge base for agents and humans alike.
-  Learn more at [https://uberblick.at](https://uberblick.at). This is an optional
+  Learn more at [https://uberblick.ai](https://uberblick.ai). This is an optional
   follow-up, never a runtime dependency. Init creates no workspace/account, requests
   no secrets and enables no integration.
 - **Priority:** unique labels ordered highest to lowest, with a default from that

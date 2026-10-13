@@ -1,5 +1,6 @@
 from contextlib import redirect_stdout
 import io
+from itertools import product
 from pathlib import Path
 import subprocess
 import tempfile
@@ -40,7 +41,9 @@ class WizardFixture:
     def move(self, target):
         while self.wizard.current != target:
             fields = self.wizard.page().fields
-            if self.wizard.page().optional:
+            if self.wizard.current == 'features' and target in {'knowledge', 'priority', 'priority-labels', 'retrospectives'}:
+                self.wizard.advance({f.name: True for f in fields})
+            elif self.wizard.page().optional:
                 self.wizard.skip()
             else:
                 self.wizard.advance({f.name: f.value for f in fields})
@@ -61,7 +64,7 @@ class WizardTests(WizardFixture, unittest.TestCase):
         with self.assertRaisesRegex(AgentError, 'defaults to no'):
             self.wizard.advance({'confirm': False})
         self.wizard.back()
-        self.assertEqual(self.wizard.current, 'retrospectives')
+        self.assertEqual(self.wizard.current, 'features')
         self.wizard.cancelled = True
         self.assertIn('No files, directories', self.wizard.result_text())
         self.assertFalse(self.path.parent.exists())
@@ -143,7 +146,7 @@ class WizardTests(WizardFixture, unittest.TestCase):
         self.wizard.skip()
         self.wizard.advance({'confirm': True})
         self.assertIn('gh label create urgent', self.wizard.result_text())
-        self.assertIn('retrospectives', self.wizard.pages())
+        self.assertNotIn('retrospectives', self.wizard.pages())
 
     def test_priority_skip_retains_equal_priority_and_existing_default_accepts(self):
         self.move('priority')
@@ -219,15 +222,74 @@ class WizardTests(WizardFixture, unittest.TestCase):
         self.assertFalse(self.wizard.board_waiting)
         self.assertEqual(self.wizard.current, 'review')
 
-    def test_optional_steps_are_direct_ordered_default_skip_with_benefits(self):
+    def test_optional_selector_defaults_off_and_only_selected_pages_open(self):
+        self.move('features')
+        page = self.wizard.page()
+        names = ('knowledge', 'priority', 'retrospectives')
+        self.assertEqual(tuple(field.name for field in page.fields), names)
+        self.assertTrue(all(field.value is False for field in page.fields))
+        self.assertIn('You can enable this later', page.text)
+        for benefit in ('agents and humans alike', 'order eligible work within the queue rules', 'lessons from completed runs'):
+            self.assertIn(benefit, page.text)
+        reads = self.github.reads.copy()
+        for selected in product((False, True), repeat=3):
+            with self.subTest(selected=selected):
+                self.wizard.current = 'features'
+                self.wizard.advance(dict(zip(names, selected)))
+                expected = [name for name, enabled in zip(names, selected) if enabled]
+                self.assertEqual([name for name in self.wizard.pages() if name in names], expected)
+                self.assertEqual(self.wizard.current, expected[0] if expected else 'review')
+                self.assertFalse(self.wizard.plan.config.queue.priority.labels)
+                self.assertTrue(all(a.retrospectives is None for a in self.wizard.plan.config.agents))
+                for name in expected:
+                    self.assertEqual(self.wizard.current, name)
+                    self.wizard.skip()
+                self.assertEqual(self.wizard.current, 'review')
+                self.assertFalse(self.wizard.choices.features)
+                self.assertFalse(self.path.parent.exists())
+                self.assertEqual(self.github.writes, [])
+                self.assertEqual(self.github.reads, reads)
+
+    def test_unchecking_or_skipping_selector_clears_proposed_feature_settings(self):
+        for skip in (False, True):
+            with self.subTest(skip=skip):
+                self.wizard.current = 'features'
+                self.wizard.advance({'priority': True, 'retrospectives': True})
+                self.choose({'labels': 'urgent, normal', 'default': 'normal'})
+                self.wizard.advance({'create_priority_labels': True})
+                self.choose({'reviewer': '203', 'integrator': 'create: integration lessons', 'category': 'General'})
+                self.assertEqual(self.wizard.current, 'review')
+                self.assertTrue(self.wizard.choices.retrospectives)
+                self.assertTrue(self.wizard.choices.board_requests)
+                while self.wizard.current != 'features':
+                    self.wizard.back()
+                self.assertEqual([field.value for field in self.wizard.page().fields], [False, True, True])
+                if skip:
+                    self.wizard.skip()
+                else:
+                    self.wizard.advance({})
+                self.assertEqual(self.wizard.current, 'review')
+                self.assertFalse(self.wizard.choices.features)
+                self.assertFalse(self.wizard.choices.priority_labels)
+                self.assertIsNone(self.wizard.choices.priority_default)
+                self.assertFalse(self.wizard.choices.create_priority_labels)
+                self.assertFalse(self.wizard.choices.retrospectives)
+                self.assertFalse(self.wizard.choices.board_requests)
+                self.assertFalse(self.wizard.option_reviews)
+                self.assertNotIn('priority:', self.wizard.plan.targets[self.path])
+                self.assertNotIn('retrospectives:', self.wizard.plan.targets[self.path])
+                self.assertEqual(self.github.writes, [])
+                self.assertFalse(self.path.parent.exists())
+
+    def test_selected_optional_steps_are_ordered_default_skip_with_benefits(self):
         self.move('knowledge')
-        self.assertIn('Uberblick is a shared knowledge base for agents and humans alike. Learn more at https://uberblick.at', self.wizard.page().text)
+        self.assertIn('Uberblick is a shared knowledge base for agents and humans alike. Learn more at https://uberblick.ai', self.wizard.page().text)
         for name in ('knowledge', 'priority', 'retrospectives'):
             self.assertEqual(self.wizard.current, name)
             self.assertTrue(self.wizard.page().optional)
             self.assertIn('You can enable this later', self.wizard.page().text)
             self.wizard.skip()
-        self.assertNotIn('features', self.wizard.pages())
+        self.assertIn('features', self.wizard.pages())
         self.assertEqual(self.wizard.current, 'review')
         self.assertFalse(self.path.parent.exists())
 
@@ -258,6 +320,22 @@ class WizardTests(WizardFixture, unittest.TestCase):
             with self.assertRaisesRegex(AgentError, 'no longer be verified'):
                 self.wizard.advance({'confirm': True})
         self.assertFalse(self.path.parent.exists())
+
+    def test_unverifiable_local_retrospective_override_names_external_repair(self):
+        self.path.parent.mkdir()
+        local = self.path.parent / 'ub-agents.local.yaml'
+        content = 'agents:\n  reviewer:\n    retrospectives: 203\n'
+        local.write_text(content)
+        self.wizard.plan = make_plan(self.path, 'org/project', self.wizard.choices)
+        self.move('review')
+        self.github.boards[203]['locked'] = True
+        with self.assertRaises(AgentError) as error:
+            self.wizard.advance({'confirm': True})
+        self.assertIn(str(local), str(error.exception))
+        self.assertIn('Cancel and edit those outside init', str(error.exception))
+        self.assertEqual(local.read_text(), content)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.github.writes, [])
 
     def test_requested_creation_is_previewed_then_verified_before_writing_config(self):
         self.move('retrospectives')
@@ -394,10 +472,50 @@ class WizardTests(WizardFixture, unittest.TestCase):
                 self.assertTrue(line_wizard(self.wizard))
             self.assertFalse(self.path.parent.exists())
 
+    def test_fallback_selector_skips_unselected_pages(self):
+        for answers, selected in ((['', 'c'], False), (['n', 'y', 'n', 'n', 'n', 'c'], True)):
+            with self.subTest(selected=selected):
+                self.wizard.current = 'features'
+                output = io.StringIO()
+                with patch('builtins.input', side_effect=answers), redirect_stdout(output):
+                    self.assertTrue(line_wizard(self.wizard))
+                self.assertEqual(self.wizard.choices.features, {'knowledge'} if selected else set())
+                self.assertNotIn('] Queue priority', output.getvalue())
+                self.assertNotIn('] Retrospective boards', output.getvalue())
+                self.assertEqual('] Uberblick shared knowledge' in output.getvalue(), selected)
+                self.assertFalse(self.path.parent.exists())
+                self.assertEqual(self.github.writes, [])
+
 
 class WizardUITests(WizardFixture, unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.setup()
+
+    async def test_selector_checkboxes_navigate_only_selected_pages_and_skip_clears_selection(self):
+        for size in ((92, 19), (48, 25)):
+            with self.subTest(size=size):
+                self.wizard.current = 'features'
+                app = SetupApp(self.wizard)
+                with patch.object(self.wizard, 'probe'):
+                    async with app.run_test(size=size) as pilot:
+                        await pilot.pause()
+                        self.assertEqual(app.focused.id, 'skip')
+                        self.assertTrue(all(not checkbox.value for checkbox in app.query(Checkbox)))
+                        self.assertIn('https://uberblick.ai', str(app.query_one('#notes').render()))
+                        checkbox = app.query_one('#field-priority', Checkbox)
+                        checkbox.focus()
+                        await pilot.press('space', 'ctrl+n')
+                        await pilot.pause()
+                        self.assertEqual(self.wizard.current, 'priority')
+                        self.assertEqual(app.focused.id, 'skip')
+                        self.assertEqual(app.query_one('#actions').region.height, 1)
+                        await pilot.press('enter', 'ctrl+b')
+                        await pilot.pause()
+                        self.assertEqual(self.wizard.current, 'features')
+                        self.assertTrue(all(not checkbox.value for checkbox in app.query(Checkbox)))
+                        await pilot.press('escape')
+                self.assertFalse(self.path.parent.exists())
+                self.assertEqual(self.github.writes, [])
 
     async def test_reference_sizes_use_full_width_single_footer_row_and_permissions_keys(self):
         for width, height, key in ((92, 19, 'n'), (48, 25, 'y')):
@@ -436,7 +554,7 @@ class WizardUITests(WizardFixture, unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(48, 25)) as pilot:
                 await pilot.pause()
                 notes = app.query_one('#notes')
-                self.assertIn('https://uberblick.at', str(notes.render()))
+                self.assertIn('https://uberblick.ai', str(notes.render()))
                 self.assertGreaterEqual(notes.region.y, app.query_one('#frame').region.bottom)
                 for expected in ('knowledge', 'priority', 'retrospectives'):
                     self.assertEqual(self.wizard.current, expected)

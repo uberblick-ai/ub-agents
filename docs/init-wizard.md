@@ -9,8 +9,12 @@ a 48×25 viewport has a 48×22 frame. Header and single-content-row footer stay 
 while the body scrolls. Terminal width changes reflow the body and abbreviate
 footer labels; full action meanings and keyboard shortcuts remain visible.
 
-Optional steps always appear in the order Uberblick → priorities → retrospectives,
-with Skip focused by default. Priority and retrospective entries are checked first;
+After files/workflow labels, the optional-component selector starts with all three
+checkboxes unchecked and explains their benefits with enable-later guidance. Only
+selected pages appear, in the order Uberblick → priorities → retrospectives, with
+Skip focused by default. Selection alone enables nothing; unchecking or skipping
+clears proposed feature settings. Page counts depend on selections and missing labels.
+Priority and retrospective entries are checked first;
 the same page then shows the additions before a second Continue confirms them.
 Only final default-no Apply makes changes. The [init guide](https://agents.uberblick.ai/docs/commands/init.html)
 describes navigation, unattended defaults and recovery.
@@ -22,7 +26,7 @@ Select the exact starter grant; default to continuing without it. Cancel leaves 
 ```text
 +------------------------------------------------------------------------------------------+
 |ub-agents setup                                                                           |
-|5/11 Runtime permissions                                                                  |
+|5/12 Runtime permissions                                                                  |
 |                                                                                          |
 |Codex grants full access without its sandbox.                                             |
 |Exact starter arguments: ["--sandbox", "danger-full-access"]                              |
@@ -41,17 +45,44 @@ Select the exact starter grant; default to continuing without it. Cancel leaves 
 +------------------------------------------------------------------------------------------+
 ```
 
-## Uberblick
+## Optional-component selection
 
-Optional follow-up; Skip enables nothing. Link destination: https://uberblick.at.
+Benefits precede the checkboxes. Continue opens only selected pages; Skip leaves all off.
+Link destination: https://uberblick.ai.
 
 ```text
 +------------------------------------------------------------------------------------------+
 |ub-agents setup                                                                           |
-|7/11 Uberblick shared knowledge                                                           |
+|7/9 Optional components                                                                   |
+|                                                                                          |
+|Choose the setup pages to open. You can enable this later.                                |
+|                                                                                          |
+|Uberblick: shared knowledge for agents and humans alike. https://uberblick.ai             |
+|Priorities: order eligible work within queue rules.                                       |
+|Retrospectives: retain lessons through later public agent posts.                          |
+|                                                                                          |
+|[ ] Uberblick shared knowledge                                                            |
+|[ ] Queue priorities                                                                      |
+|[ ] Retrospectives                                                                        |
+|                                                                                          |
+|Selected pages still default to Skip; nothing is written until Apply.                     |
+|                                                                                          |
+|                                                                                          |
+|Back ^B       Continue ^N       Skip ^S (default)       Cancel Esc                        |
++------------------------------------------------------------------------------------------+
+```
+
+## Uberblick
+
+Selected optional follow-up; Skip enables nothing. Link destination: https://uberblick.ai.
+
+```text
++------------------------------------------------------------------------------------------+
+|ub-agents setup                                                                           |
+|8/12 Uberblick shared knowledge                                                           |
 |                                                                                          |
 |Uberblick is a shared knowledge base for agents and humans alike.                         |
-|Learn more at https://uberblick.at                                                        |
+|Learn more at https://uberblick.ai                                                        |
 |                                                                                          |
 |You can enable this later.                                                                |
 |This is an optional follow-up, never a runtime dependency.                                |
@@ -74,7 +105,7 @@ Order eligible work within queue rules; Skip keeps equal priority. Values here a
 ```text
 +------------------------------------------------------------------------------------------+
 |ub-agents setup                                                                           |
-|8/12 Queue priority                                                                       |
+|9/13 Queue priority                                                                       |
 |                                                                                          |
 |Priorities order eligible work within the queue rules.                                    |
 |You can enable this later.                                                                |
@@ -100,7 +131,7 @@ Retain lessons through later public agent posts. Link destination: GitHub Docs, 
 ```text
 +------------------------------------------------------------------------------------------+
 |ub-agents setup                                                                           |
-|10/12 Retrospective boards                                                                |
+|11/13 Retrospective boards                                                                |
 |                                                                                          |
 |Retrospectives retain lessons from completed runs. You can enable this later.             |
 |PASS: Discussions enabled in org/project; account role: WRITE.                            |
@@ -126,7 +157,7 @@ Report actual effects; Retry checks external preparation without launching. Expl
 ```text
 +------------------------------------------------------------------------------------------+
 |ub-agents setup                                                                           |
-|12/12 Setup results                                                                       |
+|13/13 Setup results                                                                       |
 |                                                                                          |
 |Setup completed; project policy still needs owner review.                                 |
 |Created workflow.yaml and .agents/ starter instructions.                                  |
@@ -152,7 +183,7 @@ The same actions share one row; their complete meanings stay in the scrolling bo
 ```text
 +----------------------------------------------+
 |ub-agents setup                               |
-|5/11 Runtime permissions                      |
+|5/12 Runtime permissions                      |
 |                                              |
 |Codex starter grant: full access without      |
 |its sandbox.                                  |
@@ -184,7 +215,7 @@ The Start abbreviation means Finish and start loop; scrolling body keeps the ful
 ```text
 +----------------------------------------------+
 |ub-agents setup                               |
-|12/12 Setup results                           |
+|13/13 Setup results                           |
 |                                              |
 |Setup completed.                              |
 |                                              |

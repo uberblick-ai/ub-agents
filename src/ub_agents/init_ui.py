@@ -132,8 +132,8 @@ class SetupApp(App):
                                     id="option-preview", markup=False))
         body.scroll_home(animate=False)
         self.query_one("#error", Static).update("")
-        notes = ("Intent: shared knowledge follow-up. Consequence: no integration is enabled.\nLink destination: https://uberblick.at"
-                 if self.wizard.current == "knowledge" else
+        notes = ("Intent: shared knowledge follow-up. Consequence: no integration is enabled.\nLink destination: https://uberblick.ai"
+                 if self.wizard.current in {"features", "knowledge"} else
                  "Intent: lessons. Effect: public agent posts.\nLink: GitHub Docs (creating discussions)."
                  if self.wizard.current == "retrospectives" else
                  "Intent: order eligible work within queue rules. Consequence: skipped priority leaves equal ordering."
@@ -216,6 +216,7 @@ class SetupApp(App):
         if not self.wizard.page().optional:
             return
         self.drafts.pop(self.wizard.current, None)
+        self.drafts.pop("features", None)
         try:
             self.wizard.skip()
         except PROBE_ERRORS as exc:

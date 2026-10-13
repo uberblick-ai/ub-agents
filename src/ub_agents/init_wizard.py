@@ -51,10 +51,12 @@ class Wizard:
         self.started = True
 
     def pages(self):
-        pages = ["welcome", "prerequisites", "checkout", "policy", "permissions", "files", "knowledge", "priority"]
-        if self.missing(priority_labels(self.choices)):
-            pages.append("priority-labels")
-        pages.append("retrospectives")
+        pages = ["welcome", "prerequisites", "checkout", "policy", "permissions", "files", "features"]
+        for name in ("knowledge", "priority", "retrospectives"):
+            if name in self.choices.features:
+                pages.append(name)
+                if name == "priority" and self.missing(priority_labels(self.choices)):
+                    pages.append("priority-labels")
         return pages + ["review", "result"]
 
     def missing(self, labels):
@@ -134,6 +136,18 @@ class Wizard:
                 text += "Missing workflow labels:\n" + "\n".join(f"{label.name}: {label.explanation}" for label in missing)
             fields = (Field("workflow_labels", "Create missing workflow labels (default no)", c.workflow_labels),) if missing else ()
             return Page("Files and workflow labels", text, fields)
+        if self.current == "features":
+            return Page("Optional components", "Choose only the components whose setup pages you want to open. "
+                        "All are unchecked by default. Selecting a component does not enable it; "
+                        "each selected page still defaults to Skip. You can enable this later.\n\n"
+                        "Uberblick is a shared knowledge base for agents and humans alike. Learn more at https://uberblick.ai\n\n"
+                        "Priorities order eligible work within the queue rules.\n\n"
+                        "Retrospectives retain lessons from completed runs through later public agent posts.\n\n"
+                        "Continue opens only selected pages, in the order Uberblick, priorities, retrospectives. "
+                        "Skip keeps all optional components off; nothing is written until Apply.",
+                        (Field("knowledge", "Uberblick shared knowledge", "knowledge" in c.features),
+                         Field("priority", "Queue priorities", "priority" in c.features),
+                         Field("retrospectives", "Retrospectives", "retrospectives" in c.features)), True)
         if self.current == "priority":
             return Page("Queue priority", "Priorities order eligible work within the queue rules. You can enable this later.\n\n"
                         "Enter unique labels, separated by commas, highest priority first. "
@@ -168,7 +182,7 @@ class Wizard:
                         tuple(Field(role, f"{role}: number or create: title", self.board_values[role]) for role in ROLES) +
                         (Field("category", "Category name for requested creation", self.board_values["category"]),), True)
         if self.current == "knowledge":
-            return Page("Uberblick shared knowledge", "Uberblick is a shared knowledge base for agents and humans alike. Learn more at https://uberblick.at\n\n"
+            return Page("Uberblick shared knowledge", "Uberblick is a shared knowledge base for agents and humans alike. Learn more at https://uberblick.ai\n\n"
                         "You can enable this later. It is a recommended optional follow-up, never needed to run this standalone framework.\n\n"
                         "Follow its setup guidance separately. This wizard creates no workspace or account, requests no secrets "
                         "and enables no integration. Continue keeps the follow-up link; Skip is the default.", optional=True)
@@ -251,6 +265,12 @@ class Wizard:
         elif self.current in {"files", "priority-labels"}:
             for field in self.page().fields:
                 setattr(c, field.name, values[field.name])
+        elif self.current == "features":
+            selected = {field.name for field in self.page().fields if values.get(field.name, False)}
+            for name in ("knowledge", "priority", "retrospectives"):
+                if name not in selected:
+                    self.clear_feature(name)
+            c.features = selected
         elif self.current == "knowledge":
             c.features.add("knowledge")
         elif self.current == "priority":
@@ -275,7 +295,9 @@ class Wizard:
                 try:
                     Boards(self.github, self.plan.config.repository).verify(number)
                 except PROBE_ERRORS:
-                    raise AgentError(f"Discussion #{number} can no longer be verified; go Back to fix or Skip retrospectives") from None
+                    raise AgentError(f"Discussion #{number} can no longer be verified; go Back to fix selected destinations. "
+                                     f"Check {self.plan.path.parent / LOCAL_CONFIG} for protected local overrides; "
+                                     "Cancel and edit those outside init before restarting.") from None
             self.applied = apply_plan(self.plan, self.github, self.remote_labels(), verify_boards=True)
             self.current = "result"
             return
@@ -350,37 +372,32 @@ class Wizard:
             pages = self.pages()
             self.current = pages[pages.index(self.current) - 1]
 
-    def skip(self):
-        name = self.current
-        if not self.page().optional:
-            return
-        if name == "permissions":
-            self.choices.permissions = False
-        elif name == "priority-labels":
-            self.choices.create_priority_labels = False
-        elif name == "priority":
+    def clear_feature(self, name):
+        if name == "priority":
             self.choices.priority_labels, self.choices.priority_default = (), None
             self.choices.create_priority_labels = False
-            self.choices.features.discard(name)
         elif name == "retrospectives":
             self.choices.retrospectives.clear()
             self.choices.board_requests.clear()
             self.board_values = {role: "" for role in ROLES} | {"category": ""}
             self.board_waiting = False
-            self.choices.features.discard(name)
-        elif name == "knowledge":
-            self.choices.features.discard(name)
-        old = self.current
-        if old == "priority":
-            self.current = "retrospectives"
-        elif old == "retrospectives":
-            self.current = "review"
-        elif old == "knowledge":
-            self.current = "priority"
+        self.choices.features.discard(name)
+        self.option_reviews.pop(name, None)
+
+    def skip(self):
+        name = self.current
+        if not self.page().optional:
+            return
+        pages = self.pages()
+        if name == "features":
+            for feature in ("knowledge", "priority", "retrospectives"):
+                self.clear_feature(feature)
+        elif name == "priority-labels":
+            self.choices.create_priority_labels = False
         else:
-            self.current = self.pages()[self.pages().index(old) + 1]
+            self.clear_feature(name)
         self.plan = make_plan(self.plan.path, self.plan.repository, self.choices)
-        self.option_reviews.pop(old, None)
+        self.current = next(page for page in pages[pages.index(name) + 1:] if page in self.pages())
 
     def deferred_commands(self):
         labels = configured_labels(self.plan.config) + priority_labels(self.choices)
@@ -411,7 +428,7 @@ class Wizard:
         lines.extend([self.option_summary(), self.effective_summary(), *guidance_summary(self.plan), "Launch readiness:",
                       self.readiness_text, "Before launch:", *next_steps(self.plan)])
         if "knowledge" in self.choices.features:
-            lines.append("Uberblick optional follow-up: https://uberblick.at")
+            lines.append("Uberblick optional follow-up: https://uberblick.ai")
         attention = [check for check in (self.probes.welcome + self.probes.prerequisites +
                                          self.probes.checkout + self.probes.runtime) if check.status != "ok"]
         if attention:

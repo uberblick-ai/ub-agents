@@ -91,7 +91,9 @@ In a terminal, `init` opens a setup wizard: it shows what it found, collects cho
 and previews files, opted-in GitHub labels and requested public boards before a default-no Apply. Start with
 `ub-agents init`; see the [init command guide](https://agents.uberblick.ai/docs/commands/init.html)
 for navigation, optional features and recovery. Cancel before Apply writes nothing.
-Optional steps default to Skip. Finish exits; Finish and start loop reruns readiness
+The optional-component selector starts with Uberblick, priorities and retrospectives
+unchecked; only selected components open pages, each defaulting to Skip.
+Finish exits; Finish and start loop reruns readiness
 checks and invokes the normal launcher only after they pass. Setup never starts it automatically.
 The starter files are:
 
