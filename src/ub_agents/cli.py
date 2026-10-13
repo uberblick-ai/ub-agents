@@ -30,6 +30,7 @@ from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases
                       record_version, records, same_run, timestamp)
 from .run_config import supervised_run
 from .status import lease_summary, process_details
+from .startup_cleanup import sweep as startup_cleanup
 
 
 def parser():
@@ -86,12 +87,6 @@ def parser():
                                  examples=("ub-agents status", "ub-agents status 143", "ub-agents status 143 --json"))
     status.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="inspect only this item (optional)")
     status.add_argument("--json", action="store_true", help="emit structured status")
-    cleanup = commands.add_parser("cleanup", help="preview or remove stale worktrees and branches",
-                                  overview_options=("--apply",),
-                                  description="Preview stale owned worktrees and local branches. "
-                                  "Use after stopped runs; --apply removes eligible artifacts after rechecking ownership.",
-                                  examples=("ub-agents cleanup", "ub-agents cleanup --apply"))
-    cleanup.add_argument("--apply", action="store_true", help="remove eligible artifacts after rechecking")
     report = commands.add_parser("report", help="record the run's outcome", run_command=True,
                                  description="Record a supervised run's explicit result on GitHub. "
                                  "Use inside the launcher-provided assignment environment; choose --status or --outcome (required). "
@@ -139,7 +134,7 @@ def parser():
                                "its repository and configuration are pinned by the launcher. This command makes no writes.",
                                examples=("ub-agents read 143", "ub-agents read 150 --config workflow.yaml"))
     read.add_argument("number", metavar="NUMBER", type=int, help="issue or PR number in the configured repository")
-    for command in (init, check, doctor, launch, status, cleanup, retry, approve, read):
+    for command in (init, check, doctor, launch, status, retry, approve, read):
         command.add_argument("--config", dest="command_config", metavar="PATH",
                              help="project configuration (default: ub-agents.yaml)")
     help_command = commands.add_parser("help", overview_hidden=True,
@@ -350,13 +345,6 @@ def run(args):
             raise AgentError(f"No configured agent applies to {item.kind} #{item.number}")
         args.agent = agent.name
         print(f"Using agent {agent.name} for {item.kind} #{item.number}.")
-    if args.command == "cleanup":
-        from .cleanup import Cleaner
-        for _, error in repository_checks(config):
-            if error is not None:
-                raise error
-        Cleaner(config, github, actor).clean(apply=args.apply)
-        return
     if args.command == "retry":
         agent = next((agent for agent in config.agents if agent.name == args.agent), None)
         if agent is None:
@@ -467,9 +455,12 @@ def run(args):
                 publisher.warning(str(exc))
             else:
                 loop.output(f"Cannot publish launcher observations: {exc}")
+        loop._before_claim()
+        session = loop.observer.state['session'] if loop.observer is not None else None
+        swept = startup_cleanup(config, github, loop.coordinator.actor, output=loop.output, session=session)
+        loop._observe("startup_cleanup", swept)
         if not stop.is_set():
             from .launch_ui import open_view
-            session = loop.observer.state['session'] if loop.observer is not None else None
             view = open_view(config.root, session, args.launch_output, stop,
                              no_ui=args.no_ui, poll=loop.request_poll)
             if view is not None:
@@ -554,7 +545,7 @@ def main(argv=None):
             args.config = (Path(args.config or DEFAULT_CONFIG).absolute() if args.command == "init" else
                            Path(args.config or DEFAULT_CONFIG).resolve() if args.command in {"report", "retrospective"}
                            else resolve_config_path(args.config))
-            needs_config = args.command in {"check", "status", "launch", "cleanup", "retry", "approve", "read"}
+            needs_config = args.command in {"check", "status", "launch", "retry", "approve", "read"}
             if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
                 needs_config = False  # Supervised reads use the launcher's pinned input policy.
             if needs_config and not args.config.exists():

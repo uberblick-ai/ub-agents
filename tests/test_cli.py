@@ -10,7 +10,7 @@ from ub_agents.cli import main
 
 class ArgumentTests(unittest.TestCase):
     commands = (("init",), ("check",), ("doctor",), ("launch",), ("status",), ("status", "42"),
-                ("cleanup",), ("retry", "42", "--reason", "Fixed"),
+                ("retry", "42", "--reason", "Fixed"),
                 ("approve", "42"), ("read", "42"))
 
     def setUp(self):
@@ -81,7 +81,7 @@ class ArgumentTests(unittest.TestCase):
 
     def test_config_resolution_failure_reports_error_without_running(self):
         commands = (("launch", "--no-ui"), ("launch", "--once", "--no-ui"),
-                    ("launch", "42", "--no-ui"), ("status",), ("cleanup",), ("doctor",))
+                    ("launch", "42", "--no-ui"), ("status",), ("doctor",))
         for command in commands:
             for argv in ([*command], ["--config", str(self.path), *command],
                          [*command, "--config", str(self.path)]):
@@ -153,6 +153,15 @@ class ArgumentTests(unittest.TestCase):
         self.assertNotIn("recover", self.stdout.getvalue())
         self.usage_error(["recover", "42", "--reason", "Stopped"], 'unknown command "recover"')
 
+    def test_cleanup_is_removed_including_preview_apply_and_help(self):
+        for options in ([], ["--apply"]):
+            self.usage_error(["cleanup", *options], 'unknown command "cleanup"')
+        self.usage_error(["help", "cleanup"], 'unknown command "cleanup"')
+        with self.assertRaises(SystemExit) as caught:
+            main(["--help"])
+        self.assertEqual(caught.exception.code, 0)
+        self.assertNotIn("cleanup", self.stdout.getvalue())
+
     def test_report_keeps_global_config_compatibility_but_no_command_config(self):
         self.run.return_value = 0
         report = ["report", "--status", "retry", "--summary", "Transient failure"]
@@ -163,7 +172,7 @@ class ArgumentTests(unittest.TestCase):
 
 class MissingConfigTests(unittest.TestCase):
     commands = (("check",), ("status",), ("status", "42"), ("launch",), ("launch", "--once"),
-                ("cleanup",), ("retry", "42", "--reason", "Fixed"), ("approve", "42"), ("read", "42"))
+                ("retry", "42", "--reason", "Fixed"), ("approve", "42"), ("read", "42"))
 
     def test_missing_config_names_init_and_creates_nothing(self):
         with tempfile.TemporaryDirectory() as directory:

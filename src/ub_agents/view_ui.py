@@ -38,6 +38,7 @@ from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
 from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
 from .updates import release_age
 from .poll_now import COOLDOWN_SECONDS
+from .log_format import inert
 
 MAX_RENDER_LINES = 400
 SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
@@ -93,6 +94,20 @@ class MilestoneNotice(Static):
         if current != self.messages:
             self.messages = current
             self.update('\n'.join(self.messages))
+        self.display = bool(self.messages) and not self.app.too_small and self.app.shutdown is None
+
+
+class StartupCleanup(Collapsible):
+    """Complete startup decisions in a fold that leaves room for the queue."""
+    def __init__(self):
+        super().__init__(PaneScroll(Static('', id='cleanup_lines', markup=False), id='cleanup_scroll'),
+                         title='Startup cleanup', collapsed=True, id='startup_cleanup')
+        self.messages = ()
+
+    def set_messages(self, messages):
+        if self.messages != messages:
+            self.messages = messages
+            self.query_one('#cleanup_lines', Static).update(Text('\n'.join(inert(line) for line in messages)))
         self.display = bool(self.messages) and not self.app.too_small and self.app.shutdown is None
 
 
@@ -410,6 +425,8 @@ class View(App):
     }
     #update, #health_notice { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
     #milestone_notice { height: auto; max-height: 3; padding: 0 1; color: $view-muted; display: none; overflow: hidden; }
+    #startup_cleanup { height: auto; padding: 0; margin: 0; display: none; }
+    #cleanup_scroll { height: auto; max-height: 6; }
     #body { height: 1fr; }
     #size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
     #shutdown { height: 1fr; content-align: center middle; text-align: center; display: none; }
@@ -531,6 +548,7 @@ class View(App):
         yield UpdateBanner()
         yield HealthBanner()
         yield MilestoneNotice()
+        yield StartupCleanup()
         with Horizontal(id='body'):
             with Vertical(id='work_pane'):
                 yield WorkTree('Work', id='work')
@@ -586,7 +604,7 @@ class View(App):
         if pane is None:
             return
         if self.shutdown is not None:
-            for selector in ('#body', '#status', '#size_warning', '#update', '#health_notice', '#milestone_notice'):
+            for selector in ('#body', '#status', '#size_warning', '#update', '#health_notice', '#milestone_notice', '#startup_cleanup'):
                 self.query_one(selector).display = False
             self.query_one('#shutdown').display = True
             self.update_shutdown()
@@ -618,6 +636,8 @@ class View(App):
         health.display = not too_small and bool(text(health.banner.get('text'), ''))
         milestone = self.query_one(MilestoneNotice)
         milestone.display = not too_small and bool(milestone.messages)
+        cleanup = self.query_one(StartupCleanup)
+        cleanup.display = not too_small and bool(cleanup.messages)
         if changed:
             tree = self.query_one(WorkTree)
             tree._invalidate()
@@ -812,6 +832,7 @@ class View(App):
             self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
             self.query_one(HealthBanner).set_banner({'text': self.session.data.get('health_notice')})
             self.query_one(MilestoneNotice).set_messages(self.session.data.get('milestone_skips'))
+            self.query_one(StartupCleanup).set_messages(result.cleanup)
             # A person may pick a row while this read is in flight. Retain that
             # selection from the pane we last drew, using the returned snapshot.
             pane = (result.pane if result.token == self.token and result.chosen == self.chosen else
