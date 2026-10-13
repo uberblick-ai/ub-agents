@@ -95,12 +95,13 @@ upgrading any.
 
 ## When things go wrong
 
-Checkout refresh failures, unconfirmed cleanup and GitHub request failures end
+Checkout refresh failures, unconfirmed run cleanup and GitHub request failures end
 `launch` with one `ub-agents:` line naming the problem and the next step, including
 `launch --once` and `launch N`. Resolve the reported problem before launching again.
 If cleanup cannot confirm termination, make `ps` usable or confirm the named process
 group has exited. Retained artifacts remain subject to
-[stale artifact cleanup](configuration.md#stale-artifact-cleanup).
+[stale artifact cleanup](configuration.md#stale-artifact-cleanup). Failures in the
+startup artifact sweep are logged and launch continues to poll.
 
 Before its first pass, `launch` requires a clean control checkout on the default
 branch with no commits outside the local `origin` ref. `doctor` warns about the
@@ -171,10 +172,16 @@ transition before it starts. After removing it, set the workflow labels you want
 run `ub-agents retry`. The exact rules for claims, attempts, transitions and recovery
 are in the [coordination contract](coordination.md).
 
-Private worktrees left by crashed runs and retained local branches can be inspected
-with `ub-agents cleanup` and removed with `ub-agents cleanup --apply`. Removal needs
+Every `ub-agents launch` invocation sweeps private worktrees left by crashed runs
+and retained local branches once, after startup checks and before the first poll
+or claim, including `--agent`, `NUMBER` and `--once`. Removal needs
 an eligible GitHub lease from a trusted account whose recorded host is this machine;
 another or missing host, dirty trees, locked trees and uncertain artifacts stay.
+Each `removed` or `kept` line includes its reason in `.ub-agents/launch.log` and the
+terminal view's Startup cleanup fold, or plain output with `--no-ui`. Sweep
+failures are logged without stopping launch; artifacts not yet reached stay.
+A crashed run's lease remains live until expiry, so a quick restart leaves its
+worktree until a later launch start. There is no periodic sweep.
 Projects can configure a supervised [cleanup hook](configuration.md#project-cleanup-hook)
 for resources associated with each private worktree. Document operator-only recovery
 steps in a project operations document linked from `AGENTS.md`.

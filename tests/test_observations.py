@@ -1236,6 +1236,7 @@ class PublisherTests(unittest.TestCase):
             (directory / f"old-{number}.json").write_text(json.dumps({
                 "ended": False, "pid": 99999999, "host": socket.gethostname(),
                 "published_at": iso(now)}))
+            (directory / f"old-{number}.cleanup.log").write_text("kept worktree old: Run lease is live\n")
         (directory / "live.json").write_text(json.dumps({
             "ended": False, "pid": os.getpid(), "host": socket.gethostname(),
             "published_at": iso(now)}))
@@ -1245,3 +1246,6 @@ class PublisherTests(unittest.TestCase):
         prune(directory, "own-session", now, socket.gethostname())
         self.assertTrue((directory / "live.json").exists())
         self.assertEqual(len(list(directory.glob("*.json"))), RETAINED_SESSIONS + 1)
+        for number in range(RETAINED_SESSIONS + 10):
+            self.assertEqual((directory / f"old-{number}.cleanup.log").exists(),
+                             (directory / f"old-{number}.json").exists())

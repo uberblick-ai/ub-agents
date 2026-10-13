@@ -29,6 +29,7 @@ agents:
         self.runner = RecordingRunner(self.root)
         self.github = DoctorGitHub()
         self.github.label_names = ["ready", "start", "review", "old", "needs-human"]
+        self.clean = self.enterContext(patch("ub_agents.cleanup.Cleaner.clean"))
 
     def response(self, arguments, value):
         self.runner.responses[("git", "-C", str(self.root), *arguments)] = value
@@ -93,6 +94,7 @@ agents:
                     self.assertEqual(stdout, "")
                     self.assertEqual(stderr, f"ub-agents: {message}\n")
                     launch.assert_not_called()
+                    self.clean.assert_not_called()
                 self.response(command, previous)
         self.assertEqual(self.github.writes, [])
         self.assertFalse(any("fetch" in command or "merge" in command for command, _ in self.runner.calls))

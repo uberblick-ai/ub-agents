@@ -326,6 +326,7 @@ class HealthGateTests(unittest.TestCase):
                 with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
                         patch('ub_agents.cli.GitHub', return_value=self.github), \
                         patch('ub_agents.cli.repository_checks', return_value=[]), \
+                        patch('ub_agents.cleanup.Cleaner.inventory', return_value=[]), \
                         patch('ub_agents.cli.launch_checks'), redirect_stdout(stdout):
                     self.assertEqual(main(['--config', str(path), 'launch', *scoped, '--once', '--no-ui']),
                                      1 if scoped else 0)

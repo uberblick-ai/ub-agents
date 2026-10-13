@@ -1,5 +1,14 @@
 # ub-agents launch
 
+Every invocation sweeps eligible leftover worktrees and local branches from this
+machine once, after startup checks and before the first poll or claim. This
+includes `--agent`, `NUMBER` and `--once`. Each `removed` or `kept` line includes
+its reason in the launch log and the terminal view's Startup cleanup fold, or
+plain output with `--no-ui`. Sweep failures are logged and polling continues.
+The [cleanup hook](/docs/configuration/cleanup.html) runs before each worktree
+removal. A crashed run's lease stays live until expiry, so a quick restart keeps
+its artifacts until a later launch start; there is no periodic sweep.
+
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
 Use `ub-agents launch --agent NAME` to serve only one agent named in your

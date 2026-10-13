@@ -10,7 +10,7 @@ a terminal; CI/non-TTY also uses defaults without wizard probes. Permissions and
 optional features default to off, and deferred labels are printed as commands.
 Existing local overrides still take precedence. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html) for choices and recovery.
-If the selected file is missing, `check`, `status`, `launch`, `cleanup`, `retry`,
+If the selected file is missing, `check`, `status`, `launch`, `retry`,
 `approve` and unsupervised `read` exit 1 with a message naming `ub-agents init`.
 An explicit `--config PATH` is named in the message. `launch` creates no
 `.ub-agents/` or `launch.log` without configuration; `doctor` keeps its diagnostic report.
@@ -264,7 +264,7 @@ directory, so `./scripts/...` resolves there, even when a candidate changes its 
 configuration or scripts.
 
 The hook runs before launcher removal of an owned private worktree, including
-execution timeout, interruption and lost ownership, and before `cleanup --apply`
+execution timeout, interruption and lost ownership, and before the startup sweep
 removal. It runs only after agent execution has been confirmed stopped. Shared
 agent working directories have no hook. The hook gets its own process group,
 log directory and deadline; surviving helpers are terminated and checked using
@@ -291,7 +291,7 @@ termination keeps the worktree and branch, logs `cleanup-hook-failed` in the run
 `events.jsonl`, and records `cleanup_hook_error` on the lease if ownership remains.
 The agent outcome, label transitions and queue remain unchanged. Later maintenance
 can retry the hook. Unconfirmed hook termination preserves artifacts and stops the
-loop or cleanup command; local diagnostics and, while owned, the lease record
+loop or startup sweep; local diagnostics and, while owned, the lease record
 `cleanup: unconfirmed`. Such artifacts remain ineligible until an operator has
 established termination and resolved the uncertainty records.
 
@@ -302,19 +302,26 @@ safe to retry, because a crash after hook success can leave a worktree to clean 
 
 ## Stale artifact cleanup
 
-`ub-agents cleanup` previews every registered worktree directly under this checkout's
-`.ub-agents/worktrees/<run>` and local branch named `ub-agents/<agent>/<number>/<run>`.
+Every `ub-agents launch` invocation sweeps leftover artifacts once, after startup
+checks pass and before the first poll or claim. This includes `--agent`, `NUMBER`
+and `--once`. It inspects registered worktrees directly under this checkout's
+`.ub-agents/worktrees/<run>` and local branches named `ub-agents/<agent>/<number>/<run>`.
+Unregistered entries under the worktree directory are reported as uncertain and
+kept. Other tools' worktrees, remote branches and run logs are outside its deletion scope.
 
-The preview reports `would remove` or `kept` with a reason. Unregistered entries under the
-worktree directory are reported as uncertain and kept. Other tools' worktrees,
-remote branches and run logs are outside its deletion scope.
+The sweep rechecks each eligible artifact before deletion and reports `removed`
+or `kept` with a reason in `.ub-agents/launch.log`, the terminal view's Startup
+cleanup fold, or plain output with `--no-ui`. Worktrees are considered before
+branches, so a branch can be removed after its worktree. The cleanup hook runs
+before each worktree removal; a failed hook preserves both artifacts. Locked
+worktrees and tracked changes or untracked files that are not ignored keep a
+worktree. Launcher release retains its existing removal behavior and always
+keeps local branches.
 
-`ub-agents cleanup --apply` rechecks each eligible artifact before deletion and
-reports `removed` or `kept`. Worktrees are considered before branches, so a branch
-can be removed after its worktree. Preview assumes an eligible worktree's hook
-succeeds; apply preserves both artifacts if it fails. Locked worktrees and tracked
-changes or untracked files that are not ignored keep a worktree. Launcher release
-retains its existing removal behavior and always keeps local branches.
+A sweep failure is logged with its reason and launch continues to poll, including
+uncertain process termination, git and GitHub errors. Artifacts not yet reached
+stay in place. There is no periodic sweep: a crashed run's lease stays live until
+expiry, so a quick restart keeps its artifacts until a later launch start.
 
 Every artifact needs an unambiguous GitHub run lease from a trusted account with
 this machine's recorded hostname. Leases from another host or with no recorded
@@ -335,8 +342,8 @@ must establish termination before resolving uncertain hook records; cleanup neve
 signals a previous run's processes.
 
 Branches stay when checked out in a kept worktree, used by an open PR, or when the
-tip is not known remotely. The command fetches `origin` branch history (including
-in preview), and proves tip reachability from those fetched branches or from a
+tip is not known remotely. The sweep fetches `origin` branch history and proves
+tip reachability from those fetched branches or from a
 fetched PR head from the same branch and repository. Closed PR heads can preserve
 checkpoint commits after a squash merge deletes the remote branch. Fetch/read
 failures keep artifacts. No GitHub branches are deleted.
@@ -1153,7 +1160,6 @@ from the executable rather than another manually maintained copy.
 | `doctor` | [Diagnose prerequisites and missing labels](https://agents.uberblick.ai/docs/commands/doctor.html) |
 | `launch` | [Run the queue or one item](https://agents.uberblick.ai/docs/commands/launch.html) |
 | `status` | [Inspect work, ownership and outcomes](https://agents.uberblick.ai/docs/commands/status.html) |
-| `cleanup` | [Preview or remove stale artifacts](https://agents.uberblick.ai/docs/commands/cleanup.html) |
 | `retry` | [Reset attempts after fixing their cause](https://agents.uberblick.ai/docs/commands/retry.html) |
 | `approve` | [Approve current input](https://agents.uberblick.ai/docs/commands/approve.html) |
 | `report` | [Report a supervised outcome](https://agents.uberblick.ai/docs/commands/report.html) |
