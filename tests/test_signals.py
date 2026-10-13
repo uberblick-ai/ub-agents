@@ -25,6 +25,7 @@ from tests.support import FakeGitHub, agent, config, issue, observation_writer_c
 class SignalTests(unittest.TestCase):
     def setUp(self):
         stub_refresh(self)
+        self.enterContext(patch("ub_agents.cleanup.Cleaner.inventory", return_value=[]))
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()

@@ -101,13 +101,14 @@ class StartupCleanup(Collapsible):
     """Complete startup decisions in a fold that leaves room for the queue."""
     def __init__(self):
         super().__init__(PaneScroll(Static('', id='cleanup_lines', markup=False), id='cleanup_scroll'),
-                         title='Startup cleanup', collapsed=True, id='startup_cleanup')
+                         title='Startup cleanup', collapsed=True, id='startup_cleanup', disabled=True)
         self.messages = ()
 
     def set_messages(self, messages):
         if self.messages != messages:
             self.messages = messages
             self.query_one('#cleanup_lines', Static).update(Text('\n'.join(inert(line) for line in messages)))
+        self.disabled = not bool(self.messages)
         self.display = bool(self.messages) and not self.app.too_small and self.app.shutdown is None
 
 
