@@ -209,7 +209,7 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             '?   Open or close this help; Escape also closes it\n'
             'q   Stop after run; close a standalone view\n'
             'Ctrl-C   Stop now; close a standalone view\n\n'
-            'Copy works over ssh and inside herdr. Local macOS also uses pbcopy when available.\n'
+            'Local macOS also uses pbcopy when available.\n'
             'In iTerm2, enable "Applications in terminal may access clipboard" for OSC 52.\n'
             'Terminal.app does not support OSC 52; local macOS uses pbcopy instead.\n'
             "Option-drag selects with the terminal's own selection.")
