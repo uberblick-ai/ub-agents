@@ -3,7 +3,6 @@
 import argparse
 from contextlib import ExitStack
 from dataclasses import replace
-from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -23,8 +22,9 @@ from .execution import repository_checks
 from .github import GitHub
 from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
 from .loop import Loop, _GracefulStop
+from .init_setup import runtime_guidance
 from .launch_log import launch_output
-from .labels import configured_labels, provision_labels
+from .labels import configured_labels, print_commands
 from .refresh import control_checkout_checks
 from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
                       record_version, records, same_run, timestamp)
@@ -43,12 +43,14 @@ def parser():
     commands = result.add_subparsers(dest="command", prog="ub-agents")
     init = commands.add_parser("init", help="set up this repository: starter configuration, agent instructions and workflow labels",
                                formatter_class=InitHelpFormatter,
-                               description="Create starter configuration and agent instructions for a project. "
-                               "Use when adopting ub-agents; existing files will never be overwritten.",
+                               description="Guide terminal setup through a wizard with a review before Apply. "
+                               "Use --use-defaults for unattended setup; CI/non-TTY also uses defaults. "
+                               "Existing starter files will never be overwritten.",
                                examples=("ub-agents init",
                                          "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")
+    init.add_argument("--use-defaults", action="store_true", help="unattended starters, even in a terminal")
     check = commands.add_parser("check", help="validate the configuration and instruction files",
                                  formatter_class=CommentHelpFormatter,
                                  description="Validate project configuration, including trusted-bots, and instruction files without executing agents. "
@@ -150,108 +152,39 @@ def parser():
 
 
 def init_project(args):
-    config_path = Path(args.config).resolve()
-    root = config_path.parent
-    root.mkdir(parents=True, exist_ok=True)
-    repository = args.repository
-    if not repository:
-        import subprocess
-        process = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner"], cwd=root,
-                                 capture_output=True, text=True, timeout=20, check=False)
-        if process.returncode:
-            raise AgentError("Cannot infer repository; pass --repository owner/name")
-        try:
-            repository = json.loads(process.stdout)["nameWithOwner"]
-        except (ValueError, KeyError) as exc:
-            raise AgentError("Unreadable gh repository response") from exc
-    templates = files("ub_agents").joinpath("templates")
-    targets = {config_path: templates.joinpath("ub-agents.yaml").read_text()
-               .replace("your-org/your-project", repository).replace("codex:gpt-6.1-sol:high", args.runtime)}
-    runtime_cli = args.runtime.split(":", 1)[0]
-    if runtime_cli == "claude":
-        targets[config_path] = targets[config_path].replace(
-            "#   codex: [--sandbox, danger-full-access]",
-            '#   claude: [--permission-mode, acceptEdits, --permission-prompts, none, --allowedTools, '
-            '"Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)", "Bash({report_command} read *)", --add-dir, "{scratch}"]').replace(
-            "Grants full access without the Codex sandbox",
-            "Grants unattended edits and git/gh/report commands")
-        targets[config_path] = targets[config_path].replace(
-            '# runtime-args:',
-            '# Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".\n'
-            '# runtime-args:')
-    for name in ("issue-preparer", "implementer", "reviewer", "integrator"):
-        targets[root / ".agents" / f"{name}.md"] = templates.joinpath(f"{name}.md").read_text()
-    guidance = runtime_guidance(root, runtime_cli, fallback=True)
-    checks = (f"Project checks are documented in `{guidance.relative_to(root)}`."
-              if guidance else
-              "Replace these placeholders with the project's required commands before launch:\n\n"
-              "- Build: `<project build command>`\n"
-              "- Tests: `<project test command>`\n"
-              "- Other checks: `<project lint or validation command>`")
-    targets[root / ".agents" / "ub_agents.md"] = templates.joinpath("ub_agents.md").read_text().replace(
-        "{checks}", checks)
-    existing = [str(p) for p in targets if p.exists()]
-    if existing:
-        raise AgentError(f"Starter files already exist; nothing overwritten: {', '.join(existing)}")
-    permissions_enabled = False
-    if not os.environ.get("CI") and sys.stdin.isatty() and sys.stdout.isatty():
-        if runtime_cli == "claude":
-            print("Claude starter permissions grant unattended edits plus git, gh and report commands; "
-                  "the project's check commands must still be added to --allowedTools.")
-        else:
-            print("Codex starter permissions grant full access without the sandbox.")
-        try:
-            answer = input("Enable starter permissions for all four agents? [y/N] ")
-        except EOFError:
-            answer = ""
-        permissions_enabled = answer.strip().casefold() in {"y", "yes"}
-    if permissions_enabled:
-        targets[config_path] = targets[config_path].replace("# runtime-args:", "runtime-args:").replace(
-            f"#   {runtime_cli}:", f"  {runtime_cli}:")
-    for target, content in targets.items():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("x") as stream:
-            stream.write(content)
-    ignore = root / ".gitignore"
-    entries = ignore.read_text().splitlines() if ignore.exists() else []
-    missing = [entry for entry in (".ub-agents/", LOCAL_CONFIG) if entry not in entries]
-    if missing:
-        with ignore.open("a") as stream:
-            stream.write("\n# Local ub-agents configuration and execution artifacts\n" + "\n".join(missing) + "\n")
-    # Validate even the generated configuration; errors are actionable before launch.
-    config = load_config(config_path)
-    print(f"config: {config_path.name}")
+    from .init_setup import Choices, apply_plan, guidance_summary, infer_repository, make_plan, next_steps
+    path = Path(args.config).absolute()
+    repository = args.repository or infer_repository(path.parent)
+    plan = make_plan(path, repository, Choices(args.runtime))
+    interactive = (not args.use_defaults and not os.environ.get("CI")
+                   and sys.stdin.isatty() and sys.stdout.isatty())
+    if interactive:
+        from .init_ui import run_wizard
+        from .init_wizard import Wizard
+        return run_wizard(Wizard(plan, GitHub(repository)))
+    result = apply_plan(plan, GitHub(repository))
+    print(f"config: {path.name}")
     print("policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)")
     print("roles: .agents/ (issue-preparer, implementer, reviewer, integrator)")
-    steps = ["fill in the checks and policy in .agents/ub_agents.md"]
-    if not permissions_enabled:
-        steps.append(f"grant agent permissions: uncomment or customize runtime-args in {config_path.name}")
-    if runtime_cli == "claude":
-        steps.append(f"add check commands to --allowedTools in {config_path.name}")
-    steps.extend(["run ub-agents check", "commit and push the starter files", "run ub-agents doctor"])
-    print(f"next: {'; '.join(steps)}.")
-    for cli in sorted({runtime.cli for agent in config.agents for runtime in agent.runtimes}):
-        guidance = runtime_guidance(root, cli)
-        if guidance:
-            print(f"{cli} loads project guidance from {guidance.relative_to(root)}; kept unchanged.")
-        else:
-            existing_guidance = runtime_guidance(root, cli, fallback=True)
-            if existing_guidance:
-                name = existing_guidance.relative_to(root)
-                print(f'Warning: {cli} loads no project guidance; checks are documented in {name}. '
-                      f'Add a one-line AGENTS.md: "Read {name}".')
-            else:
-                choices = "AGENTS.md" if cli == "codex" else "CLAUDE.md, .claude/CLAUDE.md or AGENTS.md"
-                print(f"Warning: {cli} loads no project guidance; add {choices} so agents know how to build and test.")
-    provision_labels(config, GitHub(config.repository))
-
-
-def runtime_guidance(root, cli, *, fallback=False):
-    """Prefer guidance the runtime loads; optionally find another checks source."""
-    names = ("AGENTS.md",) if cli == "codex" else ("CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md")
-    if fallback and cli == "codex":
-        names += ("CLAUDE.md", ".claude/CLAUDE.md")
-    return next((root / name for name in names if (root / name).is_file()), None)
+    print("Defaults: starter runtime; permissions deferred; priority off; retrospectives off; "
+          "Uberblick integration off; no GitHub labels created.")
+    for message in guidance_summary(plan):
+        print(message)
+    if not result.ok:
+        print("Setup partially failed; completed effects remain:")
+        for step in result.completed:
+            print(step)
+        print(result.error)
+        print("Remaining work (complete manually; init refuses existing starters):")
+        for step in result.remaining:
+            print(step)
+    else:
+        print("Setup completed; launch readiness requires review of project checks and authority.")
+    for step in next_steps(plan):
+        print(f"next: {step}")
+    print_commands(configured_labels(plan.config), repository,
+                   "Unattended defaults; GitHub labels were not read or written")
+    return 0 if result.ok else 1
 
 
 def report_run(args):
@@ -353,8 +286,7 @@ def launch_checks(config, github):
 
 def run(args):
     if args.command == "init":
-        init_project(args)
-        return
+        return init_project(args)
     if args.command == "report":
         report_run(args)
         return
@@ -615,8 +547,9 @@ def main(argv=None):
             if args.command == "launch":
                 if args.number is not None and args.number < 1:
                     command_parser.error("launch requires a positive item number")
-            args.config = (Path(args.config or DEFAULT_CONFIG).resolve()
-                           if args.command in {"init", "report", "retrospective"} else resolve_config_path(args.config))
+            args.config = (Path(args.config or DEFAULT_CONFIG).absolute() if args.command == "init" else
+                           Path(args.config or DEFAULT_CONFIG).resolve() if args.command in {"report", "retrospective"}
+                           else resolve_config_path(args.config))
             needs_config = args.command in {"check", "status", "launch", "cleanup", "retry", "approve", "read"}
             if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
                 needs_config = False  # Supervised reads use the launcher's pinned input policy.

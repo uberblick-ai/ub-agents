@@ -93,11 +93,11 @@ def number(value, where, integer=False, zero=False):
     return value
 
 
-def project_path(root, value, where):
+def project_path(root, value, where, *, planned=()):
     path = (root / string(value, where)).resolve()
     if not path.is_relative_to(root):
         raise InstructionError(f"{where} must remain inside the project")
-    if not path.is_file():
+    if path not in planned and not path.is_file():
         raise InstructionError(f"{where} does not exist: {path}")
     return path
 
@@ -272,7 +272,24 @@ def load_config(path):
         raise type(exc)(f"Invalid configuration {path} with local overrides {local_path}: {exc}") from exc
 
 
-def _parse_config(data, root):
+def preview_config(content, path, planned):
+    """Validate a proposed init configuration and local overrides without writes."""
+    path = Path(path).resolve()
+    try:
+        base = yaml.load(content, Loader=UniqueLoader)
+    except yaml.YAMLError as exc:
+        raise AgentError(f"Cannot read proposed configuration: {exc}") from exc
+    local_path = path.parent / LOCAL_CONFIG
+    local = _read_config(local_path, optional=True)
+    try:
+        return _parse_config(_merge_config(base, local), path.parent, planned=planned)
+    except AgentError as exc:
+        if not local:
+            raise
+        raise type(exc)(f"Invalid configuration {path} with local overrides {local_path}: {exc}") from exc
+
+
+def _parse_config(data, root, *, planned=()):
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
                           "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots", "shared-instructions"},
                    "configuration")
@@ -282,7 +299,7 @@ def _parse_config(data, root):
     shared = (root / string(data["shared-instructions"], "shared-instructions")
               if "shared-instructions" in data else None)
     if shared is not None:
-        project_path(root, str(shared), "shared-instructions")
+        project_path(root, str(shared), "shared-instructions", planned=planned)
     approvals = data.get("approvals")
     if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
         raise AgentError("approvals must be on or off")
@@ -390,7 +407,7 @@ def _parse_config(data, root):
         instruction = (root / string(item["instructions"], f"{name} instructions")
                        if "instructions" in item else None)
         if instruction is not None:
-            project_path(root, str(instruction), f"{name} instructions")
+            project_path(root, str(instruction), f"{name} instructions", planned=planned)
         if runtimes and instruction is None:
             raise AgentError(f"{name}: runtime execution requires instructions")
         clis = {runtime.cli for runtime in runtimes}

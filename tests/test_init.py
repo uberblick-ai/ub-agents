@@ -45,6 +45,7 @@ class InitTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             with patch.object(stdout, 'isatty', return_value=terminal if stdout_terminal is None else stdout_terminal):
                 code = main(['--config', str(self.path), 'init']
+                            + ['--use-defaults']
                             + (['--runtime', runtime] if runtime else [])
                             + ([] if infer else ['--repository', 'org/project']))
         return code, stdout.getvalue(), stderr.getvalue(), prompt
@@ -134,61 +135,6 @@ class InitTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn(str(local), error)
         self.assertIn('implementer runtime', error)
-
-    def test_one_permission_question_covers_all_agents_and_explains_each_runtime(self):
-        for runtime, grant, expected in (
-            (None, 'Codex starter permissions grant full access without the sandbox',
-             ['--sandbox', 'danger-full-access']),
-            ('claude:opus:high', 'Claude starter permissions grant unattended edits plus git, gh and report commands',
-             ['--permission-mode', 'acceptEdits', '--permission-prompts', 'none', '--allowedTools',
-              'Bash(git *)', 'Bash(gh *)', 'Bash({report_command} report *)', 'Bash({report_command} read *)',
-              '--add-dir', '{scratch}'])):
-            for answer in ('yes', ' Y ', 'no', '', 'maybe', EOFError()):
-                with self.subTest(runtime=runtime, answer=answer), tempfile.TemporaryDirectory() as directory:
-                    self.path = Path(directory) / 'ub-agents.yaml'
-                    code, output, error, prompt = self.init(terminal=True, runtime=runtime, permissions_answer=answer)
-                    self.assertEqual((code, error), (0, ''))
-                    permission_questions = [call.args[0] for call in prompt.call_args_list
-                                            if call.args[0].startswith('Enable starter permissions')]
-                    self.assertEqual(permission_questions, ['Enable starter permissions for all four agents? [y/N] '])
-                    self.assertIn(grant, output)
-                    enabled = answer in ('yes', ' Y ')
-                    for agent in load_config(self.path).agents:
-                        self.assertEqual(list(agent.runtime_args_for(agent.runtimes[0])), expected if enabled else [])
-                    self.assertEqual(self.path.read_text().count('# runtime-args:'), 0 if enabled else 1)
-                    generated = yaml.safe_load(self.path.read_text())
-                    if enabled:
-                        cli = runtime.split(':', 1)[0] if runtime else 'codex'
-                        self.assertEqual(generated['runtime-args'], {cli: expected})
-                    self.assertTrue(all('runtime-args' not in agent for agent in generated['agents'].values()))
-                    self.assertEqual('uncomment or customize' in output, not enabled)
-                    if runtime:
-                        self.assertIn("the project's check commands must still be added to --allowedTools", output)
-                        self.assertIn("add check commands to --allowedTools", output)
-                    self.assertEqual(self.github.writes, [])
-
-    def test_output_names_relative_files_and_ordered_setup_steps(self):
-        for runtime in ('codex:model:high', 'claude:opus:high'):
-            for enabled in (False, True):
-                with self.subTest(runtime=runtime, enabled=enabled), tempfile.TemporaryDirectory() as directory:
-                    self.path = Path(directory) / 'starter.yaml'
-                    code, output, error, _ = self.init(runtime=runtime, terminal=enabled,
-                                                     permissions_answer='yes')
-                    self.assertEqual((code, error), (0, ''))
-                    lines = output.splitlines()
-                    start = lines.index('config: starter.yaml')
-                    self.assertEqual(lines[start:start + 3], [
-                        'config: starter.yaml',
-                        'policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)',
-                        'roles: .agents/ (issue-preparer, implementer, reviewer, integrator)',
-                    ])
-                    steps = lines[start + 3]
-                    self.assertTrue(steps.startswith('next: fill in the checks and policy in .agents/ub_agents.md;'))
-                    self.assertEqual('grant agent permissions' in steps, not enabled)
-                    self.assertEqual('--allowedTools' in steps, runtime.startswith('claude:'))
-                    self.assertTrue(steps.endswith('run ub-agents check; commit and push the starter files; '
-                                                  'run ub-agents doctor.'))
-                    self.assertNotIn(str(self.path.parent), output)
 
     def test_starter_policy_is_neutral_and_has_no_repeated_sentences(self):
         for runtime in ('codex:model:high', 'claude:opus:high'):
@@ -295,35 +241,6 @@ class InitTests(unittest.TestCase):
                 for command in commands:
                     self.assertNotIn('`', command)
 
-    def test_yes_creates_exactly_missing_labels_and_reports_each(self):
-        code, output, error, prompt = self.init(terminal=True, answer='yes')
-        self.assertEqual((code, error), (0, ''))
-        missing = [label for label in configured_labels(load_config(self.path)) if label.name != 'ready']
-        self.assertEqual(self.github.writes,
-                         [('create-label', label.name, label.description, label.color) for label in missing])
-        self.assertEqual(self.commands(output), [])
-        for label in missing:
-            self.assertIn(f'Created label {label.name} on org/project.', output)
-        self.assertIn('needs-review: ', output)
-        self.assertIn('starts reviewer on a PR', output)
-        self.assertIn('added when implementer reports handed-off', output)
-        self.assertIn('Create these 5 labels on org/project? [y/N]', prompt.call_args.args[0])
-        self.assertIn('READY', self.github.label_names)
-        self.assertIn('unrelated', self.github.label_names)
-
-    def test_no_enter_and_unrecognized_answer_never_write_github(self):
-        for answer in ('no', '', 'maybe'):
-            with self.subTest(answer=answer):
-                if self.path.exists():
-                    self.path.unlink()
-                    for path in (self.path.parent / '.agents').glob('*.md'):
-                        path.unlink()
-                code, output, _, _ = self.init(terminal=True, answer=answer)
-                self.assertEqual(code, 0)
-                self.assertEqual(len(self.commands(output)), 5)
-                self.assertEqual(self.github.writes, [])
-                self.assertIn('declined', output)
-
     def test_piped_input_redirected_output_and_ci_leave_permissions_commented_without_prompting(self):
         for terminal, stdout_terminal, ci in ((False, True, ''), (True, False, ''), (True, True, 'true')):
             with self.subTest(terminal=terminal, stdout_terminal=stdout_terminal, ci=ci):
@@ -341,26 +258,6 @@ class InitTests(unittest.TestCase):
                 self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
                 self.assertEqual(self.path.read_text().count('# runtime-args:'), 1)
                 self.assertIn('grant agent permissions: uncomment or customize', output)
-
-    def test_unreadable_labels_prints_all_commands_without_label_prompt(self):
-        self.github.label_error = AgentError('private error')
-        code, output, _, prompt = self.init(terminal=True, answer='yes')
-        self.assertEqual(code, 0)
-        self.assertIn('Could not read GitHub labels', output)
-        self.assertEqual(len(self.commands(output)), 6)
-        self.assertNotIn('private error', output)
-        self.assertEqual(self.github.writes, [])
-        prompt.assert_called_once_with('Enable starter permissions for all four agents? [y/N] ')
-
-    def test_all_labels_present_does_not_prompt_for_labels_or_write(self):
-        self.github.label_names = ['READY', 'needs-preparation', 'needs-human', 'needs-changes',
-                                   'needs-review', 'ready-to-merge']
-        code, output, _, prompt = self.init(terminal=True, answer='yes')
-        self.assertEqual(code, 0)
-        self.assertIn('All configured workflow labels exist', output)
-        self.assertEqual(self.commands(output), [])
-        self.assertEqual(self.github.writes, [])
-        prompt.assert_called_once_with('Enable starter permissions for all four agents? [y/N] ')
 
     def test_existing_guidance_is_preserved_byte_for_byte_for_both_runtimes(self):
         for runtime, loaded in (('codex:model:high', 'AGENTS.md'),
@@ -458,7 +355,7 @@ class InitTests(unittest.TestCase):
             'needs-human': 'ub-agents: parks an issue or PR until a person decides',
             'needs-changes': 'ub-agents: starts implementer on an issue or PR; added when reviewer reports changes-requested',
         }
-        for terminal, answer in ((False, ''), (True, 'no'), (True, 'yes')):
+        for terminal, answer in ((False, ''), (True, 'no')):
             with self.subTest(terminal=terminal, answer=answer), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'ub-agents.yaml'
                 self.github.label_names = []
@@ -467,8 +364,6 @@ class InitTests(unittest.TestCase):
                 self.assertEqual((code, error), (0, ''))
                 commands = {command[3]: command for command in self.commands(output)}
                 for name, meaning in meanings.items():
-                    if terminal:
-                        self.assertIn(f'  {name}: {meaning}', output)
                     description = descriptions[name]
                     self.assertLessEqual(len(description), 100)
                     if answer == 'yes':

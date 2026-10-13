@@ -18,6 +18,13 @@ the configured value or says the value comes from repository visibility.
 
 ## With approvals off
 
+The `init` wizard shows the repository's approval default and launcher account role,
+but does not grant merge authority or approve project policy. Maintain/admin account
+access is a warning users may continue past; prefer a separate write-access account
+following the [launcher-account guidance](https://agents.uberblick.ai/docs/best-practices/launcher-account.html).
+Review checks, merge authority and decision-makers before launching. Init never
+changes identities, access or protections, and setup success is not launch readiness.
+
 An item's configured trigger label starts work regardless of who applied it;
 GitHub restricts labeling to accounts with `triage` or higher. Its current title
 and body are input, including outside edits. Comments, reviews and review comments
