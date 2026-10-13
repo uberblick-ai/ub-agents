@@ -1052,7 +1052,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.resize_terminal(*size)
                     if app.narrow and not app.item_view:
                         await pilot.press('enter')
-                    await self.ready(app, pilot, lambda: indicator.render().plain.endswith(hint))
+                    # The hint can be ready before a shown tab or resized pane
+                    # finishes layout and the next tick repositions the indicator.
+                    await self.ready(app, pilot, lambda: indicator.render().plain.endswith(hint) and
+                                     indicator.region.x == [widget for widget in app.query('#panes Tab')
+                                                            if widget.display][-1].region.right)
                     for key, tab in (('1', 'log'), ('2', 'issue'), ('3', 'runs'), ('4', 'unblock')):
                         await pilot.press(key)
                         for raw in (False, True):
