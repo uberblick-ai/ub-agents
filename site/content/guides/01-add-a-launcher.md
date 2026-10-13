@@ -35,3 +35,23 @@ Each run gets its own worktree and scratch directory, and nothing else is checke
 ## Keep versions together
 
 When a release note says launchers must be upgraded together, stop every launcher for the project before upgrading any. See [Upgrading](/docs/upgrading.html).
+
+## On a machine you log in to
+
+Run the launcher in tmux so it keeps running after you disconnect. Detach with Ctrl-b d.
+
+```sh
+tmux new -A -s ub-agents      # attach, or create on first use
+ub-agents launch
+```
+
+For the terminal view, add to `~/.tmux.conf`:
+
+```text
+set -g mouse on                       # clicks and scrolling reach the view
+set -s set-clipboard on               # mouse-drag copy reaches your clipboard (OSC 52)
+set -s escape-time 10                 # Escape reaches the view at once
+set -as terminal-features ",*:RGB"    # full theme colors
+```
+
+Hold Shift (Option in iTerm2) while dragging to use the terminal's own selection.

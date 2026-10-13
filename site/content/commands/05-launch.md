@@ -204,9 +204,8 @@ assertion; the PID tie also ends the helper after SIGKILL. Separate launchers
 are independent. A failed start stays off with a brief footer reason; an
 unexpected helper exit clears `☕` with a notice. Assignments keep running.
 
-Keep awake affects the machine running the launcher. If you reach it over SSH,
-it affects the remote host and does not keep your local Mac awake. Other
-platforms omit `c Stay awake`, mark `c` unavailable in `?` and show a brief
+Keep awake affects only the machine running the launcher. Other platforms omit
+`c Stay awake`, mark `c` unavailable in `?` and show a brief
 `keep awake unavailable on this platform` notice when pressed. Standalone views,
 `--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
 machine awake.
