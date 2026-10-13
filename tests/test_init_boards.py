@@ -15,7 +15,7 @@ class BoardSetupTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.path = Path(temporary.name) / 'setup' / 'workflow.yaml'
+        self.path = Path(temporary.name).resolve() / 'setup' / 'workflow.yaml'
         self.github = SetupGitHub()
         self.boards = Boards(self.github, 'org/project')
         self.choices = Choices('codex:model:high')

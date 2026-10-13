@@ -19,7 +19,7 @@ class ReadinessTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.path = self.root / 'workflow.yaml'
         self.github = SetupGitHub()
         self.github.metadata['permissions'] = {'push': True}
