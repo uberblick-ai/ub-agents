@@ -174,14 +174,26 @@ are in the [coordination contract](coordination.md).
 
 Every `ub-agents launch` invocation sweeps private worktrees left by crashed runs
 and retained local branches once, after startup checks and before the first poll
-or claim, including `--agent`, `NUMBER` and `--once`. Removal needs
-an eligible GitHub lease from a trusted account whose recorded host is this machine;
-another or missing host, dirty trees, locked trees and uncertain artifacts stay.
+or claim, including `--agent`, `NUMBER` and `--once`. It covers all roles' registered
+worktrees and unregistered entries under `.ub-agents/worktrees/`, plus local
+`ub-agents/<agent>/<number>/<run>` and older `ub-agent/` branches. Symlinks are removed
+as links. It keeps artifacts of live leases on this host, branches heading open
+PRs or checked out in remaining worktrees, and artifacts with unconfirmed cleanup
+or a process group not confirmed stopped. Expired local leases with a recorded
+group require its confirmed absence. Missing, unreadable, older-version or other-host
+leases, ended runs without a PR, dirty trees and locked trees do not prevent removal.
+The cleanup hook runs before every worktree removal with unknown context fields
+set to `null`; a failed hook preserves its worktree and branch for retry. Repository
+coordination scan or PR lookup failures keep affected artifacts and log the reason.
 Each `removed` or `kept` line includes its reason in `.ub-agents/launch.log` and the
 terminal view's Startup cleanup fold, or plain output with `--no-ui`. Sweep
-failures are logged without stopping launch; artifacts not yet reached stay.
-A crashed run's lease remains live until expiry, so a quick restart leaves its
-worktree until a later launch start. There is no periodic sweep.
+failures are logged without stopping launch. Removed branches whose tips are not
+reachable from fetched origin branches or merged PR heads include `unpushed tip SHA`,
+also when reachability cannot be checked. Restore one with `git branch <name> <sha>`.
+See [stale artifact cleanup](configuration.md#stale-artifact-cleanup) for process
+uncertainty and recovery details. A crashed run's local lease remains live until
+expiry, so a quick restart leaves its worktree until a later launch start. There
+is no periodic sweep.
 Projects can configure a supervised [cleanup hook](configuration.md#project-cleanup-hook)
 for resources associated with each private worktree. Document operator-only recovery
 steps in a project operations document linked from `AGENTS.md`.

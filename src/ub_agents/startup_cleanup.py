@@ -1,4 +1,4 @@
-"""One conservative artifact sweep before a launcher starts polling."""
+"""One private artifact sweep before a launcher starts polling."""
 
 from .cleanup import Cleaner
 from .errors import AgentError, CleanupError

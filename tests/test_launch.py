@@ -54,7 +54,7 @@ class LaunchTests(unittest.TestCase):
                 events = []
                 publisher = MemoryPublisher()
                 previous_lines = len(self.log_lines()) if self.log.exists() else 0
-                lines = ["removed worktree old: Eligible released or confirmed expired run",
+                lines = ["removed worktree old: No live run or open PR",
                          "kept branch live: Run lease is live"]
 
                 def sweep(cleaner, *, apply):
@@ -96,7 +96,7 @@ class LaunchTests(unittest.TestCase):
         for error in errors:
             with self.subTest(error=error):
                 def sweep(cleaner, *, apply):
-                    cleaner.output("removed worktree earlier: Eligible released or confirmed expired run")
+                    cleaner.output("removed worktree earlier: No live run or open PR")
                     raise error
 
                 def poll():

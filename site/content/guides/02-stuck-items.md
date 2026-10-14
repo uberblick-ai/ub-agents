@@ -54,14 +54,26 @@ ub-agents launch 219 --agent reviewer
 ## Leftover worktrees
 
 The launcher removes each run's worktree when the run ends. A crashed run can
-leave it behind. Restart [`launch`](/docs/commands/launch.html) to sweep eligible
-leftover worktrees and local branches from this machine before polling, with the
+leave it behind. Restart [`launch`](/docs/commands/launch.html) to sweep all roles'
+leftover worktrees and local run branches from this machine before polling, with the
 [cleanup hook](/docs/configuration/cleanup.html) before each worktree removal.
-Live, dirty, locked, other-host and uncertain artifacts stay. The launch log and
+The sweep covers registered worktrees and unregistered entries under
+`.ub-agents/worktrees/`, plus `ub-agents/<agent>/<number>/<run>` and older
+`ub-agent/` local branches. Symlinks are removed as links. It keeps live leases
+on this host, branches heading open PRs or checked out in remaining worktrees,
+and artifacts with unconfirmed cleanup or a process group not confirmed
+stopped. Expired local leases with a recorded group require its confirmed absence.
+Missing, unreadable, older-version or other-host leases, ended runs without a PR,
+dirty trees and locked trees do not prevent removal. A failed hook keeps its
+worktree and branch for retry; unknown hook context fields are `null`. GitHub
+coordination scan or PR lookup failures keep affected artifacts and log the reason.
+Removed branches whose tips are not reachable from fetched origin branches or
+merged PR heads include `unpushed tip SHA`, also when reachability cannot be checked.
+Restore one with `git branch <name> <sha>`. The launch log and
 terminal view's Startup cleanup fold show each decision and its reason; `--no-ui`
 prints plain lines. Sweep failures are logged and polling continues.
 
-A crashed run's lease stays live until expiry, so a quick restart keeps its
+A crashed run's local lease stays live until expiry, so a quick restart keeps its
 worktree until a later launch start. The sweep runs once per launch invocation,
 including `--agent`, `NUMBER` and `--once`; it does not run periodically.
 

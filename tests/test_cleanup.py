@@ -87,10 +87,13 @@ class CleanupTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertEqual(git(self.root, "rev-parse", "refs/heads/remote-copy"), self.head)
         self.assertTrue((run_dir / "keep.log").exists())
+        self.assertNotIn("unpushed tip", rows["branch"]["reason"])
 
-    def test_locked_tracked_and_untracked_dirty_trees_keep_their_branches(self):
+    def test_locked_tracked_and_untracked_dirty_trees_are_removed(self):
         for mode in ("locked", "tracked", "untracked"):
             with self.subTest(mode=mode):
+                if not self.path.exists():
+                    git(self.root, "worktree", "add", "-b", self.branch, str(self.path), "HEAD")
                 if mode == "locked":
                     git(self.root, "worktree", "lock", str(self.path))
                 elif mode == "tracked":
@@ -98,15 +101,8 @@ class CleanupTests(unittest.TestCase):
                 else:
                     (self.path / "untracked").write_text("dirty")
                 rows = self.actions(True)
-                self.assertEqual(rows["worktree"]["action"], "kept")
-                self.assertIn("locked" if mode == "locked" else "dirty", rows["worktree"]["reason"])
-                self.assertEqual(rows["branch"]["action"], "kept")
-                if mode == "locked":
-                    git(self.root, "worktree", "unlock", str(self.path))
-                elif mode == "tracked":
-                    git(self.path, "restore", "file")
-                else:
-                    (self.path / "untracked").unlink()
+                self.assertTrue(all(row["action"] == "removed" for row in rows.values()))
+                self.assert_removed()
 
     def test_ignored_files_do_not_make_tree_dirty(self):
         (self.path / "ignored").write_text("ignored")
@@ -118,41 +114,33 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.actions()["worktree"]["action"], "would remove")
         self.assertEqual(self.actions(True)["branch"]["action"], "removed")
 
-    def test_released_and_expired_leases_require_this_host(self):
-        for state in ("released", "running"):
+    def test_other_or_missing_host_leases_do_not_keep_artifacts(self):
+        for state in ("released", "running", "claiming"):
             for host in ("other-host", None):
                 with self.subTest(state=state, host=host):
-                    self.update(state=state, host=host, expires=iso(timestamp() - 60), process_group=1234)
+                    self.update(state=state, host=host, expires=iso(timestamp() + 60), process_group=1234)
                     with patch("ub_agents.cleanup.group_members", return_value=[]) as groups:
-                        rows = self.actions(True)
-                    self.assertTrue(all(row["action"] == "kept" for row in rows.values()))
-                    self.assertIn("another host or has no recorded host", rows["worktree"]["reason"])
+                        rows = self.actions()
+                    self.assertTrue(all(row["action"] == "would remove" for row in rows.values()))
                     groups.assert_not_called()
-        self.update(host=socket.gethostname())
-        with patch("ub_agents.cleanup.group_members", return_value=[]):
-            self.assertEqual(self.actions()["worktree"]["action"], "would remove")
+        self.assertTrue(all(row["action"] == "removed" for row in self.actions(True).values()))
 
-    def test_unlisted_writer_and_demoted_account_artifacts_are_kept(self):
+    def test_untrusted_leases_do_not_keep_artifacts(self):
         self.github.roles["other"] = "write"
         self.github.store[1][0]["user"]["login"] = "other"
         self.cleaner = Cleaner(replace(self.config, launchers=("operator",)), self.github, "operator", output=lambda _: None)
-        self.assertTrue(all(row["action"] == "kept" for row in self.actions(True).values()))
+        self.assertTrue(all(row["action"] == "would remove" for row in self.actions().values()))
         self.cleaner = Cleaner(self.config, self.github, "operator", output=lambda _: None)
         self.github.roles["other"] = "read"
-        self.assertTrue(all(row["action"] == "kept" for row in self.actions(True).values()))
+        self.assertTrue(all(row["action"] == "removed" for row in self.actions(True).values()))
 
-    def test_live_other_actor_missing_and_unconfirmed_leases_are_kept(self):
-        for mode in ("live", "actor", "missing", "unconfirmed"):
+    def test_live_local_and_unconfirmed_leases_are_kept(self):
+        for mode in ("live", "unconfirmed"):
             with self.subTest(mode=mode):
                 original = deepcopy(self.github.store)
                 original_lease = self.lease.copy()
                 if mode == "live":
                     self.update(state="running", expires=iso(timestamp() + 60))
-                elif mode == "actor":
-                    self.github.login = "other"
-                    self.github.store[1][0]["user"]["login"] = "other"
-                elif mode == "missing":
-                    self.github.store = {}
                 else:
                     self.update(cleanup="unconfirmed")
                 self.assertTrue(all(r["action"] == "kept" for r in self.cleaner.clean(True)))
@@ -165,9 +153,92 @@ class CleanupTests(unittest.TestCase):
         self.github.unreadable = True
         self.assertTrue(all(r["action"] == "kept" for r in self.cleaner.clean(True)))
 
+    def test_missing_older_and_unreadable_leases_are_removed_for_every_role(self):
+        from ub_agents.records import MARKER
+        original = deepcopy(self.github.store)
+        for role in ("implementer", "issue-preparer", "custom"):
+            for mode in ("missing", "v2", "unreadable"):
+                with self.subTest(role=role, mode=mode):
+                    branch = f"ub-agents/{role}/1/{self.lease['run']}"
+                    git(self.path, "branch", "-m", branch)
+                    self.branch = branch
+                    self.github.store = deepcopy(original)
+                    if mode == "missing":
+                        self.github.store = {}
+                    elif mode == "v2":
+                        self.github.store[1][0]["body"] = original[1][0]["body"].replace(MARKER, "<!-- ub-agents:v2 -->")
+                    else:
+                        self.github.store[1][0]["body"] = MARKER + "\nunreadable"
+                    rows = self.actions(True)
+                    self.assertTrue(all(row["action"] == "removed" for row in rows.values()))
+                    self.assert_removed()
+                    git(self.root, "worktree", "add", "-b", self.branch, str(self.path), "HEAD")
+
+    def test_legacy_branch_prefix_is_removed_on_launch(self):
+        branch = f"ub-agent/worker/1/{self.lease['run']}"
+        git(self.path, "branch", "-m", branch)
+        self.branch = branch
+        self.github.store = {}
+        lines = self.launch_leftovers(self.assert_removed)
+        self.assertEqual(lines[1], f"removed branch {branch}: No live run or open PR")
+
+    def test_live_trusted_other_actor_on_this_host_keeps_artifacts(self):
+        self.github.roles["other"] = "write"
+        self.github.store[1][0]["user"]["login"] = "other"
+        self.update(state="running", expires=iso(timestamp() + 60))
+        self.assertTrue(all("lease is live" in row["reason"] for row in self.cleaner.clean(True)))
+
+    def test_invalid_record_does_not_hide_live_lease_in_same_or_other_thread(self):
+        from ub_agents.records import MARKER
+        self.github.items[3] = issue(3)
+        for number in (1, 3):
+            with self.subTest(number=number):
+                comment = self.github.create_comment(number, "fixture")
+                self.github.update_comment(comment["id"], MARKER + "\nunreadable")
+                self.update(state="claiming", expires=iso(timestamp() + 60))
+                self.assertTrue(all("lease is live" in row["reason"] for row in self.cleaner.clean(True)))
+
+    def test_pr_lookup_and_coordination_scan_failures_keep_each_artifact(self):
+        for target in ("prs_for_branch", "repository_comments", "comments"):
+            with self.subTest(target=target), patch.object(self.github, target, side_effect=AgentError("GitHub read failed")):
+                rows = self.cleaner.clean(True)
+                self.assertEqual(len(rows), 2)
+                protected = rows if target != "prs_for_branch" else [rows[-1]]
+                self.assertTrue(all(row["action"] == "kept" for row in protected))
+                self.assertTrue(all("GitHub read failed" in row["reason"] for row in protected))
+                if not self.path.exists():
+                    git(self.root, "worktree", "add", str(self.path), self.branch)
+
+    def test_local_unconfirmed_diagnostics_keep_artifacts_without_a_lease(self):
+        from ub_agents.hooks import diagnostic
+        self.github.store = {}
+        diagnostic(self.config, self.lease["run"], "cleanup-unconfirmed", error="uncertain")
+        self.assertTrue(all("local diagnostics" in row["reason"] for row in self.cleaner.clean(True)))
+
+    def test_unregistered_live_run_folder_is_kept_then_removed_when_ended(self):
+        git(self.root, "worktree", "remove", str(self.path))
+        (self.path / "packages").mkdir(parents=True)
+        (self.path / "packages" / "leftover").write_text("old")
+        self.update(state="running", expires=iso(timestamp() + 60))
+        self.assertTrue(all("lease is live" in row["reason"] for row in self.cleaner.clean(True)))
+        self.update(state="released")
+        self.assertTrue(all(row["action"] == "removed" for row in self.cleaner.clean(True)))
+
+    def test_missing_lease_still_checks_unfinished_cleanup_and_setup_groups(self):
+        self.github.store = {}
+        directory = self.hook_record(123456)
+        with patch("ub_agents.hooks.group_members", return_value=[123456]):
+            self.assertTrue(all("hook process group" in row["reason"] for row in self.cleaner.clean(True)))
+        (directory / "stopped").write_text("confirmed\n")
+        setup = directory.parent.parent / "checkout-setup"
+        setup.mkdir()
+        (setup / "pid").write_text("123456")
+        with patch("ub_agents.worktree_setup.group_members", return_value=[123456]):
+            self.assertTrue(all("setup process group" in row["reason"] for row in self.cleaner.clean(True)))
+
     def test_expired_group_requires_record_and_confirmed_absence(self):
         self.update(state="running", expires=iso(timestamp() - 1))
-        self.assertIn("no recorded process", self.actions()["worktree"]["reason"])
+        self.assertEqual(self.actions()["worktree"]["action"], "would remove")
         self.update(process_group=123456)
         with patch("ub_agents.cleanup.group_members", return_value=[123456]):
             self.assertIn("still present", self.actions(True)["worktree"]["reason"])
@@ -176,12 +247,12 @@ class CleanupTests(unittest.TestCase):
         with patch("ub_agents.cleanup.group_members", return_value=[]):
             self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
 
-    def test_expired_outcome_is_kept_until_recovery(self):
+    def test_expired_outcome_with_confirmed_absent_group_is_removed(self):
         self.update(state="running", expires=iso(timestamp() + 60))
         self.coordinator.report(self.lease, "retry", "reported")
         self.update(expires=iso(timestamp() - 1), process_group=123456)
         with patch("ub_agents.cleanup.group_members", return_value=[]):
-            self.assertIn("awaiting recovery", self.actions(True)["worktree"]["reason"])
+            self.assertTrue(all(row["action"] == "removed" for row in self.actions(True).values()))
 
     def hook_record(self, pid=None):
         directory = self.root / ".ub-agents" / "runs" / self.lease["run"] / "cleanup" / "crashed"
@@ -248,33 +319,46 @@ class CleanupTests(unittest.TestCase):
         (directory / "stopped").write_text("partial")
         self.assertIn("unreadable hook stop", self.actions(True)["worktree"]["reason"])
 
-    def test_unregistered_and_redirected_paths_are_never_removed(self):
+    def test_unregistered_folders_and_symlinks_are_removed_without_following(self):
         extra = self.path.parent / "unknown"
-        extra.mkdir()
+        (extra / "packages").mkdir(parents=True)
+        (extra / "packages" / "leftover").write_text("orphan")
         rows = self.cleaner.clean(True)
-        self.assertTrue(extra.exists())
-        self.assertIn("Unregistered", next(r["reason"] for r in rows if r["name"] == str(extra)))
-        extra.rmdir()
+        self.assertFalse(extra.exists())
+        self.assertEqual(next(r["action"] for r in rows if r["name"] == str(extra)), "removed")
         extra.symlink_to(self.root, target_is_directory=True)
-        self.assertIn("redirects", next(r["reason"] for r in self.cleaner.clean(True) if r["name"] == str(extra)))
+        self.assertEqual(self.cleaner.clean(True)[0]["action"], "removed")
+        self.assertFalse(extra.is_symlink())
+        self.assertTrue((self.root / "file").exists())
+        extra.symlink_to(self.root / "missing", target_is_directory=True)
+        self.assertEqual(self.cleaner.clean(True)[0]["action"], "removed")
+        self.assertFalse(extra.is_symlink())
 
-    def test_unknown_remote_tip_keeps_branch_after_worktree_removal(self):
+    def test_unknown_remote_tip_is_removed_with_restoration_sha(self):
         (self.path / "file").write_text("private commit")
         git(self.path, "add", "file")
         self.commit(self.path)
+        tip = git(self.path, "rev-parse", "HEAD")
         # A separate remote excludes the local private branch.
         remote = self.root / "remote.git"
         git(self.root, "init", "--bare", str(remote))
         git(self.root, "remote", "set-url", "origin", str(remote))
         git(self.root, "push", "origin", "main")
+        output = []
+        self.cleaner.output = output.append
         rows = self.actions(True)
         self.assertEqual(rows["worktree"]["action"], "removed")
-        self.assertIn("not known remotely", rows["branch"]["reason"])
+        self.assertEqual(rows["branch"]["action"], "removed")
+        self.assertEqual(output[-1], f"removed branch {self.branch}: No live run or open PR; unpushed tip {tip}")
+        self.assert_removed()
+        git(self.root, "branch", self.branch, tip)
+        self.assertEqual(git(self.root, "rev-parse", self.branch), tip)
 
-    def test_open_pr_keeps_branch_and_closed_pr_head_proves_squashed_tip(self):
+    def test_open_pr_keeps_branch_removes_ended_tree_and_merged_head_proves_squashed_tip(self):
         candidate = replace(pr(head=self.head), branch=self.branch)
         self.github.items[2] = candidate
         rows = self.actions(True)
+        self.assertEqual(rows["worktree"]["action"], "removed")
         self.assertIn("open PR", rows["branch"]["reason"])
         git(self.root, "checkout", self.branch)
         (self.root / "file").write_text("checkpoint")
@@ -286,7 +370,27 @@ class CleanupTests(unittest.TestCase):
         git(self.root, "init", "--bare", str(remote))
         git(self.root, "remote", "set-url", "origin", str(remote))
         git(self.root, "push", "origin", "main", f"{tip}:refs/pull/2/head")
-        self.github.change(2, state="closed", head=tip)
+        self.github.change(2, state="closed", head=tip, merged=True)
+        row = self.actions(True)["branch"]
+        self.assertEqual(row["action"], "removed")
+        self.assertNotIn("unpushed tip", row["reason"])
+
+    def test_unmerged_or_unverified_pr_head_does_not_suppress_restoration_sha(self):
+        (self.path / "file").write_text("private checkpoint")
+        git(self.path, "add", "file")
+        self.commit(self.path)
+        tip = git(self.path, "rev-parse", "HEAD")
+        remote = self.root / "remote.git"
+        git(self.root, "init", "--bare", str(remote))
+        git(self.root, "remote", "set-url", "origin", str(remote))
+        git(self.root, "push", "origin", "main", f"{tip}:refs/pull/2/head")
+        for mode in ("unmerged", "changed", "missing"):
+            with self.subTest(mode=mode):
+                self.github.items[2] = replace(pr(head=tip if mode == "unmerged" else self.head),
+                                                branch=self.branch, state="closed", merged=mode != "unmerged")
+                if mode == "missing":
+                    git(self.root, "push", "origin", ":refs/pull/2/head")
+                self.assertIn(f"unpushed tip {tip}", self.actions()["branch"]["reason"])
         self.assertEqual(self.actions(True)["branch"]["action"], "removed")
 
     def test_apply_rechecks_lease_and_worktree_after_preview_and_hook(self):
@@ -302,7 +406,21 @@ class CleanupTests(unittest.TestCase):
             self.assertEqual(self.actions(True)["worktree"]["action"], "kept")
         self.update(state="released")
         self.hook("import os; from pathlib import Path; (Path(os.environ['UB_AGENTS_WORKTREE'])/'dirty').write_text('x')")
-        self.assertIn("dirty", self.actions(True)["worktree"]["reason"])
+        self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
+
+    def test_hook_created_live_lease_keeps_worktree_and_open_pr_keeps_only_branch(self):
+        def hook(*args):
+            self.update(state="running", expires=iso(timestamp() + 60))
+        with patch("ub_agents.cleanup.run_hook", side_effect=hook):
+            self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
+        self.update(state="released")
+        def open_pr(*args):
+            self.github.items[2] = replace(pr(head=self.head), branch=self.branch)
+        with patch("ub_agents.cleanup.run_hook", side_effect=open_pr):
+            rows = self.actions(True)
+        self.assertEqual(rows["worktree"]["action"], "removed")
+        self.assertEqual(rows["branch"]["action"], "kept")
+        self.assertFalse(self.path.exists())
 
     def test_successful_hook_receives_context_from_operator_checkout(self):
         output = self.root / ".ub-agents" / "context-copy.json"
@@ -317,6 +435,34 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(context["status"], "retry")
         self.assertEqual(context["branch"], self.branch)
 
+    def test_missing_lease_and_unregistered_folder_hook_receive_null_context(self):
+        self.github.store = {}
+        output = self.root / ".ub-agents" / "context-copy.json"
+        self.hook("import json,os; from pathlib import Path; "
+                  f"Path({str(output)!r}).write_text(Path(os.environ['UB_AGENTS_CLEANUP_CONTEXT']).read_text())")
+        self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
+        context = json.loads(output.read_text())
+        self.assertEqual(context["run"], self.lease["run"])
+        self.assertEqual(context["branch"], self.branch)
+        for field in ("agent", "assignment", "kind", "handoff", "status", "outcome"):
+            self.assertIsNone(context[field])
+        self.path.mkdir()
+        self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
+        self.assertIsNone(json.loads(output.read_text())["branch"])
+
+    def test_failed_hook_keeps_detached_and_unregistered_worktree_and_branch(self):
+        for mode in ("detached", "unregistered"):
+            with self.subTest(mode=mode):
+                if mode == "detached":
+                    git(self.path, "checkout", "--detach")
+                else:
+                    git(self.root, "worktree", "remove", str(self.path))
+                    self.path.mkdir()
+                    self.github.store = {}
+                self.hook("raise SystemExit(3)")
+                self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
+                self.assertTrue(self.path.exists())
+
     def test_failed_and_timed_out_hook_preserve_both_and_can_retry(self):
         for script, timeout, reason in (("import sys; sys.exit(3)", 3, "exited 3"),
                                         ("import time; time.sleep(30)", .05, "timed out")):
@@ -330,11 +476,11 @@ class CleanupTests(unittest.TestCase):
         self.hook("pass")
         self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
 
-    def test_hook_unconfirmed_stop_preserves_artifacts_and_stops_command(self):
+    def test_hook_unconfirmed_stop_preserves_artifacts_and_reports_each(self):
         self.hook("pass")
         with patch("ub_agents.hooks.supervise", side_effect=CleanupError("cannot confirm stop")):
-            with self.assertRaises(CleanupError):
-                self.actions(True)
+            rows = self.actions(True)
+        self.assertTrue(all(row["action"] == "kept" for row in rows.values()))
         self.assertTrue(self.path.exists())
         self.assertIn("unconfirmed", self.actions()["worktree"]["reason"])
 
@@ -353,6 +499,35 @@ class CleanupTests(unittest.TestCase):
         from ub_agents.records import body
         self.github.create_comment(1, body(current))
         self.assertIn("live", self.actions(True)["branch"]["reason"])
+
+    def test_branch_continued_on_other_hosts_is_removed_without_process_checks(self):
+        from ub_agents.records import body, payload
+        self.github.items[2] = replace(pr(head=self.head), branch=self.branch, state="closed", merged=True)
+        for host, run in (("other-a", "continued-a"), ("other-b", "continued-b")):
+            continued = payload(self.lease) | {"assignment": 2, "assignment_sha": self.head,
+                                                "run": run, "host": host, "state": "running",
+                                                "expires": iso(timestamp() + 60), "process_group": 123456}
+            self.github.create_comment(2, body(continued))
+        with patch("ub_agents.cleanup.group_members", side_effect=AssertionError("not a local group")):
+            self.assertTrue(all(row["action"] == "removed" for row in self.cleaner.clean(True)))
+
+    def test_continued_local_run_protects_branch_even_with_missing_original_lease(self):
+        from ub_agents.records import body, payload
+        continued = payload(self.lease) | {"run": "continued", "state": "running",
+                                            "expires": iso(timestamp() + 60)}
+        self.github.store = {}
+        self.github.create_comment(1, body(continued))
+        rows = self.actions(True)
+        self.assertEqual(rows["worktree"]["action"], "removed")
+        self.assertIn("lease is live", rows["branch"]["reason"])
+
+    def test_shared_branch_unconfirmed_cleanup_keeps_other_artifacts(self):
+        from ub_agents.records import body, payload
+        continued = payload(self.lease) | {"run": "continued", "host": "other-host", "cleanup": "unconfirmed"}
+        self.github.create_comment(1, body(continued))
+        rows = self.actions(True)
+        self.assertEqual(rows["worktree"]["action"], "removed")
+        self.assertIn("cleanup is unconfirmed", rows["branch"]["reason"])
         self.assertEqual(git(self.root, "rev-parse", self.branch), self.head)
 
     def test_branch_checked_out_outside_private_tree_is_kept(self):
@@ -362,12 +537,12 @@ class CleanupTests(unittest.TestCase):
         self.assertIn("checked out", self.actions(True)["branch"]["reason"])
         self.assertTrue(outside.exists())
 
-    def test_branch_owner_name_and_number_must_match_run_lease(self):
+    def test_unneeded_branch_with_mismatched_lease_is_removed(self):
         git(self.root, "worktree", "remove", str(self.path))
         self.update(agent="another")
-        self.assertIn("does not match", self.actions(True)["branch"]["reason"])
+        self.assertEqual(self.actions(True)["branch"]["action"], "removed")
 
-    def test_fetch_failure_keeps_branch(self):
+    def test_fetch_failure_removes_branch_with_restoration_sha(self):
         read = git
         def fail(root, *args):
             if args[:2] == ("fetch", "--prune"):
@@ -376,24 +551,28 @@ class CleanupTests(unittest.TestCase):
         with patch("ub_agents.cleanup.git", side_effect=fail):
             rows = self.actions(True)
         self.assertEqual(rows["worktree"]["action"], "removed")
-        self.assertIn("origin unavailable", rows["branch"]["reason"])
+        self.assertEqual(rows["branch"]["action"], "removed")
+        self.assertIn(f"unpushed tip {self.head}", rows["branch"]["reason"])
 
     def test_live_lease_and_new_open_pr_during_fetch_keep_branch(self):
         git(self.root, "worktree", "remove", str(self.path))
         read = git
-        for change in ("lease", "pr"):
+        for change in ("lease", "pr", "checkout"):
             with self.subTest(change=change):
                 def race(root, *args):
                     result = read(root, *args)
                     if args[:2] == ("fetch", "--prune"):
                         if change == "lease":
                             self.update(state="running", expires=iso(timestamp() + 60))
-                        else:
+                        elif change == "pr":
                             self.github.items[2] = replace(pr(), branch=self.branch)
+                        else:
+                            git(self.root, "worktree", "add", str(self.path), self.branch)
                     return result
                 with patch("ub_agents.cleanup.git", side_effect=race):
                     self.assertEqual(self.actions(True)["branch"]["action"], "kept")
                 self.update(state="released")
+                self.github.items.pop(2, None)
 
     def test_atomic_branch_delete_refuses_a_new_tip(self):
         git(self.root, "worktree", "remove", str(self.path))
@@ -419,7 +598,7 @@ class CleanupTests(unittest.TestCase):
         index, _ = self.cleaner.coordinator.repository_history()
         self.github.store = {}
         with patch.object(self.cleaner.coordinator, "repository_history", return_value=(index, set())):
-            self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
+            self.assertTrue(all(row["action"] == "removed" for row in self.cleaner.clean(True)))
 
     def launch_leftovers(self, poll):
         from contextlib import redirect_stdout
@@ -446,10 +625,10 @@ class CleanupTests(unittest.TestCase):
     def test_launch_removes_leftovers_and_logs_before_the_first_poll(self):
         lines = self.launch_leftovers(self.assert_removed)
         self.assertEqual(len(lines), 2)
-        self.assertTrue(lines[0].startswith(f"removed worktree {self.path}:"))
+        self.assertTrue(lines[0].startswith(f"removed worktree {self.path.relative_to(self.root)}:"))
         self.assertTrue(lines[1].startswith(f"removed branch {self.branch}:"))
 
-    def test_launch_keeps_unreached_branch_after_uncertain_hook_and_still_polls(self):
+    def test_launch_reports_kept_branch_after_uncertain_hook_and_still_polls(self):
         def poll():
             self.assertTrue(self.path.exists())
             self.assertEqual(git(self.root, "rev-parse", self.branch), self.head)
@@ -458,9 +637,8 @@ class CleanupTests(unittest.TestCase):
         with patch("ub_agents.cleanup.run_hook", side_effect=CleanupError("Hook termination unknown")):
             lines = self.launch_leftovers(poll)
         self.assertEqual(len(lines), 2)
-        self.assertEqual(lines[0], f"kept worktree {self.path}: Hook termination unknown")
-        self.assertIn("Startup cleanup failed: Hook termination unknown", lines[1])
-        self.assertIn("continuing to poll", lines[1])
+        self.assertEqual(lines[0], f"kept worktree {self.path.relative_to(self.root)}: Hook termination unknown")
+        self.assertEqual(lines[1], f"kept branch {self.branch}: Cleanup hook failed; artifacts preserved")
 
     def assert_removed(self):
         self.assertFalse(self.path.exists())

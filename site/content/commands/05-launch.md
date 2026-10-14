@@ -1,13 +1,28 @@
 # ub-agents launch
 
-Every invocation sweeps eligible leftover worktrees and local branches from this
-machine once, after startup checks and before the first poll or claim. This
+Every invocation sweeps all roles' leftover worktrees and local run branches from
+this machine once, after startup checks and before the first poll or claim. This
 includes `--agent`, `NUMBER` and `--once`. Each `removed` or `kept` line includes
 its reason in the launch log and the terminal view's Startup cleanup fold, or
 plain output with `--no-ui`. Sweep failures are logged and polling continues.
+The sweep covers registered worktrees and unregistered entries under
+`.ub-agents/worktrees/`, plus `ub-agents/<agent>/<number>/<run>` and older
+`ub-agent/` local branches. Symlinks are removed as links. It keeps live leases
+on this host, branches heading open PRs or checked out in remaining worktrees,
+and artifacts with unconfirmed cleanup or a process group not confirmed
+stopped. Expired local leases with a recorded group require its confirmed absence.
+Missing, unreadable, older-version or other-host leases, ended runs without a PR,
+dirty trees and locked trees do not prevent removal. GitHub coordination scan or
+PR lookup failures keep affected artifacts and log the reason. Removed branches
+whose tips are not reachable from fetched origin branches or merged PR heads
+include `unpushed tip SHA`, also when reachability cannot be checked; restore one
+with `git branch <name> <sha>`.
+
 The [cleanup hook](/docs/configuration/cleanup.html) runs before each worktree
-removal. A crashed run's lease stays live until expiry, so a quick restart keeps
-its artifacts until a later launch start; there is no periodic sweep.
+removal with unknown context fields set to `null`; a failed hook keeps the
+worktree and branch for retry. A crashed run's local lease stays live until expiry,
+so a quick restart keeps its artifacts until a later launch start; there is no
+periodic sweep.
 
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
