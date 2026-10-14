@@ -48,4 +48,6 @@ Commands and agent CLIs get the same variables.
 
 ## Scratch
 
-Write temporary files to `UB_AGENTS_SCRATCH`. It is removed when the run ends; run logs stay.
+Write temporary files to `UB_AGENTS_SCRATCH`. It is removed after confirmed process
+termination; run logs stay until the startup sweep's fixed 7-day retention expires,
+or longer while a safety check protects the run.

@@ -49,6 +49,7 @@ class Cleaner:
         self.coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
         self.output = output
         self.blocked_runs = set()
+        self.kept_runs = set()
         self.preview_worktrees = set()
         self.branch_tips = {}
 
@@ -123,7 +124,7 @@ class Cleaner:
         if members:
             raise AgentError("Expired run's process group is still present")
 
-    def run_state(self, artifact, branch=None):
+    def run_state(self, artifact, branch=None, *, check_diagnostics=True):
         index, invalid = self.coordinator.repository_history()
         # Discovery is not authority. Reread referring assignments, including
         # malformed threads that may also contain a valid, protective lease.
@@ -140,8 +141,9 @@ class Cleaner:
             raise AgentError("Cleanup hook failed; artifacts preserved")
         for lease in leases:
             self.eligible_lease(lease)
-        for run in sorted(runs):
-            self.local_processes(run)
+        if check_diagnostics:
+            for run in sorted(runs):
+                self.local_processes(run)
         if artifact.kind == "branch":
             if any(pr.state == "open" for pr in self.github.prs_for_branch(artifact.name, state="all")):
                 raise AgentError("Branch is the head of an open PR")
@@ -207,6 +209,7 @@ class Cleaner:
     def clean(self, apply=False):
         self.preview_worktrees.clear()
         self.blocked_runs.clear()
+        self.kept_runs.clear()
         self.branch_tips.clear()
         rows = []
         for artifact in self.inventory():
@@ -251,6 +254,8 @@ class Cleaner:
             except (AgentError, OSError) as exc:
                 action, reason = "kept", str(exc)
             reason = " ".join(reason.split())
+            if action == "kept":
+                self.kept_runs.add(artifact.run)
             row = {"kind": artifact.kind, "name": artifact.name, "action": action, "reason": reason}
             rows.append(row)
             name = str(Path(artifact.name).relative_to(self.root)) if artifact.kind == "worktree" else artifact.name

@@ -317,8 +317,8 @@ and `--once`. For every role, it inspects registered worktrees and unregistered
 entries directly under this checkout's `.ub-agents/worktrees/<run>`, plus local
 branches named `ub-agents/<agent>/<number>/<run>` or the older
 `ub-agent/<agent>/<number>/<run>`. An unregistered entry's name supplies its run;
-symlinks are removed as links without following them. Other tools' worktrees,
-remote branches and run logs are outside its deletion scope.
+symlinks are removed as links without following them. Other tools' worktrees
+and remote branches are outside its deletion scope.
 
 The sweep removes everything that no run on this machine or open PR still needs.
 It keeps only:
@@ -361,6 +361,16 @@ git and GitHub errors. Uncertain process termination keeps the affected artifact
 Artifacts not reached after an inventory failure stay in place. There is no periodic
 sweep: a crashed run's local lease stays live until expiry, so a quick restart
 keeps its artifacts until a later launch start.
+
+The same startup sweep prunes run diagnostic directories whose newest file is
+more than 7 days old, unless live leases, process uncertainty, unreadable or
+redirected diagnostics, or a kept worktree or branch protect them. It also
+prunes ended or stale session snapshots and orphan session files older than
+7 days, preserving live sessions and the current launcher's files. One summary
+line reports the counts and space freed when anything was removed; individual
+removal failures are logged without stopping launch. Retention is fixed, with
+no configuration key. See [diagnostic retention](operations.md#when-things-go-wrong)
+and [session liveness](session-snapshots.md#publication-and-liveness).
 
 Local hook diagnostics are checked even without a readable lease or a currently
 configured hook. Each hook directory records its process-group `pid` and a
@@ -1169,7 +1179,9 @@ Use `UB_AGENTS_SCRATCH` for temporary files instead of writing directly under
 with mode `0700`; creation failure ends the run as a visible setup failure without
 starting the agent. Once the run's processes are confirmed stopped, scratch and
 its contents and the state directory's per-run directory are removed after success,
-failure, timeout or interruption. Run logs and other artifacts remain.
+failure, timeout or interruption. Run logs and other artifacts remain until the
+startup sweep's fixed 7-day retention expires, or longer while safety checks
+preserve the run.
 Unconfirmed process termination preserves scratch, and a launcher killed before
 cleanup leaves it behind. If scratch removal fails
 after confirmed termination, the launcher leaves any remaining files, prints the

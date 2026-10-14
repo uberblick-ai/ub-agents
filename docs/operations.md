@@ -12,8 +12,13 @@ Use `launch --no-ui` for plain lines. Pipes and services stay plain.
 
 Launch output is flushed immediately to the terminal when the view is closed and appended to
 `.ub-agents/launch.log` in the control checkout, with a UTC timestamp on each file
-line, including stop and error messages. This also applies to `launch --once`;
-the log is never truncated or rotated. Follow it from another terminal with
+line, including stop and error messages. This also applies to `launch --once`.
+Before opening the log, a launch rotates it if it is larger than a fixed 5 MB
+cap: `launch.log` is renamed to `launch.log.1`, replacing the earlier archive.
+The new launcher writes to a fresh log and records the rotation in one line.
+Existing launchers keep their open handles and can append to the renamed log;
+rotation never rewrites their lines. One archive is retained, keeping disk use
+around two caps at launch starts. Follow it from another terminal with
 `tail -f .ub-agents/launch.log`. See [Stopping and restarting](#stopping-and-restarting)
 for signal handling, including during a GitHub request.
 
@@ -201,6 +206,30 @@ See [stale artifact cleanup](configuration.md#stale-artifact-cleanup) for proces
 uncertainty and recovery details. A crashed run's local lease remains live until
 expiry, so a quick restart leaves its worktree until a later launch start. There
 is no periodic sweep.
+
+The startup sweep also prunes `.ub-agents/runs/<run>/` when its newest file,
+including setup and cleanup-hook records, is more than 7 days old. It preserves
+runs with live local leases, unconfirmed cleanup, process groups not confirmed
+gone, unreadable or redirected diagnostics, or worktrees or branches the sweep
+kept. Coordination or safety-check failures preserve the affected logs. A
+symlinked entry is removed only as a link; its target is never followed.
+
+Ended or stale [session snapshots](session-snapshots.md#publication-and-liveness)
+older than 7 days are pruned with their companion cleanup logs. Old orphan
+temporary files and cleanup logs are pruned when no live snapshot protects them.
+Live sessions and this launcher's own files survive, and the existing cap of
+20 inactive sessions still applies. Both retention periods are fixed, with no
+configuration key. When anything is pruned, one summary line appears in launch
+output, `launch.log` and the Startup cleanup fold, including with `--no-ui`:
+
+```text
+pruned 63 run directories and 4 session files older than 7 days (41 MB)
+```
+
+Session counts include companion logs and temporary files; the size is the total
+file bytes removed. Nothing is printed for pruning when nothing was removed.
+Each removal failure is logged once with its reason and launch continues.
+
 Projects can configure a supervised [cleanup hook](configuration.md#project-cleanup-hook)
 for resources associated with each private worktree. Document operator-only recovery
 steps in a project operations document linked from `AGENTS.md`.
@@ -211,7 +240,9 @@ Each run also gets a private scratch directory at
 back to `~/.local/state`. Scratch must be outside the target checkout and its
 private worktrees; a path inside the checkout fails setup before the agent starts.
 Use it for temporary files; the launcher removes it and its per-run directory after
-confirmed process termination while retaining run logs. Removal failures leave a
-diagnostic and any remaining scratch files without blocking run completion. See
+confirmed process termination while retaining run logs until the startup sweep's
+7-day retention expires, or longer while a safety condition protects them.
+Removal failures leave a diagnostic and any remaining scratch files without
+blocking run completion. See
 [runtime permissions](configuration.md#runtime-permissions)
 for runtimes that need access outside their worktree.

@@ -115,6 +115,41 @@ class LaunchTests(unittest.TestCase):
                 self.assertIn(f"Startup cleanup failed: {error}", output.getvalue())
                 self.assertEqual(stderr.getvalue(), "")
 
+    def test_pruning_summary_reaches_plain_log_and_startup_fold_before_poll(self):
+        import json
+        from tests.support import MemoryPublisher
+        from ub_agents.diagnostic_retention import RETENTION_SECONDS
+
+        old = timestamp() - RETENTION_SECONDS - 1
+        run = self.root / ".ub-agents/runs/old"
+        run.mkdir(parents=True)
+        (run / "process.log").write_text("1234")
+        os.utime(run / "process.log", (old, old))
+        sessions = self.root / ".ub-agents/sessions"
+        sessions.mkdir()
+        (sessions / "old.json").write_text(json.dumps({"ended": True}))
+        os.utime(sessions / "old.json", (old, old))
+        publisher = MemoryPublisher()
+
+        def poll():
+            self.assertFalse(run.exists())
+            self.assertFalse((sessions / "old.json").exists())
+            self.assertEqual(self.log_lines(), [summary])
+            self.assertTrue(publisher.snapshots[-1]["startup_cleanup"])
+            session = publisher.snapshots[-1]["session"]
+            self.assertEqual((sessions / f"{session}.cleanup.log").read_text(), summary + "\n")
+            return True
+
+        summary = "pruned 1 run directories and 1 session files older than 7 days (19 B)"
+        with patch("ub_agents.cli.load_config", return_value=self.config), \
+                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.observations.Publisher", return_value=publisher), \
+                patch.object(Loop, "tick", side_effect=poll), \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(self.argv + ["--once", "--no-ui"]), 0)
+        self.assertEqual(output.getvalue(), summary + "\n")
+
     def test_failed_repository_checks_do_not_sweep(self):
         with patch("ub_agents.cli.load_config", return_value=self.config), \
                 patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
