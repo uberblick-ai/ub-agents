@@ -14,7 +14,9 @@ also prunes run logs and inactive session files older than 7 days. Preserve any
 uncommitted work or diagnostics you still need before starting it; the launch log
 records restore SHAs for removed branches with unpushed tips. Scripts calling
 `ub-agents check` must switch to `ub-agents doctor --offline`; `ub-agents cleanup`
-is gone because `launch` now sweeps on start. Add `ub-agents.local.yaml` to
+is gone because `launch` now sweeps on start. `ub-agents approve` is gone and
+existing approval records no longer authorize anything: re-apply a trigger label,
+or submit an approving review of a PR's current head. Add `ub-agents.local.yaml` to
 `.gitignore` before creating local overrides. Automation running `init` from a
 terminal must pass `--use-defaults`; CI and non-TTY setup remain prompt-free.
 
@@ -34,6 +36,7 @@ terminal must pass `--use-defaults`; CI and non-TTY setup remain prompt-free.
 
 - The `ub-agents check` command is removed, with `ub-agents doctor --offline` providing local validation without GitHub access or agent CLIs (#484, #488).
 - The `ub-agents cleanup` command and its preview mode are removed because `launch` now sweeps eligible leftovers at startup (#486, #489).
+- The `ub-agents approve` command and approval records are removed; trigger labels and approving PR reviews authorize outside input (#485, #487).
 
 ## 0.2.3 — 2026-10-12
 
