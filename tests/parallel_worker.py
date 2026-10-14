@@ -44,7 +44,6 @@ def worker_main(event_fd, command_fd):
     # Separate protocol descriptors leave stdin at devnull for tests and their
     # subprocesses, matching tests/__init__.py's non-interactive behavior.
     with os.fdopen(command_fd) as commands:
-
         emit('ready')
         for line in commands:
             command = json.loads(line)
@@ -217,7 +216,10 @@ def stop_workers(workers):
             worker.reader.join(timeout=max(0, deadline - time.monotonic()))
             worker.sender.join(timeout=max(0, deadline - time.monotonic()))
             if not worker.sender.is_alive():
-                worker.command_stream.close()
+                try:
+                    worker.command_stream.close()
+                except BrokenPipeError:
+                    pass
 
 
 if __name__ == '__main__':

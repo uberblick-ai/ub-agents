@@ -14,6 +14,9 @@ class Results(unittest.TestCase):
     def test_pass(self):
         pass
 
+    def test_late_result(self):
+        time.sleep(2.1)
+
     def test_failure(self):
         print('buffered failure output')
         self.fail('fixture failure')
@@ -79,8 +82,8 @@ def __getattr__(name):
     raise AttributeError(name)
 
 
-def startup_runner():
-    """Replace only the worker command with a process that never becomes ready."""
+def stalled_worker_runner():
+    """Replace only the worker command with a stalled protocol fixture."""
     from unittest.mock import patch
     from tests.parallel import main
 
@@ -88,7 +91,11 @@ def startup_runner():
 
     def start(command, **kwargs):
         if command[1:3] == ['-m', 'tests.parallel_worker']:
-            command = [sys.executable, '-c', 'import time; time.sleep(60)']
+            script = 'import time; time.sleep(60)'
+            if sys.argv[1] != 'startup':
+                message = '{"kind":"ready"}\n' if sys.argv[1] == 'blocked_write' else '{"kind":'
+                script = f'import os,sys,time; os.write(int(sys.argv[1]), {message.encode()!r}); time.sleep(60)'
+            command = [sys.executable, '-c', script, command[3]]
         return popen(command, **kwargs)
 
     with patch('tests.parallel_worker.subprocess.Popen', side_effect=start):
@@ -96,4 +103,4 @@ def startup_runner():
 
 
 if __name__ == '__main__':
-    sys.exit(startup_runner())
+    sys.exit(stalled_worker_runner())

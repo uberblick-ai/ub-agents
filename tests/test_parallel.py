@@ -14,8 +14,8 @@ from tests.parallel import main, ROOT, supervise
 
 
 class ParallelTests(unittest.TestCase):
-    def run_runner(self, *names, timeout=2, jobs=1, environment=None, startup=False):
-        command = [sys.executable, '-m', 'tests.parallel_fixtures', 'startup'] if startup else [
+    def run_runner(self, *names, timeout=2, jobs=1, environment=None, worker_mode=None):
+        command = [sys.executable, '-m', 'tests.parallel_fixtures', worker_mode] if worker_mode else [
             sys.executable, '-m', 'tests']
         started = time.monotonic()
         result = subprocess.run(command + ['-j', str(jobs), '--timeout', str(timeout), '--durations', '1', *names],
@@ -67,10 +67,18 @@ class ParallelTests(unittest.TestCase):
         self.assertIn('__getattr__', result.stderr)
 
     def test_startup_stall_is_bounded_without_naming_a_test(self):
-        result = self.run_runner(timeout=.5, startup=True)
+        result = self.run_runner(timeout=.5, worker_mode='startup')
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn('RUNNER TIMEOUT: worker startup', result.stderr)
         self.assertIn('no test in flight', result.stderr)
+
+    def test_blocked_protocol_reads_and_writes_do_not_block_the_deadline(self):
+        for mode, phase in (('blocked_write', 'test discovery'), ('partial_result', 'worker startup')):
+            with self.subTest(mode=mode):
+                # Exceed a pipe buffer to exercise a blocked command writer.
+                result = self.run_runner('x' * 100_000, worker_mode=mode)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(f'RUNNER TIMEOUT: {phase}', result.stderr)
 
     def test_shutdown_stall_preserves_finished_results_and_stacks(self):
         result = self.run_runner('tests.parallel_fixtures.Hanging.test_shutdown')
@@ -128,7 +136,8 @@ class ParallelTests(unittest.TestCase):
                 stop.assert_called_once()
 
     def test_finished_results_keep_existing_reporting(self):
-        result = self.run_runner('tests.parallel_fixtures.Results')
+        result = self.run_runner(*[f'tests.parallel_fixtures.Results.test_{name}' for name in
+                                  ('pass', 'failure', 'error', 'skip', 'unexpected_success')])
         self.assertEqual(result.returncode, 1, result.stderr)
         for message in ('fixture failure', 'fixture error', 'UNEXPECTED SUCCESS:', 'Slowest tests:',
                         'Ran 5 tests', 'failures=1, errors=1, skipped=1, unexpected successes=1'):
@@ -136,6 +145,13 @@ class ParallelTests(unittest.TestCase):
         result = self.run_runner('tests.parallel_fixtures.Results.test_pass')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('OK', result.stderr)
+
+    def test_late_finished_test_is_counted_once_and_still_fails(self):
+        result = self.run_runner('tests.parallel_fixtures.Results.test_late_result')
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('TIMEOUT: tests.parallel_fixtures.Results.test_late_result', result.stderr)
+        self.assertIn('Ran 1 tests', result.stderr)
+        self.assertIn('FAILED (errors=1)', result.stderr)
 
     def test_failed_import_and_worker_crash_fail_the_run(self):
         result = self.run_runner('tests.runner_missing_fixture')

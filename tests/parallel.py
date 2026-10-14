@@ -96,6 +96,20 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
     workers = []
     pending = None
     aborting = False
+    timeout_outcomes = {}
+
+    def report_timeout(worker, now):
+        if worker.name:
+            message = f'TIMEOUT: {worker.name} exceeded {timeout:g}s'
+        else:
+            message = f'RUNNER TIMEOUT: {worker.phase} exceeded {timeout:g}s (no test in flight)'
+        sys.stderr.write(message + '\n')
+        outcome = {'run': int(worker.name is not None), 'failures': [],
+                   'errors': [(worker.name or worker.phase, message)], 'skipped': 0,
+                   'unexpected_successes': [], 'seconds': now - worker.since}
+        outcomes.append(outcome)
+        if worker.name:
+            timeout_outcomes[worker.process.pid] = outcome
 
     def dispatch(worker):
         if aborting:
@@ -128,7 +142,13 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
             worker.phase = 'test execution'
         elif kind == 'finished':
             outcome = event['outcome']
-            if outcome['seconds'] >= timeout:
+            previous = timeout_outcomes.pop(worker.process.pid, None)
+            if previous is not None:
+                # The test may finish during the diagnostic grace period. Keep
+                # its actual result and timeout error, counting the attempt once.
+                outcomes.remove(previous)
+                outcome['errors'].extend(previous['errors'])
+            elif outcome['seconds'] >= timeout:
                 message = f"TIMEOUT: {event['name']} exceeded {timeout:g}s"
                 sys.stderr.write('\n' + message + '\n')
                 outcome['errors'].append((event['name'], message))
@@ -136,6 +156,7 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
                 worker.name = None
                 worker.phase = 'test completed after timeout'
                 worker.since = time.monotonic()
+            worker.name = None
             outcomes.append(outcome)
             durations.append((outcome['seconds'], event['name']))
             sys.stderr.write(mark(outcome))
@@ -178,23 +199,19 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
             now = time.monotonic()
             timed_out = [worker for worker in active if now - worker.since >= timeout]
             if aborting or timed_out:
+                aborting = True
                 sys.stderr.write('\n')
                 for worker in timed_out:
-                    if worker.name:
-                        message = f'TIMEOUT: {worker.name} exceeded {timeout:g}s'
-                    else:
-                        message = f'RUNNER TIMEOUT: {worker.phase} exceeded {timeout:g}s (no test in flight)'
-                    sys.stderr.write(message + '\n')
-                    outcomes.append({'run': int(worker.name is not None), 'failures': [],
-                                     'errors': [(worker.name or worker.phase, message)], 'skipped': 0,
-                                     'unexpected_successes': [], 'seconds': now - worker.since})
+                    report_timeout(worker, now)
                 dump_workers(workers)
                 break
     except (OSError, RuntimeError):
         dump_workers(workers)
         raise
     finally:
+        stopped_at = time.monotonic()
         stop_workers(workers)
+        aborting = True
         # Preserve results already written before cleanup, without dispatching
         # more work after a timeout or interruption.
         while True:
@@ -203,10 +220,15 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
             except queue.Empty:
                 break
             if event['kind'] == 'finished':
-                outcome = event['outcome']
-                outcomes.append(outcome)
-                durations.append((outcome['seconds'], event['name']))
-                sys.stderr.write(mark(outcome))
+                accept(_worker, event)
+            elif event['kind'] == 'started':
+                accept(_worker, event)
+            elif event['kind'] == 'discovered' and event['outcome']['run']:
+                outcomes.append(event['outcome'])
+        for worker in workers:
+            if (worker.name and worker.process.pid not in timeout_outcomes
+                    and stopped_at - worker.since >= timeout):
+                report_timeout(worker, stopped_at)
     return jobs
 
 
