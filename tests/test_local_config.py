@@ -8,6 +8,7 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError
+from tests.support import RecordingRunner
 
 
 class LocalConfigTests(unittest.TestCase):
@@ -16,6 +17,8 @@ class LocalConfigTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
         self.path = self.root / 'ub-agents.yaml'
+        self.enterContext(patch('ub_agents.doctor.subprocess.run', RecordingRunner(self.root)))
+        self.enterContext(patch('ub_agents.doctor.shutil.which', return_value='/tools/git'))
         self.local = self.root / 'ub-agents.local.yaml'
         (self.root / 'role.md').write_text('Synthetic instructions')
         self.path.write_text('''repository: org/project
@@ -158,8 +161,8 @@ agents:
                 ('agents: {implementer: {instructions: missing.md}}', 'does not exist')):
             with self.subTest(content=content):
                 self.local.write_text(content)
-                with redirect_stderr(io.StringIO()) as error:
-                    self.assertEqual(main(['--config', str(self.path), 'check']), 1)
+                with redirect_stdout(io.StringIO()) as error:
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
                 self.assertIn(str(self.local), error.getvalue())
                 self.assertIn(reason, error.getvalue())
 
@@ -194,7 +197,7 @@ agents: {implementer: {worktree: true}}
         self.assertEqual(effective.runtime_updates.policies, {'codex': 'off', 'claude': 'off', 'gh': 'off'})
         self.assertIs(effective.agents[0].worktree, True)
         with redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(main(['--config', str(self.path), 'check']), 0)
+            self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline', '--verbose']), 0)
         self.assertIn('Approvals: off (config)', output.getvalue())
 
     def test_explicit_config_uses_its_resolved_directory_and_ignores_cwd_local_file(self):
@@ -204,8 +207,9 @@ agents: {implementer: {worktree: true}}
         custom.write_text(self.path.read_text())
         (selected / 'role.md').write_text('Selected instructions')
         self.local.write_text('invalid: unrelated local configuration')
-        with chdir(self.root), redirect_stdout(io.StringIO()):
-            self.assertEqual(main(['--config', str(custom), 'check']), 0)
+        with chdir(self.root), patch('ub_agents.doctor.subprocess.run', RecordingRunner(selected)), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(main(['--config', str(custom), 'doctor', '--offline']), 0)
             self.assertEqual(load_config(custom).poll_seconds, 45)
             (selected / 'ub-agents.local.yaml').write_text('poll-seconds: 9')
             # Follow the selected base symlink before finding its local layer.
@@ -215,7 +219,7 @@ agents: {implementer: {worktree: true}}
             self.assertEqual(effective.root, selected)
             self.assertEqual(effective.poll_seconds, 9)
             self.assertEqual(effective.agents[0].instructions, selected / 'role.md')
-            self.assertEqual(main(['check', '--config', str(alias)]), 0)
+            self.assertEqual(main(['doctor', '--offline', '--config', str(alias)]), 0)
 
     def test_local_layer_cannot_replace_a_missing_or_nonmapping_base(self):
         self.local.write_text(self.path.read_text())

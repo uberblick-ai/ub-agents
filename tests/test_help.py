@@ -22,13 +22,11 @@ usage: ub-agents <command> [options]
 commands:
   init                   set up this repository: starter configuration, agent
                          instructions and workflow labels
-  check                  validate the configuration and instruction files
   doctor [--json]        check the machine, GitHub access, labels and agent
                          runtimes
   launch [NUMBER]        run the queue in the foreground, or handle one item
   status [NUMBER] [--json]
                          matching work, owners, attempts and why items wait
-  cleanup [--apply]      preview or remove stale worktrees and branches
   retry NUMBER           let stopped work run again, with a recorded reason
 
 inside a run, through the launcher's report_command:
@@ -61,29 +59,16 @@ examples:
   ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high
 """
 
-CHECK_HELP = """ub-agents check
-usage: ub-agents check [options]
-
-Validate project configuration, including trusted-bots, and instruction files
-without executing agents. Use after editing the workflow or before launching it.
-
-options:
-  --config PATH          # project configuration (default: ub-agents.yaml)
-  -h, --help             # show this help
-
-examples:
-  ub-agents check
-  ub-agents check --config workflow.yaml
-"""
-
 DOCTOR_HELP = """ub-agents doctor
 usage: ub-agents doctor [options]
 
-Check machine, GitHub and runtime prerequisites. Create missing workflow labels
-only after a confirmed interactive prompt. Show warnings and failures with a
-summary per area by default; required failures exit nonzero.
+Check machine, GitHub and runtime prerequisites. Use --offline for local
+validation without GitHub or agent runtimes. Create missing workflow labels only
+after a confirmed interactive prompt. Show warnings and failures with a summary
+per area by default; required failures exit nonzero.
 
 options:
+  --offline              # validate locally without GitHub or agent runtimes
   --json                 # emit versioned prerequisite results
   --verbose              # show the full per-check list (does not change --json)
   --config PATH          # project configuration (default: ub-agents.yaml)
@@ -91,6 +76,7 @@ options:
 
 examples:
   ub-agents doctor
+  ub-agents doctor --offline
   ub-agents doctor --json
 """
 
@@ -162,11 +148,6 @@ class HelpTests(unittest.TestCase):
         for argv in (["init", "-h"], ["init", "--help"], ["help", "init"]):
             with self.subTest(argv=argv):
                 self.assertEqual(self.invoke(argv), (0, INIT_HELP, ""))
-
-    def test_check_help_matches_requested_layout(self):
-        for argv in (["check", "-h"], ["check", "--help"], ["help", "check"]):
-            with self.subTest(argv=argv):
-                self.assertEqual(self.invoke(argv), (0, CHECK_HELP, ""))
 
     def test_every_registered_command_has_one_aligned_overview_row(self):
         overview = self.invoke([])[1]
@@ -297,8 +278,8 @@ class HelpTests(unittest.TestCase):
                     self.assertEqual(self.command_line.parse_args(words[1:]).command, name)
 
     def test_command_usage_has_positionals_required_options_and_compact_optional_options(self):
-        expected = {"init": "[options]", "check": "[options]", "doctor": "[options]",
-                    "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]", "cleanup": "[options]",
+        expected = {"init": "[options]", "doctor": "[options]",
+                    "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]",
                     "report": "(--outcome OUTCOME | --status {retry,blocked}) --summary SUMMARY [options]",
                     "retrospective": "--body-file PATH [options]",
                     "retry": "NUMBER --reason REASON [options]",
@@ -306,18 +287,18 @@ class HelpTests(unittest.TestCase):
         for name, command in self.command_line.commands().items():
             with self.subTest(command=name):
                 details = self.invoke(["help", name])[1]
-                self.assertEqual(details.splitlines()[1 if name in {"init", "check", "launch", "doctor"} else 0],
+                self.assertEqual(details.splitlines()[1 if name in {"init", "launch", "doctor"} else 0],
                                  f"usage: ub-agents {name} {expected[name]}")
                 for action in command._actions:
                     if action.option_strings and action.required and action.help != argparse.SUPPRESS:
                         self.assertIn(f"{action.help} (required)", " ".join(details.split()))
                 help_row = ("  -h, --help               # show this help\n" if name == "init" else
-                            "  -h, --help             # show this help\n" if name in {"check", "launch", "doctor"} else
+                            "  -h, --help             # show this help\n" if name in {"launch", "doctor"} else
                             "  -h, --help             show this help\n")
                 self.assertIn(help_row, details)
                 self.assertNotIn("show this help message and exit", details)
                 # Descriptions and other commands' option rows wrap within 80
-                # columns. Init/check/launch/doctor options and example commands remain literal.
+                # columns. Init/launch/doctor options and example commands remain literal.
                 for line in details.split("\n\n", 1)[1].split("\nexamples:")[0].splitlines():
                     width = 82 if name == "init" and line.startswith("  ") else 80
                     self.assertLessEqual(len(line), width, line)
@@ -336,7 +317,7 @@ class HelpTests(unittest.TestCase):
         self.assertIn("usage: ub-agents extra NUMBER [options]", extra.format_help())
 
     def test_unknown_commands_print_the_error_and_overview_on_stderr(self):
-        for name in ("nope", "recover", "approve"):
+        for name in ("nope", "recover", "approve", "check"):
             for argv in ([name], ["help", name], ["--config", "missing.yaml", name],
                          ["--config", "missing.yaml", "help", name]):
                 with self.subTest(argv=argv):
@@ -345,9 +326,9 @@ class HelpTests(unittest.TestCase):
     def test_usage_errors_print_the_usage_of_the_command_that_ran(self):
         for argv, name in ((["retry"], "retry"), (["retry", "143"], "retry"),
                            (["retry", "--agent", "implementer", "--reason", "Resolved"], "retry"),
-                           (["--config", "x.yaml", "check", "--config", "x.yaml"], "check"),
-                           (["check", "--bogus"], "check"),
-                           (["check", "--config"], "check"),
+                           (["--config", "x.yaml", "doctor", "--config", "x.yaml"], "doctor"),
+                           (["doctor", "--bogus"], "doctor"),
+                           (["doctor", "--config"], "doctor"),
                            (["report"], "report"), (["read"], "read"),
                            (["init", "--bogus"], "init"),
                            (["init", "--repository"], "init"),
@@ -362,8 +343,8 @@ class HelpTests(unittest.TestCase):
                 self.assertEqual(code, 2)
                 self.assertEqual(output, "")
                 self.assertTrue(errors.startswith(self.command_line.commands()[name].format_usage()))
-                if name == "check":
-                    self.assertTrue(errors.startswith("usage: ub-agents check [options]\n"))
+                if name == "doctor":
+                    self.assertTrue(errors.startswith("usage: ub-agents doctor [options]\n"))
                 self.assertIn(f"ub-agents {name}: error:", errors)
                 self.assertNotIn("usage: ub-agents <command>", errors)
                 self.assertNotIn("[-h]", errors)

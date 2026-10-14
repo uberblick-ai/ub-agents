@@ -30,6 +30,7 @@ from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases
                       record_version, records, same_run, timestamp)
 from .run_config import supervised_run
 from .status import lease_summary, process_details
+from .startup_cleanup import sweep as startup_cleanup
 
 
 def parser():
@@ -51,19 +52,16 @@ def parser():
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")
     init.add_argument("--use-defaults", action="store_true", help="unattended starters, even in a terminal")
-    check = commands.add_parser("check", help="validate the configuration and instruction files",
-                                 formatter_class=CommentHelpFormatter,
-                                 description="Validate project configuration, including trusted-bots, and instruction files without executing agents. "
-                                 "Use after editing the workflow or before launching it.",
-                                 examples=("ub-agents check", "ub-agents check --config workflow.yaml"))
     doctor = commands.add_parser("doctor", help="check the machine, GitHub access, labels and agent runtimes",
                                  formatter_class=CommentHelpFormatter,
                                  overview_options=("--json",),
                                  description="Check machine, GitHub and runtime prerequisites. "
+                                 "Use --offline for local validation without GitHub or agent runtimes. "
                                  "Create missing workflow labels only after a confirmed interactive prompt. "
                                  "Show warnings and failures with a summary per area by default; "
                                  "required failures exit nonzero.",
-                                 examples=("ub-agents doctor", "ub-agents doctor --json"))
+                                 examples=("ub-agents doctor", "ub-agents doctor --offline", "ub-agents doctor --json"))
+    doctor.add_argument("--offline", action="store_true", help="validate locally without GitHub or agent runtimes")
     doctor.add_argument("--json", action="store_true", help="emit versioned prerequisite results")
     doctor.add_argument("--verbose", action="store_true", help="show the full per-check list (does not change --json)")
     launch = commands.add_parser("launch", help="run the queue in the foreground, or handle one item",
@@ -86,12 +84,6 @@ def parser():
                                  examples=("ub-agents status", "ub-agents status 143", "ub-agents status 143 --json"))
     status.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="inspect only this item (optional)")
     status.add_argument("--json", action="store_true", help="emit structured status")
-    cleanup = commands.add_parser("cleanup", help="preview or remove stale worktrees and branches",
-                                  overview_options=("--apply",),
-                                  description="Preview stale owned worktrees and local branches. "
-                                  "Use after stopped runs; --apply removes eligible artifacts after rechecking ownership.",
-                                  examples=("ub-agents cleanup", "ub-agents cleanup --apply"))
-    cleanup.add_argument("--apply", action="store_true", help="remove eligible artifacts after rechecking")
     report = commands.add_parser("report", help="record the run's outcome", run_command=True,
                                  description="Record a supervised run's explicit result on GitHub. "
                                  "Use inside the launcher-provided assignment environment; choose --status or --outcome (required). "
@@ -134,7 +126,7 @@ def parser():
                                "its repository and configuration are pinned by the launcher. This command makes no writes.",
                                examples=("ub-agents read 143", "ub-agents read 150 --config workflow.yaml"))
     read.add_argument("number", metavar="NUMBER", type=int, help="issue or PR number in the configured repository")
-    for command in (init, check, doctor, launch, status, cleanup, retry, read):
+    for command in (init, doctor, launch, status, retry, read):
         command.add_argument("--config", dest="command_config", metavar="PATH",
                              help="project configuration (default: ub-agents.yaml)")
     help_command = commands.add_parser("help", overview_hidden=True,
@@ -306,9 +298,9 @@ def run(args):
     if args.command == "doctor":
         from .doctor import Doctor, render, render_check, render_counts
         doctor = Doctor()
-        result = doctor.run(args.config)
+        result = doctor.run(args.config, offline=args.offline)
         render(result, json_output=args.json, verbose=args.verbose)
-        if not args.json and doctor.create_missing_labels():
+        if not args.offline and not args.json and doctor.create_missing_labels():
             previous = result["checks"]
             result = doctor.result()
             for check in result["checks"]:
@@ -321,15 +313,6 @@ def run(args):
         if not any(agent.name == args.agent for agent in config.agents):
             names = ', '.join(agent.name for agent in config.agents)
             parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}; configured agents: {names}")
-    if args.command == "check":
-        from .config import instruction_text
-        instruction_text(config.root, config.shared_instructions, "shared-instructions")
-        for agent in config.agents:
-            instruction_text(config.root, agent.instructions, f"{agent.name} instructions")
-        print(f"Valid configuration: {config.repository}, {len(config.agents)} agents")
-        print(f"Approvals: {config.approvals} (config)" if config.approvals is not None else
-              "Approvals: from repository visibility (public: on; private/internal: off)")
-        return
     github = GitHub(config.repository)
     actor = None if args.command == "launch" else github.actor()
     coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
@@ -340,13 +323,6 @@ def run(args):
             raise AgentError(f"No configured agent applies to {item.kind} #{item.number}")
         args.agent = agent.name
         print(f"Using agent {agent.name} for {item.kind} #{item.number}.")
-    if args.command == "cleanup":
-        from .cleanup import Cleaner
-        for _, error in repository_checks(config):
-            if error is not None:
-                raise error
-        Cleaner(config, github, actor).clean(apply=args.apply)
-        return
     if args.command == "retry":
         agent = next((agent for agent in config.agents if agent.name == args.agent), None)
         if agent is None:
@@ -457,9 +433,12 @@ def run(args):
                 publisher.warning(str(exc))
             else:
                 loop.output(f"Cannot publish launcher observations: {exc}")
+        loop._before_claim()
+        session = loop.observer.state['session'] if loop.observer is not None else None
+        swept = startup_cleanup(config, github, loop.coordinator.actor, output=loop.output, session=session)
+        loop._observe("startup_cleanup", swept)
         if not stop.is_set():
             from .launch_ui import open_view
-            session = loop.observer.state['session'] if loop.observer is not None else None
             view = open_view(config.root, session, args.launch_output, stop,
                              no_ui=args.no_ui, poll=loop.request_poll)
             if view is not None:
@@ -544,7 +523,7 @@ def main(argv=None):
             args.config = (Path(args.config or DEFAULT_CONFIG).absolute() if args.command == "init" else
                            Path(args.config or DEFAULT_CONFIG).resolve() if args.command in {"report", "retrospective"}
                            else resolve_config_path(args.config))
-            needs_config = args.command in {"check", "status", "launch", "cleanup", "retry", "read"}
+            needs_config = args.command in {"status", "launch", "retry", "read"}
             if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
                 needs_config = False  # Supervised reads use the launcher's pinned input policy.
             if needs_config and not args.config.exists():

@@ -232,7 +232,7 @@ def create(*args, **kwargs):
     loop = Loop(*args, **kwargs)
     original_release = loop.coordinator.release
     def release(*args, **kwargs):
-        if mode in {'q', 'interrupt-q'}:
+        if mode in {'q', 'interrupt', 'interrupt-drain', 'interrupt-q'}:
             (root / 'releasing').touch()
             while not (root / 'release').exists():
                 time.sleep(0.03)
@@ -437,7 +437,7 @@ class LaunchTerminalTests(unittest.TestCase):
                     (root / 'finish').touch()
                 else:
                     (root / 'finish').touch()
-                if mode in {'q', 'interrupt-q'}:
+                if mode in {'q', 'interrupt', 'interrupt-drain', 'interrupt-q'}:
                     terminal.wait_for(lambda: (root / 'releasing').exists())
                     # Report/transition or process termination has finished, but
                     # the view still owns the terminal until the lease is released.

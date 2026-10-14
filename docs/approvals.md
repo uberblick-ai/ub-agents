@@ -13,8 +13,9 @@ approvals: on
 ```
 
 `ub-agents doctor --verbose` shows the effective value and its source: `config` or
-`visibility (public|private|internal)`. `ub-agents check` stays local-only: it shows
-the configured value or says the value comes from repository visibility.
+`visibility (public|private|internal)`. `ub-agents doctor --offline --verbose` shows
+the configured value or says the value comes from repository visibility without
+contacting GitHub or resolving that visibility.
 
 ## With approvals off
 
@@ -146,7 +147,7 @@ trusted-bots: [copilot-pull-request-reviewer, Copilot, "github-actions[bot]"]
 
 This optional top-level list defaults to empty. Entries are GitHub account logins,
 matched case-insensitively, with no `@` prefix or surrounding whitespace; quote
-logins containing brackets in YAML flow lists. `ub-agents check` rejects malformed
+logins containing brackets in YAML flow lists. `ub-agents doctor --offline` rejects malformed
 entries and case-insensitive duplicates. A listed login is trusted only when
 GitHub reports its account type as `Bot`; listing a human adds no trust.
 

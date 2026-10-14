@@ -1,6 +1,6 @@
 # Configuration
 
-`ub-agents.yaml` sits at the root of your repository. `ub-agents init` writes a starter file and `ub-agents check` validates the effective configuration, including optional machine-local overrides. Unknown keys are errors.
+`ub-agents.yaml` sits at the root of your repository. `ub-agents init` writes a starter file and `ub-agents doctor --offline` validates the effective configuration, including optional machine-local overrides. Unknown keys are errors.
 
 ```yaml
 repository: your-org/your-project
@@ -123,7 +123,7 @@ the effective settings use the existing schema. Invalid YAML, unreadable files,
 non-mapping top levels, unknown keys and invalid local values fail with an error
 naming the local file.
 
-`check`, `doctor`, `init` validation and launch use the same effective settings.
+`doctor`, `init` validation and launch use the same effective settings.
 Launch rereads both files before each run: adding, editing or removing the local
 file takes effect at the next reload, and removing it restores base settings.
 Active runs keep their selected settings. The local file stays in the operator's

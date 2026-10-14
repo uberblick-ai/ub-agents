@@ -85,7 +85,7 @@ class InitTests(unittest.TestCase):
         self.assertEqual(config.shared_instructions, self.path.parent / '.agents/ub_agents.md')
         self.assertTrue(all(agent.worktree for agent in config.agents))
 
-    def test_default_and_claude_starters_pass_check_with_and_without_permissions(self):
+    def test_default_and_claude_starters_pass_offline_doctor_with_and_without_permissions(self):
         for runtime in (None, 'claude:opus:high'):
             for enabled in (False, True):
                 with self.subTest(runtime=runtime, enabled=enabled), tempfile.TemporaryDirectory() as directory:
@@ -94,8 +94,10 @@ class InitTests(unittest.TestCase):
                     self.assertEqual(code, 0)
                     cli = runtime.split(':', 1)[0] if runtime else 'codex'
                     self.assertIn(f'{cli} loads no project guidance', output)
-                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                        self.assertEqual(main(['--config', str(self.path), 'check']), 0)
+                    with patch('ub_agents.doctor.subprocess.run', RecordingRunner(self.path.parent.resolve())), \
+                            patch('ub_agents.doctor.shutil.which', return_value='/tools/git'), \
+                            redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 0)
                     for name in ('AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'):
                         self.assertFalse((self.path.parent / name).exists())
 

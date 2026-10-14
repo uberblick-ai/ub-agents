@@ -5,7 +5,7 @@
 #
 # The commit is checked out into a temporary worktree with a fresh virtualenv,
 # so nothing from this checkout (its .venv, untracked files, local edits) can
-# make a run pass. It runs the unit suite on every core and `ub-agents check`,
+# make a run pass. It runs the unit suite on every core and `ub-agents doctor --offline`,
 # as the GitHub Actions `Test` workflow that gates merges does, plus the
 # `git diff --check` from AGENTS.md. It is optional and posts nothing to GitHub.
 set -eu
@@ -57,6 +57,6 @@ run() {
 run "Whitespace" git --no-pager diff --check "origin/main...$sha" --
 run "Install" sh -c 'python3 -m venv .venv && .venv/bin/python -m pip install -q -e .'
 run "Tests" .venv/bin/python -m tests
-run "Config check" .venv/bin/ub-agents check
+run "Config check" .venv/bin/ub-agents doctor --offline
 
 printf '\nci: all checks passed at %s\n' "$short"

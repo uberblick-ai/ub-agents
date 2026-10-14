@@ -54,7 +54,7 @@ class LaunchErrorTests(unittest.TestCase):
                 kwargs = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}
                 with patch("ub_agents.execution.subprocess.run", **kwargs):
                     self.assert_stop(lambda: group_members(321), problem, step)
-                    for command in ("status", "cleanup", "doctor"):
+                    for command in ("status", "doctor"):
                         output = self.invoke(lambda: group_members(321), command)
                         self.assertNotIn("launch again", output)
                         self.assertNotIn("restart ub-agents launch", output)

@@ -2,6 +2,22 @@
 
 Run `ub-agents doctor` during setup or when a launch fails. It checks your machine, the configuration, GitHub access, labels and agent CLIs, and shows a fix for every warning.
 
+## Offline validation
+
+Run `ub-agents doctor --offline` after editing configuration or in CI without
+GitHub credentials or agent CLIs. It checks Python, platform, Git, configuration,
+instruction files, repository root and origin, configured approvals, local state,
+the `.ub-agents/` ignore rule and process inspection. The configuration must be at
+the root of a Git checkout whose origin matches its `repository`.
+
+GitHub checks, control-checkout readiness, agent commands and runtime checks report
+`skip` with an offline reason. It makes no GitHub, network or agent-runtime calls
+and never offers to create labels. Approvals show the configured value or say they
+come from repository visibility, without resolving visibility.
+
+`--offline` works with `--config PATH`, `--json` and `--verbose`. Required failures
+still exit 1; warnings and skips alone exit 0.
+
 ## Results and label setup
 
 Default output groups warnings, failures and remedies by machine, configuration,

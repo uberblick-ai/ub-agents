@@ -94,6 +94,12 @@ no focus. Ready rows whose check fails show `waiting` in Eligible, outside Needs
 attention. Each failure, changed error or recovery also appears in plain launch
 output and `.ub-agents/launch.log`.
 
+When the startup artifact sweep reports decisions or a failure, a **Startup
+cleanup** fold appears above the panes. Expand it to scroll through every
+`removed` or `kept` line with its reason and any sweep error. The same lines
+appear in `.ub-agents/launch.log` and plain output with `--no-ui`. The sweep runs
+once after startup checks and before polling; its failures do not stop launch.
+
 At **110 columns × 32 rows** and above, the combined view shows both panes. At that size
 and above, the Work pane's outer width, including its border, is one third of the
 terminal width, rounded down and clamped to 46–64 columns. A one-column gap
@@ -555,9 +561,9 @@ Claude and Codex Log transcripts are described below.
 | `Ctrl-C` | Stop now with the launcher's normal SIGINT handling (exit 130); close a standalone view |
 
 Each copy briefly shows `copied N characters` in the footer. Plain clicks and
-empty selections copy nothing. OSC 52 works over ssh and inside herdr when the
-terminal accepts it. In iTerm2, enable **Applications in terminal may access
-clipboard** for OSC 52. Terminal.app does not support OSC 52.
+empty selections copy nothing. Inside tmux, OSC 52 needs `set -s set-clipboard on`.
+In iTerm2, enable **Applications in terminal may access clipboard** for OSC 52.
+Terminal.app does not support OSC 52.
 
 On macOS, the view also uses `pbcopy` when it is on PATH and neither
 `SSH_CONNECTION` nor `SSH_TTY` is set. This covers local terminals that do not
@@ -650,8 +656,7 @@ assignment continue. Toggling off, launcher exit or the attached view closing
 releases only that launcher's helper; tying it to the launcher PID also ends it
 after SIGKILL. Separate launchers own separate assertions.
 
-The request applies to the machine running the launcher. Over SSH it affects the
-remote host, so it does not keep the local Mac awake. Other platforms omit the
+Keep awake affects only the machine running the launcher. Other platforms omit the
 footer hint, mark `c` unavailable in `?`, and show
 `keep awake unavailable on this platform` when pressed. Standalone views,
 `--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
@@ -908,7 +913,7 @@ Textual, and resolves the view entrypoint. Local checks:
 
 ```sh
 .venv/bin/python -m tests
-.venv/bin/ub-agents check
+.venv/bin/ub-agents doctor --offline
 git diff --check
 ```
 

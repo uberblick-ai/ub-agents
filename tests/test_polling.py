@@ -25,6 +25,7 @@ class PollingTests(unittest.TestCase):
         self.addCleanup(clock.stop)
         self.refresh = stub_refresh(self)
         self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.enterContext(patch("ub_agents.cleanup.Cleaner.inventory", return_value=[]))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

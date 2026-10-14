@@ -516,9 +516,9 @@ text, so long names can drop optional hints before the name itself shortens.
 
 Toggling off, exiting the launcher or closing its attached view ends only its
 helper. The PID tie also ends the assertion after SIGKILL. Other launchers are
-independent. The effect is on the launcher machine: SSH to a remote host cannot
-keep the local Mac awake. Other platforms omit the hint, mark `c` unavailable in
-`?` and briefly show `keep awake unavailable on this platform` when pressed.
+independent. The effect is only on the launcher machine. Other platforms omit the
+hint, mark `c` unavailable in `?` and briefly show
+`keep awake unavailable on this platform` when pressed.
 `?` describes the key and its macOS-only limit. Standalone views, `--no-ui` and
 non-TTY launches neither offer nor act on it.
 

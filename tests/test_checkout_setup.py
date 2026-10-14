@@ -371,6 +371,6 @@ class CheckoutSetupConfigTests(unittest.TestCase):
             for value in invalid:
                 with self.subTest(value=value):
                     path.write_text(base + f"checkout-setup: {value}\n")
-                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as error:
-                        self.assertEqual(main(["--config", str(path), "check"]), 1)
+                    with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as error:
+                        self.assertEqual(main(["--config", str(path), "doctor", "--offline"]), 1)
                     self.assertIn("checkout-setup", error.getvalue())

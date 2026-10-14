@@ -132,7 +132,7 @@ Before the first launch:
    they merge, use a clean default-branch launcher checkout and launch:
 
 ```sh
-ub-agents check
+ub-agents doctor --offline  # local validation without GitHub or agent CLIs
 git add ub-agents.yaml .agents .gitignore
 ub-agents doctor     # machine, GitHub access, labels and agent CLIs
 ub-agents launch     # runs the loop and opens the terminal view
@@ -194,7 +194,7 @@ agents:
 ```
 
 The implementer's other settings and other agents inherit from the base. Missing,
-empty or comment-only local files leave it unchanged. `check`, `doctor`, `init`
+empty or comment-only local files leave it unchanged. `doctor`, `init`
 validation and launch use the effective settings; launch rereads both files before
 each run, so adding, editing or removing the local file takes effect at the next
 reload. It stays in the control checkout and is not copied into private worktrees.
@@ -221,8 +221,13 @@ private worktree also runs setup once before its agent starts.
 | `ub-agents launch 214` | Run only issue or PR 214, skipping queue priority and milestone policy while applying all other gates, then exit |
 | `ub-agents status [214]` | Show the queue, or why one item is waiting |
 | `ub-agents retry 214 --reason "…"` | Let an item that failed or blocked run again |
-| `ub-agents cleanup [--apply]` | Preview or remove worktrees left by crashed runs |
 | `ub-agents help COMMAND` | Show a command's options and examples |
+
+Every launch sweeps eligible leftover worktrees and local branches once before
+polling. Decisions and failures appear in the launch log and terminal view, or
+plain output with `--no-ui`; sweep failures do not stop launch. A quick restart
+keeps a crashed run's artifacts while its lease is live, until a later launch
+start after expiry. See [stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
 
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of

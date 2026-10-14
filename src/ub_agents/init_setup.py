@@ -309,7 +309,7 @@ def next_steps(plan):
         steps.append(f"Add project check commands to --allowedTools in {plan.path.name}.")
     if plan.choices.retrospectives and cli == "claude":
         steps.append('Review permission to post: add "Bash({report_command} retrospective *)" to the chosen roles only.')
-    steps.extend([f"Run ub-agents check --config {plan.path}.",
+    steps.extend([f"Run ub-agents doctor --offline --config {plan.path}.",
                   "Review, commit and push the starter files through a PR; merge them into the default branch.",
                   "Use a clean default-branch launcher checkout; run ub-agents doctor before ub-agents launch."])
     return steps
