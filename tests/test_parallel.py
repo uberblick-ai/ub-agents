@@ -3,6 +3,7 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from tests.parallel import main, ROOT, supervise
+from tests.parallel_worker import signal_process
 
 
 class ParallelTests(unittest.TestCase):
@@ -174,3 +176,15 @@ class ParallelTests(unittest.TestCase):
                     self.assertRaises(SystemExit) as raised:
                 main(['--timeout', value])
             self.assertEqual(raised.exception.code, 2)
+
+    def test_zombie_only_groups_are_gone_but_live_permission_failures_are_errors(self):
+        with patch('tests.parallel_worker.os.killpg', side_effect=PermissionError), \
+                patch('tests.parallel_worker.process_table', return_value=[(123, 1, 123, 'Z')]):
+            signal_process(123, signal.SIGKILL, group=True)
+        with patch('tests.parallel_worker.os.killpg', side_effect=PermissionError), \
+                patch('tests.parallel_worker.process_table', return_value=[(123, 1, 123, 'S')]), \
+                self.assertRaises(PermissionError):
+            signal_process(123, signal.SIGKILL, group=True)
+        with patch('tests.parallel_worker.os.kill', side_effect=PermissionError), \
+                self.assertRaises(PermissionError):
+            signal_process(123, signal.SIGKILL)

@@ -164,6 +164,20 @@ def signal_process(pid, sig, group=False):
         (os.killpg if group else os.kill)(pid, sig)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # Darwin's killpg returns EPERM for a group containing only zombies.
+        # Treat it as gone only after inspection confirms no live members;
+        # permission failures against a live process must still fail the run.
+        if not group or any(pgid == pid and not state.startswith('Z')
+                            for _pid, _parent, pgid, state in process_table()):
+            raise
+
+
+def process_table():
+    result = subprocess.run(['ps', '-axo', 'pid=,ppid=,pgid=,stat='],
+                            capture_output=True, text=True, timeout=1, check=True)
+    return [(int(pid), int(parent), int(group), state)
+            for pid, parent, group, state in (line.split() for line in result.stdout.splitlines())]
 
 
 def stop_workers(workers):
@@ -181,17 +195,15 @@ def stop_workers(workers):
         # Freezing descendants prevents them from spawning more children during
         # cleanup. Repeat the snapshot to include any fork racing the first one.
         for _ in range(3):
-            result = subprocess.run(['ps', '-axo', 'pid=,ppid=,pgid='],
-                                    capture_output=True, text=True, timeout=1, check=True)
-            rows = [tuple(map(int, line.split())) for line in result.stdout.splitlines()]
+            rows = process_table()
             previous = set(owned)
             while True:
-                found = {pid for pid, parent, group in rows if parent in owned or group in groups}
+                found = {pid for pid, parent, group, _state in rows if parent in owned or group in groups}
                 if found <= owned:
                     break
                 owned.update(found)
-            for pid, _parent, group in rows:
-                if pid in owned:
+            for pid, _parent, group, state in rows:
+                if pid in owned and not state.startswith('Z'):
                     signal_process(pid, signal.SIGSTOP)
                     if group == pid:
                         groups.add(group)
@@ -200,10 +212,10 @@ def stop_workers(workers):
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         sys.stderr.write(f'\nCould not inspect worker descendants: {error}\n')
     finally:
-        for pid in owned:
-            signal_process(pid, signal.SIGKILL)
         for group in groups:
             signal_process(group, signal.SIGKILL, group=True)
+        for pid in owned:
+            signal_process(pid, signal.SIGKILL)
         deadline = time.monotonic() + 3
         for worker in workers:
             try:
