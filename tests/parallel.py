@@ -8,8 +8,9 @@ Names are the same dotted names `python -m unittest` takes; without names the
 whole suite under tests/ runs. Each test has a 300-second limit, configurable
 with --timeout SECONDS. Worker startup, discovery and shutdown use the same
 limit when no test is in flight. A timeout prints worker thread stacks, stops
-workers and their child processes, and fails the run. Workers start in fresh
-Python interpreters on every platform, so Linux runs behave like macOS.
+workers and their child processes, and fails the run. Workers also stop their
+process trees if the runner is killed. Workers start in fresh Python interpreters
+on every platform, so Linux runs behave like macOS.
 """
 
 import argparse
@@ -153,7 +154,6 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
                 sys.stderr.write('\n' + message + '\n')
                 outcome['errors'].append((event['name'], message))
                 aborting = True
-                worker.name = None
                 worker.phase = 'test completed after timeout'
                 worker.since = time.monotonic()
             worker.name = None

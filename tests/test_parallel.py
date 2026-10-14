@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from tests.parallel import main, ROOT, supervise
-from tests.parallel_worker import signal_process
+from tests.parallel_worker import process_table, signal_process, stop_process_trees
 
 
 class ParallelTests(unittest.TestCase):
@@ -33,6 +33,61 @@ class ParallelTests(unittest.TestCase):
         live = {int(pid) for pid, status in (line.split() for line in result.stdout.splitlines())
                 if not status.startswith('Z')}
         self.assertFalse(set(pids) & live, f'Worker descendants still alive: {set(pids) & live}')
+
+    def wait_for(self, condition):
+        deadline = time.monotonic() + 5
+        while not condition():
+            if time.monotonic() >= deadline:
+                self.fail('Timed out waiting for runner fixture')
+            time.sleep(.01)
+
+    def kill_runner(self, names, phases, sig, *, group=True):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner = subprocess.Popen(
+                [sys.executable, '-m', 'tests', '-j', str(len(names)), '--timeout', '30', *names],
+                cwd=ROOT, env=os.environ.copy() | {'TEST_RUNNER_RECORD': directory},
+                start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            pids = []
+            try:
+                markers = [root / phase / marker for phase, marker in phases.items()]
+                records = [root / phase / f'children-{detached}'
+                           for phase in phases for detached in (False, True)]
+                self.wait_for(lambda: all(marker.exists() for marker in markers)
+                              and all(record.exists() and record.stat().st_size for record in records))
+                for phase in phases:
+                    pids.append(int((root / phase / 'worker').read_text()))
+                    for detached in (False, True):
+                        pids.extend(json.loads((root / phase / f'children-{detached}').read_text()))
+                signal_process(runner.pid, sig, group=group)
+                runner.communicate(timeout=5)
+                self.assertEqual(runner.returncode, -sig)
+                # The EOF watcher cleans asynchronously after the runner dies.
+                self.wait_for(lambda: not set(pids) & {
+                    pid for pid, _parent, _group, state in process_table() if not state.startswith('Z')})
+                self.assert_stopped(pids)
+            finally:
+                # Keep even a failing regression from leaking its fixtures.
+                roots = [runner.pid]
+                for record in root.glob('*/worker'):
+                    roots.append(int(record.read_text()))
+                for record in root.glob('*/children-*'):
+                    if record.stat().st_size:
+                        roots.extend(json.loads(record.read_text()))
+                stop_process_trees(roots)
+                runner.communicate(timeout=5)
+
+    def test_killing_runner_group_stops_finished_and_running_worker_trees(self):
+        for sig in (signal.SIGTERM, signal.SIGKILL, signal.SIGHUP):
+            with self.subTest(signal=sig):
+                self.kill_runner(
+                    ['tests.parallel_fixtures.Hanging.test_parent_finished',
+                     'tests.parallel_fixtures.Hanging.test_parent_running'],
+                    {'finished': 'stopped', 'running': 'worker'}, sig)
+
+    def test_killing_only_runner_stops_workers_during_interpreter_shutdown(self):
+        self.kill_runner(['tests.parallel_fixtures.Hanging.test_parent_shutdown'],
+                         {'shutdown': 'shutting-down'}, signal.SIGKILL, group=False)
 
     def test_timeout_reports_test_all_threads_and_stops_detached_descendants(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -60,6 +115,15 @@ class ParallelTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn('RUNNER TIMEOUT: worker shutdown', result.stderr)
         self.assertEqual(result.stderr.count(' (worker shutdown):'), 2)
+
+    def test_timeout_diagnostics_exclude_stderr_from_earlier_tests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_runner('tests.parallel_fixtures.Results.test_stderr_noise',
+                                     'tests.parallel_fixtures.Hanging.test_hang',
+                                     environment=os.environ.copy() | {'TEST_RUNNER_RECORD': directory})
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn('waiting_thread', result.stderr)
+            self.assertNotIn('stderr from an earlier test', result.stderr)
 
     def test_discovery_stall_is_bounded_without_naming_a_test(self):
         result = self.run_runner('tests.parallel_fixtures.discovery_hang')

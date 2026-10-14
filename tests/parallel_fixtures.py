@@ -1,5 +1,6 @@
 """Opt-in subprocess fixtures; this module is outside unittest discovery."""
 
+import atexit
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,9 @@ class Results(unittest.TestCase):
 
     def test_late_result(self):
         time.sleep(2.1)
+
+    def test_stderr_noise(self):
+        os.write(2, b'stderr from an earlier test\n')
 
     def test_failure(self):
         print('buffered failure output')
@@ -41,15 +45,18 @@ class Hanging(unittest.TestCase):
 
     def test_children_finish(self):
         self.start_children()
-        directory = Path(os.environ['TEST_RUNNER_RECORD'])
+        self.wait_for_children(Path(os.environ['TEST_RUNNER_RECORD']))
+
+    def wait_for_children(self, directory):
         deadline = time.monotonic() + 10
         while not all((directory / f'children-{detached}').exists() for detached in (False, True)):
             if time.monotonic() >= deadline:
                 self.fail('child did not start')
             time.sleep(.01)
 
-    def start_children(self):
-        directory = Path(os.environ['TEST_RUNNER_RECORD'])
+    def start_children(self, directory=None):
+        directory = directory or Path(os.environ['TEST_RUNNER_RECORD'])
+        directory.mkdir(exist_ok=True)
         (directory / 'worker').write_text(str(os.getpid()))
         # Cover an ordinary child plus a child and grandchild that escape the
         # worker session. All ignore SIGTERM, requiring forced cleanup.
@@ -74,6 +81,29 @@ time.sleep(60)
 
     def test_crash(self):
         os._exit(7)
+
+    def test_parent_finished(self):
+        directory = Path(os.environ['TEST_RUNNER_RECORD']) / 'finished'
+        self.start_children(directory)
+        self.wait_for_children(directory)
+        # Ensure the second worker owns the hung test before this test returns;
+        # otherwise the first worker could receive both tests during startup.
+        self.wait_for_children(directory.parent / 'running')
+        # Registered after the worker's shutdown callback, so this proves the
+        # worker reached atexit before the runner is killed.
+        atexit.register((directory / 'stopped').touch)
+
+    def test_parent_running(self):
+        self.start_children(Path(os.environ['TEST_RUNNER_RECORD']) / 'running')
+        self.waiting_thread()
+
+    def test_parent_shutdown(self):
+        directory = Path(os.environ['TEST_RUNNER_RECORD']) / 'shutdown'
+        self.start_children(directory)
+        self.wait_for_children(directory)
+        threading.Thread(target=self.waiting_thread).start()
+        # Runs before Python joins non-daemon threads, which deliberately hang.
+        threading._register_atexit((directory / 'shutting-down').touch)
 
 
 def __getattr__(name):
