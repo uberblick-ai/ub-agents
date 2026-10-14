@@ -162,8 +162,8 @@ for private and internal repositories. Each discovery pass resolves the unset
 default from GitHub visibility; an unreadable visibility fails before claims or
 parking writes. With approvals off, a configured trigger label starts work
 regardless of who applied it, current titles and bodies are input, and feedback
-is limited to authors with `write`, `maintain` or `admin`. No approval record can
-clear other feedback. PR heads need no approval, and there are no approval reads
+is limited to authors with `write`, `maintain` or `admin`. PR heads need no approval,
+and there are no approval reads
 or approval-parking writes. Other eligibility gates and stop labels still apply.
 See the [approval policy](approvals.md) for details.
 
@@ -178,8 +178,8 @@ issues or trusted-authored PRs.
 | Approval gate | Maintainer action to resume (starter labels) |
 |---|---|
 | No maintainer start | Remove `needs-human` and re-apply a trigger label. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label, or run `ub-agents approve N`; then remove `needs-human`. |
-| Outside PR head not approved | Run `ub-agents approve N` or submit an approving review of the current head; then remove `needs-human`. A trigger label does not approve a head. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label; then remove `needs-human`. |
+| Outside PR head not approved | Submit a maintainer approving review of the current head; then remove `needs-human`. |
 
 Each gate state gets the stop label and notice at most once. Later polls of the
 same unresolved gate add nothing; a new gate after resuming parks the item again.
@@ -196,7 +196,7 @@ rewrite is trusted.
 Context holds the post-claim title, body and trusted comments; approvals on can also
 include cleared outside comments.
 PR context adds the assigned head, reviews and review comments. Uncleared and
-later-edited outside feedback, coordination records, launcher notices and approval records are
+later-edited outside feedback, coordination records and launcher notices are
 excluded. The prompt makes this snapshot the assignment input; other GitHub
 comments are not input. Outside changes during execution do not stop that run,
 replace its context or gate its durable completion and recovery.
@@ -212,15 +212,13 @@ from every trusted launcher account supply this input. Revisions must address
 `feedback` alongside comments and reviews.
 This field does not change approval requirements.
 
-With approvals on, an outside PR head requires a valid pinned approval record, a maintainer approving
+With approvals on, an outside PR head requires a maintainer approving
 review on that head, or an accepted agent outcome from an eligible assignment head
 when the head repository is the base repository. Changed fork heads need explicit
 maintainer approval, even if an accepted successful run observed them.
 A trigger label alone cannot identify a pushed head. Fork PR review is supported;
 agent revision of a fork PR remains blocked regardless of the approvals setting.
-`ub-agents approve N` accepts
-issues and PRs and clears the outside feedback it records; PR records also pin the
-head. Its records have no effect with approvals off. See the [complete PR rules](approvals.md#pull-requests).
+See the [complete PR rules](approvals.md#pull-requests).
 
 ## Trusted comments
 

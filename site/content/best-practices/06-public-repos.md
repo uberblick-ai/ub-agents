@@ -8,16 +8,8 @@ approvals: on
 
 ## Start work on purpose
 
-A maintainer adds the trigger label. Outside edits to the issue [park it](/docs/configuration/stop-labels.html#approvals) until a maintainer starts it again or approves the new text.
-
-## Approve what changed
-
-[`approve`](/docs/commands/approve.html) prints the current input and records your approval of exactly that.
-
-```sh
-ub-agents approve 214
-```
+A maintainer adds the trigger label. Outside edits to the issue [park it](/docs/configuration/stop-labels.html#approvals) until a maintainer re-applies a trigger label and removes the stop label.
 
 ## Fork pull requests
 
-Agents can review them but never push to them ([outside pull requests](/docs/configuration/approvals.html#outside-pull-requests)). Every new fork commit needs a maintainer's approval.
+Agents can review them but never push to them ([outside pull requests](/docs/configuration/approvals.html#outside-pull-requests)). Every new fork commit needs a maintainer's approving review of that exact commit.

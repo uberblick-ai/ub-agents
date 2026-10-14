@@ -10,8 +10,8 @@ a terminal; CI/non-TTY also uses defaults without wizard probes. Permissions and
 optional features default to off, and deferred labels are printed as commands.
 Existing local overrides still take precedence. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html) for choices and recovery.
-If the selected file is missing, `status`, `launch`, `retry`,
-`approve` and unsupervised `read` exit 1 with a message naming `ub-agents init`.
+If the selected file is missing, `status`, `launch`, `retry` and
+unsupervised `read` exit 1 with a message naming `ub-agents init`.
 An explicit `--config PATH` is named in the message. `launch` creates no
 `.ub-agents/` or `launch.log` without configuration; `doctor` keeps its diagnostic report.
 
@@ -1202,7 +1202,6 @@ from the executable rather than another manually maintained copy.
 | `launch` | [Run the queue or one item](https://agents.uberblick.ai/docs/commands/launch.html) |
 | `status` | [Inspect work, ownership and outcomes](https://agents.uberblick.ai/docs/commands/status.html) |
 | `retry` | [Reset attempts after fixing their cause](https://agents.uberblick.ai/docs/commands/retry.html) |
-| `approve` | [Approve current input](https://agents.uberblick.ai/docs/commands/approve.html) |
 | `report` | [Report a supervised outcome](https://agents.uberblick.ai/docs/commands/report.html) |
 | `retrospective` | [Post to the configured role board](https://agents.uberblick.ai/docs/commands/retrospective.html) |
 | `read` | [Read filtered issue or PR input](https://agents.uberblick.ai/docs/commands/read.html) |

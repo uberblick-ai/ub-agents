@@ -16,17 +16,13 @@ approvals: off
 
 ## On
 
-A maintainer starts every issue by adding a trigger label. Edits and comments from outside the team need a maintainer's approval before an agent reads them.
+A maintainer starts every issue by adding a trigger label. Re-applying a trigger label clears earlier edits and comments from outside the team for the agents.
 
 Cold status and queue-view observation passes read content, body revisions and label/title events in GraphQL batches of up to 50 items whose plans need approval checks. Claiming passes read one reached item at a time and stop at the first claim. Incomplete histories, unsafe event mappings and title-edit gates fall back to the full per-item reads; an unusable batch can add one attempted call. Unchanged discovery inputs stay cached. Fresh claim and approval-parking checks, `read`, role checks and comment reads keep their per-item paths.
 
-```sh
-ub-agents approve 214
-```
-
 ## Outside pull requests
 
-A pull request from outside the team needs a maintainer's trigger label and an approved head commit: `ub-agents approve N` or an approving review. Agents can review fork pull requests but never push to them.
+A pull request from outside the team needs a maintainer's trigger label and an approving review of its exact head commit. Accepted agent revisions from an eligible head inherit eligibility in the base repository. Agents can review fork pull requests but never push to them.
 
 ## When something needs approval
 

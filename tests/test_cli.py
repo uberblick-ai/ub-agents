@@ -11,7 +11,7 @@ from ub_agents.cli import main
 class ArgumentTests(unittest.TestCase):
     commands = (("init",), ("doctor",), ("doctor", "--offline"), ("launch",), ("status",), ("status", "42"),
                 ("retry", "42", "--reason", "Fixed"),
-                ("approve", "42"), ("read", "42"))
+                ("read", "42"))
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -98,8 +98,8 @@ class ArgumentTests(unittest.TestCase):
 
     def test_positional_number_and_hidden_alias(self):
         self.run.return_value = 0
-        for name in ("approve", "retry"):
-            options = [] if name == "approve" else ["--reason", "Fixed"]
+        for name in ("retry",):
+            options = ["--reason", "Fixed"]
             for number in (["42"], ["--number", "42"]):
                 with self.subTest(command=name, number=number):
                     self.assertEqual(main([name, *number, *options]), 0)
@@ -113,8 +113,8 @@ class ArgumentTests(unittest.TestCase):
             self.assertIn("NUMBER", self.stdout.getvalue())
 
     def test_conflicting_missing_and_invalid_numbers_are_usage_errors(self):
-        for name in ("approve", "retry"):
-            options = [] if name == "approve" else ["--reason", "Fixed"]
+        for name in ("retry",):
+            options = ["--reason", "Fixed"]
             for number in (["42", "--number", "42"], ["42", "--number", "43"]):
                 with self.subTest(command=name, number=number):
                     self.usage_error([name, *number, *options], "accepts either N or --number N, not both")
@@ -153,6 +153,16 @@ class ArgumentTests(unittest.TestCase):
         self.assertNotIn("recover", self.stdout.getvalue())
         self.usage_error(["recover", "42", "--reason", "Stopped"], 'unknown command "recover"')
 
+    def test_approve_is_removed_including_its_help_and_examples(self):
+        with self.assertRaises(SystemExit) as caught:
+            main(["--help"])
+        self.assertEqual(caught.exception.code, 0)
+        self.assertNotIn("approve", self.stdout.getvalue())
+        for argv in (["approve", "42"], ["approve", "--number", "42"],
+                     ["approve", "--help"], ["help", "approve"]):
+            with self.subTest(argv=argv):
+                self.usage_error(argv, 'unknown command "approve"')
+
     def test_cleanup_is_removed_including_preview_apply_and_help(self):
         for options in ([], ["--apply"]):
             self.usage_error(["cleanup", *options], 'unknown command "cleanup"')
@@ -172,7 +182,7 @@ class ArgumentTests(unittest.TestCase):
 
 class MissingConfigTests(unittest.TestCase):
     commands = (("status",), ("status", "42"), ("launch",), ("launch", "--once"),
-                ("retry", "42", "--reason", "Fixed"), ("approve", "42"), ("read", "42"))
+                ("retry", "42", "--reason", "Fixed"), ("read", "42"))
 
     def test_missing_config_names_init_and_creates_nothing(self):
         with tempfile.TemporaryDirectory() as directory:

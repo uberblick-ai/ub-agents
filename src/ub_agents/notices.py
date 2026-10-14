@@ -151,16 +151,15 @@ class Notices:
         if check.gate == "start":
             action = "Maintainer: authorize starting this item and clear its human hold."
             resume = (f"A maintainer must remove the stop label(s) {labels} and re-apply a trigger label: "
-                      f"{trigger_text}. An approval alone does not start work.")
+                      f"{trigger_text}.")
         elif check.gate == "head":
             action = "Maintainer: approve this PR's current head and clear its human hold."
-            resume = (f"A maintainer must run `ub-agents approve {number}` or submit an approving "
-                      f"review of the current head; then remove the stop label(s) {labels}. "
-                      "Re-applying a trigger label does not approve a head.")
+            resume = (f"A maintainer must submit an approving review of the current head; "
+                      f"then remove the stop label(s) {labels}.")
         else:
-            action = "Maintainer: approve the updated input and clear its human hold."
-            resume = (f"A maintainer must re-apply a trigger label ({trigger_text}), or run "
-                      f"`ub-agents approve {number}`; then remove the stop label(s) {labels}.")
+            action = "Maintainer: authorize the updated input and clear its human hold."
+            resume = (f"A maintainer must re-apply a trigger label ({trigger_text}); "
+                      f"then remove the stop label(s) {labels}.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
         self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
             number, action_body(marker, [action], check.reason, resume=f"Then resume:\n\n{resume}"), marker))

@@ -8,14 +8,13 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
-from ub_agents.approvals import approval_body, historical_content
 from ub_agents.config import Queue
 from ub_agents.discovery import Discovery
 from ub_agents.github import APPROVAL_BATCH_SIZE, GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import iso
 from ub_agents.run_planning import RunPlanning
-from tests.support import DiscoveryCostRunner, PollGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import DiscoveryCostRunner, PollGitHub, agent, config, issue, pr, stub_refresh, legacy_approval_body
 
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "approval_inputs.json").read_text())
@@ -104,9 +103,6 @@ class ApprovalBatchTests(unittest.TestCase):
                     if case["name"] in {"bot actor", "ghost actor"}:
                         role_paths = [name for name, _ in runner.calls if name.endswith("/permission")]
                         self.assertFalse(any("helper" in name or "ghost" in name for name in role_paths))
-                    if case["name"] == "deleted edit":
-                        content = discovery.issue_content(1) if kind == "issue" else discovery.pr_content(1)
-                        self.assertIsNone(historical_content(content, [], 1767225612))
 
     def test_mapping_uncertainty_falls_back_for_both_reads(self):
         item, node, timeline = fixture(FIXTURES["cases"][0], "issue")
@@ -136,7 +132,7 @@ class ApprovalBatchTests(unittest.TestCase):
                 self.assertEqual(sum(name == "content" for name, _ in runner.calls), 1)
                 self.assertEqual(sum(name.endswith("/timeline") for name, _ in runner.calls), 1)
 
-    def test_approval_records_use_rename_history_and_deleted_edits_prove_no_digest(self):
+    def test_legacy_records_do_not_change_batch_verdicts(self):
         cases = {c["name"]: c for c in FIXTURES["cases"]}
         for kind in ("issue", "pr"):
             for name in ("trusted rename", "body edited after start", "deleted edit"):
@@ -144,7 +140,7 @@ class ApprovalBatchTests(unittest.TestCase):
                     item, node, timeline = fixture(cases[name], kind)
                     title = "Requirements" if name == "trusted rename" else item.title
                     at = "2026-01-01T00:00:08Z" if name == "trusted rename" else "2026-01-01T00:00:12Z"
-                    record = {"id": 601, "body": approval_body(1, title, item.body, [],
+                    record = {"id": 601, "body": legacy_approval_body(1, title, item.body, [],
                               head=item.head if kind == "pr" else None),
                               "created_at": at, "updated_at": at,
                               "user": {"login": "maintainer", "type": "User"}}
@@ -152,26 +148,28 @@ class ApprovalBatchTests(unittest.TestCase):
                         ordinary.comments = [deepcopy(record)]
                         bulk.comments = [deepcopy(record)]
                     result, _, _ = self.check_pair(item, node, timeline, setup)
-                    self.assertEqual(result.allowed, name != "deleted edit")
+                    self.assertEqual(result.allowed, cases[name]["allowed"])
+                    self.assertEqual([r["id"] for r in result.snapshot["comments"]], [601])
 
     def test_outside_pr_head_verdicts_and_cleared_feedback_match(self):
         item, node, timeline = fixture(FIXTURES["cases"][0], "pr")
         node["author"] = {"login": "outsider", "__typename": "User"}
         outside = {"id": 602, "body": "Outside feedback", "created_at": "2026-01-01T00:00:08Z",
                    "updated_at": "2026-01-01T00:00:08Z", "user": {"login": "outsider", "type": "User"}}
-        for approved in (False, True):
-            with self.subTest(approved=approved):
+        for with_record in (False, True):
+            with self.subTest(with_record=with_record):
                 def setup(ordinary, bulk):
                     comments = [deepcopy(outside)]
-                    if approved:
-                        comments.append({"id": 603, "body": approval_body(1, item.title, item.body, [outside], head=item.head),
+                    if with_record:
+                        comments.append({"id": 603, "body": legacy_approval_body(1, item.title, item.body, [outside], head=item.head),
                                          "created_at": "2026-01-01T00:00:12Z", "updated_at": "2026-01-01T00:00:12Z",
                                          "user": {"login": "maintainer", "type": "User"}})
                     ordinary.comments = deepcopy(comments)
                     bulk.comments = deepcopy(comments)
                 result, _, _ = self.check_pair(item, node, timeline, setup)
-                self.assertEqual(result.allowed, approved)
-                self.assertEqual(result.cleared_comment_ids, frozenset({602}) if approved else frozenset())
+                self.assertFalse(result.allowed)
+                self.assertEqual(result.gate, "head")
+                self.assertEqual(result.cleared_comment_ids, frozenset())
 
     def test_partial_or_graphql_error_batch_supplies_no_items_and_is_not_retried(self):
         item, node, timeline = fixture(FIXTURES["cases"][0], "issue")

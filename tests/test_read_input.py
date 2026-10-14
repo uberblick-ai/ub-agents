@@ -9,7 +9,6 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents import approvals
-from ub_agents.approvals import approval_body
 from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.coordination import Coordinator
@@ -18,7 +17,7 @@ from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.read_input import read_item, read_policy
 from ub_agents.run_config import run_config
-from tests.support import FakeGitHub, agent, config, issue, pr, run_environment, stub_refresh
+from tests.support import FakeGitHub, agent, config, issue, pr, run_environment, stub_refresh, legacy_approval_body
 from tests.test_approvals import at
 
 
@@ -58,10 +57,10 @@ class ReadInputTests(unittest.TestCase):
                                              "label": {"name": "ready"},
                                              "actor": actor or {"login": "maintainer"}})
 
-    def approve(self, number=1, second=10, **groups):
+    def legacy_record(self, number=1, second=10, **groups):
         item = self.github.items[number]
         row = feedback(1000 + second, "maintainer", second,
-                       approval_body(number, item.title, item.body, groups.get("comments", []),
+                       legacy_approval_body(number, item.title, item.body, groups.get("comments", []),
                                      head=item.head, reviews=groups.get("reviews", []),
                                      review_comments=groups.get("review_comments", [])))
         self.github.store.setdefault(number, []).append(row)
@@ -76,15 +75,17 @@ class ReadInputTests(unittest.TestCase):
             self.assertFalse(Loop(self.config, self.github, "operator").input_check(self.github.items[1]).allowed)
         self.assertEqual(self.github.writes, [])
 
-    def test_outside_issue_without_start_withholds_content_until_valid_record(self):
+    def test_outside_issue_without_start_withholds_content_despite_legacy_record(self):
         self.github.content_histories[1]["author"] = {"login": "outsider"}
         result = self.read()
         self.assertTrue(result["title"]["withheld"])
         self.assertTrue(result["body"]["withheld"])
         self.assertNotIn("Acceptance criteria", json.dumps(result))
-        self.approve()
-        self.assertEqual(self.read()["body"], "Acceptance criteria")
+        self.legacy_record()
+        self.assertTrue(self.read()["body"]["withheld"])
         self.assertFalse(Loop(self.config, self.github, "operator").input_check(self.github.items[1]).allowed)
+        self.start(second=15)
+        self.assertEqual(self.read()["body"], "Acceptance criteria")
 
     def test_all_feedback_clearance_matches_assignment_context(self):
         self.config = replace(self.config, trusted_bots=("COPILOT",))
@@ -96,13 +97,13 @@ class ReadInputTests(unittest.TestCase):
                            "review_comments": self.github.review_comment_store}
             for store in groups.values():
                 store[number] = [feedback(1, "operator"), feedback(2),
-                                 feedback(3, "member"), feedback(4, "reader"),
+                                 feedback(3, "member", second=6), feedback(4, "reader", second=6),
                                  feedback(5, "copilot", type="Bot"),
-                                 feedback(6, "copilot", type="User"),
-                                 feedback(7, "other-bot", __typename="Bot"),
+                                 feedback(6, "copilot", second=6, type="User"),
+                                 feedback(7, "other-bot", second=6, __typename="Bot"),
                                  feedback(8, "maintainer", body="<!-- ub-agents:v99 -->\nrecord"),
                                  feedback(9, "operator", body="<!-- ub-agents:action-needed old-run -->\nnotice")]
-            self.approve(number, **{name: [store[number][1]] for name, store in groups.items()})
+            self.start(number)
             loop = Loop(self.config, self.github, "operator")
             loop.approvals = "on"
             for store in groups.values():
@@ -208,7 +209,7 @@ class ReadInputTests(unittest.TestCase):
         bot = {"login": "review-app[bot]", "type": "Bot"}
         self.github.content_histories[1]["author"] = bot
         self.start(actor=bot)
-        self.approve()["user"] = bot
+        self.legacy_record()["user"] = bot
         self.assertTrue(self.read()["body"]["withheld"])
         self.assertFalse(Loop(self.config, self.github, "operator").input_check(self.github.items[1]).allowed)
         trust = Coordinator(self.github, "operator", trusted_bots=self.config.trusted_bots).trust
@@ -235,6 +236,37 @@ class ReadInputTests(unittest.TestCase):
                 self.assertEqual(result[name], [])
                 self.assertEqual(result["withheld_counts"][name], 1)
 
+    def test_legacy_marker_comments_follow_ordinary_author_filtering(self):
+        for policy in ('on', 'off'):
+            self.config = replace(self.config, approvals=policy, trusted_bots=('copilot',))
+            for number in (1, 2):
+                item = self.github.items[number]
+                valid = legacy_approval_body(number, item.title, item.body, [], head=item.head)
+                for text in (valid, '<!-- ub-agents:approval:v1 -->\nmalformed',
+                             '<!-- ub-agents:approval:v99 -->\nunknown'):
+                    with self.subTest(policy=policy, number=number, text=text):
+                        groups = {'comments': self.github.store}
+                        if number == 2:
+                            groups |= {'reviews': self.github.review_store,
+                                       'review_comments': self.github.review_comment_store}
+                        for store in groups.values():
+                            store[number] = [feedback(1, 'maintainer', body=text),
+                                             feedback(2, 'operator', body=text), feedback(3, body=text),
+                                             feedback(4, 'copilot', body=text, type='Bot')]
+                        self.github.timelines[number] = []
+                        read = self.read(number)
+                        loop = Loop(self.config, self.github, 'operator')
+                        loop.approvals = policy
+                        snapshot = loop.input_check(item).snapshot
+                        for name in groups:
+                            self.assertEqual([r['id'] for r in read[name]], [1, 2, 4])
+                            self.assertEqual(read[name], snapshot[name])
+                            self.assertEqual(read['withheld_counts'][name], 1)
+                        self.start(number)
+                        for name in groups:
+                            self.assertEqual([r['id'] for r in self.read(number)[name]],
+                                             [1, 2, 3, 4] if policy == 'on' else [1, 2, 4])
+
     def test_title_and_body_edits_withhold_only_affected_field_until_reapproved(self):
         for number in (1, 2):
             self.start(number)
@@ -250,7 +282,11 @@ class ReadInputTests(unittest.TestCase):
             self.assertTrue(result["body"]["withheld"])
             self.assertNotIn("Uncleared title text", json.dumps(result))
             self.assertNotIn("Uncleared body text", json.dumps(result))
-            self.approve(number, 20)
+            self.legacy_record(number, 20)
+            result = self.read(number)
+            self.assertTrue(result["title"]["withheld"])
+            self.assertTrue(result["body"]["withheld"])
+            self.start(number, 21)
             result = self.read(number)
             self.assertEqual((result["title"], result["body"]), ("Uncleared title text", "Uncleared body text"))
             self.github.change(number, body="Another edit")
@@ -262,13 +298,13 @@ class ReadInputTests(unittest.TestCase):
             self.assertTrue(result["body"]["withheld"])
             self.assertFalse(Loop(self.config, self.github, "operator").input_check(self.github.items[number]).allowed)
 
-    def test_bot_cannot_start_approve_or_trust_title_body_edits(self):
+    def test_bot_cannot_start_or_trust_title_body_edits(self):
         self.config = replace(self.config, trusted_bots=("copilot",))
         self.github.content_histories[1]["author"] = {"login": "outsider"}
         self.github.roles["copilot"] = "admin"
         bot = {"login": "copilot", "type": "Bot"}
         self.start(actor=bot)
-        self.approve()["user"] = bot
+        self.legacy_record()["user"] = bot
         self.assertTrue(self.read()["body"]["withheld"])
         self.assertFalse(Loop(self.config, self.github, "operator").input_check(self.github.items[1]).allowed)
 
@@ -308,18 +344,17 @@ class ReadInputTests(unittest.TestCase):
         for variant in ("stale", "forged", "edited", "same-second"):
             with self.subTest(variant=variant):
                 self.github.store[1] = [comment]
-                row = self.approve(second=3 if variant == "same-second" else 10, comments=[comment])
+                row = self.legacy_record(second=3 if variant == "same-second" else 10, comments=[comment])
                 if variant == "stale":
-                    row["body"] = approval_body(1, "Stale title", "Acceptance criteria", [comment])
+                    row["body"] = legacy_approval_body(1, "Stale title", "Acceptance criteria", [comment])
                 elif variant == "forged":
                     row["user"] = {"login": "operator"}
                 elif variant == "edited":
                     row["updated_at"] = at(11)
                 result = self.read()
-                self.assertEqual(result["comments"], [])
+                self.assertEqual([r["id"] for r in result["comments"]], [row["id"]])
                 self.assertEqual(result["withheld_counts"]["comments"], 1)
-                if variant != "same-second":
-                    self.assertTrue(result["body"]["withheld"])
+                self.assertTrue(result["body"]["withheld"])
 
     def test_off_uses_current_content_and_only_write_feedback_without_history_reads(self):
         self.config = replace(self.config, approvals="off", trusted_bots=("copilot",))
@@ -333,14 +368,14 @@ class ReadInputTests(unittest.TestCase):
                 store[number] = [feedback(1, "operator"), feedback(2, "copilot", __typename="Bot"),
                                  feedback(3, "copilot", type="User"), feedback(4, "member"),
                                  feedback(5, "reader"), feedback(6, "other", type="Bot"), feedback(7)]
-            self.approve(number, **{name: [store[number][-1]] for name, store in stores.items()})
+            self.legacy_record(number, **{name: [store[number][-1]] for name, store in stores.items()})
             with patch.object(self.github, "timeline", side_effect=AssertionError("history read")), \
                     patch.object(self.github, "issue_content", side_effect=AssertionError("history read")), \
                     patch.object(self.github, "pr_content", side_effect=AssertionError("history read")):
                 result = self.read(number)
             self.assertEqual(result["body"], self.github.items[number].body)
             for name in stores:
-                self.assertEqual([r["id"] for r in result[name]], [1, 2])
+                self.assertEqual([r["id"] for r in result[name]], [1, 2, 1010] if name == "comments" else [1, 2])
                 self.assertEqual(result["withheld_counts"][name], 5)
 
     def test_cli_failures_emit_no_item_content_and_make_no_writes(self):

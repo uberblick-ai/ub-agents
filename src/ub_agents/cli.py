@@ -114,15 +114,10 @@ def parser():
                                           'ub-agents retry 150 --agent reviewer --reason "Checks restored"'))
     retry.add_argument("--agent", metavar="NAME", help="configured agent (default: first matching item kind)")
     retry.add_argument("--reason", required=True, help="record why the human-authorized reset is justified")
-    approve = commands.add_parser("approve", help="record approval of an issue's or PR's current input",
-                                  description="Display current issue or PR input and record maintainer approval. "
-                                  "Use to clear changed input or outside feedback; requires maintain or admin access and changes no labels.",
-                                  examples=("ub-agents approve 143", "ub-agents approve 150"))
-    for command in (retry, approve):
-        # main requires one number, accepting the hidden alias for one release.
-        command.add_argument("number", metavar="NUMBER", type=int, nargs="?", required_for_help=True,
-                             help="issue or PR number")
-        command.add_argument("--number", dest="legacy_number", type=int, help=argparse.SUPPRESS)
+    # main requires one number, accepting the hidden alias for one release.
+    retry.add_argument("number", metavar="NUMBER", type=int, nargs="?", required_for_help=True,
+                       help="issue or PR number")
+    retry.add_argument("--number", dest="legacy_number", type=int, help=argparse.SUPPRESS)
     read = commands.add_parser("read", help="read an issue or PR as filtered JSON", run_command=True,
                                description="Read an open or closed issue or PR under the assignment input trust rules. "
                                "Withheld input is marked or counted; history and permission failures show no item content. "
@@ -131,7 +126,7 @@ def parser():
                                "its repository and configuration are pinned by the launcher. This command makes no writes.",
                                examples=("ub-agents read 143", "ub-agents read 150 --config workflow.yaml"))
     read.add_argument("number", metavar="NUMBER", type=int, help="issue or PR number in the configured repository")
-    for command in (init, doctor, launch, status, retry, approve, read):
+    for command in (init, doctor, launch, status, retry, read):
         command.add_argument("--config", dest="command_config", metavar="PATH",
                              help="project configuration (default: ub-agents.yaml)")
     help_command = commands.add_parser("help", overview_hidden=True,
@@ -320,11 +315,6 @@ def run(args):
             parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}; configured agents: {names}")
     github = GitHub(config.repository)
     actor = None if args.command == "launch" else github.actor()
-    if args.command == "approve":
-        from .approvals import approve_issue
-        created = approve_issue(github, args.number, actor)
-        print(f"Approval posted: {created['html_url']}")
-        return
     coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
     if args.command == "retry" and args.agent is None:
         item = github.item(args.number)
@@ -516,7 +506,7 @@ def main(argv=None):
                 if args.config is not None:
                     command_parser.error("--config may be given before or after the command, not both")
                 args.config = command_config
-            if args.command in {"approve", "retry"}:
+            if args.command == "retry":
                 if args.number is not None and args.legacy_number is not None:
                     command_parser.error(f"{args.command} accepts either N or --number N, not both")
                 args.number = args.number if args.number is not None else args.legacy_number
@@ -533,7 +523,7 @@ def main(argv=None):
             args.config = (Path(args.config or DEFAULT_CONFIG).absolute() if args.command == "init" else
                            Path(args.config or DEFAULT_CONFIG).resolve() if args.command in {"report", "retrospective"}
                            else resolve_config_path(args.config))
-            needs_config = args.command in {"status", "launch", "retry", "approve", "read"}
+            needs_config = args.command in {"status", "launch", "retry", "read"}
             if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
                 needs_config = False  # Supervised reads use the launcher's pinned input policy.
             if needs_config and not args.config.exists():
