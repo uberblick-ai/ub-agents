@@ -254,3 +254,137 @@ else:
             supervise([sys.executable, "-c", "import time; time.sleep(30)"], self.root,
                       os.environ.copy(), self.root / "failure", 3, threading.Event(), process_started=fail)
         self.assertEqual(group_members(int((self.root / "failure" / "pid").read_text())), [])
+
+
+class WorkspaceCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / "checkout"
+        self.root.mkdir()
+        self.origin = self.root.parent / "origin"
+        git(self.origin.parent, "init", "--bare", str(self.origin))
+        git(self.root, "init", "-b", "main")
+        self.commit(self.root, "base")
+        git(self.root, "remote", "add", "origin", str(self.origin))
+        git(self.root, "push", "origin", "main")
+        self.lines = []
+        self.lease = {"run": "private"}
+        self.workspace = Workspace(config(self.root), agent(self.root, worktree=True),
+                                   issue(), self.lease, FakeGitHub(issue()), output=self.lines.append)
+        self.path = self.workspace.prepare()
+        self.branch = self.lease["branch"]
+        self.tip = git(self.path, "rev-parse", "HEAD")
+
+    def commit(self, path, content):
+        (path / "file").write_text(content)
+        git(path, "add", "file")
+        git(path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+            "-c", "commit.gpgsign=false", "commit", "-m", content)
+        return git(path, "rev-parse", "HEAD")
+
+    def assert_removed_worktree(self):
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.workspace.created)
+        self.assertEqual(self.lease, {"run": "private", "branch": self.branch})
+
+    def assert_kept_branch(self, tip, reason):
+        self.assertEqual(git(self.root, "rev-parse", f"refs/heads/{self.branch}"), tip)
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn(self.branch, self.lines[0])
+        self.assertIn(reason, self.lines[0])
+
+    def test_run_without_commits_deletes_its_branch_after_removal(self):
+        self.workspace.cleanup()
+        self.assert_removed_worktree()
+        self.assertEqual(git(self.root, "for-each-ref", f"refs/heads/{self.branch}"), "")
+        self.assertFalse(self.lines)
+        self.assertEqual(git(self.root, "rev-parse", "main"), self.tip)
+
+    def test_pushed_tip_contained_in_another_origin_branch_is_deleted(self):
+        self.tip = self.commit(self.path, "pushed")
+        remote_tip = self.commit(self.path, "descendant")
+        git(self.path, "push", "origin", "HEAD:refs/heads/published")
+        git(self.path, "reset", "--hard", self.tip)
+        git(self.root, "update-ref", "-d", "refs/remotes/origin/published")
+        self.workspace.cleanup()
+        self.assert_removed_worktree()
+        self.assertEqual(git(self.root, "for-each-ref", f"refs/heads/{self.branch}"), "")
+        self.assertEqual(git(self.root, "rev-parse", "refs/remotes/origin/published"), remote_tip)
+        self.assertEqual(git(self.origin, "rev-parse", "refs/heads/published"), remote_tip)
+        self.assertFalse(self.lines)
+
+    def test_unpushed_tip_is_kept_and_logged_even_with_stale_origin_ref(self):
+        self.tip = self.commit(self.path, "unpublished")
+        git(self.root, "update-ref", "refs/remotes/origin/deleted", self.tip)
+        self.workspace.cleanup()
+        self.assert_removed_worktree()
+        self.assert_kept_branch(self.tip, "not reachable from origin branches")
+        self.assertIn(self.tip, self.lines[0])
+
+    def test_git_failures_keep_branch_without_changing_cleanup_or_lease(self):
+        for command, reason in (("fetch", "fetch origin branches"),
+                                ("for-each-ref", "check origin reachability"),
+                                ("update-ref", "delete branch")):
+            with self.subTest(command=command):
+                if not self.workspace.created:
+                    self.workspace.prepare()
+                self.lines.clear()
+                def fail(root, *arguments):
+                    if arguments[0] == command:
+                        self.assertFalse(self.path.exists())
+                        raise AgentError("injected failure")
+                    return git(root, *arguments)
+                with patch("ub_agents.execution.git", side_effect=fail):
+                    self.workspace.cleanup()
+                self.assert_removed_worktree()
+                self.assert_kept_branch(self.tip, reason)
+                self.assertIn(self.tip, self.lines[0])
+                self.assertIn("injected failure", self.lines[0])
+                git(self.root, "branch", "-D", self.branch)
+
+    def test_compare_and_delete_keeps_a_tip_that_moved(self):
+        moved = self.commit(self.path, "unpublished")
+        git(self.path, "reset", "--hard", self.tip)
+        def move(root, *arguments):
+            if arguments[:2] == ("update-ref", "-d"):
+                self.assertFalse(self.path.exists())
+                git(root, "update-ref", f"refs/heads/{self.branch}", moved)
+            return git(root, *arguments)
+        with patch("ub_agents.execution.git", side_effect=move):
+            self.workspace.cleanup()
+        self.assert_removed_worktree()
+        self.assert_kept_branch(moved, "delete branch")
+        self.assertIn(self.tip, self.lines[0])
+        self.assertIn(moved, self.lines[0])
+
+    def test_failed_hook_keeps_worktree_and_branch_without_git_cleanup(self):
+        with patch("ub_agents.execution.git", side_effect=AssertionError("cleanup after failed hook")):
+            self.workspace.cleanup(before_remove=lambda: False)
+        self.assertTrue(self.path.exists())
+        self.assertTrue(self.workspace.created)
+        self.assertEqual(git(self.root, "rev-parse", self.branch), self.tip)
+        self.assertFalse(self.lines)
+
+    def test_unconfirmed_worktree_removal_keeps_branch(self):
+        with patch("ub_agents.execution.git", side_effect=AgentError("worktree removal failed")) as read:
+            with self.assertRaises(CleanupError):
+                self.workspace.cleanup()
+        read.assert_called_once_with(self.root, "worktree", "remove", "--force", str(self.path))
+        self.assertTrue(self.path.exists())
+        self.assertTrue(self.workspace.created)
+        self.assertEqual(git(self.root, "rev-parse", self.branch), self.tip)
+        self.assertFalse(self.lines)
+
+    def test_detached_pr_worktree_does_not_attempt_branch_cleanup(self):
+        git(self.origin, "update-ref", "refs/pull/2/head", self.tip)
+        candidate = pr(head=self.tip)
+        workspace = Workspace(config(self.root), agent(self.root, worktree=True), candidate,
+                              {"run": "pr", "branch": self.branch}, FakeGitHub(candidate), output=self.lines.append)
+        path = workspace.prepare()
+        with patch("ub_agents.execution.git", wraps=git) as read:
+            workspace.cleanup()
+        read.assert_called_once_with(self.root, "worktree", "remove", "--force", str(path))
+        self.assertFalse(path.exists())
+        self.assertEqual(git(self.root, "rev-parse", self.branch), self.tip)
+        self.assertFalse(self.lines)

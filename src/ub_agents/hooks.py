@@ -70,11 +70,11 @@ def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=()):
                            next_step="restore the hook diagnostics path without redirects")
     directory.mkdir(parents=True, exist_ok=True)
     context = {
-        "repository": config.repository, "run": lease["run"], "agent": lease["agent"],
-        "assignment": lease["assignment"],
-        "kind": "pr" if lease.get("assignment_sha") else "issue",
+        "repository": config.repository, "run": lease["run"], "agent": lease.get("agent"),
+        "assignment": lease.get("assignment"),
+        "kind": ("pr" if lease.get("assignment_sha") else "issue") if lease.get("assignment") else None,
         "handoff": outcome.get("handoff") if outcome else None,
-        "status": lease.get("result") if lease["state"] == "released" else
+        "status": lease.get("result") if lease.get("state") == "released" else
                   outcome.get("status") if outcome else None,
         "outcome": outcome.get("outcome") if outcome else None,
         "worktree": str(worktree), "branch": lease.get("branch"),
@@ -85,8 +85,8 @@ def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=()):
            if not key.startswith("UB_AGENTS_")}
     env.update({"UB_AGENTS_CLEANUP_CONTEXT": str(path),
                 "UB_AGENTS_REPOSITORY": config.repository,
-                "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_AGENT": lease["agent"],
-                "UB_AGENTS_ASSIGNMENT": str(lease["assignment"]),
+                "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_AGENT": lease.get("agent") or "",
+                "UB_AGENTS_ASSIGNMENT": str(lease["assignment"]) if lease.get("assignment") else "",
                 "UB_AGENTS_WORKTREE": str(worktree), "UB_AGENTS_BRANCH": lease.get("branch") or ""})
     confirmed = True
     try:

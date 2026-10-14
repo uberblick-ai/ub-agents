@@ -291,16 +291,18 @@ outcome, if any), `worktree` (absolute path) and `branch`. Unavailable fields ar
 the reported status known before removal, or `null`. `handoff` is the PR the run
 handed off to. The hook also gets `UB_AGENTS_REPOSITORY`,
 `UB_AGENTS_RUN`, `UB_AGENTS_AGENT`, `UB_AGENTS_ASSIGNMENT`, `UB_AGENTS_WORKTREE` and
-`UB_AGENTS_BRANCH` (empty when unknown). It gets no reporting lease environment.
+`UB_AGENTS_BRANCH`; unknown run fields are empty. It gets no reporting lease
+environment.
 
 Exit zero permits removal. A nonzero exit, start failure or timeout with confirmed
 termination keeps the worktree and branch, logs `cleanup-hook-failed` in the run's
 `events.jsonl`, and records `cleanup_hook_error` on the lease if ownership remains.
 The agent outcome, label transitions and queue remain unchanged. Later maintenance
 can retry the hook. Unconfirmed hook termination preserves artifacts and stops the
-loop or startup sweep; local diagnostics and, while owned, the lease record
-`cleanup: unconfirmed`. Such artifacts remain ineligible until an operator has
-established termination and resolved the uncertainty records.
+loop; the startup sweep keeps affected artifacts and continues. Local diagnostics
+record the uncertainty; while owned, the lease records `cleanup: unconfirmed`.
+Such artifacts remain ineligible until an operator has established termination
+and resolved the uncertainty records.
 
 Use the hook for project resources such as test services tied to the run. Document
 operator-only cleanup or recovery steps in a project operations document and link
@@ -311,49 +313,70 @@ safe to retry, because a crash after hook success can leave a worktree to clean 
 
 Every `ub-agents launch` invocation sweeps leftover artifacts once, after startup
 checks pass and before the first poll or claim. This includes `--agent`, `NUMBER`
-and `--once`. It inspects registered worktrees directly under this checkout's
-`.ub-agents/worktrees/<run>` and local branches named `ub-agents/<agent>/<number>/<run>`.
-Unregistered entries under the worktree directory are reported as uncertain and
-kept. Other tools' worktrees, remote branches and run logs are outside its deletion scope.
+and `--once`. For every role, it inspects registered worktrees and unregistered
+entries directly under this checkout's `.ub-agents/worktrees/<run>`, plus local
+branches named `ub-agents/<agent>/<number>/<run>` or the older
+`ub-agent/<agent>/<number>/<run>`. An unregistered entry's name supplies its run;
+symlinks are removed as links without following them. Other tools' worktrees,
+remote branches and run logs are outside its deletion scope.
+
+The sweep removes everything that no run on this machine or open PR still needs.
+It keeps only:
+
+1. Artifacts of a run with a live lease on this host.
+2. A branch that is the head of an open PR.
+3. A branch checked out in a worktree that remains after the sweep.
+4. Artifacts whose run may still have a process running: `cleanup: unconfirmed`
+   on a lease or local diagnostics, an unfinished cleanup hook or worktree setup
+   group not confirmed stopped, or an expired lease on this host whose recorded
+   process group is present or cannot be checked.
+
+Missing, unreadable and older-version leases, leases on another host, and ended
+runs without a PR do not keep artifacts. An ended run's worktree is removed even
+if its branch heads an open PR. Locked worktrees and worktrees with uncommitted
+changes are removed too. Every related run that continued a branch
+is checked for a live local lease or process uncertainty; other-host leases alone
+do not prevent removal. If the repository coordination scan or PR lookup fails,
+the affected artifacts stay and the reason is logged.
 
 The sweep rechecks each eligible artifact before deletion and reports `removed`
 or `kept` with a reason in `.ub-agents/launch.log`, the terminal view's Startup
 cleanup fold, or plain output with `--no-ui`. Worktrees are considered before
 branches, so a branch can be removed after its worktree. The cleanup hook runs
-before each worktree removal; a failed hook preserves both artifacts. Locked
-worktrees and tracked changes or untracked files that are not ignored keep a
-worktree. Launcher release retains its existing removal behavior and always
-keeps local branches.
+before each worktree removal, including unregistered entries; unknown context
+fields are `null`. A failed hook preserves the worktree and branch for a later
+retry.
+
+At run end, after removing its private worktree, the launcher fetches origin
+branches and deletes the run's local branch only if its tip is reachable from an
+origin branch. This includes runs with no commits and runs that pushed their
+commits. Deletion compares the tip, preserving a branch that moved. An unpublished
+tip or a fetch, reachability or deletion failure keeps the branch and logs its
+name, reason and full tip SHA without changing the run's outcome, cleanup status
+or lease. A kept worktree keeps its branch. PR worktrees are detached. Earlier
+leftovers and branches kept at run end remain subject to the startup sweep.
 
 A sweep failure is logged with its reason and launch continues to poll, including
-uncertain process termination, git and GitHub errors. Artifacts not yet reached
-stay in place. There is no periodic sweep: a crashed run's lease stays live until
-expiry, so a quick restart keeps its artifacts until a later launch start.
+git and GitHub errors. Uncertain process termination keeps the affected artifacts.
+Artifacts not reached after an inventory failure stay in place. There is no periodic
+sweep: a crashed run's local lease stays live until expiry, so a quick restart
+keeps its artifacts until a later launch start.
 
-Every artifact needs an unambiguous GitHub run lease from a trusted account with
-this machine's recorded hostname. Leases from another host or with no recorded
-host are refused, even if posted by the authenticated account. A released lease
-is eligible; an expired lease requires a recorded process
-group and confirmed absence of its members. Older leases without that record stay
-uncertain. Live leases, unreadable state, redirected paths, unconfirmed cleanup and
-outcomes awaiting recovery keep artifacts. A later run that continued the same
-branch must also be eligible before branch deletion.
-
-Local hook diagnostics are checked for released and expired runs, including when
-no hook is currently configured. Each hook directory records its process-group
-`pid` and a `stopped` marker after confirmed termination. An unfinished hook's group
+Local hook diagnostics are checked even without a readable lease or a currently
+configured hook. Each hook directory records its process-group `pid` and a
+`stopped` marker after confirmed termination. An unfinished hook's group
 must be confirmed absent before a retry or deletion. A missing or unreadable pid,
 redirected diagnostics, or an inconclusive process check keeps artifacts. This also
 covers a launcher crash between spawning the hook and recording its pid. Operators
 must establish termination before resolving uncertain hook records; cleanup never
 signals a previous run's processes.
 
-Branches stay when checked out in a kept worktree, used by an open PR, or when the
-tip is not known remotely. The sweep fetches `origin` branch history and proves
-tip reachability from those fetched branches or from a
-fetched PR head from the same branch and repository. Closed PR heads can preserve
-checkpoint commits after a squash merge deletes the remote branch. Fetch/read
-failures keep artifacts. No GitHub branches are deleted.
+Startup sweep branch removal does not require the tip to be known remotely. The
+sweep fetches `origin` branches and merged PR heads for that branch. If the tip is not reachable
+from those fetched references, or reachability cannot be checked, its full SHA is
+included in the removal line as `unpushed tip SHA`. Restore it with
+`git branch <name> <sha>`. A merged PR head can preserve checkpoint commits after
+a squash merge deletes the remote branch. No GitHub branches are deleted.
 
 ## Queue
 

@@ -1,21 +1,21 @@
-"""Conservative, lease-backed maintenance of this checkout's private artifacts."""
+"""Remove private artifacts that no local run or open PR still needs."""
 
 from dataclasses import dataclass
 from pathlib import Path
 import json
 import re
+import shutil
 import socket
 
 from .coordination import Coordinator
-from .errors import AgentError, CleanupError
+from .errors import AgentError, CleanupError, RecordError
 from .execution import git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
-from .records import seconds
+from .records import records, seconds
 from .run_config import run_directory
 from .worktree_setup import confirm_worktree_setup_stopped
 
-BRANCH = re.compile(r"ub-agents/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
-RUN = re.compile(r"[A-Za-z0-9_-]+\Z")
+BRANCH = re.compile(r"ub-agents?/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
 
 
 @dataclass(frozen=True)
@@ -61,64 +61,37 @@ class Cleaner:
             if path.parent == parent:
                 artifacts.append(Artifact("worktree", str(path), path.name))
                 registered.add(str(path))
-        # Report unregistered entries but never remove or inspect their contents.
+        # Entries no longer registered by Git are still private run artifacts.
         if parent.resolve() == parent and parent.is_dir():
             for path in sorted(parent.iterdir()):
                 if str(path) not in registered:
                     artifacts.append(Artifact("worktree", str(path), path.name))
         for branch in git(self.root, "for-each-ref", "--format=%(refname:short)",
-                          "refs/heads/ub-agents/").splitlines():
+                          "refs/heads/ub-agents/", "refs/heads/ub-agent/").splitlines():
             match = BRANCH.fullmatch(branch)
             if match:
                 artifacts.append(Artifact("branch", branch, match[3]))
         return artifacts
 
-    def run_state(self, artifact):
-        if not RUN.fullmatch(artifact.run):
-            raise AgentError("Uncertain run name")
-        index, invalid = self.coordinator.repository_history()
-        # Discovery is not authority. Reread the run's assignment comments.
-        numbers = {r["assignment"] for r in index if r["kind"] == "lease" and r["run"] == artifact.run}
-        if len(numbers) != 1:
-            raise AgentError("Run lease cannot be found unambiguously")
-        number = next(iter(numbers))
-        if number in invalid:
-            raise AgentError("Run lease is unreadable")
-        history = self.coordinator.history(number)
-        leases = [r for r in history if r["kind"] == "lease" and r["run"] == artifact.run]
-        if len(leases) != 1:
-            raise AgentError("Run lease cannot be found unambiguously")
-        lease = leases[0]
-        if artifact.kind == "branch":
-            match = BRANCH.fullmatch(artifact.name)
-            if (lease["agent"] != match[1] or lease["assignment"] != int(match[2])
-                    or lease.get("branch") not in (None, artifact.name)):
-                raise AgentError("Branch does not match its run lease")
-            # A later run may have continued this branch in another worktree.
-            # Read every discovered referring assignment.
-            related = {r["assignment"] for r in index if r["kind"] == "lease"
-                       and r.get("branch") == artifact.name}
-            for assignment in related:
-                for other in self.coordinator.history(assignment):
-                    if (other["kind"] == "lease" and other.get("branch") == artifact.name
-                            and other["id"] != lease["id"]):
-                        self.eligible_lease(other, self.coordinator.history(assignment))
-        self.eligible_lease(lease, history)
-        outcomes = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == lease["id"]]
-        if len(outcomes) > 1:
-            raise AgentError("Run has conflicting outcomes")
-        return lease, outcomes[0] if outcomes else None
+    def history(self, number):
+        # An unreadable record is not a keep reason. Parse independently so it
+        # cannot hide a valid live lease in the same assignment. Read failures
+        # and failed author-trust checks still propagate and preserve artifacts.
+        history = []
+        trusted = self.coordinator.trust.observation()
+        for comment in self.github.comments(number):
+            try:
+                history.extend(records([comment], trusted=trusted))
+            except RecordError:
+                continue
+        return history
 
-    def eligible_lease(self, lease, history):
-        if lease.get("host") != socket.gethostname():
-            raise AgentError("Run lease belongs to another host or has no recorded host")
-        if lease.get("cleanup") == "unconfirmed":
-            raise AgentError("Run cleanup is unconfirmed")
-        run_dir = run_directory(self.root, lease["run"])
-        if not RUN.fullmatch(lease["run"]) or run_dir.resolve() != run_dir:
+    def local_processes(self, run):
+        run_dir = run_directory(self.root, run)
+        if Path(run).name != run or run in {".", ".."} or run_dir.resolve() != run_dir:
             raise AgentError("Run diagnostics path is uncertain")
         events = run_dir / "events.jsonl"
-        if events.exists():
+        if events.exists() or events.is_symlink():
             try:
                 if events.resolve() != events:
                     raise ValueError("redirected diagnostics")
@@ -128,23 +101,21 @@ class Cleaner:
             except (OSError, ValueError, AttributeError) as exc:
                 raise AgentError("Run diagnostics are unreadable") from exc
         try:
-            confirm_worktree_setup_stopped(self.config, lease["run"])
-            confirm_hook_groups_stopped(self.config, lease["run"])
+            confirm_worktree_setup_stopped(self.config, run)
+            confirm_hook_groups_stopped(self.config, run)
         except CleanupError as exc:
             raise AgentError(str(exc)) from exc
-        if lease["state"] == "released":
+
+    def eligible_lease(self, lease):
+        if lease.get("cleanup") == "unconfirmed":
+            raise AgentError("Run cleanup is unconfirmed")
+        if lease.get("host") != socket.gethostname() or lease["state"] not in {"running", "claiming"}:
             return
-        if lease["state"] not in {"running", "claiming"}:
-            raise AgentError("Run lease is not released or expired")
         if seconds(lease["expires"]) > self.coordinator.clock():
             raise AgentError("Run lease is live")
-        recovered = any(r["kind"] == "lease" and r["state"] == "released"
-                        and r.get("recovered_lease_id") == lease["id"] for r in history)
-        if not recovered and any(r["kind"] == "outcome" and r["lease_id"] == lease["id"] for r in history):
-            raise AgentError("Run has an outcome awaiting recovery")
         group = lease.get("process_group")
         if type(group) is not int or group < 1:
-            raise AgentError("Expired run has no recorded process group")
+            return
         try:
             members = group_members(group)
         except CleanupError as exc:
@@ -152,76 +123,86 @@ class Cleaner:
         if members:
             raise AgentError("Expired run's process group is still present")
 
+    def run_state(self, artifact, branch=None):
+        index, invalid = self.coordinator.repository_history()
+        # Discovery is not authority. Reread referring assignments, including
+        # malformed threads that may also contain a valid, protective lease.
+        numbers = invalid | {r["assignment"] for r in index if r["kind"] == "lease"
+                             and (r["run"] == artifact.run or
+                                  (artifact.kind == "branch" and r.get("branch") == artifact.name))}
+        history = [r for number in sorted(numbers) for r in self.history(number)]
+        own = [r for r in history if r["kind"] == "lease" and r["run"] == artifact.run]
+        leases = [r for r in history if r["kind"] == "lease"
+                  and (r["run"] == artifact.run or
+                       (artifact.kind == "branch" and r.get("branch") == artifact.name))]
+        runs = {artifact.run} | {r["run"] for r in leases}
+        if runs & self.blocked_runs:
+            raise AgentError("Cleanup hook failed; artifacts preserved")
+        for lease in leases:
+            self.eligible_lease(lease)
+        for run in sorted(runs):
+            self.local_processes(run)
+        if artifact.kind == "branch":
+            if any(pr.state == "open" for pr in self.github.prs_for_branch(artifact.name, state="all")):
+                raise AgentError("Branch is the head of an open PR")
+        lease = own[0] | {"branch": branch or own[0].get("branch")} if len(own) == 1 else {
+            "run": artifact.run, "agent": None, "assignment": None, "state": None,
+            "branch": branch,
+        }
+        outcomes = [r for r in history if r["kind"] == "outcome" and r["lease_id"] == lease.get("id")]
+        return lease, outcomes[0] if len(outcomes) == 1 else None
+
     def check(self, artifact):
         if artifact.run in self.blocked_runs:
             raise AgentError("Cleanup hook failed; artifacts preserved")
         if artifact.kind == "worktree":
             path = Path(artifact.name)
-            if path.resolve() != path:
-                raise AgentError("Worktree path redirects")
+            if path.parent.resolve() != path.parent:
+                raise AgentError("Worktree parent path redirects")
             tree = next((t for t in worktrees(self.root) if t["worktree"] == artifact.name), None)
-            if tree is None:
-                raise AgentError("Unregistered directory; ownership is uncertain")
-            if "locked" in tree:
-                raise AgentError("Worktree is locked")
-            if git(path, "status", "--porcelain", "--untracked-files=all"):
-                raise AgentError("Worktree is dirty")
-            return self.run_state(artifact)
-        lease, outcome = self.run_state(artifact)
+            branch = tree.get("branch", "").removeprefix("refs/heads/") if tree else None
+            return self.run_state(artifact, branch or None)
+        lease, outcome = self.run_state(artifact, artifact.name)
         if any(t.get("branch") == f"refs/heads/{artifact.name}"
                and t["worktree"] not in self.preview_worktrees for t in worktrees(self.root)):
             raise AgentError("Branch is still checked out in a kept worktree")
-        # Hook failure must retain the branch even for a detached worktree.
-        for run in {artifact.run} | self.related_runs(artifact.name):
-            path = self.root / ".ub-agents" / "worktrees" / run
-            if path.exists() and str(path) not in self.preview_worktrees:
-                raise AgentError("Run still has a kept worktree")
-        prs = self.github.prs_for_branch(artifact.name, state="all")
-        if any(pr.state == "open" for pr in prs):
-            raise AgentError("Branch is the head of an open PR")
-        tip = git(self.root, "rev-parse", f"refs/heads/{artifact.name}")
-        git(self.root, "fetch", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
-        known = bool(git(self.root, "for-each-ref", f"--contains={tip}", "--format=%(refname)", "refs/remotes/origin/"))
-        for pr in prs if not known else ():
-            git(self.root, "fetch", "origin", f"refs/pull/{pr.number}/head")
-            head = git(self.root, "rev-parse", "FETCH_HEAD")
-            if head != pr.head:
-                raise AgentError("PR head changed while checking remote history")
-            try:
-                git(self.root, "merge-base", "--is-ancestor", tip, head)
-            except AgentError:
-                continue
-            known = True
-            break
-        if not known:
-            raise AgentError("Branch tip is not known remotely")
-        if git(self.root, "rev-parse", f"refs/heads/{artifact.name}") != tip:
-            raise AgentError("Branch tip changed while checking remote history")
-        # Network fetches may take time: reestablish lease and checkout safety.
-        lease, outcome = self.run_state(artifact)
-        if any(t.get("branch") == f"refs/heads/{artifact.name}"
-               and t["worktree"] not in self.preview_worktrees for t in worktrees(self.root)):
-            raise AgentError("Branch became checked out while checking remote history")
-        if any((self.root / ".ub-agents" / "worktrees" / run).exists()
-               and str(self.root / ".ub-agents" / "worktrees" / run) not in self.preview_worktrees
-               for run in self.related_runs(artifact.name) | {artifact.run}):
-            raise AgentError("Run acquired a kept worktree while checking remote history")
-        if any(pr.state == "open" for pr in self.github.prs_for_branch(artifact.name)):
-            raise AgentError("Branch acquired an open PR while checking remote history")
-        if git(self.root, "rev-parse", f"refs/heads/{artifact.name}") != tip:
-            raise AgentError("Branch tip changed while rechecking ownership")
-        self.branch_tips[artifact.name] = tip
         return lease, outcome
 
-    def related_runs(self, branch):
-        index, invalid = self.coordinator.repository_history()
-        if invalid:
-            raise AgentError("Repository coordination state is unreadable")
-        runs = set()
-        for number in {r["assignment"] for r in index if r["kind"] == "lease" and r.get("branch") == branch}:
-            runs.update(r["run"] for r in self.coordinator.history(number)
-                        if r["kind"] == "lease" and r.get("branch") == branch)
-        return runs
+    def known_tip(self, branch, tip):
+        # Remote reachability affects the restoration hint, never eligibility.
+        try:
+            git(self.root, "fetch", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
+            if git(self.root, "for-each-ref", f"--contains={tip}", "--format=%(refname)", "refs/remotes/origin/"):
+                return True
+            for pr in self.github.prs_for_branch(branch, state="all"):
+                if not pr.merged:
+                    continue
+                git(self.root, "fetch", "origin", f"refs/pull/{pr.number}/head")
+                head = git(self.root, "rev-parse", "FETCH_HEAD")
+                if head != pr.head:
+                    continue
+                try:
+                    git(self.root, "merge-base", "--is-ancestor", tip, head)
+                except AgentError:
+                    continue
+                return True
+        except (AgentError, OSError):
+            pass
+        return False
+
+    def remove_worktree(self, artifact):
+        path = Path(artifact.name)
+        registered = any(t["worktree"] == artifact.name for t in worktrees(self.root))
+        if path.is_symlink():
+            path.unlink()
+            if not registered:
+                return
+        if registered:
+            git(self.root, "worktree", "remove", "--force", "--force", artifact.name)
+        elif path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
 
     def clean(self, apply=False):
         self.preview_worktrees.clear()
@@ -231,10 +212,15 @@ class Cleaner:
         for artifact in self.inventory():
             try:
                 lease, outcome = self.check(artifact)
-                reason = "Eligible released or confirmed expired run"
+                reason = "No live run or open PR"
                 action = "would remove"
                 if artifact.kind == "worktree" and lease.get("cleanup_hook_error"):
                     reason += f"; retry hook: {lease['cleanup_hook_error']}"
+                if artifact.kind == "branch":
+                    tip = git(self.root, "rev-parse", f"refs/heads/{artifact.name}")
+                    if not self.known_tip(artifact.name, tip):
+                        reason += f"; unpushed tip {tip}"
+                    self.branch_tips[artifact.name] = tip
                 if apply:
                     # Inventory/preview conclusions never authorize a deletion.
                     lease, outcome = self.check(artifact)
@@ -244,7 +230,7 @@ class Cleaner:
                             self.blocked_runs.add(artifact.run)
                             raise AgentError(f"Cleanup hook failed; retry later: {failure}")
                         self.check(artifact)  # hooks may alter the tree or lease
-                        git(self.root, "worktree", "remove", artifact.name)
+                        self.remove_worktree(artifact)
                     else:
                         # Compare-and-delete refuses to discard a newly moved tip.
                         if any(t.get("branch") == f"refs/heads/{artifact.name}"
@@ -256,12 +242,17 @@ class Cleaner:
                 elif artifact.kind == "worktree":
                     self.preview_worktrees.add(artifact.name)
             except CleanupError as exc:
-                diagnostic(self.config, artifact.run, "cleanup-unconfirmed", error=str(exc))
-                self.output(f"kept {artifact.kind} {artifact.name}: {exc}")
-                raise
+                self.blocked_runs.add(artifact.run)
+                action, reason = "kept", str(exc)
+                try:
+                    diagnostic(self.config, artifact.run, "cleanup-unconfirmed", error=str(exc))
+                except (AgentError, OSError) as error:
+                    reason += f"; cannot record cleanup uncertainty: {error}"
             except (AgentError, OSError) as exc:
                 action, reason = "kept", str(exc)
+            reason = " ".join(reason.split())
             row = {"kind": artifact.kind, "name": artifact.name, "action": action, "reason": reason}
             rows.append(row)
-            self.output(f"{action} {artifact.kind} {artifact.name}: {reason}")
+            name = str(Path(artifact.name).relative_to(self.root)) if artifact.kind == "worktree" else artifact.name
+            self.output(f"{action} {artifact.kind} {name}: {reason}")
         return rows

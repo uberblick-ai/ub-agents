@@ -223,11 +223,22 @@ private worktree also runs setup once before its agent starts.
 | `ub-agents retry 214 --reason "…"` | Let an item that failed or blocked run again |
 | `ub-agents help COMMAND` | Show a command's options and examples |
 
-Every launch sweeps eligible leftover worktrees and local branches once before
-polling. Decisions and failures appear in the launch log and terminal view, or
-plain output with `--no-ui`; sweep failures do not stop launch. A quick restart
-keeps a crashed run's artifacts while its lease is live, until a later launch
-start after expiry. See [stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
+At run end, the launcher removes the private worktree and deletes its local branch
+when its tip is reachable from a freshly fetched origin branch. Unpublished tips
+and Git failures keep the branch and log its name, reason and tip SHA. A kept
+worktree also keeps its branch.
+
+Every launch sweeps all roles' leftover worktrees, unregistered folders under
+`.ub-agents/worktrees/`, and local `ub-agents/` or older `ub-agent/` run branches
+once before polling. It keeps artifacts of live leases on this host, branches
+heading open PRs or checked out in remaining worktrees, and artifacts whose
+processes may still be running. Missing, older, unreadable or other-host leases,
+ended runs without a PR, dirty trees and locked trees do not prevent removal.
+Symlinks are removed as links. Cleanup hooks run before removal; failed hooks and
+GitHub coordination or PR read failures keep affected artifacts. Decisions appear
+in the launch log and terminal view, or plain output with `--no-ui`; removed
+branches with tips not known remotely include their restoration SHA. Sweep
+failures do not stop launch. See [stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
 
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of
