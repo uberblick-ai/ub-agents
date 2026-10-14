@@ -53,11 +53,8 @@ def permission_args(cli):
 class Choices:
     runtime: str
     permissions: bool = False
-    workflow_labels: bool = False
-    features: set[str] = field(default_factory=set)
     priority_labels: tuple[str, ...] = ()
     priority_default: str | None = None
-    create_priority_labels: bool = False
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)
 
@@ -289,7 +286,7 @@ def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
 
 
 def recovery_content(plan, result):
-    """Retain recovery content in the transcript after leaving the full-screen view."""
+    """Content for the files that were not written, so they can be finished by hand."""
     lines = []
     for path, content in plan.targets.items():
         if f"Create {path}" in result.remaining:
@@ -300,18 +297,20 @@ def recovery_content(plan, result):
     return "\n\n".join(lines)
 
 
+PERMISSIONS_GUIDE = "https://agents.uberblick.ai/docs/configuration/permissions.html"
+
+
 def next_steps(plan):
     cli = plan.choices.runtime.split(":", 1)[0]
-    steps = ["Review build/test commands, merge authority, decision-makers and review priorities in .agents/ub_agents.md."]
-    if not plan.choices.permissions:
-        steps.append(f"grant agent permissions: uncomment or customize runtime-args in {plan.path.name}.")
+    name = plan.path.name
+    steps = [f"Review the agent permissions (runtime-args) in {name}: {PERMISSIONS_GUIDE}" if plan.choices.permissions else
+             f"Grant agent permissions later: uncomment runtime-args in {name}: {PERMISSIONS_GUIDE}",
+             "Review checks and merge authority in .agents/ub_agents.md"]
     if cli == "claude":
-        steps.append(f"Add project check commands to --allowedTools in {plan.path.name}.")
-    if plan.choices.retrospectives and cli == "claude":
-        steps.append('Review permission to post: add "Bash({report_command} retrospective *)" to the chosen roles only.')
-    steps.extend([f"Run ub-agents doctor --offline --config {plan.path}.",
-                  "Review, commit and push the starter files through a PR; merge them into the default branch.",
-                  "Use a clean default-branch launcher checkout; run ub-agents doctor before ub-agents launch."])
+        steps.append(f"Add your test command to --allowedTools in {name}")
+        if plan.choices.retrospectives or plan.choices.board_requests:
+            steps.append('Add "Bash({report_command} retrospective *)" to --allowedTools so agents can post lessons')
+    steps.append("Open a PR with these files and merge it")
     return steps
 
 

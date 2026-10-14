@@ -8,11 +8,11 @@ brew install uberblick-ai/tap/ub-agents
 
 You also need `git`, `gh` logged in to an account with write access to the repository, and the agent CLI you want to run, `claude` or `codex`.
 
-Then, inside your project's checkout, start the setup wizard with `ub-agents init`.
-It shows prerequisites, collects choices and previews changes before Apply.
+Then, inside your project's checkout, run `ub-agents init`.
+It checks your machine, asks a few questions and writes after one confirmation.
 Use `ub-agents init --use-defaults` for unattended setup, including in a terminal;
 CI/non-TTY also uses defaults. See the [init command guide](/docs/commands/init.html)
-for optional features, navigation and recovery.
+for the questions and extras.
 
 ```sh
 ub-agents init --runtime claude:claude-opus-5-5:high

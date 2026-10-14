@@ -87,14 +87,11 @@ cd your-project
 ub-agents init --runtime claude:claude-opus-5-5:high   # or leave out --runtime for Codex
 ```
 
-In a terminal, `init` opens a setup wizard: it shows what it found, collects choices
-and previews files, opted-in GitHub labels and requested public boards before a default-no Apply. Start with
-`ub-agents init`; see the [init command guide](https://agents.uberblick.ai/docs/commands/init.html)
-for navigation, optional features and recovery. Cancel before Apply writes nothing.
-The optional-component selector starts with Uberblick, priorities and retrospectives
-unchecked; only selected components open pages, each defaulting to Skip.
-Finish exits; Finish and start loop reruns readiness
-checks and invokes the normal launcher only after they pass. Setup never starts it automatically.
+In a terminal, `init` checks your machine, asks which agent runs the loop, whether
+agents may work without asking, and which extras you want (priorities, retrospectives,
+Uberblick). It writes nothing until you confirm **Write setup?**. Agents always work
+in worktrees and branches; they never commit to main. See the
+[init command guide](https://agents.uberblick.ai/docs/commands/init.html).
 The starter files are:
 
 ```text
@@ -115,16 +112,14 @@ ub-agents init --use-defaults --repository org/project
 ```
 
 CI and non-TTY runs also use defaults without prompts. They keep permissions
-commented out, priority and retrospectives off, create no GitHub labels and enable
-no Uberblick integration. Only repository inference calls GitHub when `--repository`
-is omitted; label commands and remaining setup tasks are printed.
+commented out, leave the extras off and print the label commands instead of creating them.
 
 Before the first launch:
 
 1. Fill in `.agents/ub_agents.md`: your checks, who may merge, and who answers
    questions. Keep build and test commands in the `AGENTS.md` or `CLAUDE.md` your
    agents already read.
-2. Give the agents permissions. The wizard previews starter permissions; otherwise
+2. Give the agents permissions. If you didn't let init grant them,
    uncomment the top-level `runtime-args` mapping in `ub-agents.yaml`. It supplies
    defaults per CLI; an agent's own `runtime-args` replaces them. Claude agents
    also need your check commands in `--allowedTools`.
