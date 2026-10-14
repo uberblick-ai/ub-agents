@@ -349,6 +349,13 @@ Tests use fakes for GitHub and never call a model. This repository runs its own
 loop: see [ub-agents.yaml](ub-agents.yaml) and [AGENTS.md](AGENTS.md). The roadmap
 is in the [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
+The test runner uses every available core by default; `-j N` sets the worker count
+and `--durations N` lists the slowest tests. Each test has a five-minute limit;
+`--timeout SECONDS` overrides it. The same limit bounds worker startup, discovery
+and shutdown when no test is running. A timeout fails the run, prints worker
+thread stacks, stops workers and their child processes, and retains finished
+test results. The CI matrix jobs also have a 20-minute backstop.
+
 After a release-prep PR merges, maintainers use `mise run release X.Y.Z` to publish
 the GitHub release and open its tested Homebrew tap PR. The
 [release skill](.agents/skills/release/SKILL.md) handles readiness and confirmation;
