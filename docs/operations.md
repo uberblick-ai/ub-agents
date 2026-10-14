@@ -172,8 +172,15 @@ transition before it starts. After removing it, set the workflow labels you want
 run `ub-agents retry`. The exact rules for claims, attempts, transitions and recovery
 are in the [coordination contract](coordination.md).
 
+At run end, the launcher removes the private worktree, fetches origin branches
+and deletes the run's local branch if its tip is reachable from one of them.
+Unpublished tips and fetch, reachability or deletion failures keep the branch;
+the log names the branch, reason and full tip SHA. Deletion compares the tip so
+a moved branch survives. Keeping a branch leaves the outcome, cleanup status and
+lease unchanged. A kept worktree also keeps its branch. PR worktrees are detached.
+
 Every `ub-agents launch` invocation sweeps private worktrees left by crashed runs
-and retained local branches once, after startup checks and before the first poll
+and leftover local branches once, after startup checks and before the first poll
 or claim, including `--agent`, `NUMBER` and `--once`. It covers all roles' registered
 worktrees and unregistered entries under `.ub-agents/worktrees/`, plus local
 `ub-agents/<agent>/<number>/<run>` and older `ub-agent/` branches. Symlinks are removed

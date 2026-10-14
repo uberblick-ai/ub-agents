@@ -388,8 +388,13 @@ trigger matches again. A stop label found before execution instead parks the ite
 without changing its count; removing it still requires `ub-agents retry` to clear
 that parked state. A vanished trigger during success transition validation also
 parks the item without changing its count, as the outcome table above describes.
-Branches created for private issue worktrees are recorded on the lease and
-retained for possible human recovery.
+Branches created for private issue worktrees are recorded on the lease. After
+removing the worktree, the launcher fetches origin branches and deletes the local
+branch if its tip is reachable from one of them. Deletion compares the recorded
+tip, so a branch that moved is preserved. Unpublished tips and Git failures keep
+the branch and log its name, reason and full tip SHA without changing the outcome,
+cleanup status or lease. A kept worktree also keeps its branch; PR worktrees are
+detached and have no local branch to delete.
 
 This election is tested with concurrent contenders, but GitHub comment reads and
 writes are not compare-and-swap. It does **not** establish exactly-once execution,
@@ -480,8 +485,9 @@ implementation PR. At handoff the launcher rejects a success while another open 
 sits on one of those branches, so a duplicate is blocked for inspection rather
 than accepted. While a run owns such a PR the issue waits, and while an issue run is
 live the PR waits, so one agent at a time touches the branch; the lowest live
-comment id wins a simultaneous claim. Earlier branches are retained for human
-recovery.
+comment id wins a simultaneous claim. Continuation uses the PR branch on origin;
+it does not require an earlier run's local branch. Branches kept at run end remain
+subject to the next launch's stale artifact sweep.
 
 ## Explicit outcomes
 

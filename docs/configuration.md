@@ -345,8 +345,16 @@ cleanup fold, or plain output with `--no-ui`. Worktrees are considered before
 branches, so a branch can be removed after its worktree. The cleanup hook runs
 before each worktree removal, including unregistered entries; unknown context
 fields are `null`. A failed hook preserves the worktree and branch for a later
-retry. Launcher release retains its existing removal behavior and always keeps
-local branches.
+retry.
+
+At run end, after removing its private worktree, the launcher fetches origin
+branches and deletes the run's local branch only if its tip is reachable from an
+origin branch. This includes runs with no commits and runs that pushed their
+commits. Deletion compares the tip, preserving a branch that moved. An unpublished
+tip or a fetch, reachability or deletion failure keeps the branch and logs its
+name, reason and full tip SHA without changing the run's outcome, cleanup status
+or lease. A kept worktree keeps its branch. PR worktrees are detached. Earlier
+leftovers and branches kept at run end remain subject to the startup sweep.
 
 A sweep failure is logged with its reason and launch continues to poll, including
 git and GitHub errors. Uncertain process termination keeps the affected artifacts.
@@ -363,8 +371,8 @@ covers a launcher crash between spawning the hook and recording its pid. Operato
 must establish termination before resolving uncertain hook records; cleanup never
 signals a previous run's processes.
 
-Branch removal does not require the tip to be known remotely. The sweep fetches
-`origin` branches and merged PR heads for that branch. If the tip is not reachable
+Startup sweep branch removal does not require the tip to be known remotely. The
+sweep fetches `origin` branches and merged PR heads for that branch. If the tip is not reachable
 from those fetched references, or reachability cannot be checked, its full SHA is
 included in the removal line as `unpushed tip SHA`. Restore it with
 `git branch <name> <sha>`. A merged PR head can preserve checkpoint commits after
