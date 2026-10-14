@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, load_config
 from ub_agents.errors import AgentError
+from tests.support import RecordingRunner
 
 
 class ConfigTests(unittest.TestCase):
@@ -18,6 +19,8 @@ class ConfigTests(unittest.TestCase):
         # Resolve like load_config does: macOS temporary paths live under /private/var.
         self.root = Path(self.temp.name).resolve()
         self.path = self.root / "ub-agents.yaml"
+        self.enterContext(patch("ub_agents.doctor.subprocess.run", RecordingRunner(self.root)))
+        self.enterContext(patch("ub_agents.doctor.shutil.which", return_value="/tools/git"))
 
     def load(self, content):
         self.path.write_text(content)
@@ -32,12 +35,12 @@ class ConfigTests(unittest.TestCase):
         custom = self.root / "custom.yaml"
         custom.write_text("repository: org/project\nagents:\n  task:\n    command: [echo]\n"
                           "    trigger: ready\n    outcomes: {done: {}}\n")
-        with chdir(self.root), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as error:
-            self.assertEqual(main(["check"]), 1)
-            self.assertIn("No ub-agents.yaml here; run ub-agents init", error.getvalue())
-            self.assertEqual(main(["--config", str(custom), "check"]), 0)
+        with chdir(self.root), redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as error:
+            self.assertEqual(main(["doctor", "--offline"]), 1)
+            self.assertIn("no ub-agents.yaml here; run ub-agents init", error.getvalue())
+            self.assertEqual(main(["--config", str(custom), "doctor", "--offline"]), 0)
             custom.rename(self.path)
-            self.assertEqual(main(["check"]), 0)
+            self.assertEqual(main(["doctor", "--offline"]), 0)
 
     def test_shared_instructions_are_optional_and_resolve_like_role_paths(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
@@ -49,9 +52,9 @@ class ConfigTests(unittest.TestCase):
         configured = self.load(base + 'shared-instructions: alias.md\n')
         self.assertEqual(configured.shared_instructions, alias)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(main(['--config', str(self.path), 'check']), 0)
+            self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 0)
 
-    def test_check_rejects_invalid_shared_paths_and_unreadable_text(self):
+    def test_offline_doctor_rejects_invalid_shared_paths_and_unreadable_text(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         policy = self.root / 'policy.md'
         policy.write_bytes(b'\xff')
@@ -63,8 +66,8 @@ class ConfigTests(unittest.TestCase):
                                ('null', 'nonempty string'), ('[]', 'nonempty string')):
             with self.subTest(value=value):
                 self.path.write_text(base + f'shared-instructions: {value}\n')
-                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as error:
-                    self.assertEqual(main(['--config', str(self.path), 'check']), 1)
+                with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as error:
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
                 self.assertIn('shared-instructions', error.getvalue())
                 self.assertIn(message, error.getvalue())
         policy.write_text('Readable policy')
@@ -74,8 +77,8 @@ class ConfigTests(unittest.TestCase):
             if path == policy:
                 raise PermissionError('Synthetic unreadable policy')
             return original(path, *args, **kwargs)
-        with patch.object(Path, 'read_text', denied), redirect_stderr(io.StringIO()) as error:
-            self.assertEqual(main(['--config', str(self.path), 'check']), 1)
+        with patch.object(Path, 'read_text', denied), redirect_stdout(io.StringIO()) as error:
+            self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
         self.assertIn('shared-instructions is unreadable', error.getvalue())
 
     def test_repository_guidance_keeps_project_rules_and_shared_file_holds_loop_policy(self):
@@ -109,13 +112,13 @@ class ConfigTests(unittest.TestCase):
             with self.subTest(outcomes=outcomes):
                 self.path.write_text(base + f"    outcomes: {outcomes}\n")
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
         with self.assertRaisesRegex(AgentError, "remove a stop label"):
             self.load(base.replace("trigger: ready", "trigger: needs-human") + "    outcomes: {done: {}}\n")
         with self.assertRaisesRegex(AgentError, "outcomes must be"):
             self.load(base)
 
-    def test_retrospectives_requires_a_positive_integer_and_check_stays_offline(self):
+    def test_retrospectives_requires_a_positive_integer_and_offline_doctor_stays_offline(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         self.assertIsNone(self.load(base).agents[0].retrospectives)
         self.assertEqual(self.load(base + "    retrospectives: 203\n").agents[0].retrospectives, 203)
@@ -124,8 +127,8 @@ class ConfigTests(unittest.TestCase):
                           "'203'", "[]", "{}", "''"):
                 with self.subTest(value=value):
                     self.path.write_text(base + f"    retrospectives: {value}\n")
-                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
-                        self.assertEqual(main(["--config", str(self.path), "check"]), 0 if value == "203" else 1)
+                    with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as stderr:
+                        self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0 if value == "203" else 1)
                     if value != "203":
                         self.assertIn("task retrospectives", stderr.getvalue())
 
@@ -149,8 +152,8 @@ class ConfigTests(unittest.TestCase):
                       "[alice, alice]", "[Alice, ALICE]"):
             with self.subTest(value=value):
                 self.path.write_text(base + f"launchers: {value}\n")
-                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as stderr:
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
                 self.assertIn("launchers", stderr.getvalue())
 
     def test_health_check_requires_argv_on_command_and_runtime_agents_without_running_it(self):
@@ -167,13 +170,13 @@ class ConfigTests(unittest.TestCase):
                              ('/check-corpus',))
             with patch('ub_agents.agent_health.run_check', side_effect=AssertionError('validation only')):
                 with redirect_stdout(io.StringIO()):
-                    self.assertEqual(main(['--config', str(self.path), 'check']), 0)
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 0)
                 for value in ('null', 'true', '1', 'probe', '{}', '[]', '[false]', '[1]', '[null]',
                               "['']", "['   ']", "[probe, '']", '["probe\\0"]'):
                     with self.subTest(execution=execution, value=value):
                         self.path.write_text(base + f'    health-check: {value}\n')
-                        with redirect_stderr(io.StringIO()) as error:
-                            self.assertEqual(main(['--config', str(self.path), 'check']), 1)
+                        with redirect_stdout(io.StringIO()) as error:
+                            self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
                         self.assertIn('task health-check', error.getvalue())
 
     def test_direct_command_and_distinct_clock_overrides(self):
@@ -206,7 +209,7 @@ cleanup:
         settings = self.load(base + "runtime-updates: {codex: {command: [./update, codex]}}\n")
         self.assertEqual(settings.runtime_updates.policies["codex"], (str(self.root.resolve() / "update"), "codex"))
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+            self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)
         for value in ["[]", "null", "{unknown: auto}", "{codex: true}", "{codex: false}",
                       "{claude: install}", "{codex: [npm, update]}", "{codex: {command: []}}",
                       "{codex: {command: shell}}", "{codex: {command: [sudo, update]}}",
@@ -216,7 +219,7 @@ cleanup:
             with self.subTest(value=value):
                 self.path.write_text(base + f"runtime-updates: {value}\n")
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
 
     def test_repository_opts_into_daily_runtime_updates(self):
         settings = load_config(Path(__file__).resolve().parents[1] / "ub-agents.yaml")
@@ -244,7 +247,7 @@ agents:
                 settings = self.load(base + f"runtime-updates: {{gh: {value}}}\n")
                 self.assertEqual(settings.runtime_updates.policies["gh"], expected)
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)
         for value in ("true", "false", "on", "null", "install", "[brew, upgrade, gh]",
                       "{command: []}", "{command: shell}", "{command: [echo], extra: 1}",
                       "{command: [sudo, update]}", "{command: [/usr/bin/su, update]}",
@@ -252,7 +255,7 @@ agents:
             with self.subTest(value=value):
                 self.path.write_text(base + f"runtime-updates: {{gh: {value}}}\n")
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
 
     def test_rejects_unknown_duplicates_unsafe_clocks_and_paths(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [true]\n    trigger: ready\n    outcomes: {done: {}}\n"
@@ -285,7 +288,7 @@ stop-labels: []
         with self.assertRaisesRegex(AgentError, "codex, claude"):
             self.load(content.replace("codex:model-b:low", "example:model-b:low"))
 
-    def test_check_rejects_claude_output_format_overrides(self):
+    def test_offline_doctor_rejects_claude_output_format_overrides(self):
         (self.root / "instructions.md").write_text("Do the task")
         base = '''repository: org/project
 agents:
@@ -301,8 +304,8 @@ agents:
                 with self.subTest(runtime=runtime, args=args):
                     self.path.write_text(base.replace("RUNTIME", runtime).replace("ARGS", args))
                     stderr = io.StringIO()
-                    with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
-                        self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                    with redirect_stderr(io.StringIO()), redirect_stdout(stderr):
+                        self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
                     self.assertIn("task: runtime-args must not set --output-format", stderr.getvalue())
                     self.assertIn("stream-json", stderr.getvalue())
 
@@ -332,7 +335,7 @@ agents:
                 self.assertIn("task: unknown runtime-args placeholder", str(caught.exception))
                 self.assertIn(placeholder, str(caught.exception))
 
-    def test_check_accepts_per_cli_runtime_args_and_yaml_aliases(self):
+    def test_offline_doctor_accepts_per_cli_runtime_args_and_yaml_aliases(self):
         (self.root / "instructions.md").write_text("Do the task")
         configured = self.load('''repository: org/project
 agents:
@@ -358,7 +361,7 @@ agents:
             "claude": ("--permission-mode", "acceptEdits", "--allowedTools", "Bash({report_command} report *)")})
         self.assertEqual(other.runtime_args, {"codex": task.runtime_args["codex"]})
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+            self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)
 
     def test_top_level_runtime_args_are_inherited_by_runtime_agents_only(self):
         (self.root / "instructions.md").write_text("Do the task")
@@ -391,7 +394,7 @@ agents:
         self.assertEqual(other.runtime_args, {"codex": task.runtime_args["codex"]})
         self.assertEqual(command.runtime_args, ())
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+            self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)
 
     def test_agent_runtime_args_replace_all_top_level_defaults(self):
         (self.root / "instructions.md").write_text("Do the task")
@@ -419,7 +422,7 @@ agents:
         with self.assertRaisesRegex(AgentError, "task: runtime-args must not change"):
             self.load(base + "    runtime-args: [-c, mcp_servers.example.enabled=true]\n")
 
-    def test_check_rejects_invalid_top_level_runtime_args(self):
+    def test_offline_doctor_rejects_invalid_top_level_runtime_args(self):
         base = '''repository: org/project
 runtime-args: ARGS
 agents:
@@ -445,14 +448,14 @@ agents:
                 ("{codex: [null]}", "runtime-args codex must be a nonempty string")):
             with self.subTest(args=args):
                 self.path.write_text(base.replace("ARGS", args))
-                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as errors:
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
                 self.assertIn(reason, errors.getvalue())
         for args in ("{}", "{codex: [], claude: []}"):
             with self.subTest(args=args):
                 self.load(base.replace("ARGS", args))
 
-    def test_check_rejects_invalid_runtime_args_mapping_keys_and_values(self):
+    def test_offline_doctor_rejects_invalid_runtime_args_mapping_keys_and_values(self):
         (self.root / "instructions.md").write_text("Do the task")
         base = '''repository: org/project
 agents:
@@ -478,17 +481,17 @@ agents:
                 ("{codex: [null]}", "codex", "nonempty string")):
             with self.subTest(args=args):
                 self.path.write_text(base.replace("ARGS", args))
-                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as errors:
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
                 self.assertIn(f"task runtime-args {key}", errors.getvalue())
                 self.assertIn(reason, errors.getvalue())
         for args in ("{}", "{codex: []}"):
             with self.subTest(args=args):
                 self.load(base.replace("ARGS", args))
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)
 
-    def test_check_validates_per_cli_args_with_only_that_clis_rules(self):
+    def test_offline_doctor_validates_per_cli_args_with_only_that_clis_rules(self):
         (self.root / "instructions.md").write_text("Do the task")
         base = '''repository: org/project
 agents:
@@ -513,8 +516,8 @@ agents:
                 for args in shared_forbidden + specific:
                     with self.subTest(cli=cli, args=args, level=level):
                         self.path.write_text(content.replace("ARGS", "{" + f"{cli}: {args}" + "}"))
-                        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
-                            self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                        with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as errors:
+                            self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
                         if level == "agent":
                             self.assertIn("task:", errors.getvalue())
                         self.assertIn(f"runtime-args {cli}", errors.getvalue())
@@ -527,7 +530,7 @@ agents:
             with self.subTest(accepted=args):
                 self.path.write_text(base.replace("ARGS", args))
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)
 
     def test_runtime_args_accept_scratch_and_non_placeholder_braces(self):
         (self.root / "instructions.md").write_text("Do the task")
@@ -604,18 +607,18 @@ agents:
         self.assertEqual(self.load(base + extra).queue.priority, Priority(("urgent", "normal", "low")))
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
 
-    def test_check_accepts_all_milestone_modes_and_names_them_for_invalid_values(self):
+    def test_offline_doctor_accepts_all_milestone_modes_and_names_them_for_invalid_values(self):
         for mode in ("gate", "order", "prefer", "ignore", "oldest"):
             with self.subTest(mode=mode):
                 self.path.write_text(f"repository: org/project\nqueue:\n  milestones: {mode}\nagents:\n"
                                      "  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n")
-                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
-                    self.assertEqual(main(["--config", str(self.path), "check"]),
+                with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as errors:
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]),
                                      1 if mode in {"oldest", "prefer"} else 0)
                 if mode in {"oldest", "prefer"}:
                     self.assertIn("milestones must be gate, order or ignore", errors.getvalue())
 
-    def test_queue_validation_through_check(self):
+    def test_queue_validation_through_offline_doctor(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         for extra in ("queue: null", "queue: []", "queue:\n  unknown: true",
                       "queue:\n  dependencies: gate", "queue:\n  dependencies: null",
@@ -637,7 +640,7 @@ agents:
                 with self.assertRaises(AgentError):
                     load_config(self.path)
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--config", str(self.path), "check"]), 1)
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
 
     def test_queue_and_outcomes_can_be_configured_together(self):
         configured = self.load('''repository: org/project
@@ -657,4 +660,4 @@ agents:
         self.assertEqual(configured.agents[0].outcomes,
                          {"handed-off": {"add": ("needs-review",), "remove": ("old",)}})
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(main(["--config", str(self.path), "check"]), 0)
+            self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)

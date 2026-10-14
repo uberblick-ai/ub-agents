@@ -99,6 +99,94 @@ agents:
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
 
+    def test_offline_cli_never_reaches_github_network_runtimes_commands_or_prompts(self):
+        self.path.write_text(self.path.read_text() + '''    retrospectives: 203
+  reviewer:
+    runtime: claude:model-b:high
+    different-runtime-from: worker
+    instructions: instructions.md
+    trigger: needs-review
+    outcomes: {done: {}}
+  command:
+    command: [missing-command]
+    trigger: ready
+    outcomes: {done: {}}
+launchers: [operator]
+''')
+        def only_git(name):
+            self.assertEqual(name, "git", "offline must not look for GitHub or agent tools")
+            return "/tools/git"
+
+        with patch("ub_agents.doctor.subprocess.run", self.runner), \
+                patch("ub_agents.doctor.shutil.which", side_effect=only_git), \
+                patch("ub_agents.doctor.GitHub", side_effect=AssertionError("GitHub accessed")), \
+                patch("socket.create_connection", side_effect=AssertionError("network accessed")), \
+                patch("ub_agents.doctor.Doctor.create_missing_labels", side_effect=AssertionError("label setup")), \
+                patch("builtins.input", side_effect=AssertionError("offline prompted")):
+            for options in (["--json"], ["--json", "--verbose"], ["--verbose"], []):
+                with self.subTest(options=options), redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(main(["doctor", "--offline", "--config", str(self.path), *options]), 0)
+                if "--json" in options:
+                    result = json.loads(output.getvalue())
+                    self.assertTrue(result["ok"])
+                    for check in result["checks"]:
+                        if check["id"] in {"gh", "control-checkout", "runtime-permissions"} or \
+                                check["id"].startswith(("github-", "runtime-", "runtimes:",
+                                                        "command:", "different-runtime-from:")):
+                            self.assertEqual(check["status"], "skip", check)
+                            self.assertIn("offline", check["message"], check)
+                    for id in ("python", "platform", "git", "config", "repository-root", "repository-remote",
+                               "approvals", "local-state", "local-state-ignored", "process-inspection"):
+                        self.assertEqual(self.one(result, id)["status"], "ok")
+                    self.assertEqual(self.one(result, "github-retrospectives")["status"], "skip")
+                    self.assertEqual(self.one(result, "command")["status"], "skip")
+                    self.assertEqual(self.one(result, "different-runtime-from")["status"], "skip")
+                else:
+                    self.assertIn("0 required failures, 0 warnings", output.getvalue())
+                    if options:
+                        self.assertIn("Approvals: from repository visibility", output.getvalue())
+        self.assertEqual({command for command, _ in self.runner.calls}, {
+            ("git", "-C", str(self.root), "rev-parse", "--show-toplevel"),
+            ("git", "-C", str(self.root), "remote", "get-url", "origin"),
+            ("git", "-C", str(self.root), "check-ignore", "-q", ".ub-agents/"),
+            ("ps", "-axo", "pid=,pgid=,stat="),
+        })
+
+    def test_offline_retains_required_local_failures_and_exit_status(self):
+        for id, command in (
+                ("repository-root", ("git", "-C", str(self.root), "rev-parse", "--show-toplevel")),
+                ("repository-remote", ("git", "-C", str(self.root), "remote", "get-url", "origin")),
+                ("local-state-ignored", ("git", "-C", str(self.root), "check-ignore", "-q", ".ub-agents/")),
+                ("process-inspection", ("ps", "-axo", "pid=,pgid=,stat="))):
+            with self.subTest(id=id), patch.dict(self.runner.responses, {
+                    command: subprocess.CompletedProcess(command, 1, "", "")}):
+                result = self.diagnose(offline=True)
+                self.assertFalse(result["ok"])
+                self.assertEqual(self.one(result, id)["status"], "fail")
+                with patch("ub_agents.doctor.subprocess.run", self.runner), \
+                        patch("ub_agents.doctor.shutil.which", self.which), \
+                        redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline", "--json"]), 1)
+                self.assertFalse(json.loads(output.getvalue())["ok"])
+        (self.root / "instructions.md").write_bytes(b"\xff")
+        self.assertEqual(self.one(self.diagnose(offline=True), "instructions")["status"], "fail")
+        self.path.write_text("invalid: configuration\n")
+        self.assertEqual(self.one(self.diagnose(offline=True), "config")["status"], "fail")
+
+    def test_offline_passes_in_a_real_git_checkout_without_credentials_or_agent_clis(self):
+        from ub_agents.execution import git
+        git(self.root, "init")
+        git(self.root, "remote", "add", "origin", "https://github.com/org/project.git")
+        (self.root / ".gitignore").write_text(".ub-agents/\n")
+        which = shutil.which
+        with patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}), \
+                patch("ub_agents.doctor.shutil.which", side_effect=lambda name: which(name) if name == "git" else None), \
+                patch("ub_agents.doctor.GitHub", side_effect=AssertionError("GitHub accessed")), \
+                patch("socket.create_connection", side_effect=AssertionError("network accessed")), \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(["doctor", "--offline", "--config", str(self.path)]), 0)
+        self.assertIn("0 required failures, 0 warnings", output.getvalue())
+
     def test_doctor_uses_local_runtime_replacement_and_names_invalid_local_file(self):
         local = self.root / 'ub-agents.local.yaml'
         local.write_text('agents: {worker: {runtime: claude:machine:low}}\n')

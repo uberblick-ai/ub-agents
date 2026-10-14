@@ -14,7 +14,7 @@ from ub_agents.errors import AgentError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import PollGitHub, RecordingRunner, agent, config, issue, pr, stub_refresh
 from tests.test_approval_enforcement import feedback
 
 
@@ -223,15 +223,18 @@ class ApprovalPolicyTests(unittest.TestCase):
 
 
 class PolicyConfigurationTests(unittest.TestCase):
-    def test_policy_spellings_and_check_stays_local(self):
+    def test_policy_spellings_and_offline_doctor_stays_local(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ub-agents.yaml"
             base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
             for value, expected in ((None, None), ("on", "on"), ("off", "off"), ("'on'", "on"), ('"off"', "off")):
                 path.write_text(base + (f"approvals: {value}\n" if value is not None else ""))
                 self.assertEqual(load_config(path).approvals, expected)
-                with patch("ub_agents.cli.GitHub") as github, redirect_stdout(io.StringIO()) as output:
-                    self.assertEqual(main(["--config", str(path), "check"]), 0)
+                with patch("ub_agents.doctor.GitHub") as github, \
+                        patch("ub_agents.doctor.subprocess.run", RecordingRunner(path.parent.resolve())), \
+                        patch("ub_agents.doctor.shutil.which", return_value="/tools/git"), \
+                        redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(main(["--config", str(path), "doctor", "--offline", "--verbose"]), 0)
                 github.assert_not_called()
                 self.assertIn(f"Approvals: {expected} (config)" if expected else
                               "Approvals: from repository visibility", output.getvalue())

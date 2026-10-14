@@ -434,8 +434,10 @@ class ReleaseTests(unittest.TestCase):
         self.respond([interpreter, "-m", "pip", "--isolated", "check"])
         cli = venv / "bin/ub-agents"
         self.respond([cli, "--version"], f"ub-agents {VERSION}\n")
+        self.respond(["git", "init"])
+        self.respond(["git", "remote", "add", "origin", "https://github.com/example/project.git"])
         self.respond([cli, "init", "--repository", "example/project"], "Created configuration.\n")
-        self.respond([cli, "check"], "Valid configuration: example/project, 4 agents\n"
+        self.respond([cli, "doctor", "--offline"], "0 required failures, 0 warnings\n"
                      "Approvals: from repository visibility (public: on; private/internal: off)\n")
         self.respond([interpreter, "-c", "from ub_agents.view_ui import View"])
         self.downloads = []
@@ -474,6 +476,14 @@ class ReleaseTests(unittest.TestCase):
         self.assertLess(positions[2], positions[3])
         self.assertLess(positions[-2], positions[-1])
         self.assertIn(tuple(str(arg) for arg in self.install_command), args)
+        init_index = args.index(("git", "init"))
+        remote_index = args.index(("git", "remote", "add", "origin", "https://github.com/example/project.git"))
+        setup_index = next(index for index, call in enumerate(args) if call[-3:] == (
+            "init", "--repository", "example/project"))
+        self.assertLess(init_index, remote_index)
+        self.assertLess(remote_index, setup_index)
+        for index in (init_index, remote_index):
+            self.assertEqual(self.runner.calls[index][1]["cwd"], self.workspace / "test-project")
         test_calls = [(call, kwargs) for call, kwargs in self.runner.calls
                       if call[0].endswith("ub-agents") or "from ub_agents.view_ui import View" in call]
         self.assertEqual(len(test_calls), 4)
@@ -484,7 +494,7 @@ class ReleaseTests(unittest.TestCase):
         tool = self.publication()
         cli = self.workspace / "test-venv/bin/ub-agents"
         self.respond([cli, "--version"], f"Version:\nub-agents {VERSION}\nAdditional output.\n")
-        self.respond([cli, "check"], "Checking configuration.\nValid configuration: example/project, 4 agents\n"
+        self.respond([cli, "doctor", "--offline"], "Checking configuration.\n0 required failures, 0 warnings\n"
                      "Approvals: from repository visibility (public: on; private/internal: off)\n")
         output = self.publish()
         self.assertEqual(tool.completed, list(release.STEPS))
@@ -505,8 +515,8 @@ class ReleaseTests(unittest.TestCase):
 
     def test_formula_failure_prints_and_posts_failure_without_merging(self):
         tool = self.publication()
-        self.respond([self.workspace / "test-venv/bin/ub-agents", "check"], "wrong configuration\n")
-        with self.assertRaisesRegex(release.ReleaseError, "formula test check") as raised:
+        self.respond([self.workspace / "test-venv/bin/ub-agents", "doctor", "--offline"], "wrong configuration\n")
+        with self.assertRaisesRegex(release.ReleaseError, "formula test doctor --offline") as raised:
             self.publish()
         self.assertIn("Formula tests: FAIL", self.comment_body)
         self.assertIn("wrong configuration", self.comment_body)

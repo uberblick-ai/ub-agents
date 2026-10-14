@@ -454,5 +454,5 @@ class TrustedBotConfigurationTests(unittest.TestCase):
                     with self.assertRaisesRegex(AgentError, "trusted-bots"):
                         load_config(path)
                     with redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()):
-                        self.assertEqual(main(["check", "--config", str(path)]), 1)
-                    self.assertEqual(stdout.getvalue(), "")
+                        self.assertEqual(main(["doctor", "--offline", "--config", str(path)]), 1)
+                    self.assertIn("trusted-bots", stdout.getvalue())

@@ -101,7 +101,7 @@ the exact selected titles before retrying, including any creation whose response
 lost. If no starter files were written, rerunning init can reuse those boards.
 Init refuses existing starters; rerunning it does not overwrite or repair partial files.
 
-Setup success is distinct from launch readiness. Review the policy, run `ub-agents check`,
+Setup success is distinct from launch readiness. Review the policy, run `ub-agents doctor --offline`,
 commit the files through a PR and merge them into the default branch, then run
 `ub-agents doctor` from a clean default-branch launcher checkout without ahead/divergent
 commits. Launch fetches and fast-forwards from origin before runs to pick up code,

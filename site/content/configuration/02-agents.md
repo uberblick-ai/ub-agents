@@ -67,7 +67,7 @@ The check runs only for otherwise-ready work, before the claim or any new assign
 
 A nonzero exit, start failure or timeout makes ready items `waiting`, with the command and the last nonempty stderr line, falling back to stdout or the start or timeout error. One notice appears when the check starts failing or its error line changes, and one when it passes again; launch output also goes to `.ub-agents/launch.log`. Waiting items remain in Eligible, outside Needs attention, with no claims, attempts, label changes or item comments for new work. Other agents keep claiming, and `launch --once` exits normally.
 
-`ub-agents status` runs the check itself, so it works without a launcher on the same machine. Claiming resumes automatically when the check passes, without `retry`. Checks do not interrupt active runs, stop recovery of recorded outcomes or reset previously parked items. `check` validates the argv list without running it, and `doctor` does not run it. Project checks are separate from [daily runtime maintenance](/docs/configuration/runtime-updates.html).
+`ub-agents status` runs the check itself, so it works without a launcher on the same machine. Claiming resumes automatically when the check passes, without `retry`. Checks do not interrupt active runs, stop recovery of recorded outcomes or reset previously parked items. `doctor --offline` validates the argv list without running it, and `doctor` does not run it. Project checks are separate from [daily runtime maintenance](/docs/configuration/runtime-updates.html).
 
 **Upgrading:** Upgrade every launcher of a project before adding `health-check`; older versions reject the unknown agent key.
 
