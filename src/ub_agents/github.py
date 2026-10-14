@@ -176,6 +176,7 @@ class Item:
     comments_count: int | None = None
     # GitHub's REST merge check: False is GraphQL's CONFLICTING; None is unknown.
     mergeable: bool | None = None
+    merged: bool = False
 
 
 @dataclass(frozen=True)
@@ -834,7 +835,8 @@ class GitHub:
         owner = self.repository.split("/", 1)[0]
         query = urlencode({"state": state, "head": f"{owner}:{branch}", "per_page": 100})
         endpoint = f"{self.prefix}/pulls?{query}"
-        return [parse_item(raw, "pr", endpoint) for raw in self.request(endpoint, paginate=True)]
+        return [replace(parse_item(raw, "pr", endpoint), merged=raw.get("merged_at") is not None)
+                for raw in self.request(endpoint, paginate=True)]
 
     def add_labels(self, number, labels):
         self.request(f"{self.prefix}/issues/{number}/labels", "POST", {"labels": list(labels)}, array=True)

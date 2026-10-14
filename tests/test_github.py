@@ -766,6 +766,16 @@ agents:
             self.assertEqual(query["state"], ["all"])
             self.assertEqual(query["head"], ["org:ub-agents/worker/27/run"])
 
+    def test_branch_pr_reads_distinguish_merged_from_closed_unmerged_heads(self):
+        github = GitHub("org/project")
+        raw = {"number": 2, "title": "Candidate", "body": "", "labels": [],
+               "state": "closed", "created_at": iso(1), "draft": False,
+               "head": {"sha": "a" * 40, "ref": "ub-agents/worker/1/run"}}
+        for merged_at, expected in ((None, False), (iso(2), True)):
+            with self.subTest(merged_at=merged_at), \
+                    patch.object(github, "request", return_value=[raw | {"merged_at": merged_at}]):
+                self.assertEqual(github.prs_for_branch(raw["head"]["ref"], state="all")[0].merged, expected)
+
     def test_active_milestone_reads_every_page_and_sorts_by_creation_then_number(self):
         later = {"number": 1, "created_at": iso(300), "state": "open", "open_issues": 1}
         first_page = [dict(later, number=n) for n in range(1, 101)]
