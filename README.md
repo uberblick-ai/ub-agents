@@ -241,6 +241,12 @@ in the launch log and terminal view, or plain output with `--no-ui`; removed
 branches with tips not known remotely include their restoration SHA. Sweep
 failures do not stop launch. See [stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
 
+The same startup sweep prunes run diagnostics whose newest file is older than
+7 days, preserving live or uncertain runs and runs with kept worktrees or branches.
+It also prunes ended or stale session snapshots and orphan session files older
+than 7 days, preserving live sessions and the current launcher's files. One line
+reports the counts and space freed when anything is pruned; retention is fixed.
+
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of
 live work to reach all 20 retained outcomes. Its fixed header reads
@@ -260,7 +266,10 @@ structure while a notice is unavailable. GitHub failures while finalizing a stor
 report leave it for [expiry recovery](docs/coordination.md#recovery) without
 rerunning the agent.
 Launcher output is also appended to
-`.ub-agents/launch.log`.
+`.ub-agents/launch.log`. Before opening it, a launch rotates a log larger than
+5 MB to `launch.log.1`, replacing the previous archive, and records the rotation
+in the fresh log. Concurrent launchers can continue appending through their
+existing handles.
 
 **More machines.** Install ub-agents, clone the repository and run
 `ub-agents launch`. Every account with write access can run a launcher; list them

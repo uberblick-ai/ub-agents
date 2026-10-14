@@ -24,6 +24,22 @@ worktree and branch for retry. A crashed run's local lease stays live until expi
 so a quick restart keeps its artifacts until a later launch start; there is no
 periodic sweep.
 
+The startup sweep also prunes run directories whose newest file is older than
+a fixed 7 days, preserving live or uncertain runs and runs whose worktrees or
+branches were kept. Ended or stale session snapshots and orphan session files
+older than 7 days are pruned too, while live sessions and the current launcher's
+files survive. The existing cap of 20 inactive sessions remains. Pruning never
+follows symlinks and has no configuration key. One summary line reports counts
+and space freed when anything was removed, in launch output, `launch.log` and
+the Startup cleanup fold, including with `--no-ui`. Removal failures are logged
+once and launch continues. See [diagnostic retention](/docs/configuration/cleanup.html#diagnostic-retention).
+
+Before opening `.ub-agents/launch.log`, a launch rotates a log larger than a
+fixed 5 MB cap to `launch.log.1`, replacing the earlier archive. The new launcher
+writes a rotation notice and subsequent output to a fresh `launch.log`.
+Concurrent launchers keep appending through their existing handles to the
+renamed file; rotation never rewrites their lines. One archive is retained.
+
 Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
 
 Use `ub-agents launch --agent NAME` to serve only one agent named in your

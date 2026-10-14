@@ -75,3 +75,29 @@ heads, or reachability cannot be checked. Restore one with `git branch <name> <s
 
 A crashed run's local lease stays live until expiry, so a quick restart leaves its
 worktree until a later launch start. There is no periodic sweep.
+
+## Diagnostic retention
+
+The same startup sweep prunes `.ub-agents/runs/<run>/` when its newest file is
+more than 7 days old. Live local leases, unconfirmed cleanup, unfinished setup
+or hook processes, expired process groups not confirmed gone, unreadable or
+redirected diagnostics, and any worktree or branch the sweep kept protect the
+run's logs. Failed coordination or safety checks preserve affected logs.
+Symlinked entries are removed only as links, without following their targets.
+
+Ended or stale session snapshots older than 7 days are pruned with their cleanup
+logs. Orphan `.tmp` and `.cleanup.log` files older than 7 days are pruned when
+no live snapshot protects them. Live sessions and the current launcher's files
+survive; the existing cap of 20 inactive sessions still applies. Retention is
+fixed, with no configuration key.
+
+When anything is pruned, one line in launch output, `launch.log` and the Startup
+cleanup fold reports counts and total file bytes freed, including with `--no-ui`:
+
+```text
+pruned 63 run directories and 4 session files older than 7 days (41 MB)
+```
+
+Session counts include snapshots, companion logs and temporary files. Nothing
+is printed for pruning when nothing was removed. A removal failure is logged
+once with its reason, and the sweep and launch continue.

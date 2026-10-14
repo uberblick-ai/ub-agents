@@ -1,6 +1,7 @@
 """One private artifact sweep before a launcher starts polling."""
 
 from .cleanup import Cleaner
+from .diagnostic_retention import prune
 from .errors import AgentError, CleanupError
 
 
@@ -11,13 +12,18 @@ def sweep(config, github, actor, output=print, *, session=None):
         lines.append(line)
         output(line)
 
+    cleaner = Cleaner(config, github, actor, output=emit)
+    cleaned = False
     try:
-        Cleaner(config, github, actor, output=emit).clean(apply=True)
+        cleaner.clean(apply=True)
+        cleaned = True
     except (AgentError, OSError) as exc:
         reason = str(exc)
         if isinstance(exc, CleanupError):
             reason += f"; {exc.next_step}"
         emit(f"Startup cleanup failed: {' '.join(reason.split())}; continuing to poll")
+
+    prune(cleaner, emit, session=session, runs=cleaned)
 
     if lines and session is not None:
         # Keep complete decisions outside the bounded observation envelope.

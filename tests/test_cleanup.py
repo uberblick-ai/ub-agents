@@ -640,6 +640,51 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(lines[0], f"kept worktree {self.path.relative_to(self.root)}: Hook termination unknown")
         self.assertEqual(lines[1], f"kept branch {self.branch}: Cleanup hook failed; artifacts preserved")
 
+    def old_run_log(self):
+        import os
+        from ub_agents.diagnostic_retention import RETENTION_SECONDS
+        run = self.root / ".ub-agents/runs" / self.lease["run"]
+        run.mkdir(parents=True)
+        log = run / "process.log"
+        log.write_text("1234")
+        old = timestamp() - RETENTION_SECONDS - 1
+        os.utime(log, (old, old))
+        return run
+
+    def test_startup_prunes_old_logs_after_removing_the_runs_artifacts(self):
+        run = self.old_run_log()
+
+        def poll():
+            self.assert_removed()
+            self.assertFalse(run.exists())
+            return True
+
+        lines = self.launch_leftovers(poll)
+        self.assertEqual(lines[-1], "pruned 1 run directories and 0 session files older than 7 days (4 B)")
+
+    def test_startup_keeps_old_logs_for_open_pr_branch_and_failed_cleanup_hook(self):
+        for mode in ("open-pr", "failed-hook"):
+            with self.subTest(mode=mode):
+                run = self.old_run_log()
+                if mode == "open-pr":
+                    self.github.items[2] = replace(pr(), branch=self.branch)
+                    result = None
+                else:
+                    self.github.items.pop(2)
+                    git(self.root, "worktree", "add", str(self.path), self.branch)
+                    (self.root / ".ub-agents/launch.log").unlink()
+                    result = "hook failed"
+
+                def poll():
+                    self.assertTrue(run.exists())
+                    return True
+
+                with patch("ub_agents.cleanup.run_hook", return_value=result):
+                    lines = self.launch_leftovers(poll)
+                self.assertFalse(any(line.startswith("pruned") for line in lines))
+                (run / "process.log").unlink()
+                run.rmdir()
+
     def assert_removed(self):
         self.assertFalse(self.path.exists())
         self.assertNotIn(self.branch, git(self.root, "branch", "--format=%(refname:short)").splitlines())

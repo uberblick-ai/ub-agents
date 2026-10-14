@@ -1,10 +1,39 @@
-"""Flush launch output to the terminal and an append-only, timestamped log."""
+"""Flush launch output to the terminal and a timestamped, size-rotated log."""
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+import fcntl
+import os
+import stat
 import sys
 import threading
 
 from .records import iso, timestamp
+
+LOG_CAP_BYTES = 5 * 1024 * 1024
+
+
+def open_log(local):
+    """Serialize rotation and opening across launchers; existing writers retain their fd."""
+    if local.resolve() != local.parent.resolve() / local.name:
+        raise OSError("Launch log directory redirects")
+    lock = os.open(local / "launch.log.lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        rotated, failure = False, None
+        path = local / "launch.log"
+        try:
+            info = path.lstat()
+            if stat.S_ISREG(info.st_mode) and info.st_size > LOG_CAP_BYTES:
+                path.replace(local / "launch.log.1")
+                rotated = True
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            failure = str(exc)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        return os.fdopen(descriptor, "a", encoding="utf-8"), rotated, failure
+    finally:
+        os.close(lock)
 
 
 class LaunchStream:
@@ -84,10 +113,15 @@ class LaunchOutput:
 def launch_output(root):
     local = root / ".ub-agents"
     local.mkdir(mode=0o700, exist_ok=True)
-    with (local / "launch.log").open("a", encoding="utf-8") as log:
+    log, rotated, failure = open_log(local)
+    with log:
         output = LaunchOutput(log)
         with redirect_stdout(output.stdout), redirect_stderr(output.stderr):
             try:
+                if rotated:
+                    print("rotated launch.log to launch.log.1 (larger than 5 MB)")
+                if failure:
+                    print(f"Cannot rotate launch.log: {' '.join(failure.split())}; continuing to launch")
                 yield output
             finally:
                 output.stdout.finish()
