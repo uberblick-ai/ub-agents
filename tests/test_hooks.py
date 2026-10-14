@@ -41,7 +41,7 @@ class HookTests(unittest.TestCase):
         self.workspace = workspace
         return workspace.private
 
-    def execute(self, loop, effect=None):
+    def execute(self, loop, effect=None, git_failure=None):
         def agent_execution(*args, **kwargs):
             lease = loop.coordinator.history(1)[0]
             if effect:
@@ -49,7 +49,14 @@ class HookTests(unittest.TestCase):
             loop.coordinator.report(lease, "success", "done", handoff=2, outcome="done")
             return 0
         def remove(*args):
-            self.removed.append(args)
+            if args[1] == git_failure:
+                raise AgentError("injected branch cleanup failure")
+            if args[1:3] == ("worktree", "remove"):
+                self.removed.append(args)
+            elif args[1] == "rev-parse":
+                return "a" * 40
+            elif args[1] == "for-each-ref":
+                return "refs/remotes/origin/main"
             return ""
         with patch.object(Workspace, "prepare", lambda workspace: self.prepare(workspace)), \
                 patch("ub_agents.execution.git", side_effect=remove), \
@@ -65,6 +72,27 @@ class HookTests(unittest.TestCase):
         value = json.loads(output.read_text())
         self.assertEqual((value["status"], value["handoff"], value["kind"]), ("success", 2, "issue"))
         self.assertEqual(value["worktree"], str(self.workspace.private))
+
+    def test_branch_cleanup_failures_leave_success_and_cleanup_status_unchanged(self):
+        for command in ("fetch", "for-each-ref", "update-ref"):
+            with self.subTest(command=command):
+                self.github = FakeGitHub(issue(), pr(labels=("needs-review",)))
+                self.removed.clear()
+                loop = self.loop()
+                lines = []
+                loop.output = lines.append
+                self.assertTrue(self.execute(loop, git_failure=command))
+                lease, outcome = loop.coordinator.history(1)
+                self.assertEqual((lease["state"], lease["result"]), ("released", "success"))
+                self.assertTrue(outcome["accepted"])
+                self.assertNotIn("cleanup", lease)
+                self.assertNotIn("cleanup_hook_error", lease)
+                self.assertEqual(len(self.removed), 1)
+                self.assertFalse(self.workspace.created)
+                kept = next(line for line in lines if "kept local branch" in line)
+                self.assertIn(self.workspace.lease["branch"], kept)
+                self.assertIn("a" * 40, kept)
+                self.assertIn("injected branch cleanup failure", kept)
 
     def test_cleanup_hook_inherits_gh_run_lock(self):
         loop = self.loop()

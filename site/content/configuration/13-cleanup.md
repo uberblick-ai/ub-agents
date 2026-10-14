@@ -1,6 +1,14 @@
 # Cleanup hook
 
-After every run, the launcher removes the run's private worktree by itself; local branches stay. The cleanup hook is an optional program that runs just before that removal. Use it to stop things a run started, such as test services.
+After every run, the launcher removes the run's private worktree by itself. The cleanup hook is an optional program that runs just before that removal. Use it to stop things a run started, such as test services.
+
+After removing the worktree, the launcher fetches origin branches and deletes
+the run's local branch if its tip is reachable from one of them. Runs with no
+commits and runs that pushed their commits qualify. Deletion compares the tip,
+so a branch that moved is kept. Unpublished tips and fetch, reachability or
+deletion failures keep the branch and log its name, reason and full tip SHA;
+the outcome, cleanup status and lease stay unchanged. A kept worktree also keeps
+its branch. PR worktrees are detached and have no local branch to delete.
 
 ```yaml
 cleanup:

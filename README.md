@@ -224,6 +224,11 @@ private worktree also runs setup once before its agent starts.
 | `ub-agents approve 214` | Approve outside edits or a contributor's PR as agent input |
 | `ub-agents help COMMAND` | Show a command's options and examples |
 
+At run end, the launcher removes the private worktree and deletes its local branch
+when its tip is reachable from a freshly fetched origin branch. Unpublished tips
+and Git failures keep the branch and log its name, reason and tip SHA. A kept
+worktree also keeps its branch.
+
 Every launch sweeps all roles' leftover worktrees, unregistered folders under
 `.ub-agents/worktrees/`, and local `ub-agents/` or older `ub-agent/` run branches
 once before polling. It keeps artifacts of live leases on this host, branches

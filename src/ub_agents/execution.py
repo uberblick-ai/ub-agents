@@ -112,12 +112,13 @@ class ScratchDirectory:
 
 
 class Workspace:
-    def __init__(self, config, agent, item, lease, github):
+    def __init__(self, config, agent, item, lease, github, output=print):
         self.root = config.root.resolve()
         self.agent = agent
         self.item = item
         self.lease = lease
         self.github = github
+        self.output = output
         self.private = self.root / ".ub-agents" / "worktrees" / lease["run"]
         self.created = False
 
@@ -155,7 +156,30 @@ class Workspace:
             raise CleanupError(f"Cannot remove owned private worktree {self.private}: {exc}",
                                next_step="resolve the worktree removal error") from exc
         self.created = False
-        # Retain branches: an interrupted commit can be recovered by a human.
+        # Remove remotely recoverable branches; preserve unpublished commits.
+        self.cleanup_branch()
+
+    def cleanup_branch(self):
+        branch = self.lease.get("branch")
+        if self.item.kind == "pr" or not branch:
+            return
+        tip = "unknown"
+        operation = "read branch tip"
+        try:
+            tip = git(self.root, "rev-parse", f"refs/heads/{branch}")
+            operation = "fetch origin branches"
+            git(self.root, "fetch", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
+            operation = "check origin reachability"
+            if not git(self.root, "for-each-ref", f"--contains={tip}",
+                       "--format=%(refname)", "refs/remotes/origin/"):
+                reason = "tip is not reachable from origin branches"
+            else:
+                operation = "delete branch (tip may have moved)"
+                git(self.root, "update-ref", "-d", f"refs/heads/{branch}", tip)
+                return
+        except AgentError as exc:
+            reason = f"cannot {operation}: {exc}"
+        self.output(f"Run cleanup kept local branch {branch}: {reason}; tip {tip}")
 
     def check_private_boundary(self):
         if self.private.resolve() != self.private:

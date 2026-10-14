@@ -1267,7 +1267,7 @@ class Loop:
         run_dir = run_directory(self.config.root.resolve(), lease["run"])
         scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])
         preserve_scratch = False
-        workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github)
+        workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github, output=self.output)
         self.output(f"#{plan.item.number} {plan.agent.name}: claimed {lease['run']} ({lease['runtime']})")
         self.output(f"Logs: {run_dir}")
 
