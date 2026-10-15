@@ -599,6 +599,26 @@ launchers: [operator]
         self.assertEqual(self.github.reads.count('repos/org/project/labels'), 2)
         self.assertEqual(output.splitlines()[-1], '0 required failures, 0 warnings')
 
+    def test_color_remedies_and_confirmed_creation_exclude_priority_labels(self):
+        self.path.write_text(self.path.read_text().replace('outcomes: {done: {}}', '''outcomes:
+      done:
+        add: [needs-preparation, NEEDS-REVIEW, needs-changes, ready-to-merge, custom-destination]''') + '''queue:
+  priority:
+    labels: [prio:urgent, prio:high, prio:medium, prio:low]
+''')
+        self.github.label_names = []
+        expected = {'ready': '0e8a16', 'needs-preparation': 'c5def5', 'NEEDS-REVIEW': 'fbca04',
+                    'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db', 'custom-destination': '1d76db',
+                    'needs-human': 'b60205'}
+        checks = self.checks(self.diagnose(), 'github-label')
+        self.assertEqual({check['id'].removeprefix('github-label:') for check in checks}, set(expected))
+        for check in checks:
+            color = expected[check['id'].removeprefix('github-label:')]
+            self.assertTrue(check['remedy'].endswith(f'--color {color}'), check['remedy'])
+        code, _ = self.cli(terminal=True, answer='yes')
+        self.assertEqual(code, 0)
+        self.assertEqual({write[1]: write[3] for write in self.github.writes}, expected)
+
     def test_second_label_read_controls_exit_status_even_after_successful_writes(self):
         self.github.label_names = []
         with patch.object(self.github, 'labels', side_effect=[[], ['needs-human']]) as labels:

@@ -167,8 +167,16 @@ def make_plan(path, repository, choices):
 
 
 def priority_labels(choices):
-    return [Label(name, (LabelUse(None, "queue priority (highest to lowest)"),))
-            for name in choices.priority_labels]
+    labels = []
+    for rank, name in enumerate(choices.priority_labels):
+        if rank < 2:
+            color = ("e0524a", "c98a86")[rank]
+        elif rank >= 3 and rank == len(choices.priority_labels) - 1:
+            color = "86a891"
+        else:
+            color = "d4d4d4"
+        labels.append(Label(name, (LabelUse(None, "queue priority (highest to lowest)"),), color=color))
+    return labels
 
 
 @dataclass

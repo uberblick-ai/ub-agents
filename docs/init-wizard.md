@@ -276,8 +276,8 @@ These runs skip all extras and register no MCP server. The setup remains local-o
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │
 ◇  Create the labels yourself
-│  gh label create needs-preparation --repo org/project --description 'ub-agents: starts issue-preparer on an issue; added when issue-reviewer reports changes-requested' --color 1d76db
-│  gh label create needs-review --repo org/project --description 'ub-agents: starts issue-reviewer on an issue; starts reviewer on a PR' --color 1d76db
+│  gh label create needs-preparation --repo org/project --description 'ub-agents: starts issue-preparer on an issue; added when issue-reviewer reports changes-requested' --color c5def5
+│  gh label create needs-review --repo org/project --description 'ub-agents: starts issue-reviewer on an issue; starts reviewer on a PR' --color fbca04
 │  …
 │
 └  Then run ub-agents launch
