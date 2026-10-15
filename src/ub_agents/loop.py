@@ -1338,6 +1338,14 @@ class Loop:
                     diagnostic("cleanup-unconfirmed", error=str(exc))
                 raise
 
+        def cleanup_after_failure():
+            try:
+                cleanup_workspace()
+            except (LostOwnership, GitHubError):
+                self._renewal.close()
+                cleanup_workspace(record=False)
+                raise
+
         def record_process(pid):
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, process_group=pid)
@@ -1475,7 +1483,7 @@ class Loop:
         except KeyboardInterrupt as exc:
             if completing:
                 diagnostic("transition-interrupted", outcome=outcome["id"] if outcome else None)
-                cleanup_workspace()
+                cleanup_after_failure()
                 # A request can be interrupted after GitHub applied its write,
                 # before our in-memory outcome reflects it. Even a read before
                 # transition start must preserve the report for expiry recovery.
@@ -1485,10 +1493,10 @@ class Loop:
             summary = "Launcher interrupted; attributable execution terminated"
             if isinstance(exc, CheckoutSetupInterrupted):
                 summary += f"; {exc}"
-            cleanup_workspace()
+            cleanup_after_failure()
         except TransitionPaused as exc:
             result, summary, effect = "blocked", str(exc), "unchanged"
-            cleanup_workspace()
+            cleanup_after_failure()
         except Exception as exc:
             if completing and not isinstance(exc, ValidationError):
                 raise  # Keep completed reports recoverable; never invent a failure verdict.
@@ -1496,7 +1504,7 @@ class Loop:
                       or (setup and isinstance(exc, (AgentError, OSError))
                           and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
             summary = str(exc)
-            cleanup_workspace()
+            cleanup_after_failure()
         finally:
             if not preserve_scratch:
                 try:

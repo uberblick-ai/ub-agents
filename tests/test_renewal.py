@@ -2,6 +2,7 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 import io
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import unittest
@@ -10,7 +11,7 @@ from unittest.mock import patch
 from ub_agents.config import CleanupHook, LEASE_RENEW_SECONDS, LEASE_SECONDS
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError, LostOwnership
-from ub_agents.execution import Workspace
+from ub_agents.execution import Workspace, group_members, supervise
 from ub_agents.launch_log import launch_output
 from ub_agents.loop import Loop
 from ub_agents.records import body, iso, payload, seconds
@@ -109,6 +110,113 @@ class RenewalTests(unittest.TestCase):
             self.loop.tick()
         self.assertEqual(self.github.writes, self.writes_at_expiry)
         self.assertIsNone(self.loop._renewal)
+
+    def test_launch_polls_after_renewal_outage_expires_a_running_process(self):
+        for operation in ("comments", "update_comment"):
+            with self.subTest(operation=operation):
+                self.setUp()
+                self.loop.interrupt_event = threading.Event()
+                # A real supervised child must stop before polling or recovery.
+                self.loop.config = replace(self.loop.config, agents=(replace(
+                    self.role, command=(sys.executable, "-c", "import time; time.sleep(30)")),))
+                failure = GitHubError("GET" if operation == "comments" else "PATCH", operation,
+                                      "GitHub unavailable", retryable=True)
+                lines, waits, executions, stopped = [], [], [], []
+                self.loop.output = lines.append
+
+                def execution(*args, **kwargs):
+                    executions.append(True)
+                    lease = self.loop._renewal.lease
+                    self.co.report(lease, "success", "Durable early outcome", outcome="done")
+
+                    def expire(final=False):
+                        if not final:
+                            with patch.object(self.github, operation, side_effect=failure):
+                                self.advance()
+                                self.advance()
+                            stopped.append(self.github.writes.copy())
+                            self.now = seconds(lease["expires"])
+
+                    try:
+                        return supervise(*args, **(kwargs | {"observe_output": expire}))
+                    except LostOwnership as exc:
+                        self.assertIs(exc.__cause__, failure)
+                        raise
+
+                def wait(delay):
+                    waits.append(delay)
+                    if len(waits) == 1:
+                        self.assertEqual(delay, 5)
+                        self.assertEqual(self.github.writes, stopped[0])
+                        self.assertIsNone(self.loop._renewal)
+                        lease, reported = self.co.history(1)
+                        self.assertEqual(lease["state"], "running")
+                        self.assertFalse(reported["accepted"])
+                        pid = int((self.root / ".ub-agents/runs" / lease["run"] / "pid").read_text())
+                        self.assertEqual(group_members(pid), [])
+                        self.now += delay
+                    else:
+                        self.assertGreater(delay, 0)
+                        self.assertLessEqual(delay, self.loop.config.poll_seconds)
+                        self.loop.stop_event.set()
+
+                with patch("ub_agents.loop.supervise", side_effect=execution), \
+                        patch.object(self.loop.stop_event, "wait", side_effect=wait):
+                    self.loop.launch()
+                self.assertEqual(len(executions), 1)
+                self.assertEqual(len(waits), 2)
+                self.assertEqual(sum(line.startswith("Skipped GitHub poll:") for line in lines), 1)
+                history = self.co.history(1)
+                self.assertTrue(history[1]["accepted"])
+                self.assertEqual((history[2]["mode"], history[2]["state"]), ("recovery", "released"))
+
+    def test_expiry_retains_the_latest_renewal_error_classification(self):
+        for retryable in (True, False):
+            with self.subTest(retryable=retryable):
+                self.setUp()
+                lease = self.claim()
+                for classification in (not retryable, retryable):
+                    failure = GitHubError("GET", "comments", "failed renewal", retryable=classification)
+                    self.now += LEASE_RENEW_SECONDS
+                    with patch.object(self.github, "comments", side_effect=failure):
+                        self.assertFalse(self.co.renew(lease, self.github))
+                writes = self.github.writes.copy()
+                self.now = seconds(lease["expires"])
+                for _ in range(2):
+                    with self.assertRaises(LostOwnership) as raised:
+                        self.co.deadline(lease)
+                    self.assertIs(raised.exception.__cause__, failure)
+                    self.assertEqual(raised.exception.__cause__.retryable, retryable)
+                self.assertEqual(self.github.writes, writes)
+
+    def test_successful_renewal_clears_failure_cause_for_later_expiry(self):
+        lease = self.claim()
+        failure = GitHubError("GET", "comments", "unavailable", retryable=True)
+        with patch.object(self.github, "comments", side_effect=failure):
+            self.now += LEASE_RENEW_SECONDS
+            self.assertFalse(self.co.renew(lease, self.github))
+        self.now += LEASE_RENEW_SECONDS
+        self.assertTrue(self.co.renew(lease, self.github))
+        self.now = seconds(lease["expires"])
+        with self.assertRaises(LostOwnership) as raised:
+            self.co.deadline(lease)
+        self.assertIsNone(raised.exception.__cause__)
+
+    def test_renewal_failure_does_not_make_a_rival_claim_retryable(self):
+        lease = self.claim()
+        failure = GitHubError("GET", "comments", "unavailable", retryable=True)
+        with patch.object(self.github, "comments", side_effect=failure):
+            self.now += LEASE_RENEW_SECONDS
+            self.assertFalse(self.co.renew(lease, self.github))
+        other = payload(lease) | {"run": "rival", "mode": "recovery", "recovered_lease_id": lease["id"],
+                                  "recovered_run": lease["run"]}
+        self.github.create_comment(1, body(other))
+        with self.assertRaises(LostOwnership) as raised:
+            self.co.assert_owned(lease)
+        self.assertIsNone(raised.exception.__cause__)
+        with self.assertRaises(LostOwnership) as raised:
+            self.co.deadline(lease)
+        self.assertIsNone(raised.exception.__cause__)
 
     def test_read_failure_does_not_lose_ownership_or_wait_inside_renewal(self):
         lease = self.claim()

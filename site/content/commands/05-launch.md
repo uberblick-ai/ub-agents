@@ -265,6 +265,7 @@ other HTTP 4xx and configuration errors stop with a message to fix the cause and
 A retryable failure after claiming stops the owned process and renewal, leaves
 the lease untouched and returns to polling. Its live lease prevents another run;
 after expiry, a stored outcome finishes through recovery without rerunning the agent.
+This also applies when retryable renewal failures exhaust the lease during execution.
 A lost claim POST response is reconciled and withdrawn before replanning, without
 spending an item attempt. `launch --once` fails on its first error. See
 [polling and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling)

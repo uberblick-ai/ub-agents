@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from ub_agents.config import Runtime, load_config
-from ub_agents.errors import AgentError, CleanupError, LostOwnership
+from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership
 from ub_agents.execution import Workspace, command_for, git, group_members, supervise
 from tests.support import agent, config, issue, pr, FakeGitHub
 
@@ -166,6 +166,34 @@ agents:
             self.assertEqual(supervise(["test"], self.root, {}, self.root / "run", 100, event, expires=deadline), 0)
         self.assertEqual((now[0], seen), (40, [30, 30, 60, 60]))
         cleanup.assert_called_once_with(process)
+
+    def test_crossing_expiry_after_deadline_read_rechecks_the_renewal_result(self):
+        for renewed in (False, True):
+            with self.subTest(renewed=renewed):
+                process = Mock(pid=1234, returncode=0)
+                process.poll.side_effect = [None, 0]
+                failure = GitHubError("PATCH", "lease", "unavailable", retryable=True)
+                reads = []
+                def deadline():
+                    reads.append(True)
+                    if len(reads) == 1:
+                        return 30
+                    if renewed:
+                        return 60
+                    raise LostOwnership("Local lease deadline expired") from failure
+                with patch("ub_agents.execution.subprocess.Popen", return_value=process), \
+                        patch("ub_agents.execution.stop_group") as cleanup, \
+                        patch("ub_agents.execution.time.time", return_value=30):
+                    if renewed:
+                        self.assertEqual(supervise(["test"], self.root, {}, self.root / "run", 3,
+                                                   threading.Event(), expires=deadline), 0)
+                    else:
+                        with self.assertRaises(LostOwnership) as raised:
+                            supervise(["test"], self.root, {}, self.root / "run", 3,
+                                      threading.Event(), expires=deadline)
+                        self.assertIs(raised.exception.__cause__, failure)
+                self.assertEqual(len(reads), 2)
+                cleanup.assert_called_once_with(process)
 
     def test_interruption_ends_the_process(self):
         stop = threading.Event()

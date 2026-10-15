@@ -61,8 +61,9 @@ quota and reset time, warning below 10% remaining. See [Polling and GitHub reque
 for the exact accounting and waits.
 
 A retryable failure after a claim write also returns to polling, including an
-ownership check that cannot reach GitHub. The launcher stops its owned process
-and renewal and makes no further writes for that lease. The live lease prevents
+ownership check that cannot reach GitHub or lease expiry after failed renewals.
+The launcher stops its owned process and renewal and makes no further writes for
+that lease. The live lease prevents
 a second run until expiry; a stored outcome then finishes through recovery without
 rerunning the agent. An uncertain claim POST is reconciled and withdrawn before
 replanning. Authentication, other HTTP 4xx, configuration and other non-retryable

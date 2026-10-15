@@ -88,8 +88,9 @@ reconcile whether the claim was created; withdraw it if present without charging
 an attempt or item backoff. A restart leaves normal lease expiry to recover it.
 Other retryable failures after a claim write, during election, execution or
 finalization, end that pass and continue polling. A failed ownership check caused
-by a retryable GitHub failure also follows this policy. Stop the owned process
-and renewal, make no further writes for that lease, and leave it to expiry and
+by a retryable GitHub failure also follows this policy, including local lease
+expiry after failed renewals. Stop the owned process and renewal, make no further
+writes for that lease, and leave it to expiry and
 durable-outcome recovery. No second run starts while its lease is live.
 Completed-run finalization preserves the durable outcome; expiry recovery
 finishes completion without rerunning the agent. Rate-limited owned reads retry
