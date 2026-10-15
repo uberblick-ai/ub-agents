@@ -251,7 +251,7 @@ def launch_checks(config, github, read_git=None):
                          "run ub-agents doctor for setup commands")
 
 
-def check_launch_setup(loop, github):
+def check_launch_setup(config, github, loop):
     # No ownership exists yet: interrupt even a slow gh/git subprocess. The
     # normal in-run handlers defer interruption until execution can be cleaned up.
     def interrupt_checks(*_):
@@ -269,7 +269,7 @@ def check_launch_setup(loop, github):
             loop._before_claim()
             loop._observe("activity", "checking setup")
             try:
-                launch_checks(loop.config, github)
+                launch_checks(config, github)
             except GitHubError as exc:
                 loop._before_claim()
                 if not exc.retryable:
@@ -457,7 +457,7 @@ def run(args):
                              no_ui=args.no_ui, poll=loop.request_poll)
             if view is not None:
                 loop.enable_poll_now()
-        check_launch_setup(loop, github)
+        check_launch_setup(config, github, loop)
         from .updates import Updates
         loop.updates = Updates(config.root)
         if loop.updates is not None:
