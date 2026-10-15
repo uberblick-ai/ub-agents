@@ -11,11 +11,12 @@ implementer:
 ## Starter permissions
 
 `ub-agents init` includes one commented top-level `runtime-args` mapping entry for
-the selected CLI. Its [setup wizard](/docs/commands/init.html) previews exact
-permissions as a separate default-off choice for all four starter agents, then
-requires review and Apply before writing it. Accept and enable permissions (y)
-selects the grant; Continue without permissions (n) is the default; Cancel (esc) exits.
-`--use-defaults`, CI and non-TTY keep them commented out without prompts.
+the selected CLI. In a terminal, [init](/docs/commands/init.html) asks whether
+agents may work without asking; Yes (the default) uncomments it for all four
+starter agents. Review it before you launch. Agents always work in worktrees and
+branches; they never commit to main.
+Selecting the Retrospectives extra also adds Claude's `retrospective` permission.
+`--use-defaults`, CI and non-TTY keep it commented out without prompts.
 Existing local overrides still take precedence. The list examples below belong
 inside individual agent definitions.
 

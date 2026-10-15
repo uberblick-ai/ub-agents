@@ -25,7 +25,7 @@ from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
 from .loop import Loop, _GracefulStop
 from .init_setup import runtime_guidance
 from .launch_log import launch_output
-from .labels import configured_labels, print_commands
+from .labels import configured_labels
 from .refresh import control_checkout_checks
 from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
                       record_version, records, same_run, timestamp)
@@ -45,13 +45,13 @@ def parser():
     commands = result.add_subparsers(dest="command", prog="ub-agents")
     init = commands.add_parser("init", help="set up this repository: starter configuration, agent instructions and workflow labels",
                                formatter_class=InitHelpFormatter,
-                               description="Guide terminal setup through a wizard with a review before Apply. "
+                               description="Ask a few setup questions in the terminal, show the changes, then write them. "
                                "Use --use-defaults for unattended setup; CI/non-TTY also uses defaults. "
                                "Existing starter files will never be overwritten.",
                                examples=("ub-agents init",
                                          "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
-    init.add_argument("--runtime", default="codex:gpt-6.1-sol:high", help="initial cli:model:effort for starter agents")
+    init.add_argument("--runtime", help="starter cli:model:effort (default: the detected CLI)")
     init.add_argument("--use-defaults", action="store_true", help="unattended starters, even in a terminal")
     doctor = commands.add_parser("doctor", help="check the machine, GitHub access, labels and agent runtimes",
                                  formatter_class=CommentHelpFormatter,
@@ -140,43 +140,13 @@ def parser():
 
 
 def init_project(args):
-    from .init_setup import (Choices, apply_plan, guidance_summary, infer_repository, make_plan,
-                             next_steps, recovery_content)
-    path = Path(args.config).absolute()
-    repository = args.repository or infer_repository(path.parent)
-    plan = make_plan(path, repository, Choices(args.runtime))
+    from .init_flow import Flow
+    from .init_prompts import DefaultPrompter, Transcript, interactive_prompter
     interactive = (not args.use_defaults and not os.environ.get("CI")
                    and sys.stdin.isatty() and sys.stdout.isatty())
-    if interactive:
-        from .init_ui import run_wizard
-        from .init_wizard import Wizard
-        return run_wizard(Wizard(plan, GitHub(plan.config.repository)))
-    result = apply_plan(plan, GitHub(plan.config.repository))
-    print(f"config: {path.name}")
-    print("policy: .agents/ub_agents.md (checks, merge policy, decision-makers, review priorities)")
-    print("roles: .agents/ (issue-preparer, implementer, reviewer, integrator)")
-    print("Defaults: starter runtime; permissions deferred; priority off; retrospectives off; "
-          "Uberblick integration off; no GitHub labels created.")
-    for message in guidance_summary(plan):
-        print(message)
-    if not result.ok:
-        print("Setup partially failed; completed effects remain:")
-        for step in result.completed:
-            print(step)
-        print(result.error)
-        for step in result.incomplete:
-            print(step)
-        print("Remaining work (complete manually; init refuses existing starters):")
-        for step in result.remaining:
-            print(step)
-        print(recovery_content(plan, result))
-    else:
-        print("Setup completed; launch readiness requires review of project checks and authority.")
-    for step in next_steps(plan):
-        print(f"next: {step}")
-    print_commands(configured_labels(plan.config), plan.config.repository,
-                   "Unattended defaults; GitHub labels were not read or written")
-    return 0 if result.ok else 1
+    prompter = interactive_prompter(os.environ) if interactive else DefaultPrompter()
+    return Flow(Path(args.config).absolute(), args.repository, args.runtime, GitHub, prompter, Transcript(),
+                unattended=not interactive).run()
 
 
 def report_run(args):

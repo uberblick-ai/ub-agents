@@ -15,10 +15,6 @@ class BoardRequest:
     category_id: str
     repository_id: str
 
-    def preview(self, repository):
-        return (f"Create public discussion in {repository}: {self.title}\n"
-                f"Category: {self.category}\nBody: {board_body(self.title)}")
-
 
 def board_body(title):
     return f"# {title}\n\nLessons from completed ub-agents runs. Agents publish retrospectives here as the launcher account.\n"
@@ -31,6 +27,12 @@ class Boards:
         self.variables = {"owner": owner, "name": name}
 
     def setup(self):
+        repo = self.discussions()
+        if repo["hasDiscussionsEnabled"] is not True:
+            raise AgentError(f"Enable GitHub Discussions in {self.repository}")
+        return repo
+
+    def discussions(self):
         data = self.github.graphql(
             "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){"
             "id nameWithOwner url hasDiscussionsEnabled viewerPermission "
@@ -39,8 +41,8 @@ class Boards:
             repo = data["repository"]
             if repo["nameWithOwner"] != self.repository or repo["url"] != f"https://github.com/{self.repository}":
                 raise ValueError("repository mismatch")
-            if repo["hasDiscussionsEnabled"] is not True:
-                raise AgentError(f"Enable GitHub Discussions in {self.repository}, then Retry; or Skip")
+            if not isinstance(repo["hasDiscussionsEnabled"], bool):
+                raise ValueError("invalid Discussions flag")
             if not isinstance(repo["id"], str) or not repo["id"]:
                 raise ValueError("missing repository ID")
             if repo["viewerPermission"] not in {None, "READ", "TRIAGE", "WRITE", "MAINTAIN", "ADMIN"}:
@@ -55,7 +57,7 @@ class Boards:
                 raise ValueError("invalid category")
             return repo
         except (KeyError, TypeError, ValueError) as exc:
-            raise AgentError(f"Discussions availability or repository identity cannot be verified for {self.repository}; Retry or Skip") from exc
+            raise AgentError(f"Discussions availability or repository identity cannot be verified for {self.repository}") from exc
 
     def verify(self, number):
         if type(number) is not int or number <= 0:
@@ -73,10 +75,10 @@ class Boards:
             # Require this positive write-capability evidence on an open board;
             # read access or a repository role alone is insufficient.
             if board["locked"] is not False or board["closed"] is not False or board["viewerCanUpdate"] is not True:
-                raise AgentError(f"Discussion #{number}: open-board posting/write access cannot be verified; repair Discussions write access, then Retry or Skip")
+                raise AgentError(f"Discussion #{number}: open-board posting/write access cannot be verified; repair Discussions write access")
             return board
         except (KeyError, TypeError, ValueError) as exc:
-            raise AgentError(f"Discussion #{number} is invalid or unreadable in {self.repository}; Retry or Skip") from exc
+            raise AgentError(f"Discussion #{number} is invalid or unreadable in {self.repository}") from exc
 
     def find(self, title):
         """Discover exact chosen titles across every page; never guess board numbers."""
@@ -102,17 +104,17 @@ class Boards:
                 seen.add(following)
                 cursor = following
             except (KeyError, TypeError, ValueError) as exc:
-                raise AgentError("Board discovery is incomplete; Retry or choose an existing discussion number") from exc
+                raise AgentError("Board discovery is incomplete") from exc
         if len(matches) > 1:
-            raise AgentError(f"Several boards have the title {title!r}; explicitly choose a discussion number")
+            raise AgentError(f"Several boards have the title {title!r}; set the board numbers in ub-agents.yaml")
         return self.verify(matches[0]) if matches else None
 
     def request(self, title, category, repo):
         if repo["viewerPermission"] not in {"WRITE", "MAINTAIN", "ADMIN"}:
-            raise AgentError(f"The launcher account cannot create requested boards in {self.repository}; create them manually, then Retry or Skip")
+            raise AgentError(f"The launcher account cannot create requested boards in {self.repository}")
         chosen = [c for c in repo["discussionCategories"]["nodes"] if c["name"] == category]
         if len(chosen) != 1:
-            raise AgentError("Choose an available discussion category by its exact name, then Retry")
+            raise AgentError(f"Discussion category {category!r} is not available")
         return BoardRequest(title, category, chosen[0]["id"], repo["id"])
 
     def create(self, request):

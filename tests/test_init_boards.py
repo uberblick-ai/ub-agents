@@ -28,7 +28,7 @@ class BoardSetupTests(unittest.TestCase):
     def test_discovery_and_requests_are_read_only_and_only_real_numbers_enter_config(self):
         plan = self.plan()
         request = self.choices.board_requests['implementer']
-        self.assertIn('Create public discussion', request.preview('org/project'))
+        self.assertEqual((request.title, request.category), ('implementer lessons', 'General'))
         self.assertEqual(self.github.writes, [])
         self.assertFalse(self.path.parent.exists())
         self.assertNotIn('retrospectives:', plan.targets[self.path])
@@ -62,7 +62,7 @@ class BoardSetupTests(unittest.TestCase):
     def test_duplicate_titles_require_an_explicit_number(self):
         for number in (204, 205):
             self.github.boards[number] = self.github.board(number, 'same title')
-        with self.assertRaisesRegex(AgentError, 'explicitly choose'):
+        with self.assertRaisesRegex(AgentError, 'set the board numbers'):
             self.boards.find('same title')
         self.assertEqual(self.github.writes, [])
 
@@ -131,7 +131,7 @@ class BoardSetupTests(unittest.TestCase):
             self.boards.setup()
         self.github.discussion_metadata['hasDiscussionsEnabled'] = True
         self.github.discussion_metadata['viewerPermission'] = 'READ'
-        with self.assertRaisesRegex(AgentError, 'create them manually'):
+        with self.assertRaisesRegex(AgentError, 'cannot create requested boards'):
             self.boards.request('chosen board', 'General', self.boards.setup())
         self.github.discussion_metadata['viewerPermission'] = 'WRITE'
         with self.assertRaisesRegex(AgentError, 'category'):

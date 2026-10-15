@@ -17,6 +17,11 @@ from ub_agents.labels import configured_labels
 from tests.support import DoctorGitHub, RecordingRunner
 
 
+def flat(output):
+    """The transcript's words without its rails and box edges, so wrapped notes read as one line."""
+    return ' '.join(re.sub(r'\x1b\[[0-9;]*m|[│╮╯├─]', ' ', output).split())
+
+
 class InitTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -51,7 +56,8 @@ class InitTests(unittest.TestCase):
         return code, stdout.getvalue(), stderr.getvalue(), prompt
 
     def commands(self, output):
-        return [shlex.split(line) for line in output.splitlines() if line.startswith('gh label create ')]
+        lines = [re.sub(r'\x1b\[[0-9;]*m', '', line).removeprefix('│').strip() for line in output.splitlines()]
+        return [shlex.split(line) for line in lines if line.startswith('gh label create ')]
 
     def test_noninteractive_starter_guidance_all_commands_and_only_inference_read(self):
         code, output, error, prompt = self.init(infer=True)
@@ -78,8 +84,8 @@ class InitTests(unittest.TestCase):
         for expected in ('<project build command>', '<project test command>', '## Checks',
                          '## Merging', '## Human decisions', '## Review focus'):
             self.assertIn(expected, guidance)
-        self.assertIn('codex loads no project guidance', output)
-        self.assertIn('know how to build and test', output)
+        self.assertIn('codex loads no project guidance', flat(output))
+        self.assertIn('know how to build and test', flat(output))
         self.assertFalse((self.path.parent / 'AGENTS.md').exists())
         self.assertEqual(len(list((self.path.parent / '.agents').glob('*.md'))), 5)
         self.assertEqual(config.shared_instructions, self.path.parent / '.agents/ub_agents.md')
@@ -93,7 +99,7 @@ class InitTests(unittest.TestCase):
                     code, output, _, _ = self.init(runtime=runtime, terminal=enabled, permissions_answer='yes')
                     self.assertEqual(code, 0)
                     cli = runtime.split(':', 1)[0] if runtime else 'codex'
-                    self.assertIn(f'{cli} loads no project guidance', output)
+                    self.assertIn(f'{cli} loads no project guidance', flat(output))
                     with patch('ub_agents.doctor.subprocess.run', RecordingRunner(self.path.parent.resolve())), \
                             patch('ub_agents.doctor.shutil.which', return_value='/tools/git'), \
                             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -154,8 +160,8 @@ class InitTests(unittest.TestCase):
                     self.assertIn('Leave changes to workflow, permissions and release policy to `@acme/core`;',
                                   customized)
                     self.assertNotIn('maintainer team', policy)
-                    self.assertEqual(policy.split('## Review focus\n\n')[1].strip(),
-                                     "Replace this section with the project's review priorities and required evidence.")
+                    self.assertIn('- New behavior has tests that fail without the change.',
+                                  policy.split('## Review focus\n\n')[1])
                     self.assertEqual(policy.count('before handoff'), 1)
                     prose = ' '.join(line for line in policy.splitlines() if not line.startswith('#'))
                     sentences = re.split(r'(?<=[.!?])\s+', prose.strip())
@@ -259,7 +265,7 @@ class InitTests(unittest.TestCase):
                 prompt.assert_not_called()
                 self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
                 self.assertEqual(self.path.read_text().count('# runtime-args:'), 1)
-                self.assertIn('grant agent permissions: uncomment or customize', output)
+                self.assertIn('Grant agent permissions later: uncomment runtime-args', flat(output))
 
     def test_existing_guidance_is_preserved_byte_for_byte_for_both_runtimes(self):
         for runtime, loaded in (('codex:model:high', 'AGENTS.md'),
@@ -274,8 +280,8 @@ class InitTests(unittest.TestCase):
                     path.write_bytes(content)
                 code, output, _, _ = self.init(runtime=runtime)
                 self.assertEqual(code, 0)
-                self.assertIn(f'loads project guidance from {loaded}; kept unchanged', output)
-                self.assertNotIn('loads no project guidance', output)
+                self.assertIn(f'loads project guidance from {loaded}; kept unchanged', flat(output))
+                self.assertNotIn('loads no project guidance', flat(output))
                 for name, content in contents.items():
                     self.assertEqual((self.path.parent / name).read_bytes(), content)
                 policy = load_config(self.path).shared_instructions.read_text()
@@ -330,15 +336,15 @@ class InitTests(unittest.TestCase):
                     self.assertEqual(runtime_guidance(self.path.parent, cli),
                                      self.path.parent / loaded if loaded else None)
                     if loaded:
-                        self.assertIn(f'{cli} loads project guidance from {loaded}; kept unchanged.', output)
-                        self.assertNotIn('Warning:', output)
+                        self.assertIn(f'{cli} loads project guidance from {loaded}; kept unchanged.', flat(output))
+                        self.assertNotIn('Warning:', flat(output))
                     elif checks:
                         self.assertIn(f'Warning: {cli} loads no project guidance; checks are documented in {checks}. '
-                                      f'Add a one-line AGENTS.md: "Read {checks}".', output)
+                                      f'Add a one-line AGENTS.md: "Read {checks}".', flat(output))
                     else:
                         choices = 'AGENTS.md' if cli == 'codex' else 'CLAUDE.md, .claude/CLAUDE.md or AGENTS.md'
                         self.assertIn(f'Warning: {cli} loads no project guidance; add {choices} '
-                                      'so agents know how to build and test.', output)
+                                      'so agents know how to build and test.', flat(output))
                     for name in names:
                         self.assertEqual((self.path.parent / name).read_text(), f'# Checks in {name}\n')
 
@@ -419,7 +425,7 @@ class InitTests(unittest.TestCase):
                     self.assertIn('Add the project\'s check commands to --allowedTools', text)
                     self.assertIn('"Bash(<project check command>)"', text)
                 cli = runtime.split(':', 1)[0]
-                uncommented = text.replace('# runtime-args:', 'runtime-args:').replace(f'#   {cli}:', f'  {cli}:')
+                uncommented = text.replace(f'# runtime-args:\n#   {cli}:', f'runtime-args:\n  {cli}:')
                 enabled = yaml.safe_load(uncommented)
                 self.assertEqual(enabled['runtime-args'], {cli: expected})
                 self.assertTrue(all('runtime-args' not in agent for agent in enabled['agents'].values()))

@@ -4,12 +4,11 @@
 errors; `ub-agents doctor --offline` validates the file. Commands use this file by default;
 `--config PATH` selects another configuration file before or after the command.
 `init` writes the selected file or `ub-agents.yaml` by default.
-In a terminal it opens a setup wizard and previews exact local, opted-in label and public board
-changes before a default-no Apply. `init --use-defaults` stays prompt-free even in
-a terminal; CI/non-TTY also uses defaults without wizard probes. Permissions and
-optional features default to off, and deferred labels are printed as commands.
-Existing local overrides still take precedence. See the
-[init guide](https://agents.uberblick.ai/docs/commands/init.html) for choices and recovery.
+In a terminal it asks a few questions and writes after one confirmation.
+`init --use-defaults` stays prompt-free even in a terminal; CI/non-TTY also uses
+defaults without checks. Unattended runs keep permissions and extras off and print
+label commands. Existing local overrides still take precedence. See the
+[init guide](https://agents.uberblick.ai/docs/commands/init.html).
 If the selected file is missing, `status`, `launch`, `retry` and
 unsupervised `read` exit 1 with a message naming `ub-agents init`.
 An explicit `--config PATH` is named in the message. `launch` creates no
@@ -581,13 +580,10 @@ older versions reject the unknown agent key.
 
 ### Retrospectives
 
-The init wizard offers existing verified discussion numbers or explicitly requested
-public board creation for selected roles. It discovers exact chosen titles to avoid
-duplicates, previews additions to the selected config, and creates/verifies boards
-before writing their real numbers. Manual preparation pauses with Retry/Skip/Cancel;
-Skip leaves posting off. No test comments are posted. See the
-[init guide](https://agents.uberblick.ai/docs/commands/init.html) for the conservative
-write-capability check and partial-creation recovery.
+`init` can set up a board for each of the four roles: it reuses a discussion titled
+"<Role> retrospectives" (for example "Implementer retrospectives") or creates one,
+verifies it and only then writes its number. No test comments are posted. See the
+[init guide](https://agents.uberblick.ai/docs/commands/init.html).
 
 Set `retrospectives: 203` on an agent to enable its supervised posting command:
 
@@ -1040,12 +1036,13 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 ```
 
 These list examples belong inside an agent definition. `init` instead includes
-one commented top-level mapping entry for the CLI selected by `--runtime`, inherited
-by all four starter agents, without the optional retrospective rule. In an
-interactive terminal, the wizard shows the exact grant as a separate default-off
-choice for all four agents, using Accept and enable permissions (y), Continue without
-permissions (n, the default), and Cancel (esc). It is written only after final Apply.
-Continuing without permissions or Cancel does not enable it. `--use-defaults`, a nonempty `CI`, or non-TTY
+one commented top-level mapping entry for the CLI chosen at the agent question,
+inherited by all four starter agents. `--runtime` sets the preselection; otherwise
+init preselects the detected, logged-in CLI (Codex when both are logged in).
+Selecting the Retrospectives extra adds the retrospective rule for Claude. In an
+interactive terminal, init asks whether agents may work without asking (default Yes)
+and writes the grant uncommented for all four agents when you accept.
+`--use-defaults`, a nonempty `CI`, or non-TTY
 stdin/stdout asks nothing and keeps it commented out, matching label provisioning.
 Whenever it remains commented out, init prints a next step to uncomment or customize it before
 unattended work. The Claude starter includes a commented placeholder for project

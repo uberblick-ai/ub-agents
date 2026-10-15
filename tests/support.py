@@ -647,6 +647,7 @@ class DoctorGitHub(FakeGitHub):
         self.repository_error = None
         self.label_error = None
         self.label_names = ["ready", "needs-human", "needs-review"]
+        self.team_handles = []
         self.quota_headers = {"x-ratelimit-remaining": "5000", "x-ratelimit-limit": "5000",
                                  "x-ratelimit-reset": "1000"}
         self.rate_limited = False
@@ -664,6 +665,10 @@ class DoctorGitHub(FakeGitHub):
         if self.repository_error:
             raise self.repository_error
         return self.metadata
+
+    def teams(self):
+        self.reads.append("repos/org/project/teams")
+        return self.team_handles.copy()
 
     def labels(self):
         self.reads.append("repos/org/project/labels")
