@@ -37,7 +37,7 @@ class Probes:
         self.existing_labels = None
         self.discussions = None
         self.discussions_note = ""
-        self.branch = self.default_branch = None
+        self.branch = self.default_branch = self.clean = None
 
     def collect(self, name, summary=()):
         group = Group(name, [part for part in summary if part])
@@ -101,6 +101,7 @@ class Probes:
                     d.add("control-checkout", "warn", str(error), "Fine for setup; launch from a clean default-branch checkout",
                           required=False)
                 synced = not problems
+            self.clean = clean
             self.collect("Checkout", [branch, "clean" if clean else "local changes" if clean is False else "",
                                       "in sync with origin" if synced else ""])
 

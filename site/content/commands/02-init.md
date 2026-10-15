@@ -47,7 +47,10 @@ cancel leaves no files, labels or boards.
 Init asks for the repository only when it can't infer it from the checkout. When the
 checkout is on another branch, it asks to switch to the default branch: launch uses
 that branch only to start fresh branches and worktrees for agents and never commits
-to it. Local changes come along; if Git refuses the switch, init says why and continues.
+to it. If Git refuses the switch, init says why and continues.
+
+Init stops before the first question when the checkout has local changes, untracked
+files included: commit or stash them, then run it again.
 
 ## Checks
 

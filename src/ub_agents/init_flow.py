@@ -120,6 +120,8 @@ class Flow:
             self.t.step("Checks · fix these before launch; setup can continue", lines, "▲", YELLOW)
         else:
             self.t.step("Checks", lines)
+        if self.probes.clean is False:
+            raise Cancelled("This checkout has local changes; commit or stash them, then run ub-agents init again")
         self.choose_branch()
 
     def choose_branch(self):
@@ -128,8 +130,7 @@ class Flow:
             return
         message = f"Switch this checkout to {default}?"
         note = [f"ub-agents only uses {default} to start fresh branches and worktrees for agents.",
-                SAFETY.replace("main", default), f"See {PERMISSIONS_GUIDE}",
-                "Your local changes come along."]
+                SAFETY.replace("main", default), f"See {PERMISSIONS_GUIDE}"]
         if not self.ask.confirm(message, True, note):
             self.t.answered(message, f"No · switch to {default} before you launch")
             return

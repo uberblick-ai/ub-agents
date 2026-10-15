@@ -221,6 +221,16 @@ class FlowTests(unittest.TestCase):
                                  expected.startswith('Yes'))
                 self.assertEqual(switch in [call for call, _ in self.runner.calls], answer)
 
+    def test_local_changes_stop_before_any_question(self):
+        self.runner.responses[('git', '-C', str(self.root), '--no-optional-locks', 'status', '--porcelain=v1',
+                               '--untracked-files=all')] = '?? notes.txt'
+        code, text = self.run_flow()
+        self.assertEqual(code, 1)
+        self.assertEqual(self.script.asked, [])
+        self.assertIn('main · local changes', text)
+        self.assertIn('This checkout has local changes; commit or stash them, then run ub-agents init again', text)
+        self.assertEqual((list(self.root.iterdir()), self.github.writes), ([], []))
+
     def test_default_branch_is_not_questioned(self):
         self.run_flow()
         self.assertNotIn('Switch this checkout to main?', self.script.asked)

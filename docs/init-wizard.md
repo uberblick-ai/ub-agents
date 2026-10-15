@@ -13,7 +13,6 @@ the choices.
 │  ub-agents only uses main to start fresh branches and worktrees for agents.
 │  Agents always work in worktrees and branches; they never commit to main.
 │  See https://agents.uberblick.ai/docs/configuration/permissions.html
-│  Your local changes come along.
 │  ● Yes / ○ No
 └
 ```
@@ -107,6 +106,21 @@ A checkout on another branch, Claude logged in, an admin account, Priorities and
 
 A failed check turns the step title into `▲  Checks · fix these before launch; setup can continue`
 and lists the fix under the failing line.
+
+## Local changes
+
+A checkout with local changes (untracked files included) stops after the checks:
+
+```text
+◇  Checks
+│  ✓ Machine    Python 3.13 · git · gh · ps
+│  ✓ GitHub     operator · org/project · labels writable
+│  ✓ Checkout   main · local changes · in sync with origin
+│  ✓ Agents     claude logged in · codex logged in
+│
+■  This checkout has local changes; commit or stash them, then run ub-agents init again
+└  Setup cancelled. Nothing was written.
+```
 
 ## Cancel
 
