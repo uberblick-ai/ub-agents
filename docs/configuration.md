@@ -1063,7 +1063,9 @@ stdin/stdout asks nothing and keeps it commented out, matching label provisionin
 Whenever it remains commented out, init prints a next step to uncomment or customize it before
 unattended work. The Claude starter includes a commented placeholder for project
 check commands: `--allowedTools` denies commands
-that are not listed.
+that are not listed. Read-only commands such as `cat`, `grep`, `ls` and `sed -n` need no
+rule inside the worktree and the run's scratch directory, and Claude Code refuses paths
+outside those even with one.
 The Codex example grants full access, including writes to Git metadata for commits
 and commands for pushing. The Claude example grants file edits and the listed
 Git, GitHub, report, filtered read and retrospective commands without permission prompts, plus access to the run's

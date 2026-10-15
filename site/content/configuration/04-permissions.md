@@ -30,7 +30,7 @@ runtime-args: [--sandbox, danger-full-access]
 
 ## Claude Code
 
-File edits plus the commands the role needs, with no prompts. Commands not listed in `--allowedTools` are denied, so add your project's check commands.
+File edits plus the commands the role needs, with no prompts. Commands not listed in `--allowedTools` are denied, so add your project's check commands. Read-only commands such as `cat`, `grep`, `ls` and `sed -n` need no rule inside the worktree and the run's scratch directory, and Claude Code refuses paths outside those even with one.
 
 ```yaml
 runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
