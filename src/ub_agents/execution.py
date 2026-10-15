@@ -24,7 +24,8 @@ def command_for(agent, runtime, scratch, report_command=None):
                    "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}"]
     else:
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
-                   "--model", runtime.model, "--effort", runtime.effort]
+                   "--model", runtime.model, "--effort", runtime.effort,
+                   "--thinking-display", "summarized"]
     # No permission flags, auth stores, or hidden provider fallback; never a shell.
     values = {"{scratch}": str(scratch), "{report_command}": report_command or launcher_report_command()}
     return command + [re.sub(r"\{(?:scratch|report_command)\}", lambda match: values[match[0]], arg)
