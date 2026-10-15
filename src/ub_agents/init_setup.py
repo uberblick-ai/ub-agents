@@ -133,7 +133,8 @@ def make_plan(path, repository, choices):
     for role, number in choices.retrospectives.items():
         if role not in ROLES or type(number) is not int or number <= 0:
             raise AgentError("Retrospectives require a starter role and a positive integer discussion number")
-        content = content.replace(f"  {role}:\n", f"  {role}:\n    retrospectives: {number}\n")
+        line = f"    instructions: .agents/{role}.md\n"
+        content = content.replace(line, f"{line}    retrospectives: {number}\n")
     if any(role not in ROLES for role in choices.board_requests):
         raise AgentError("Board creation requires an explicitly selected starter role")
     targets = {path: content}
