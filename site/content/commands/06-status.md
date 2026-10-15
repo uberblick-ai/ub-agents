@@ -34,6 +34,38 @@ a live lease). Reported outcomes belong to that agent's live run, or latest run
 when idle; recovery shows the original report. Missing reports are omitted in text
 and null in JSON. The item's live lease may belong to another agent.
 
+Stopped rows (`parked`, `blocked` or `failed`) show an extra line when an Action
+needed notice is available. The existing reason line stays above it:
+
+```text
+#1574 issue-reviewer: parked · priority high · milestone #24 · attempts 0
+  Stop label needs-human is present
+  Action needed: https://github.com/OWNER/REPO/issues/1574#issuecomment-6166713718 · waiting 16h
+```
+
+Waiting time uses the terminal view's format: minutes below one hour, hours below
+48 hours, then days. Both `status --json` and `status N --json` include these keys
+on every assignment:
+
+| Key | Stopped rows | Other rows |
+|---|---|---|
+| `notice_url` | GitHub link to the selected Action needed comment, or `null` | `null` |
+| `waiting_since` | UTC timestamp from which the item has been waiting, or `null` | `null` |
+| `stop_labels` | Sorted configured stop labels currently present, or the approval gate's stop labels | `[]` |
+| `attention_reason` | Request summary shared with the terminal view, or an empty string when unavailable | `null` |
+
+The selected notice is the latest Action needed comment from a trusted coordination
+author after the item's latest lease or reset record. Without a notice, the waiting
+timestamp and summary use a finalized stop outcome, an approval gate's reason, or
+the last finished run for blocked or failed work. Status uses the same fallbacks as
+the terminal view. Rows without a notice have no Action needed line.
+
+To list stopped work for maintainer tools:
+
+```sh
+ub-agents status --json | jq '.assignments[] | select(.state | IN("parked","blocked","failed"))'
+```
+
 ```text
 {{help status}}
 ```
