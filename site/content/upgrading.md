@@ -18,7 +18,7 @@ brew update && brew upgrade ub-agents
 ub-agents launch
 ```
 
-If a service such as systemd restarts the launcher for you, upgrade first, then stop it with `SIGTERM`.
+If a service such as systemd restarts the launcher for you, upgrade first, then send `SIGTERM`. The launcher finishes its run and exits, and the service starts the new version.
 
 ## The update banner
 
