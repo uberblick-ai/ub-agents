@@ -4,7 +4,7 @@ After a run, agents can share what slowed them down or what was missing. These r
 
 ## Set up a board
 
-Each agent posts to its own board, a GitHub discussion. `ub-agents init` can create the boards for you. See [Agents: Retrospectives](/docs/configuration/agents.html#retrospectives) for the setting.
+Each agent posts to its own board, a GitHub discussion set with the agent's [retrospectives setting](/docs/configuration/agents.html#retrospectives). `ub-agents init` can create the boards for you.
 
 ```yaml
 implementer:
