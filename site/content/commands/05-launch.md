@@ -28,6 +28,8 @@ In a terminal, launch opens a live view: what is running, what needs a person, w
 - `u` switches the log between formatted and raw.
 - `c` keeps your Mac awake while the launcher runs. It starts off each time, and the display can still sleep.
 
+The Runs tab keeps updating for the selected item after it is claimed or handed over, even when its row becomes an earlier observation. If a snapshot leaves out its history, the tab keeps the last history it showed.
+
 Outside a terminal, or with `--no-ui`, launch prints plain lines instead. The [terminal view](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md) notes cover the details.
 
 ## Before each run

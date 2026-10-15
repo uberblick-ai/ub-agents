@@ -481,6 +481,10 @@ and excludes the filing row. For a PR with multiple local closing references,
 the lowest issue number supplies the filing row. A PR without a closing reference
 has no filing row.
 
+When a selected row becomes an earlier observation, Runs keeps updating from the
+current snapshot's history for that item. If a snapshot omits the item, Runs
+keeps its last observed history until newer history arrives or selection moves.
+
 The first table row shows who filed the issue and when, with `GitHub` and `filed`
 in the where and outcome columns. On a PR, this is the closing issue's filing,
 only when that issue's author and creation time were already read during the

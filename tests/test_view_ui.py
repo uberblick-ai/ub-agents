@@ -3290,10 +3290,23 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: '⌥12 Updated candidate' in identity())
             self.state['latest_pass']['rows'] = []
-            self.state['histories'].pop('12')
+            history = self.state['histories'].pop('12')
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[app.selected].state == 'earlier observation')
             self.assertIn('⌥12 Updated candidate', identity())
+            self.state['histories']['12'] = history | {'runs': [*history['runs'], {
+                'agent': 'implementer', 'run': 'next-run', 'state': 'running',
+                'summary': 'New run', 'time': self.state['published_at']}]}
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: 'New run' in displayed())
+            self.assertEqual(app.selected, 'plan:12')
+            self.assertEqual(app.rows[app.selected].state, 'earlier observation')
+            self.assertIn('closes #11 · 5 runs', displayed())
+            self.state['histories'].pop('12')
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: '12' not in app.session.data['histories'])
+            self.assertIn('New run', displayed())
+            self.assertIn('closes #11 · 5 runs', displayed())
             app.select('outcome:previous-run')
             await self.ready(app, pilot, lambda: '#10 Earlier item' in identity())
             self.assertEqual(transport.calls, [])
