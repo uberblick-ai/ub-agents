@@ -623,8 +623,8 @@ class Coordinator:
                         skipped.append(child.reference(self.github.repository))
                 record["sub_issues"] = sorted(set(children))
                 if skipped:
-                    record["summary"] += "\n\nSub-issues left unchanged (not open, local issues created by this run's " \
-                                         "launcher account after its claim): " + ", ".join(sorted(set(skipped))) + "."
+                    record["summary"] += "\n\nSub-issues left unchanged (only open, same-repository sub-issues created by " \
+                                         "this run's launcher account after its claim qualify): " + ", ".join(sorted(set(skipped))) + "."
         self.assert_owned(lease)
         reported = records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
         self.observed(reported)

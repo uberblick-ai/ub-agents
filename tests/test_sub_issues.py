@@ -72,7 +72,8 @@ class SubIssueTests(unittest.TestCase):
             self.assertTrue(self.loop.tick())
 
     def approval(self, number=2, **kwargs):
-        return filter_input(self.github, self.github.item(number), 'on', ('needs-preparation',), **kwargs)
+        return filter_input(self.github, self.github.item(number), 'on', ('needs-preparation',),
+                            sub_issue_labels=self.cfg.sub_issue_labels, **kwargs)
 
     def test_split_starts_and_loop_claims_every_child_with_approvals_on_and_off(self):
         for approvals in ('on', 'off'):
@@ -275,6 +276,19 @@ class SubIssueTests(unittest.TestCase):
         withheld = read_item(self.github, 2, unlisted)
         self.assertTrue(withheld['body']['withheld'])
         self.assertEqual(withheld['comments'], [])
+
+    def test_read_clearance_uses_only_pinned_sub_issue_labels(self):
+        self.split()
+        self.github.change(2, author='outside')
+        self.github.content_histories[2] = {'author': {'login': 'outside'}}
+        pinned = read_policy(self.cfg)
+        self.assertEqual(pinned['sub-issue-labels'], ['needs-preparation'])
+        changed = replace(self.cfg, agents=(replace(self.worker, outcomes={'done': {'add': (), 'remove': ()}}),))
+        self.assertNotIn('sub-issue-labels', read_policy(changed))
+        self.assertEqual(read_item(self.github, 2, pinned)['body'], self.github.item(2).body)
+        with patch.object(self.github, 'parent_issue', wraps=self.github.parent_issue) as parent:
+            self.assertTrue(read_item(self.github, 2, read_policy(changed))['body']['withheld'])
+        parent.assert_not_called()
 
 
 class SubIssueGitHubTests(unittest.TestCase):

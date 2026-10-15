@@ -30,7 +30,7 @@ def supervised_run():
             raise ValueError("missing launcher context")
         context = json.loads(Path(path).read_text(encoding="utf-8"))
         if (not isinstance(context, dict)
-                or set(context) - {"launchers"} != {"repository", "run", "assignment", "lease_id", "agent",
+                or set(context) - {"launchers", "sub-issue-labels"} != {"repository", "run", "assignment", "lease_id", "agent",
                                     "approvals", "trusted-bots", "triggers", "retrospectives"}
                 or not isinstance(context["repository"], str)
                 or not re.fullmatch(REPOSITORY, context["repository"])
@@ -53,9 +53,11 @@ def supervised_run():
             if (any(login != login.strip() for login in launchers)
                     or len({login.casefold() for login in launchers}) != len(launchers)):
                 raise ValueError("invalid launcher accounts")
-        for labels in context["triggers"].values():
+        for labels in [*context["triggers"].values(), context.get("sub-issue-labels", [])]:
             if not isinstance(labels, list) or any(not isinstance(s, str) or not s.strip() for s in labels):
                 raise ValueError("invalid launcher triggers")
+        if not set(context.get("sub-issue-labels", ())).issubset(context["triggers"]["issue"]):
+            raise ValueError("invalid sub-issue labels")
         return context
     except (OSError, ValueError, TypeError, KeyError, AgentError) as exc:
         raise AgentError("Command requires a supervised ub-agents assignment and the launcher's readable "

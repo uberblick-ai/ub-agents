@@ -205,6 +205,9 @@ Both the record author and label actor must be trusted launcher accounts under t
 current roles and `launchers` configuration; listed bots gain no such authority.
 The trigger must have been added during the parent's transition. A later launcher
 reapplication cannot use the old record to clear new outside edits.
+Only labels declared in the current configuration's `sub-issues` outcomes prompt
+a fresh parent lookup; other launcher-applied triggers keep their cached reads.
+In-run `read` pins that label set along with the launcher allowlist.
 
 While a recorded parent transition is still pending, pickup waits without adding
 an approval stop label. A launcher label without matching provenance remains

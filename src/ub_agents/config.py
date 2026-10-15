@@ -213,6 +213,11 @@ class Config:
     shared_instructions: Path | None = None
     checkout_setup: CheckoutSetup | None = None
 
+    @property
+    def sub_issue_labels(self):
+        return frozenset(label for agent in self.agents for transition in agent.outcomes.values()
+                         for label in transition.get("sub-issues", {}).get("add", ()))
+
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
 DEFAULTS = {"agent-timeout-minutes": 180, "max-attempts": 5,

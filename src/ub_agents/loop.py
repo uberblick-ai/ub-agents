@@ -350,6 +350,7 @@ class Loop:
         def check():
             return input_approvals.filter_input(github, item, self.approvals, triggers,
                                                actor=self.coordinator.actor, launchers=self.config.launchers,
+                                               sub_issue_labels=self.config.sub_issue_labels,
                                                trusted_bots=self.config.trusted_bots,
                                                raise_read_errors=self._targeted_pass)
         approval = check()

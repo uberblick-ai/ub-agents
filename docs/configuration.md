@@ -731,7 +731,8 @@ issue-preparer:
 The launcher removes the parent's triggers and adds these labels to open native
 sub-issues in the same repository, authored by the account holding the run's lease
 and created after its claim. Other sub-issues receive no label and are named in the
-outcome summary. The launcher resolves and stores the target set in the outcome
+outcome summary, including those created during an earlier attempt or continuation
+of the parent. The launcher resolves and stores the target set in the outcome
 record before any transition; recovery uses that same set even if links or
 configuration change. An `either` agent can report this outcome only on an issue.
 Agents create issues without workflow labels and report the outcome with the normal

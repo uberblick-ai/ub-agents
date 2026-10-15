@@ -32,7 +32,7 @@ re-applies a trigger. A launcher label without a matching parent record is still
 "No maintainer start", and a later launcher reapplication cannot clear new outside
 edits through an old record. With approvals off, any trigger still starts work.
 
-Cold status and queue-view observation passes read content, body revisions and label/title events in GraphQL batches of up to 50 items whose plans need approval checks. Claiming passes read one reached item at a time and stop at the first claim. Incomplete histories, unsafe event mappings and title-edit gates fall back to the full per-item reads; an unusable batch can add one attempted call. Unchanged discovery inputs stay cached. Fresh claim and approval-parking checks, `read`, role checks and comment reads keep their per-item paths.
+Cold status and queue-view observation passes read content, body revisions and label/title events in GraphQL batches of up to 50 items whose plans need approval checks. Claiming passes read one reached item at a time and stop at the first claim. Incomplete histories, unsafe event mappings and title-edit gates fall back to the full per-item reads; an unusable batch can add one attempted call. Unchanged discovery inputs stay cached. Only launcher events for labels declared in configured `sub-issues` outcomes require fresh parent lookups; other launcher-applied triggers add no parent reads. In-run `read` pins that label set and the launcher allowlist. Fresh claim and approval-parking checks, `read`, role checks and comment reads keep their per-item paths.
 
 ## Outside pull requests
 

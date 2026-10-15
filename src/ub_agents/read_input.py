@@ -10,7 +10,8 @@ def read_policy(config):
             "triggers": {kind: sorted({label for agent in config.agents
                                       if agent.kind in {kind, "either"} for label in agent.triggers})
                          for kind in ("issue", "pr")}} | (
-            {"launchers": list(config.launchers)} if config.launchers is not None else {})
+            {"launchers": list(config.launchers)} if config.launchers is not None else {}) | (
+            {"sub-issue-labels": sorted(config.sub_issue_labels)} if config.sub_issue_labels else {})
 
 
 def read_item(github, number, policy):
@@ -21,6 +22,7 @@ def read_item(github, number, policy):
             raise ValueError("not an issue or PR")
         filtered = approvals.filter_input(github, item, effective, policy["triggers"][item.kind],
                                           trusted_bots=policy["trusted-bots"], launchers=policy.get("launchers"),
+                                          sub_issue_labels=policy.get("sub-issue-labels", ()),
                                           read_only=True)
         if not filtered.allowed:
             raise AgentError(filtered.reason)
