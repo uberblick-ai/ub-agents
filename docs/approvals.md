@@ -17,15 +17,20 @@ approvals: on
 the configured value or says the value comes from repository visibility without
 contacting GitHub or resolving that visibility.
 
-## With approvals off
+Interactive `init` shows the effective approvals value and its source on the
+"Who answers the agents' questions?" policy step and keeps it in the transcript.
+Without an explicit policy, unreadable repository visibility leaves the value
+unresolved; setup can continue, but run `ub-agents doctor` before launching.
 
 The `init` checks show the launcher account role,
-but does not grant merge authority or approve project policy. Maintain/admin account
+but do not grant merge authority or approve project policy. Maintain/admin account
 access is a warning users may continue past; prefer a separate write-access account
 following the [launcher-account guidance](https://agents.uberblick.ai/docs/best-practices/launcher-account.html).
 Review checks, merge authority and decision-makers before launching. Init never
 changes identities, access or protections, starts no loop, and setup success is not
 launch readiness; run `ub-agents doctor` before launching.
+
+## With approvals off
 
 An item's configured trigger label starts work regardless of who applied it;
 GitHub restricts labeling to accounts with `triage` or higher. Its current title

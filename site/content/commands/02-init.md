@@ -36,7 +36,9 @@ cancel leaves no files, labels or boards, no branch and no PR.
    [runtime updates](/docs/configuration/runtime-updates.html).
 4. **Questions:** who answers the agents' scope and policy questions, written into
    `.agents/ub_agents.md`. Init offers the teams that maintain the repository, then
-   your own account, or any `@user` or `@org/team`.
+   your own account, or any `@user` or `@org/team`. This step also shows the effective
+   [approvals](/docs/configuration/approvals.html) policy and its source: on for public
+   repositories, off for private and internal ones unless configured explicitly.
 5. **Extras**, all off by default:
    - **Priorities:** priority labels, highest first, that order the
      [queue](/docs/configuration/queue.html).
@@ -66,8 +68,9 @@ files included: commit or stash them, then run it again.
 
 ## Checks
 
-The checks run before the first question and never block setup. A failed check
-shows its fix; launch needs it fixed. A maintain or admin account is a warning:
+The checks run before the first question. Local changes stop setup; other failed
+checks show their fixes and let setup continue, but launch needs them fixed.
+A maintain or admin account is a warning:
 prefer a separate [write-access launcher account](/docs/best-practices/launcher-account.html).
 
 ## Files

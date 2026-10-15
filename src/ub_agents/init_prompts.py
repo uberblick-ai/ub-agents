@@ -150,8 +150,11 @@ class LinePrompter:
             if not all(part.isdecimal() and 1 <= int(part) <= len(options) for part in parts):
                 continue
             chosen = [options[int(part) - 1] for part in dict.fromkeys(parts)]
-            if not any(option.disabled for option in chosen):
+            disabled = [option for option in chosen if option.disabled]
+            if not disabled:
                 return [o.value for o in chosen]
+            for option in disabled:
+                print(f"  {option.label} is unavailable: {option.disabled}")
 
     def confirm(self, message, default=True, note=()):
         for line in note:

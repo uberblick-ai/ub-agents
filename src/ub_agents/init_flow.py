@@ -24,6 +24,7 @@ WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/"
 UPDATES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtime-updates"
 RUNTIMES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtimes"
 RETROSPECTIVES_GUIDE = "https://agents.uberblick.ai/docs/best-practices/retrospectives"
+APPROVALS_GUIDE = "https://agents.uberblick.ai/docs/configuration/approvals"
 SETUP_BRANCH = "setup-ub-agents"
 PR_TITLE = "Set up ub-agents"
 PR_BODY = ("Starter configuration, agent instructions and .gitignore entries written by `ub-agents init`.\n\n"
@@ -236,17 +237,21 @@ class Flow:
         return enabled
 
     def choose_owner(self):
-        if not self.probes or not self.probes.actor:
+        if not self.probes:
+            return ""
+        approvals = f"{self.probes.approvals}; see {APPROVALS_GUIDE}"
+        if not self.probes.actor:
+            self.t.step("Policy", [Text(approvals, style=DIM)])
             return ""
         message = "Who answers the agents' questions?"
         handles = [*self.probes.teams, f"@{self.probes.actor}"]
         options = [Option(handle, handle, "you" if handle == handles[-1] else "maintains this repository")
                    for handle in handles] + [Option("", "Someone else")]
-        note = "They decide scope and policy questions and own workflow changes; see .agents/ub_agents.md."
+        note = ["They decide scope and policy questions and own workflow changes; see .agents/ub_agents.md.", approvals]
         owner = self.ask.select(message, options, 0, note)
         if not owner:
             owner = self.ask.text("Which @user or @org/team?", handles[0], check_owner)
-        self.t.answered(message, owner)
+        self.t.step(message, [Text(owner, style=DIM), Text(approvals, style=DIM)])
         return owner
 
     def choose_extras(self):
@@ -377,8 +382,10 @@ class Flow:
             steps[steps.index("Open a PR with these files and merge it")] = f"Review and merge the setup PR: {url}"
             steps[0] = steps[0].replace(f"in {plan.path.name}", f"in {plan.path.name} on the PR")
         account = next((g for g in self.probes.groups if g.name == "Account"), None) if self.probes else None
-        if account:
+        if account and any(problem.id == "account" for problem in account.problems):
             steps.append(f"Use a dedicated agent account with write access; see {ACCOUNT_GUIDANCE}")
+        if account and any(problem.id == "launcher-listed" for problem in account.problems):
+            steps.append("Review ub-agents.local.yaml: list this launcher account before launch")
         if "uberblick" in extras:
             cli = plan.choices.runtime.split(":", 1)[0]
             if self.workspace == "hub":

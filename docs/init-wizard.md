@@ -29,6 +29,7 @@ the choices.
 ```text
 ◆  Who answers the agents' questions?
 │  They decide scope and policy questions and own workflow changes; see .agents/ub_agents.md.
+│  Approvals: on (visibility (public)); see https://agents.uberblick.ai/docs/configuration/approvals
 │  ● @org/core (maintains this repository)
 │  ○ @operator
 │  ○ Someone else
@@ -88,6 +89,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │
 ◇  Who answers the agents' questions?
 │  @org/core
+│  Approvals: on (visibility (public)); see https://agents.uberblick.ai/docs/configuration/approvals
 │
 ◇  Extras
 │  Priorities, Retrospectives, Uberblick

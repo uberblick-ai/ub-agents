@@ -1036,8 +1036,10 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 ```
 
 These list examples belong inside an agent definition. `init` instead includes
-one commented top-level mapping entry for the CLI selected by `--runtime`, inherited
-by all four starter agents, without the optional retrospective rule. In an
+one commented top-level mapping entry for the CLI chosen at the agent question,
+inherited by all four starter agents. `--runtime` sets the preselection; otherwise
+init preselects the detected, logged-in CLI (Codex when both are logged in).
+Selecting the Retrospectives extra adds the retrospective rule for Claude. In an
 interactive terminal, init asks whether agents may work without asking (default Yes)
 and writes the grant uncommented for all four agents when you accept.
 `--use-defaults`, a nonempty `CI`, or non-TTY

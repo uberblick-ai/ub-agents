@@ -54,6 +54,8 @@ class Script:
     def select(self, message, options, default=0, note=''):
         self.options = getattr(self, 'options', {})
         self.options[message] = options
+        self.notes = getattr(self, 'notes', {})
+        self.notes[message] = note
         return self.answer(message, options[default].value)
 
     def multiselect(self, message, options, default=()):
@@ -191,10 +193,38 @@ class FlowTests(unittest.TestCase):
                 self.assertNotIn('@org/maintainers', policy)
 
     def test_claude_retrospectives_get_the_retrospective_permission(self):
-        code, text = self.run_flow(Script(Extras=['retrospectives']), runtime='claude:claude-opus-5-5:high')
+        code, text = self.run_flow(Script(Which_agent='claude', Extras=['retrospectives']),
+                                   runtime='codex:gpt-6.1-sol:high')
         self.assertEqual(code, 0)
         self.assertIn('"Bash({report_command} retrospective *)"', self.path.read_text())
+        self.assertEqual({runtime.cli for agent in load_config(self.path).agents for runtime in agent.runtimes}, {'claude'})
         self.assertNotIn('--allowedTools so agents can post lessons', text)
+
+    def test_policy_step_shows_approvals_from_repository_visibility(self):
+        message = "Who answers the agents' questions?"
+        for visibility, expected in (('public', 'on (visibility (public))'),
+                                      ('private', 'off (visibility (private))'),
+                                      ('internal', 'off (visibility (internal))'),
+                                      (None, 'unresolved (repository visibility is unreadable)')):
+            with self.subTest(visibility=visibility):
+                self.github.metadata['visibility'] = visibility
+                code, text = self.run_flow(Script(Write=False))
+                self.assertEqual(code, 1)
+                self.assertIn('Write setup?', self.script.asked)
+                policy = f'Approvals: {expected}; see https://agents.uberblick.ai/docs/configuration/approvals'
+                self.assertIn(policy, self.script.notes[message])
+                self.assertIn(f"{message} @operator {policy}", text)
+                self.assertNotIn('Approvals:', text.split('Which agent runs the loop?')[0])
+
+    def test_policy_step_uses_explicit_local_approvals_without_visibility(self):
+        self.github.metadata.pop('visibility')
+        for value in ('on', 'off'):
+            with self.subTest(value=value):
+                (self.root / 'ub-agents.local.yaml').write_text(f'approvals: {value}\n')
+                code, text = self.run_flow(Script(Write=False))
+                self.assertEqual(code, 1)
+                self.assertIn(f'Approvals: {value} (config)', text)
+                self.assertNotIn('unresolved', text)
 
     def test_uberblick_needs_ub(self):
         code, text = self.run_flow()
@@ -280,6 +310,8 @@ class FlowTests(unittest.TestCase):
         self.assertIn('✗ GitHub gh is not logged in Run gh auth login', text)
         self.assertIn('Neither claude nor codex is installed', text)
         self.assertNotIn('secret', text)
+        self.assertIn('Policy Approvals: unresolved (repository visibility is unreadable); see '
+                      'https://agents.uberblick.ai/docs/configuration/approvals', text)
         self.assertNotIn('Create', ' '.join(self.script.asked))
         self.assertNotIn('Discussions', ' '.join(self.script.asked))
 
@@ -290,6 +322,14 @@ class FlowTests(unittest.TestCase):
         self.assertIn('! Account operator is admin on GitHub; use a dedicated agent account with write access See https', text)
         self.assertIn('Use a dedicated agent account with write access; see '
                       'https://agents.uberblick.ai/docs/best-practices/launcher-account', text)
+
+    def test_unlisted_launcher_gets_local_config_remedy_without_account_change(self):
+        (self.root / 'ub-agents.local.yaml').write_text('launchers: [another-account]\n')
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertIn('! Account operator is not in local launchers; it will claim no work', text)
+        self.assertIn('Review ub-agents.local.yaml: list this launcher account before launch', text)
+        self.assertNotIn('Use a dedicated agent account', text)
 
     def test_other_branch_asks_to_switch_to_the_default_branch(self):
         head = ('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')
@@ -361,6 +401,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual((self.github.reads, self.github.writes), ([], []))
         self.assertIn('Checks skipped', text)
+        self.assertNotIn('Approvals:', text)
         self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
         self.assertIn('# runtime-updates:\n#   codex: auto\n#   gh: auto', self.path.read_text())
         self.assertIn('gh label create ready --repo org/project', text)
@@ -400,6 +441,13 @@ class LinePrompterTests(unittest.TestCase):
         for answer in (EOFError(), KeyboardInterrupt()):
             with self.assertRaises(Cancelled):
                 self.ask('confirm', [answer], 'Sure?')
+
+    def test_disabled_extra_explains_why_before_retrying(self):
+        options = [Option('priority', 'Priorities'),
+                   Option('retrospectives', 'Retrospectives', disabled='Discussions are off in org/project')]
+        value, output = self.ask('multiselect', ['1,2', '1'], 'Extras', options)
+        self.assertEqual(value, ['priority'])
+        self.assertIn('Retrospectives is unavailable: Discussions are off in org/project', output)
 
 
 class QuestionTests(unittest.IsolatedAsyncioTestCase):

@@ -5,10 +5,11 @@ import os
 import subprocess
 import sys
 
-from .approvals import Roles
+from .approvals import Roles, resolve_policy
 from .doctor import AUTH_PROBES, Doctor
 from .errors import AgentError
 from .execution import parse_process_table, repository_checks
+from .github import repository_visibility
 from .refresh import control_checkout_checks
 
 ACCOUNT_GUIDANCE = "https://agents.uberblick.ai/docs/best-practices/launcher-account"
@@ -41,6 +42,7 @@ class Probes:
         self.ub = False
         self.actor = None
         self.teams = []
+        self.approvals = ""
 
     def collect(self, name, summary=()):
         group = Group(name, [part for part in summary if part])
@@ -81,6 +83,11 @@ class Probes:
         github = self.collect("GitHub", [actor, config.repository])
         if metadata and not github.problems:
             github.summary.append("labels writable")
+        try:
+            value, source = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
+            self.approvals = f"Approvals: {value} ({source})"
+        except AgentError:
+            self.approvals = "Approvals: unresolved (repository visibility is unreadable)"
 
         if git_ready:
             read_git = lambda root, *args: d.probe(["git", "-C", str(root), *args]).strip()
@@ -97,7 +104,7 @@ class Probes:
             self.branch, self.default_branch = branch, default if isinstance(default, str) and default else None
             synced = False
             if isinstance(default, str) and default and branch:
-                # init asks to switch branches itself; a dirty tree is expected during setup.
+                # Flow handles the branch question and stops setup on local changes.
                 problems = [error for id, error in control_checkout_checks(config, default, read_git)
                             if error and id not in {"control-checkout-branch", "control-checkout-dirty"}]
                 for error in problems:

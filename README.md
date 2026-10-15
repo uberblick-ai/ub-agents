@@ -84,10 +84,13 @@ the repository, and the agent CLI you want to run: `codex` or `claude`.
 
 ```sh
 cd your-project
-ub-agents init --runtime claude:claude-opus-5-5:high   # or leave out --runtime for Codex
+ub-agents init
+# Or preselect a runtime:
+ub-agents init --runtime claude:claude-opus-5-5:high
 ```
 
-In a terminal, `init` checks your machine, asks which agent runs the loop, whether
+In a terminal, `init` checks your machine, preselects the detected, logged-in CLI
+(Codex when both are logged in), and asks which agent runs the loop, whether
 agents may work without asking, and which extras you want (priorities, retrospectives,
 Uberblick). It writes nothing until you confirm **Write setup?**. Agents always work
 in worktrees and branches; they never commit to main. See the
@@ -111,24 +114,26 @@ For unattended setup, including in a terminal:
 ub-agents init --use-defaults --repository org/project
 ```
 
-CI and non-TTY runs also use defaults without prompts. They keep permissions
-commented out, leave the extras off and print the label commands instead of creating them.
+CI and non-TTY runs also use defaults without prompts. Without `--runtime`, they
+use Codex. They keep permissions and updates commented out, leave the extras off,
+keep the `@org/maintainers` placeholder, print label commands and open no PR.
 
 Before the first launch:
 
-1. Fill in `.agents/ub_agents.md`: your checks, who may merge, and who answers
+1. Review `.agents/ub_agents.md`: your checks, who may merge, and who answers
    questions. Keep build and test commands in the `AGENTS.md` or `CLAUDE.md` your
    agents already read.
 2. Give the agents permissions. If you didn't let init grant them,
    uncomment the top-level `runtime-args` mapping in `ub-agents.yaml`. It supplies
    defaults per CLI; an agent's own `runtime-args` replaces them. Claude agents
    also need your check commands in `--allowedTools`.
-3. Check the setup and commit the files through your project's PR workflow. After
-   they merge, use a clean default-branch launcher checkout and launch:
+3. On the default branch, interactive init opens a setup PR: review the files there
+   and merge it. Off the default branch or unattended, commit the local files
+   through your project's PR workflow. After they merge, use a clean
+   default-branch launcher checkout and launch:
 
 ```sh
 ub-agents doctor --offline  # local validation without GitHub or agent CLIs
-git add ub-agents.yaml .agents .gitignore
 ub-agents doctor     # machine, GitHub access, labels and agent CLIs
 ub-agents launch     # runs the loop and opens the terminal view
 ```
