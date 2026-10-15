@@ -1,4 +1,5 @@
 from dataclasses import replace
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -19,18 +20,18 @@ RECORD_SCRATCH = """import json, os, stat, tempfile
 from pathlib import Path
 scratch = Path(os.environ['UB_AGENTS_SCRATCH'])
 assert scratch.is_absolute()
-assert os.environ['TMPDIR'] == str(scratch)
 assert stat.S_IMODE(scratch.stat().st_mode) == 0o700
 (scratch / 'nested').mkdir()
 (scratch / 'nested' / 'temporary').write_text('temporary contents')
-with tempfile.NamedTemporaryFile() as temporary:
+with tempfile.NamedTemporaryFile(dir=scratch) as temporary:
     assert Path(temporary.name).parent == scratch
-with tempfile.TemporaryDirectory() as sandbox:
+with tempfile.TemporaryDirectory(dir=scratch) as sandbox:
     assert Path(sandbox).parent == scratch
     assert Path.cwd() not in Path(sandbox).parents
 context = json.loads(Path(os.environ['UB_AGENTS_CONTEXT']).read_text())
 assert context['scratch'] == str(scratch)
-print(json.dumps({'scratch': str(scratch), 'mode': stat.S_IMODE(scratch.stat().st_mode)}), flush=True)
+print(json.dumps({'scratch': str(scratch), 'mode': stat.S_IMODE(scratch.stat().st_mode),
+                  'tmpdir': os.environ.get('TMPDIR')}), flush=True)
 """
 
 
@@ -74,8 +75,8 @@ class ScratchTests(unittest.TestCase):
         self.assertFalse(any(event["event"] == "cleanup-unconfirmed" for event in events))
 
     def test_command_receives_private_scratch_and_removes_contents_after_success_or_failure(self):
-        for success in (True, False):
-            with self.subTest(success=success):
+        for success, tmpdir in product((True, False), (None, str(self.state))):
+            with self.subTest(success=success, tmpdir=tmpdir):
                 self.github = FakeGitHub(issue())
                 loop = self.loop(RECORD_SCRATCH + ("" if success else "import sys; sys.exit(3)"))
 
@@ -86,12 +87,17 @@ class ScratchTests(unittest.TestCase):
                         loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", outcome="done")
                     return code
 
-                with patch.dict(os.environ, {"UB_AGENTS_SCRATCH": "/old/scratch", "TMPDIR": "/old/tmp"}), \
+                with patch.dict(os.environ, {"UB_AGENTS_SCRATCH": "/old/scratch"}), \
                         patch("ub_agents.loop.supervise", side_effect=execute):
+                    if tmpdir is None:
+                        os.environ.pop("TMPDIR", None)
+                    else:
+                        os.environ["TMPDIR"] = tmpdir
                     self.assertTrue(loop.tick())
                 directory = self.run_dir(loop)
                 recorded = json.loads((directory / "process.log").read_text())
-                self.assertEqual(recorded, {"scratch": str(self.scratch_dir(loop)), "mode": 0o700})
+                self.assertEqual(recorded, {"scratch": str(self.scratch_dir(loop)), "mode": 0o700,
+                                            "tmpdir": tmpdir})
                 self.assert_scratch_removed(loop)
                 self.assert_logs_retained(directory)
                 lease, outcome = loop.coordinator.history(1)
@@ -250,37 +256,49 @@ class ScratchTests(unittest.TestCase):
                 self.assertFalse((directory / "pid").exists())
 
     def test_runtime_receives_scratch_outside_worktree_and_prompt_guidance(self):
-        loop = self.loop()
-        configured = replace(loop.config.agents[0], command=(), runtimes=(Runtime("codex", "model", "high"),),
-                             runtime_args=("--add-dir", "{scratch}", "--add-dir={scratch}"), worktree=True)
-        loop.config = config(self.root, configured)
         worktree = self.root / "private-worktree"
         worktree.mkdir()
+        for tmpdir in (None, str(self.state)):
+            with self.subTest(tmpdir=tmpdir):
+                self.github = FakeGitHub(issue())
+                loop = self.loop()
+                configured = replace(loop.config.agents[0], command=(), runtimes=(Runtime("codex", "model", "high"),),
+                                     runtime_args=("--add-dir", "{scratch}", "--add-dir={scratch}"), worktree=True)
+                loop.config = config(self.root, configured)
 
-        def execute(command, cwd, env, directory, timeout, stop, prompt, **kwargs):
-            scratch = Path(env["UB_AGENTS_SCRATCH"])
-            self.assertEqual(scratch, self.scratch_dir(loop))
-            self.assertEqual(env["TMPDIR"], str(scratch))
-            self.assertTrue(scratch.is_absolute())
-            self.assertEqual(command[-3:], ["--add-dir", str(scratch), f"--add-dir={scratch}"])
-            self.assertEqual(stat.S_IMODE(scratch.stat().st_mode), 0o700)
-            self.assertEqual(cwd, worktree)
-            self.assertFalse(scratch.is_relative_to(worktree))
-            with tempfile.TemporaryDirectory(dir=env["TMPDIR"]) as sandbox:
-                self.assertNotIn(self.root, Path(sandbox).parents)
-                self.assertNotIn(worktree, Path(sandbox).parents)
-            self.assertIn("Put temporary files in UB_AGENTS_SCRATCH", prompt)
-            self.assertIn("not directly under /tmp", prompt)
-            self.assertIn(f'"scratch": "{scratch}"', prompt)
-            self.assertEqual(json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())["scratch"], str(scratch))
-            return 0
+                def execute(command, cwd, env, directory, timeout, stop, prompt, **kwargs):
+                    scratch = Path(env["UB_AGENTS_SCRATCH"])
+                    self.assertEqual(scratch, self.scratch_dir(loop))
+                    if tmpdir is None:
+                        self.assertNotIn("TMPDIR", env)
+                    else:
+                        self.assertEqual(env["TMPDIR"], tmpdir)
+                    self.assertTrue(scratch.is_absolute())
+                    self.assertEqual(command[-3:], ["--add-dir", str(scratch), f"--add-dir={scratch}"])
+                    self.assertEqual(stat.S_IMODE(scratch.stat().st_mode), 0o700)
+                    self.assertEqual(cwd, worktree)
+                    self.assertFalse(scratch.is_relative_to(worktree))
+                    with tempfile.TemporaryDirectory(dir=scratch) as sandbox:
+                        self.assertNotIn(self.root, Path(sandbox).parents)
+                        self.assertNotIn(worktree, Path(sandbox).parents)
+                    self.assertIn("Put temporary files in UB_AGENTS_SCRATCH", prompt)
+                    self.assertIn("not directly under /tmp", prompt)
+                    self.assertNotIn("TMPDIR", prompt)
+                    self.assertIn(f'"scratch": "{scratch}"', prompt)
+                    self.assertEqual(json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())["scratch"], str(scratch))
+                    return 0
 
-        with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.Workspace.prepare", return_value=worktree), \
-                patch("ub_agents.loop.supervise", side_effect=execute) as executed:
-            self.assertTrue(loop.tick())
-        executed.assert_called_once()
-        self.assert_scratch_removed(loop)
+                with patch.dict(os.environ), \
+                        patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                        patch("ub_agents.loop.Workspace.prepare", return_value=worktree), \
+                        patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                    if tmpdir is None:
+                        os.environ.pop("TMPDIR", None)
+                    else:
+                        os.environ["TMPDIR"] = tmpdir
+                    self.assertTrue(loop.tick())
+                executed.assert_called_once()
+                self.assert_scratch_removed(loop)
 
     def test_state_location_uses_absolute_xdg_or_falls_back_to_home(self):
         home = self.state / "home"
@@ -320,7 +338,7 @@ class ScratchTests(unittest.TestCase):
                 self.assertFalse((state / "ub-agents").exists())
 
     def test_missing_scratch_still_removes_owned_per_run_directory(self):
-        loop = self.loop("import os; from pathlib import Path; Path(os.environ['TMPDIR']).rmdir()")
+        loop = self.loop("import os; from pathlib import Path; Path(os.environ['UB_AGENTS_SCRATCH']).rmdir()")
         self.assertTrue(loop.tick())
         self.assert_scratch_removed(loop)
         self.assertFalse(any("Scratch removal failed:" in line for line in self.output))

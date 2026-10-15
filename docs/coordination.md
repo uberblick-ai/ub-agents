@@ -901,7 +901,7 @@ Post a retrospective with {report_command} retrospective --body-file PATH. Inclu
 Would have helped: topic A, topic B
 Suggest creating: topic C, topic D
 Each line is a comma-separated list of short topic names. Would have helped names existing guidance, records or pointers the run lacked or had to reconstruct. Suggest creating names lasting choices no record covers, left for later human review instead of being recorded during the run, subject to project rules. Reuse a name from an existing record or earlier post when one fits. No per-topic rationale, scores, identifiers or other structure. Topic lines may be posted even when the run lost nothing. Always link the item, which holds the evidence. No post is required on every run; post at most once per item, without repeating an earlier run's post. The boards are public: never include credentials, environment values, local paths, hostnames or log excerpts. Write the body with the file-writing tool in the run's scratch directory, then post before reporting; a failed post blocks nothing.
-Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, not directly under /tmp. TMPDIR points to the same directory. Its absolute path is the context's scratch value; use that path directly rather than expanding the variable in a shell command.
+Put temporary files in UB_AGENTS_SCRATCH, the run's private scratch directory, not directly under /tmp. Its absolute path is the context's scratch value; use that path directly rather than expanding the variable in a shell command.
 Assignment context:
 {context}
 

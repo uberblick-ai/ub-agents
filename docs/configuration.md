@@ -1320,7 +1320,7 @@ and configured command receives the same environment variables:
 | `UB_AGENTS_REPOSITORY` | `owner/name` |
 | `UB_AGENTS_ASSIGNMENT` | Issue or PR number |
 | `UB_AGENTS_RUN` | Run id |
-| `UB_AGENTS_SCRATCH` | Absolute path to the run's private scratch directory; `TMPDIR` is set to the same path |
+| `UB_AGENTS_SCRATCH` | Absolute path to the run's private scratch directory |
 | `UB_AGENTS_LEASE_ID` | The claim's comment id |
 | `UB_AGENTS_CANDIDATE_SHA` | The PR's head commit; empty for issue work |
 | `UB_AGENTS_BRANCH` | The branch to work on, when known |
@@ -1331,6 +1331,9 @@ In-run commands validate that file and match its repository and run to
 `UB_AGENTS_REPOSITORY` and `UB_AGENTS_RUN` before contacting GitHub. Missing,
 unreadable or invalid context exits nonzero without showing input or posting
 records. `read N` outside a run (`UB_AGENTS_RUN` unset) uses local configuration.
+
+The launcher leaves `TMPDIR` unchanged: agents inherit its value, or no value if
+it is unset, so tools can use the system temporary directory.
 
 Use `UB_AGENTS_SCRATCH` for temporary files instead of writing directly under
 `/tmp`. Before starting a runtime or command, the launcher creates this directory
