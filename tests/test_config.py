@@ -31,6 +31,39 @@ class ConfigTests(unittest.TestCase):
                    if entry.group == "console_scripts"}
         self.assertEqual(scripts, {"ub-agents": "ub_agents.cli:main"})
 
+    def test_sub_issue_outcome_validation_in_offline_doctor(self):
+        base = '''repository: org/project
+agents:
+  preparer:
+    kind: issue
+    command: [echo]
+    trigger: needs-preparation
+    outcomes:
+      split: {sub-issues: {add: [needs-preparation]}}
+  reviewer:
+    kind: pr
+    command: [echo]
+    trigger: pr-review
+    outcomes: {done: {}}
+'''
+        for content, valid in (
+                (base, True),
+                (base.replace('kind: issue', 'kind: either'), True),
+                (base.replace('kind: pr', 'kind: issue').replace('add: [needs-preparation]', 'add: [pr-review]'), True),
+                (base.replace('sub-issues: {add:', 'sub-issues: {remove:'), False),
+                (base.replace('sub-issues: {add:', 'sub-issues: {unknown:'), False),
+                (base.replace('add: [needs-preparation]', 'add: [needs-human]'), False),
+                (base.replace('add: [needs-preparation]', 'add: [non-trigger]'), False),
+                (base.replace('add: [needs-preparation]', 'add: [pr-review]'), False),
+                (base.replace('kind: issue', 'kind: pr'), False),
+                (base.replace('add: [needs-preparation]', 'add: []'), False),
+                (base.replace('sub-issues: {add: [needs-preparation]}', 'sub-issues: {}'), False),
+                (base + 'stop-labels: [needs-preparation]\n', False)):
+            with self.subTest(content=content):
+                self.path.write_text(content)
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 0 if valid else 1)
+
     def test_default_config_requires_the_named_file_and_explicit_paths_work(self):
         custom = self.root / "custom.yaml"
         custom.write_text("repository: org/project\nagents:\n  task:\n    command: [echo]\n"

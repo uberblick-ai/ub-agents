@@ -16,7 +16,21 @@ approvals: off
 
 ## On
 
-A maintainer starts every issue by adding a trigger label. Re-applying a trigger label clears earlier edits and comments from outside the team for the agents.
+A maintainer starts an issue by adding a trigger label. Re-applying a trigger label clears earlier edits and comments from outside the team for the agents.
+
+Sub-issues can inherit their parent's start through an accepted
+[`sub-issues` outcome](/docs/configuration/outcomes.html). The launcher labels open
+native sub-issues in the same repository, authored by its lease account after the
+claim. The parent's completed outcome must record that sub-issue and trigger,
+match its lease declaration, and have a successful released source or recovery
+lease with confirmed cleanup. Current launcher trust applies to the record author
+and label actor. Pickup waits for a pending parent transition without parking the child.
+
+The label event starts the sub-issue, including preparation. Later outside title
+or body edits suspend work; later outside comments are withheld until a maintainer
+re-applies a trigger. A launcher label without a matching parent record is still
+"No maintainer start", and a later launcher reapplication cannot clear new outside
+edits through an old record. With approvals off, any trigger still starts work.
 
 Cold status and queue-view observation passes read content, body revisions and label/title events in GraphQL batches of up to 50 items whose plans need approval checks. Claiming passes read one reached item at a time and stop at the first claim. Incomplete histories, unsafe event mappings and title-edit gates fall back to the full per-item reads; an unusable batch can add one attempted call. Unchanged discovery inputs stay cached. Fresh claim and approval-parking checks, `read`, role checks and comment reads keep their per-item paths.
 

@@ -67,6 +67,8 @@ def configured_labels(config):
                 for name in transition[action]:
                     meaning = f"{'added' if action == 'add' else 'removed'} when {agent.name} reports {outcome}"
                     add(name, LabelUse(agent.name, meaning))
+            for name in transition.get("sub-issues", {}).get("add", ()):
+                add(name, LabelUse(agent.name, f"added to sub-issues when {agent.name} reports {outcome}"))
     for name in config.stop_labels:
         add(name, LabelUse(None, "parks an issue or PR until a person decides", required=False), effect=True)
     return [Label(name, tuple(effects + transitions)) for name, effects, transitions in labels.values()]

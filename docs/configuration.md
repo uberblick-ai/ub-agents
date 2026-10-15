@@ -710,10 +710,43 @@ agents:
 ```
 
 `outcomes` must be a nonempty mapping of names to transitions. A transition accepts
-only `add` and `remove`, each a list of nonempty string labels (empty lists are
-allowed). Omitted lists are empty. `doctor --offline` rejects unknown keys, non-string labels,
+`add` and `remove`, each a list of nonempty string labels (empty lists are
+allowed), and the optional `sub-issues` mapping described below. Omitted lists are empty.
+`doctor --offline` rejects unknown keys, non-string labels,
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
+
+An agent that takes issues can declare labels to start the native sub-issues its
+run creates. The labels must be triggers of an `issue` or `either` agent, and must
+not be stop labels. `sub-issues` accepts only `add`, with a nonempty list:
+
+```yaml
+issue-preparer:
+  kind: issue
+  trigger: needs-preparation
+  outcomes:
+    split: {sub-issues: {add: [needs-preparation]}}
+```
+
+The launcher removes the parent's triggers and adds these labels to open native
+sub-issues in the same repository, authored by the account holding the run's lease
+and created after its claim. Other sub-issues receive no label and are named in the
+outcome summary. The launcher resolves and stores the target set in the outcome
+record before any transition; recovery uses that same set even if links or
+configuration change. An `either` agent can report this outcome only on an issue.
+Agents create issues without workflow labels and report the outcome with the normal
+command; there are no extra report options.
+
+With [approvals on](approvals.md#start-suspension-and-comments), a qualifying
+sub-issue inherits its parent's start through the accepted outcome record. A
+trusted launcher must have applied the recorded trigger during that transition.
+Later outside title or body edits suspend work, and later outside comments remain
+withheld until a maintainer re-applies a trigger, just as for a direct start.
+With approvals off, any trigger label continues to start work.
+
+**Upgrading:** Before adopting `sub-issues`, stop and upgrade all of the project's
+launchers, then restart them on the new version. Older launchers reject the key
+and would park inherited starts.
 
 An agent reports `ub-agents report --outcome NAME --summary TEXT [--handoff PR] [--action TEXT] [--option TEXT]`.
 Here and in project instructions, replace `ub-agents` with the launcher's literal

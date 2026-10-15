@@ -1664,6 +1664,8 @@ class Loop:
         transition = resolve_transition(transition, declaration)
         if {k: v for k, v in transition.items() if k != "started"} != declaration:
             raise ValidationError("Reported transition does not match the running agent's declaration")
+        if "sub-issues" in declaration and "sub_issues" not in outcome:
+            raise ValidationError("Sub-issue targets were not resolved in the outcome record")
         try:
             validate_report_action(source, outcome)
         except ValueError as exc:
@@ -1707,6 +1709,11 @@ class Loop:
         missing = sorted(set(transition["add"]).difference(self.github.item(target).labels))
         if missing:
             self.github.add_labels(target, missing)
+        for number in outcome.get("sub_issues", ()):
+            self.coordinator.assert_owned(lease)
+            missing = sorted(set(transition["sub-issues"]["add"]).difference(self.github.item(number).labels))
+            if missing:
+                self.github.add_labels(number, missing)
         if not outcome.get("transition_complete"):
             self.coordinator.update_outcome(lease, outcome, transition_complete=True)
 

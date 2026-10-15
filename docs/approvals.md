@@ -48,7 +48,8 @@ To require maintainer starts in private or internal repositories, set
 
 ## With approvals on
 
-Issue work needs a maintainer's start. Once started, the pipeline can move its own
+Issue work needs a maintainer's start, directly or inherited from a parent's
+accepted `sub-issues` outcome. Once started, the pipeline can move its own
 labels and accept trusted edits without further human involvement. Outside content
 needs a maintainer's review before it becomes input.
 
@@ -192,7 +193,26 @@ one of the configured triggers of any `issue` or `either` agent. It normally sta
 with `needs-preparation`. A maintainer applying `ready` also starts an issue if that
 is an issue agent's trigger. PR-only triggers do not start issues. The event remains
 a start after the label is removed or agents apply other workflow labels. A `write`
-account, including the launcher account, cannot start work by applying labels.
+account, including the launcher account, cannot ordinarily start work by applying labels.
+
+An issue can inherit a start from its native parent through a declared
+[`sub-issues: {add: [...]}` outcome](configuration.md#outcomes-and-transitions).
+The outcome records the open, same-repository sub-issues authored by the lease's
+launcher account after its claim. The parent record must name the sub-issue and
+trigger label, match its source lease's declaration, be accepted and complete, and
+have a successful released source or recovery lease with confirmed cleanup.
+Both the record author and label actor must be trusted launcher accounts under the
+current roles and `launchers` configuration; listed bots gain no such authority.
+The trigger must have been added during the parent's transition. A later launcher
+reapplication cannot use the old record to clear new outside edits.
+
+While a recorded parent transition is still pending, pickup waits without adding
+an approval stop label. A launcher label without matching provenance remains
+"No maintainer start". The inherited start has the same clearance time as its
+trigger event: later outside title/body edits suspend work and later outside
+comments remain withheld until a maintainer re-applies a trigger. No extra
+maintainer start is needed for each qualifying sub-issue, including preparation.
+Approvals off still allow any trigger label to start work.
 
 Each maintainer trigger label approves the issue as it stands at that time, including
 outside comments already present and last updated before that event. After the

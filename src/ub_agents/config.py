@@ -440,9 +440,14 @@ def _parse_config(data, root, *, planned=()):
         outcomes = {}
         for outcome, transition in declared.items():
             string(outcome, f"{name} outcome")
-            mapping(transition, {"add", "remove"}, f"{name} outcome {outcome}")
+            mapping(transition, {"add", "remove", "sub-issues"}, f"{name} outcome {outcome}")
             labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
                       for key in ("add", "remove")}
+            if "sub-issues" in transition:
+                if kind == "pr":
+                    raise AgentError(f"{name}: sub-issues requires an agent that takes issues")
+                children = mapping(transition["sub-issues"], {"add"}, f"{name} {outcome} sub-issues")
+                labels["sub-issues"] = {"add": argv(children.get("add"), f"{name} {outcome} sub-issues add")}
             if set(labels["add"]).intersection(triggers):
                 raise AgentError(f"{name}: outcome cannot add its own trigger")
             if set(labels["remove"]).union(triggers).intersection(stop):
@@ -459,7 +464,14 @@ def _parse_config(data, root, *, planned=()):
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
             clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check,
             on_conflict))
+    issue_triggers = {label for a in agents if a.kind != "pr" for label in a.triggers}
     for agent in agents:
+        for transition in agent.outcomes.values():
+            if "sub-issues" in transition:
+                labels = set(transition["sub-issues"]["add"])
+                if labels.intersection(stop) or not labels <= issue_triggers:
+                    raise AgentError(f"{agent.name}: sub-issues add must contain only issue agent trigger labels, "
+                                     "and no stop labels")
         if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")

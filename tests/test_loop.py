@@ -88,7 +88,7 @@ class LoopTests(unittest.TestCase):
                      'Do not touch the operator checkout', 'Never copy credentials',
                      'change global settings or disable commit signing', 'no $VAR',
                      '--body-file PATH', 'report as its own final command',
-                     'Issues an agent files get no trigger label'):
+                     'File issues without trigger labels'):
             self.assertIn(rule, prompt)
 
     def test_coordination_document_quotes_entire_launcher_prompt(self):

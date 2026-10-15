@@ -166,7 +166,7 @@ def validate_transition(transition, started=False):
     required = {"add"}
     if started:
         required.add("started")
-    allowed = required | {"remove"}
+    allowed = required | {"remove", "sub-issues"}
     if (not isinstance(transition, dict) or not required <= set(transition)
             or not set(transition) <= allowed):
         raise ValueError("invalid transition")
@@ -175,6 +175,13 @@ def validate_transition(transition, started=False):
     for key in ("add", "remove"):
         if key in transition:
             validate_labels(transition[key])
+    if "sub-issues" in transition:
+        children = transition["sub-issues"]
+        if not isinstance(children, dict) or set(children) != {"add"}:
+            raise ValueError("invalid sub-issues transition")
+        validate_labels(children["add"])
+        if not children["add"]:
+            raise ValueError("empty sub-issues labels")
 
 
 def declared_transition(lease, name):
@@ -333,6 +340,12 @@ def validate(record):
             raise ValueError("invalid rejected outcome")
         if "transition" in record:
             validate_transition(record["transition"], started=True)
+        if "sub_issues" in record:
+            children = record["sub_issues"]
+            if (not isinstance(children, list) or any(not positive_int(n) for n in children)
+                    or len(set(children)) != len(children) or record["assignment"] in children
+                    or "sub-issues" not in record.get("transition", {})):
+                raise ValueError("invalid resolved sub-issues")
         if record.get("handoff") is not None and not positive_int(record["handoff"]):
             raise ValueError("invalid handoff")
     elif record.get("kind") == "reset":

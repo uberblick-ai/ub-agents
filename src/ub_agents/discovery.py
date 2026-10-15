@@ -256,6 +256,9 @@ class Discovery:
         return self.pass_roles[account]
 
     def __getattr__(self, name):
+        if name == "parent_issue":
+            # Native relationships can change without a child content edit.
+            return self.github.parent_issue
         if name not in self.ITEM_READS | {"prs_for_branch"}:
             raise AttributeError(name)
 
