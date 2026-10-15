@@ -695,11 +695,22 @@ class RunPlanningTests(unittest.TestCase):
         self.loop.config = replace(self.cfg, poll_seconds=30 if forced else 0.01, agents=(role,))
         completed = threading.Event()
         submit = self.memory.submit
+        observe = self.github.observe
+        failed = False
+
+        def read(*args, **kwargs):
+            nonlocal failed
+            # The recording adapter is shared with the claiming thread. Inject
+            # the failure only into the observation whose recovery we test.
+            if failure and not failed and threading.current_thread().name == 'run-planning':
+                failed = True
+                raise failure
+            return observe(*args, **kwargs)
 
         def publish(data):
             submit(data)
             latest = self.memory.snapshots[-1].get('latest_pass') or {}
-            if latest.get('state') == 'complete':
+            if latest.get('state') == 'complete' and threading.current_thread().name == 'run-planning':
                 completed.set()
 
         self.memory.submit = publish
@@ -718,9 +729,9 @@ class RunPlanningTests(unittest.TestCase):
         def supervise(*args, **kwargs):
             writes = list(self.github.writes)
             assignment = deepcopy(self.memory.snapshots[-1]['assignment'])
-            if failure:
-                self.github.read_results['observe'] = [failure]
             self.assertTrue(completed.wait(3), 'Observation did not complete while running')
+            if failure:
+                self.assertTrue(failed, 'Observation did not encounter the injected failure')
             self.assertEqual(self.github.writes, writes)
             snapshot = self.memory.snapshots[-1]
             self.assertEqual({r['item'] for r in snapshot['latest_pass']['rows']}, {1, 2, 3})
@@ -735,7 +746,8 @@ class RunPlanningTests(unittest.TestCase):
                 self.loop.stop_event.set()
             return 0
 
-        with patch('ub_agents.loop.supervise', side_effect=supervise), \
+        with patch.object(self.github, 'observe', side_effect=read), \
+                patch('ub_agents.loop.supervise', side_effect=supervise), \
                 patch.object(self.loop, 'tick', side_effect=claiming_pass):
             self.loop.launch()
         leases = [r for comments in self.github.store.values() for r in records(comments)

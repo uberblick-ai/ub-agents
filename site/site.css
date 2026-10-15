@@ -107,3 +107,8 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 10px }
   .side-list { position: static }
 }
 @media (max-width: 520px) { .hero { padding-block: 48px 32px } .lede { font-size: 16px } .top nav { margin-left: 0; width: 100% } }
+
+/* Diagrams drawn with ablauf (site/diagrams/*.flow), themed by the site's tokens. */
+.flow { margin: 8px 0 24px; overflow-x: auto;
+  --ab-ink: var(--fg); --ab-muted: var(--muted); --ab-line: var(--line); --ab-surface: var(--bg); --ab-band: var(--code) }
+.flow svg { display: block; width: 100%; min-width: 600px; height: auto }

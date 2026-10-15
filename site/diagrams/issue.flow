@@ -1,0 +1,31 @@
+flow v0
+# How an issue is picked up, prepared and handed to delivery.
+
+columns main person
+
+panel open col=main tone=muted
+  strong "A team member writes an issue"
+pill needs-preparation tone=muted
+panel queue tone=muted
+  strong "The loop"
+  muted "claims eligible items in order"
+box issue-preparer "grounds it in the code, challenges assumptions, aims for an MVP"
+pill ready tone=done
+end delivery "Delivery picks it up"
+
+
+panel human col=person row=issue-preparer tone=stop
+  pill needs-human
+  strong "A person reviews or answers"
+
+open --> needs-preparation : someone sets it
+needs-preparation --> queue
+queue --> issue-preparer : starts the agent
+issue-preparer --> ready : successfully prepared; acceptance criteria set
+ready --> delivery
+issue-preparer --> human tone=stop : needs-human, blocked
+human --> needs-preparation tone=stop from=top to=right label=end : comment on GitHub, remove needs-human, re-add the label
+
+legend
+  pill tone=done "GitHub label, like ready"
+  panel tone=stop "human involved"

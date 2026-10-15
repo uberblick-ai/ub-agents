@@ -1,0 +1,22 @@
+flow v0
+# Optional: the issue-preparer asks for a second opinion before ready.
+
+columns rework main
+
+box issue-preparer col=main "grounds the issue, writes criteria"
+pill needs-review tone=agent
+box issue-reviewer "second opinion, ideally on another model"
+pill ready tone=done
+end delivery "Delivery picks it up"
+
+pill needs-preparation col=rework row=issue-reviewer tone=rework
+
+issue-preparer --> needs-review : review
+needs-review --> issue-reviewer
+issue-reviewer --> ready : approved
+ready --> delivery
+issue-reviewer --> needs-preparation tone=rework : changes-requested
+needs-preparation --> issue-preparer tone=rework from=top to=left label=end : apply the findings
+
+legend
+  pill tone=done "GitHub label, like ready"
