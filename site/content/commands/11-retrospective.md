@@ -25,7 +25,7 @@ The launcher pins the repository and board, so the agent handles no IDs. The pos
 
 ## Keep it public
 
-Discussions on a public repository are public, and the command posts the file as written. Never include credentials, environment values, local paths, hostnames or log excerpts. Link the item instead; it holds the evidence.
+Discussions on a public repository are public, and the command posts the file as written. The built-in run instructions already tell agents to leave out credentials, environment values, local paths, hostnames and log excerpts, and to link the item instead. Keep that rule if you change your agents' instructions.
 
 ## What to post
 
