@@ -49,7 +49,6 @@ from .worktree_setup import confirm_worktree_setup_stopped, run_worktree_setup
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
-POLL_FAILURE_LIMIT = 6
 COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
 
 
@@ -1253,7 +1252,7 @@ class Loop:
         try:
             fresh = self.github.item(plan.item.number, plan.item.kind)
             approval = self.input_check(fresh)
-        except LostOwnership:
+        except (LostOwnership, GitHubError):
             raise
         except AgentError:
             approval = ApprovalCheck(False, "Assignment approval history is unreadable; retry or ask a maintainer")
@@ -1457,8 +1456,15 @@ class Loop:
             raise
         except LostOwnership as exc:
             diagnostic("ownership-lost", error=str(exc))
+            self._renewal.close()
             cleanup_workspace(record=False)
             # Do not report, release, or accept after losing ownership.
+            raise
+        except GitHubError as exc:
+            diagnostic("github-failed", error=str(exc))
+            self._renewal.close()
+            cleanup_workspace(record=False)
+            # The lease and any stored report remain for expiry recovery.
             raise
         except KeyboardInterrupt as exc:
             if completing:
@@ -1779,8 +1785,8 @@ class Loop:
 
     def _end_poll(self):
         self._before_claim()
-        # Starting a claim write ends discovery. Only a retryable POST failure
-        # may skip this pass; its uncertain record is withdrawn before planning.
+        # Starting a claim write ends discovery and defers graceful stopping
+        # until owned execution or recovery has unwound.
         self._poll_complete = True
 
     def launch(self, once=False, number=None, agent_name=None):
@@ -1811,7 +1817,7 @@ class Loop:
         if self._launch_agent is not None and self._launch_number is None:
             self.output(f"Serving queue for agent {self._launch_agent}")
             self._observe("queue_scope", self._launch_agent)
-        failures = 0
+        retry_delay = POLL_RETRY_BASE_SECONDS
         idle_state = None
         while not self.stop_event.is_set():
             self.github.lease = None
@@ -1827,32 +1833,30 @@ class Loop:
             except (_InvalidReload, CleanupError, RecordError):
                 raise
             except AgentError as exc:
-                if isinstance(exc, LostOwnership):
-                    if not self._finalizing or not isinstance(exc.__cause__, GitHubError):
-                        raise
-                    # Ownership reads fail closed, but a completed agent needs no
-                    # termination. Preserve the underlying request's poll policy.
-                    exc = exc.__cause__
                 if self.interrupt_event.is_set():
                     raise KeyboardInterrupt from None
-                if once or (self._poll_complete and not self._finalizing
-                            and self.coordinator.lost_claim is None):
+                if once:
                     raise
-                failures += 1
-                delay = min(POLL_RETRY_MAX_SECONDS, POLL_RETRY_BASE_SECONDS * 2 ** (failures - 1))
+                if isinstance(exc, LostOwnership):
+                    if not isinstance(exc.__cause__, GitHubError):
+                        raise
+                    # Execution has stopped and renewal has closed. Ownership
+                    # reads fail closed; retain the request's retry policy.
+                    exc = exc.__cause__
                 retryable = isinstance(exc, GitHubError) and exc.retryable
                 detail = str(exc)
                 # Keep each diagnostic on one line, even when gh prints several.
                 detail = " ".join(detail.split())
-                if not retryable or failures >= POLL_FAILURE_LIMIT:
-                    reason = (f"retries exhausted after {failures} consecutive failed polls"
-                              if retryable else "failure is not retryable; retries not exhausted")
-                    raise AgentError(f"{detail}; {reason}. Fix the cause and restart ub-agents launch.") from exc
+                if not retryable:
+                    raise AgentError(f"{detail}; ub-agents does not retry this error. "
+                                     "Fix the cause and restart ub-agents launch.") from exc
+                delay = retry_delay
+                retry_delay = min(POLL_RETRY_MAX_SECONDS, retry_delay * 2)
                 self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
                 delay = self.usage.bound_wait(delay)
                 self._wait(self.stop_event, delay, "poll retry or runtime pause")
                 continue
-            failures = 0
+            retry_delay = POLL_RETRY_BASE_SECONDS
             if self.interrupt_event.is_set():
                 raise KeyboardInterrupt
             if self.stop_event.is_set():

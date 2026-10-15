@@ -104,7 +104,7 @@ class LaunchSetupTests(unittest.TestCase):
                     self.assertEqual(self.github.writes, [])
         self.assertNotIn("checking setup", self.stdout.getvalue())
 
-    def test_fatal_setup_errors_close_view_before_printing_unchanged_message(self):
+    def test_fatal_setup_errors_close_view_before_printing_message(self):
         errors = (AgentError("control checkout is on feature; launch runs only from main; switch to main"),
                   AgentError("control checkout is dirty (staged, modified or untracked files); "
                              "commit or remove those changes before launch"),
@@ -126,14 +126,15 @@ class LaunchSetupTests(unittest.TestCase):
                     self.assertEqual(main(self.argv), 1)
                 wait.assert_not_called()
                 self.view.close.assert_called_once()
-                suffix = "; Fix the cause and restart ub-agents launch." if isinstance(error, GitHubError) else ""
+                suffix = ("; ub-agents does not retry this error. Fix the cause and restart ub-agents launch."
+                          if isinstance(error, GitHubError) else "")
                 self.assertEqual(self.stderr.getvalue(), f"ub-agents: {error}{suffix}\n")
                 self.assertTrue(self.publisher.snapshots[-1]["ended"])
                 self.assert_no_work()
 
     def test_retryable_setup_failures_keep_retrying_with_capped_poll_backoff(self):
         failure = GitHubError("GET", "repos/org/project", "Connection reset\nsecond line", retryable=True)
-        for arguments in ([], ["--once"], ["--agent", "worker"], ["42"], ["42", "--agent", "worker"]):
+        for arguments in ([], ["--agent", "worker"]):
             with self.subTest(arguments=arguments):
                 self.checks.reset_mock()
                 self.checks.side_effect = [failure] * 8 + [None]
@@ -163,6 +164,18 @@ class LaunchSetupTests(unittest.TestCase):
                 self.assertEqual(lines, [f"Skipped GitHub poll: {' '.join(str(failure).split())}; retrying in {delay}s"
                                          for delay in activities])
                 self.sweep.assert_called_once()
+
+    def test_once_and_numbered_launch_fail_on_first_setup_error(self):
+        failure = GitHubError("GET", "repos/org/project", "Connection reset", retryable=True)
+        for arguments in (["--once"], ["--once", "--agent", "worker"], ["42"], ["42", "--agent", "worker"]):
+            with self.subTest(arguments=arguments):
+                self.checks.reset_mock()
+                self.checks.side_effect = failure
+                with patch.object(Loop, "_wait") as wait:
+                    self.assertEqual(main(self.argv + arguments), 1)
+                self.checks.assert_called_once()
+                wait.assert_not_called()
+                self.assert_no_work()
 
     def test_signals_interrupt_slow_setup_subprocess_without_work(self):
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):

@@ -251,7 +251,7 @@ def launch_checks(config, github, read_git=None):
                          "run ub-agents doctor for setup commands")
 
 
-def check_launch_setup(config, github, loop):
+def check_launch_setup(config, github, loop, *, once=False):
     # No ownership exists yet: interrupt even a slow gh/git subprocess. The
     # normal in-run handlers defer interruption until execution can be cleaned up.
     def interrupt_checks(*_):
@@ -272,7 +272,7 @@ def check_launch_setup(config, github, loop):
                 launch_checks(config, github)
             except GitHubError as exc:
                 loop._before_claim()
-                if not exc.retryable:
+                if once or not exc.retryable:
                     raise
                 detail = " ".join(str(exc).split())
                 loop.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
@@ -457,7 +457,7 @@ def run(args):
                              no_ui=args.no_ui, poll=loop.request_poll)
             if view is not None:
                 loop.enable_poll_now()
-        check_launch_setup(config, github, loop)
+        check_launch_setup(config, github, loop, once=args.once or args.number is not None)
         from .updates import Updates
         loop.updates = Updates(config.root)
         if loop.updates is not None:
@@ -503,6 +503,9 @@ def launch_error_message(exc, root):
     elif any(isinstance(error, GitHubError) for error in errors):
         detail = str(exc)
         advice = "Fix the cause and restart ub-agents launch."
+        no_retry = "ub-agents does not retry this error."
+        if any(isinstance(error, GitHubError) and not error.retryable for error in errors) and no_retry not in detail:
+            detail = f"{detail}; {no_retry} {advice}"
         if not detail.endswith(advice):
             detail = f"{detail}; {advice}"
     elif any(isinstance(error, InstructionError) for error in errors):

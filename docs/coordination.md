@@ -728,7 +728,7 @@ unfinished lease recoverable without a blocked or failure verdict. Only the
 agent's report or a failed validation, including a paused transition, can block
 completion. Continuous launch ends a failed pass with the existing
 `Skipped GitHub poll: …; retrying in Ns` message for retryable requests; these
-failures count toward the same poll limit and backoff as discovery failures.
+failures use the same unlimited, capped backoff as discovery failures.
 Non-retryable errors stop the launcher with the lease still recoverable;
 `launch --once` fails on the first error. No agent restarts while its lease is live.
 After expiry, the stored outcome finishes through outcome-only recovery. If no
@@ -937,7 +937,7 @@ message telling the operator what to fix before restarting. These failures do
 not claim an assignment, charge an attempt, or mark work blocked or retrying.
 
 The GitHub read of the default branch is part of pre-claim discovery. Continuous
-launch retries its transient failures under the [poll limits](polling.md);
+launch retries its transient failures with [unlimited poll backoff](polling.md);
 Git fetch and local checkout or instruction failures still stop immediately.
 
 `ub-agents.yaml` is reloaded before each new execution claim. If the refreshed
