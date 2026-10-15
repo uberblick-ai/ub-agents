@@ -104,7 +104,7 @@ labels, claims, notices or records. The effective `approvals` policy resolves fr
 configuration or repository visibility for each invocation, just as in discovery.
 Inside a supervised run, invoke the launcher's literal `report_command` followed
 by `read N`. The launcher pins its repository, configured approvals policy,
-trigger labels and trusted bot list in the run; a changed worktree configuration
+trigger labels, trusted bot list and any launcher allowlist in the run; a changed worktree configuration
 or `--config` cannot replace them.
 
 The output contains `number`, `kind`, `state`, `title`, `body` and `comments`. PRs

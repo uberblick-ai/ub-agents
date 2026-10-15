@@ -8,6 +8,7 @@ from ub_agents.approvals import filter_input
 from ub_agents.errors import AgentError, LostOwnership, RecordError, ValidationError
 from ub_agents.github import Dependency, GitHub, SubIssue
 from ub_agents.loop import Loop
+from ub_agents.read_input import read_item, read_policy
 from ub_agents.records import body, iso, payload, records, timestamp
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
@@ -258,6 +259,22 @@ class SubIssueTests(unittest.TestCase):
         self.assertFalse(self.approval().allowed)
         self.github.timelines[2][-1]['actor'] = {'login': 'maintainer'}
         self.assertTrue(self.approval().allowed)
+
+    def test_read_clearance_uses_the_pinned_launcher_allowlist(self):
+        self.split()
+        self.github.change(2, author='outside')
+        self.github.content_histories[2] = {'author': {'login': 'outside'}}
+        comment = self.github.create_comment(2, 'Outside input before start', login='outside')
+        self.github.store[2][0].update(created_at=iso(self.now - 1), updated_at=iso(self.now - 1))
+        approved = read_policy(replace(self.cfg, launchers=('operator',)))
+        unlisted = read_policy(replace(self.cfg, launchers=('other',)))
+        self.assertEqual(approved['launchers'], ['operator'])
+        cleared = read_item(self.github, 2, approved)
+        self.assertEqual(cleared['body'], self.github.item(2).body)
+        self.assertEqual([c['id'] for c in cleared['comments']], [comment['id']])
+        withheld = read_item(self.github, 2, unlisted)
+        self.assertTrue(withheld['body']['withheld'])
+        self.assertEqual(withheld['comments'], [])
 
 
 class SubIssueGitHubTests(unittest.TestCase):

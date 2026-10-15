@@ -9,7 +9,8 @@ def read_policy(config):
             "trusted-bots": list(config.trusted_bots),
             "triggers": {kind: sorted({label for agent in config.agents
                                       if agent.kind in {kind, "either"} for label in agent.triggers})
-                         for kind in ("issue", "pr")}}
+                         for kind in ("issue", "pr")}} | (
+            {"launchers": list(config.launchers)} if config.launchers is not None else {})
 
 
 def read_item(github, number, policy):
@@ -19,7 +20,8 @@ def read_item(github, number, policy):
         if item.number != number or item.kind not in {"issue", "pr"}:
             raise ValueError("not an issue or PR")
         filtered = approvals.filter_input(github, item, effective, policy["triggers"][item.kind],
-                                          trusted_bots=policy["trusted-bots"], read_only=True)
+                                          trusted_bots=policy["trusted-bots"], launchers=policy.get("launchers"),
+                                          read_only=True)
         if not filtered.allowed:
             raise AgentError(filtered.reason)
         return {"number": item.number, "kind": item.kind, "state": item.state} | filtered.snapshot

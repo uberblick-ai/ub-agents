@@ -526,6 +526,8 @@ the existing update banner continues to tell the operator when to restart.
 
 The launcher pins in-run context and policy in
 `.ub-agents/runs/<run>/run.json`, supplied through `UB_AGENTS_RUN_CONFIG`.
+That policy includes any configured launcher allowlist so inherited starts clear
+the same input in `read` and at pickup.
 `read`, `retrospective` and `report` share one validator: the file must be an
 absolute, readable JSON path with exactly the expected keys and valid values,
 and its repository and run must match `UB_AGENTS_REPOSITORY` and `UB_AGENTS_RUN`.
