@@ -706,7 +706,7 @@ class PollingTests(unittest.TestCase):
                 self.assertTrue(any(line.startswith(f"Skipped GitHub poll: {failure}") for line in self.lines))
 
     def test_post_claim_failures_leave_live_lease_untouched_and_do_not_start_another_run(self):
-        stages = ("election", "approval item", "approval history", "ownership", "running write",
+        stages = ("election", "approval item", "approval history", "approval permissions off", "ownership", "running write",
                   "lost running response", "execution item", "process ownership", "process write")
         cases = [(stage, False, True) for stage in stages]
         cases += [(stage, once, retryable) for stage in ("ownership", "process write")
@@ -714,13 +714,16 @@ class PollingTests(unittest.TestCase):
         for stage, once, retryable in cases:
             with self.subTest(stage=stage, once=once, retryable=retryable):
                 self.setUp()
+                if stage == "approval permissions off":
+                    self.loop.config = replace(self.config, approvals="off")
+                    self.github.create_comment(1, "Feedback")
                 self.loop.interrupt_event = threading.Event()
                 now = timestamp()
                 self.loop.coordinator.clock = lambda: now
                 failure = GitHubError("GET", stage, "GitHub unavailable", retryable=retryable)
                 failed, delays, executions = [], [], []
                 claim, claimed = self.loop.coordinator.claim, self.loop.coordinator.on_claim
-                approval, owned = self.loop.input_check, self.loop.coordinator.assert_owned
+                owned = self.loop.coordinator.assert_owned
                 update = self.github.update_comment
                 read = self.github._read
 
@@ -742,13 +745,11 @@ class PollingTests(unittest.TestCase):
                     lease = claim(*args, **kwargs)
                     if stage == "approval item" and not failed:
                         fail_read("item")
+                    if stage == "approval history" and not failed:
+                        fail_read("comments")
+                    if stage == "approval permissions off" and not failed:
+                        fail_read("role")
                     return lease
-
-                def check_approval(*args, **kwargs):
-                    if stage == "approval history" and self.loop._poll_complete and not failed:
-                        failed.append(list(self.github.writes))
-                        raise failure
-                    return approval(*args, **kwargs)
 
                 def check_owned(lease):
                     if not failed and (stage == "ownership" or (stage == "process ownership" and executions)):
@@ -792,7 +793,6 @@ class PollingTests(unittest.TestCase):
                 with ExitStack() as stack:
                     stack.enter_context(patch.object(self.loop.coordinator, "on_claim", side_effect=on_claim))
                     stack.enter_context(patch.object(self.loop.coordinator, "claim", side_effect=claim_lease))
-                    stack.enter_context(patch.object(self.loop, "input_check", side_effect=check_approval))
                     stack.enter_context(patch.object(self.loop.coordinator, "assert_owned", side_effect=check_owned))
                     stack.enter_context(patch.object(self.github, "update_comment", side_effect=update_lease))
                     stack.enter_context(patch.object(self.github, "_read", side_effect=read_github))

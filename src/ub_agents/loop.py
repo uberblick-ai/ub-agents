@@ -351,7 +351,7 @@ class Loop:
                                                actor=self.coordinator.actor, launchers=self.config.launchers,
                                                sub_issue_labels=self.config.sub_issue_labels,
                                                trusted_bots=self.config.trusted_bots,
-                                               raise_read_errors=self._targeted_pass)
+                                               raise_read_errors=self._targeted_pass or self._poll_complete)
         approval = check()
         if (isinstance(github, Discovery) and item.number in github.bulk_inputs
                 and approval.gate == "input" and isinstance(approval.snapshot.get("title"), dict)):
@@ -1279,8 +1279,8 @@ class Loop:
             diagnostic("cleanup-unconfirmed", error=str(exc))
             cause = exc
             while cause is not None:
-                if isinstance(cause, LostOwnership):
-                    return  # Even a transient ownership loss forbids further writes.
+                if isinstance(cause, (LostOwnership, GitHubError)):
+                    return  # GitHub failures and ownership loss forbid further writes.
                 cause = cause.__context__
             try:
                 self.coordinator.assert_owned(lease)
@@ -1299,14 +1299,18 @@ class Loop:
                 nonlocal hook_attempted
                 if hook_attempted:
                     return False
-                hook_attempted = True
                 try:
                     reported = self.coordinator.outcome(lease)
+                except GitHubError:
+                    if record:
+                        raise
+                    reported = outcome
                 except (AgentError, KeyboardInterrupt) as exc:
                     if isinstance(exc, KeyboardInterrupt):
                         self.interrupt_event.set()
                         self.stop_event.set()
                     reported = outcome
+                hook_attempted = True
                 failure = run_hook(self.config, lease, workspace.private, reported,
                                    expires=(lambda: self.coordinator.deadline(lease)) if record else None,
                                    pass_fds=reservation.descriptors if reservation is not None else ())
@@ -1315,6 +1319,8 @@ class Loop:
                         try:
                             self.coordinator.assert_owned(lease)
                             self.coordinator.update(lease, cleanup_hook_error=failure)
+                        except (LostOwnership, GitHubError):
+                            raise
                         except (AgentError, KeyboardInterrupt) as exc:
                             if isinstance(exc, KeyboardInterrupt):
                                 self.interrupt_event.set()

@@ -266,6 +266,8 @@ class FinalizationTests(unittest.TestCase):
             with self.subTest(once=once):
                 result = self.scenario(fail_at='update_comment', once=once, failure=error)
                 self.assertIsInstance(result[-1], AgentError)
+                if not once:
+                    self.assertIn('ub-agents does not retry this error', str(result[-1]))
                 history = result[1].coordinator.history(296)
                 self.assertEqual(history[0]['state'], 'running')
                 self.assertNotIn('result', history[0])

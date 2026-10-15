@@ -2,8 +2,8 @@
 
 After local configuration and repository validation, the terminal view opens
 before the GitHub and control-checkout setup checks, showing `checking setup`.
-In continuous launch, retryable GitHub failures show `waiting` and retry with backoff from 5 seconds up
-to 60 seconds, without a retry limit. With `--no-ui`, each wait prints
+In continuous launch, retryable GitHub failures show `waiting` and retry with
+backoff from 5 seconds up to 60 seconds, without a retry limit. With `--no-ui`, each wait prints
 `Skipped GitHub poll: …; retrying in Ns`, with no setup activity line. This order
 applies to plain launch, `--agent`, `--once` and `launch N`; `--once` and `launch N`
 fail on their first error. The update watcher,
