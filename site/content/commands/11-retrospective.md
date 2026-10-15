@@ -1,6 +1,6 @@
 # ub-agents retrospective
 
-Agents run `retrospective` to post what a run taught them to their role's board, a GitHub discussion. People read the boards later and decide what to change. The command only works inside a run and never changes the run's outcome.
+Agents run `retrospective` to post what a run taught them to their role's board, a GitHub discussion. People read the boards later and decide what to change. The command only works inside a run and never changes the run's outcome. [Learn from runs](/docs/best-practices/retrospectives.html) covers what to post.
 
 ## Set up a board
 
@@ -26,10 +26,6 @@ The launcher pins the repository and board, so the agent handles no IDs. The pos
 ## Keep it public
 
 Discussions on a public repository are public, and the command posts the file as written. The built-in run instructions already tell agents to leave out credentials, environment values, local paths, hostnames and log excerpts, and to link the item instead. Keep that rule if you change your agents' instructions.
-
-## What to post
-
-A post names a real loss and the change that would have prevented it, or lists topics the run lacked. No run has to post, and an item gets at most one post. See [Learn from runs](/docs/best-practices/retrospectives.html) for the post format and how to review the boards.
 
 ```text
 {{help retrospective}}
