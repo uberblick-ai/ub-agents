@@ -38,8 +38,7 @@ The local runtime replaces the whole shared string or ordered list. This example
 keeps the base `codex:gpt-6.1-sol:high` alternative by repeating it, then adds a
 model available on this machine through Codex. Other agent settings inherit.
 Supported CLIs, selection and independence rules are unchanged; no runtime adapter
-is added. See [machine-local overrides](/docs/configuration/index.html#machine-local-overrides)
-for location, `--config`, ignore entries, validation and reload behavior.
+is added. See [machine-local overrides](/docs/configuration/index.html#machine-local-overrides).
 
 ## What runs
 
