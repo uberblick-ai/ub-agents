@@ -979,7 +979,8 @@ class ViewLogTests(unittest.TestCase):
     def test_rewrite_inside_older_page_discards_result_with_or_without_growth(self):
         for append in (False, True):
             with self.subTest(append=append):
-                self.log.write_bytes(b'original\n' * 5000)
+                # Fit page and anchor in one I/O buffer to catch cached validation.
+                self.log.write_bytes(b'original\n' * 500)
                 reader = ViewReader(self.log, 'command')
                 self.drain(reader)
                 end = reader.page().start
