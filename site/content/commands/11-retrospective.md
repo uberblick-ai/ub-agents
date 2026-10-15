@@ -13,7 +13,7 @@ implementer:
 
 ## What agents will report
 
-An agent posts only when a run lost something, such as an extra review round, rework or a long search, or missed something it needed. In one short paragraph it names the cost, the cause and the smallest change that would have prevented it. A post can also end with up to two topic lines:
+When a run lost something, such as an extra review round, rework or a long search, or missed something it needed, the agent names the cost, the cause and the smallest change that would have prevented it in one short paragraph. A post can also hold, or be only, up to two topic lines:
 
 ```text
 Would have helped: topic A, topic B
