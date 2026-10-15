@@ -613,7 +613,7 @@ agents:
             self.assertEqual(main(["--config", str(self.path), "init", "--repository", "different/project"]), 1)
         self.assertEqual(self.path.read_text(), original)
         agents = load_config(self.path).agents
-        self.assertEqual(len(agents), 4)
+        self.assertEqual(len(agents), 5)
         self.assertTrue(all(a.outcomes for a in agents))
         self.assertEqual(agents[0].outcomes['needs-human']['add'], ('needs-human',))
         self.assertEqual(agents[-1].outcomes['maintainer-merge']['add'], ('needs-human',))

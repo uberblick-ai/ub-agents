@@ -43,7 +43,7 @@ cancel leaves no files, labels or boards, no branch and no PR.
    - **Priorities:** priority labels, highest first, that order the
      [queue](/docs/configuration/queue.html).
    - **Retrospectives:** agents post learnings per run, used to optimize delivery.
-     Init sets up a board for each of the four roles: it reuses a
+     Init sets up a board for each of the five roles: it reuses a
      discussion with the same title (for example "Implementer retrospectives") or
      creates it in the General category, and Claude agents get the permission to
      post. Needs Discussions turned on; see
@@ -84,10 +84,24 @@ prefer a separate [write-access launcher account](/docs/best-practices/launcher-
 
 ## Files
 
-Init writes `ub-agents.yaml`, `.agents/ub_agents.md` and four role files beside it,
+Init writes `ub-agents.yaml`, `.agents/ub_agents.md` and five role files beside it,
 and adds missing `.ub-agents/` and `ub-agents.local.yaml` entries to `.gitignore`.
 It refuses to run when a starter file already exists, never overwrites starter files and
 leaves `AGENTS.md`, `CLAUDE.md` and an existing `ub-agents.local.yaml` unchanged.
+
+The roles are issue-preparer, issue-reviewer, implementer, reviewer and integrator.
+The preparer sends small, bounded and clear work straight to `ready` with `prepared`,
+and other implementable work to the issue-reviewer with `review`. Approval gives
+`ready`; `changes-requested` returns findings as feedback to the preparer, which
+applies them and reports `prepared` without another review. Both issue roles can
+report `needs-human` for decisions that need a person.
+
+For work that needs multiple PRs, `split` leaves the parent open and blocked by
+native sub-issues with prepared bodies and no workflow labels. A maintainer labels
+each sub-issue before it starts. The issue-reviewer and PR reviewer share
+`needs-review`, distinguished by item kind, so there is no extra label.
+The starter recommends a different runtime for issue review; it cannot enforce
+`different-runtime-from` on issues today.
 
 On the default branch, init then commits the files on a new `setup-ub-agents`
 branch, pushes it, opens the setup PR and switches back. If that fails, it says

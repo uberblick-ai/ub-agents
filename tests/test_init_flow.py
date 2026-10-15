@@ -141,6 +141,7 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn('Create the labels yourself', text)
         self.assertIn('Labels and boards are created on GitHub right away; the files go to a new PR.', text)
         self.assertIn('Setup PR opened https://github.com/org/project/pull/9 Back on main', text)
+        self.assertIn('ub_agents.md and 5 role files', text)
         self.assertIn('Review and merge the setup PR: https://github.com/org/project/pull/9', text)
         self.assertIn('After the merge, run ub-agents launch', text)
         commands = [call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] in {
@@ -148,7 +149,8 @@ class FlowTests(unittest.TestCase):
         self.assertEqual([c[3] if c[0] == 'git' else 'gh' for c in commands],
                          ['switch', 'add', 'commit', 'push', 'gh', 'switch'])
         self.assertEqual(set(commands[1][5:]), {'ub-agents.yaml', '.gitignore', *(
-            f'.agents/{name}.md' for name in ('ub_agents', 'issue-preparer', 'implementer', 'reviewer', 'integrator'))})
+            f'.agents/{name}.md' for name in ('ub_agents', 'issue-preparer', 'issue-reviewer',
+                                            'implementer', 'reviewer', 'integrator'))})
         self.assertEqual(commands[4][3:9], ('--repo', 'org/project', '--base', 'main', '--head', 'setup-ub-agents'))
         config = load_config(self.path)
         self.assertTrue(all(agent.runtime_args for agent in config.agents))
@@ -163,6 +165,14 @@ class FlowTests(unittest.TestCase):
         self.assertEqual([o.value for o in options], ['claude', 'codex'])
         self.assertIn('Claude Code · claude-opus-5-5 · high', text)
         self.assertIn('"claude:claude-opus-5-5:high"', self.path.read_text())
+
+    def test_shared_review_label_is_created_once_with_both_uses(self):
+        self.github.label_names = []
+        code, _ = self.run_flow()
+        self.assertEqual(code, 0)
+        label, = [write for write in self.github.writes
+                  if write[:2] == ('create-label', 'needs-review')]
+        self.assertEqual(label[2], 'ub-agents: starts issue-reviewer on an issue; starts reviewer on a PR')
 
     def test_declined_permissions_stay_commented(self):
         code, text = self.run_flow(Script(Let_agents=False))
@@ -183,10 +193,12 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         created = [w[2]['title'] for w in self.github.writes if w[0] == 'create-board']
         self.assertEqual(sorted(created), ['Integrator retrospectives', 'Issue-preparer retrospectives',
+                                           'Issue-reviewer retrospectives',
                                            'Reviewer retrospectives'])
         boards = {agent.name: agent.retrospectives for agent in load_config(self.path).agents}
         self.assertEqual(boards['implementer'], 203)
-        self.assertEqual(len(set(boards.values())), 4)
+        self.assertTrue(boards['issue-reviewer'])
+        self.assertEqual(len(set(boards.values())), 5)
         self.assertNotIn('Want retrospectives later?', text)
 
     def test_retrospectives_are_unavailable_when_discussions_are_off(self):

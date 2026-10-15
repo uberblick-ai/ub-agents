@@ -6,6 +6,16 @@ inline Textual app that clears itself when answered. These captures come from a
 96-column terminal. The [init guide](../site/content/commands/02-init.md) describes
 the choices.
 
+The starter has five role files: issue-preparer, issue-reviewer, implementer,
+reviewer and integrator. Retrospectives sets up a board for each. The preparer uses
+`prepared` for small, bounded and clear work, `review` for other implementable work,
+`split` for work needing multiple PRs and `needs-human` for a person's decision.
+Issue review reports `approved`, `changes-requested` or `needs-human`; returned
+findings reach the preparer as feedback, which it applies before reporting
+`prepared` without another review. A split leaves the parent open and blocked by
+prepared native sub-issues, each without workflow labels until a maintainer starts
+it. Issue and PR reviewers share `needs-review`, so labels remain deduplicated.
+
 ## Active question
 
 ```text
@@ -127,10 +137,10 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 ◇  Changes ─────────────────────────────────────────────────────────────────────────╮
 │                                                                                   │
 │  + ub-agents.yaml                                                                 │
-│  + .agents/ ub_agents.md and 4 role files                                         │
+│  + .agents/ ub_agents.md and 5 role files                                         │
 │  ~ .gitignore +4 lines                                                            │
 │  + 7 labels on org/project                                                        │
-│  + 4 retrospective boards (reused when the title exists)                          │
+│  + 5 retrospective boards (reused when the title exists)                          │
 │  + .uberblick.json local Uberblick workspace                                      │
 │  Uberblick MCP · Claude Code · project scope · .mcp.json · add entry               │
 │                                                                                   │
@@ -141,7 +151,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 ◇  Write setup?
 │  Yes
 │
-◇  Setup written · boards #204, #203, #205, #206
+◇  Setup written · boards #204, #207, #203, #205, #206
 │
 ◇  Uberblick workspace created
 │  .uberblick.json
@@ -239,7 +249,7 @@ These runs skip all extras and register no MCP server. The setup remains local-o
 ◇  Changes ────────────────────────────────────╮
 │                                              │
 │  + ub-agents.yaml                            │
-│  + .agents/ ub_agents.md and 4 role files    │
+│  + .agents/ ub_agents.md and 5 role files    │
 │  ~ .gitignore +4 lines                       │
 │                                              │
 │  The files stay local.                       │
@@ -266,7 +276,8 @@ These runs skip all extras and register no MCP server. The setup remains local-o
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │
 ◇  Create the labels yourself
-│  gh label create needs-preparation --repo org/project --description 'ub-agents: starts issue-preparer on an issue' --color 1d76db
+│  gh label create needs-preparation --repo org/project --description 'ub-agents: starts issue-preparer on an issue; added when issue-reviewer reports changes-requested' --color 1d76db
+│  gh label create needs-review --repo org/project --description 'ub-agents: starts issue-reviewer on an issue; starts reviewer on a PR' --color 1d76db
 │  …
 │
 └  Then run ub-agents launch

@@ -12,7 +12,7 @@ from .config import LOCAL_CONFIG, preview_config, load_config
 from .errors import AgentError
 from .labels import Label, LabelUse, configured_labels
 
-ROLES = ("issue-preparer", "implementer", "reviewer", "integrator")
+ROLES = ("issue-preparer", "issue-reviewer", "implementer", "reviewer", "integrator")
 
 
 def runtime_guidance(root, cli, *, fallback=False):

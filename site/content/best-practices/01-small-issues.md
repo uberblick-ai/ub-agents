@@ -13,7 +13,7 @@ queue:
 
 ## Let the preparer ask
 
-The issue preparer turns a rough idea into clear requirements. Tell it, in its [instructions](/docs/configuration/instructions.html#role-files), to stop and ask when an issue is too big or unclear rather than guess.
+The starter issue-preparer turns a rough idea into clear requirements. It splits work that needs multiple PRs into prepared native sub-issues, leaves the parent open and blocked by each, and reports `split`. The sub-issues have no workflow labels until a maintainer labels each one to start it. For unresolved decisions it reports `needs-human`. Customize its [instructions](/docs/configuration/instructions.html#role-files) for your project.
 
 ## Ship in milestones
 

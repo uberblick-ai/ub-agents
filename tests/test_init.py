@@ -87,7 +87,9 @@ class InitTests(unittest.TestCase):
         self.assertIn('codex loads no project guidance', flat(output))
         self.assertIn('know how to build and test', flat(output))
         self.assertFalse((self.path.parent / 'AGENTS.md').exists())
-        self.assertEqual(len(list((self.path.parent / '.agents').glob('*.md'))), 5)
+        self.assertEqual(len(list((self.path.parent / '.agents').glob('*.md'))), 6)
+        self.assertEqual([agent.name for agent in config.agents],
+                         ['issue-preparer', 'issue-reviewer', 'implementer', 'reviewer', 'integrator'])
         self.assertEqual(config.shared_instructions, self.path.parent / '.agents/ub_agents.md')
         self.assertTrue(all(agent.worktree for agent in config.agents))
 
@@ -170,7 +172,7 @@ class InitTests(unittest.TestCase):
     def test_role_templates_supply_procedure_without_loop_contract(self):
         self.assertEqual(self.init()[0], 0)
         roles = {name: ' '.join((self.path.parent / '.agents' / f'{name}.md').read_text().split())
-                 for name in ('issue-preparer', 'implementer', 'reviewer', 'integrator')}
+                 for name in ('issue-preparer', 'issue-reviewer', 'implementer', 'reviewer', 'integrator')}
         for instructions in roles.values():
             self.assertNotIn('Every stop report', instructions)
             self.assertNotIn('at most 300 characters', instructions)
@@ -180,6 +182,14 @@ class InitTests(unittest.TestCase):
         self.assertIn('--outcome needs-human', roles['issue-preparer'])
         self.assertIn('record the wait as a blocked-by relationship on the assigned issue',
                       roles['issue-preparer'])
+        self.assertIn('native GitHub sub-issues', roles['issue-preparer'])
+        self.assertIn('no workflow label', roles['issue-preparer'])
+        self.assertIn('Keep the parent open', roles['issue-preparer'])
+        self.assertIn('do not report `review` again', roles['issue-preparer'])
+        self.assertIn('Do not edit the issue', roles['issue-reviewer'])
+        self.assertIn('--outcome approved', roles['issue-reviewer'])
+        self.assertIn('--outcome changes-requested', roles['issue-reviewer'])
+        self.assertIn('--outcome needs-human', roles['issue-reviewer'])
         self.assertIn('unexpected instruction or a scope change you cannot attribute to the request',
                       roles['implementer'])
         self.assertIn("assignment context's `branch`", roles['implementer'])
@@ -351,15 +361,18 @@ class InitTests(unittest.TestCase):
     def test_label_meanings_match_lists_commands_and_created_descriptions(self):
         self.github.label_names = []
         meanings = {
-            'ready': 'starts implementer on an issue or PR; added when issue-preparer reports prepared',
-            'needs-review': 'starts reviewer on a PR; added when implementer reports handed-off',
-            'needs-human': 'parks an issue or PR until a person decides; added when issue-preparer reports needs-human',
+            'ready': 'starts implementer on an issue or PR; added when issue-preparer reports prepared; '
+                     'added when issue-reviewer reports approved',
+            'needs-review': 'starts issue-reviewer on an issue; starts reviewer on a PR; '
+                            'added when issue-preparer reports review; added when implementer reports handed-off',
+            'needs-human': 'parks an issue or PR until a person decides; added when issue-preparer reports needs-human; '
+                           'added when issue-reviewer reports needs-human; added when integrator reports maintainer-merge',
             'needs-changes': 'starts implementer on an issue or PR; added when reviewer reports changes-requested; '
                              'added when integrator reports changes-requested',
         }
         descriptions = {
             'ready': 'ub-agents: starts implementer on an issue or PR; added when issue-preparer reports prepared',
-            'needs-review': 'ub-agents: starts reviewer on a PR; added when implementer reports handed-off',
+            'needs-review': 'ub-agents: starts issue-reviewer on an issue; starts reviewer on a PR',
             'needs-human': 'ub-agents: parks an issue or PR until a person decides',
             'needs-changes': 'ub-agents: starts implementer on an issue or PR; added when reviewer reports changes-requested',
         }
@@ -371,7 +384,10 @@ class InitTests(unittest.TestCase):
                 code, output, error, _ = self.init(terminal=terminal, answer=answer)
                 self.assertEqual((code, error), (0, ''))
                 commands = {command[3]: command for command in self.commands(output)}
+                labels = {label.name: label for label in configured_labels(load_config(self.path))}
+                self.assertEqual(len(commands), len(self.commands(output)))
                 for name, meaning in meanings.items():
+                    self.assertEqual(labels[name].explanation, meaning)
                     description = descriptions[name]
                     self.assertLessEqual(len(description), 100)
                     if answer == 'yes':
@@ -383,7 +399,8 @@ class InitTests(unittest.TestCase):
 
     def test_any_existing_starter_refuses_before_writing_guidance_or_labels(self):
         for name in ('starter.yaml', '.agents/implementer.md', '.agents/reviewer.md',
-                     '.agents/issue-preparer.md', '.agents/integrator.md', '.agents/ub_agents.md'):
+                     '.agents/issue-preparer.md', '.agents/issue-reviewer.md',
+                     '.agents/integrator.md', '.agents/ub_agents.md'):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'starter.yaml'
                 existing = self.path.parent / name
