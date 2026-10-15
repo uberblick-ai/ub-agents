@@ -41,11 +41,12 @@ def infer_repository(root):
         raise AgentError("Unreadable gh repository response") from None
 
 
-def permission_args(cli):
+def permission_args(cli, retrospectives=False):
     if cli == "claude":
         return ["--permission-mode", "acceptEdits", "--permission-prompts", "none", "--allowedTools",
                 "Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)",
-                "Bash({report_command} read *)", "--add-dir", "{scratch}"]
+                "Bash({report_command} read *)",
+                *(["Bash({report_command} retrospective *)"] if retrospectives else []), "--add-dir", "{scratch}"]
     return ["--sandbox", "danger-full-access"]
 
 
@@ -53,8 +54,8 @@ def permission_args(cli):
 class Choices:
     runtime: str
     permissions: bool = False
+    updates: bool = False
     priority_labels: tuple[str, ...] = ()
-    priority_default: str | None = None
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)
 
@@ -97,17 +98,6 @@ class Plan:
         if current != self.local_before:
             raise AgentError(f"{LOCAL_CONFIG} changed during setup; cancel and run init again to review its effective settings")
 
-    def preview(self):
-        lines = []
-        for path, content in self.targets.items():
-            lines.extend([f"Create {path}", content])
-        ignore = self.path.parent / ".gitignore"
-        if self.ignore_after != (self.ignore_before or b""):
-            lines.extend([f"Update {ignore} (existing entries preserved)", self.ignore_after.decode("utf-8")])
-        else:
-            lines.append(f"Keep {ignore} unchanged")
-        return "\n\n".join(lines)
-
 
 def make_plan(path, repository, choices):
     path = Path(path).absolute()
@@ -123,17 +113,20 @@ def make_plan(path, repository, choices):
     cli = choices.runtime.split(":", 1)[0]
     if cli == "claude":
         content = content.replace("#   codex: [--sandbox, danger-full-access]",
-                                  "#   claude: " + json.dumps(permission_args(cli))).replace(
+                                  "#   claude: " + json.dumps(permission_args(
+                                      cli, bool(choices.retrospectives or choices.board_requests)))).replace(
             "Grants full access without the Codex sandbox", "Grants unattended edits and git/gh/report commands")
         content = content.replace("# runtime-args:",
                                   '# Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".\n'
                                   '# runtime-args:')
+    content = content.replace("# runtime-updates:\n#   codex: auto", f"# runtime-updates:\n#   {cli}: auto")
     if choices.permissions:
-        content = content.replace("# runtime-args:", "runtime-args:").replace(f"#   {cli}:", f"  {cli}:")
+        content = content.replace(f"# runtime-args:\n#   {cli}:", f"runtime-args:\n  {cli}:")
+    if choices.updates:
+        content = content.replace(f"# runtime-updates:\n#   {cli}: auto\n#   gh: auto",
+                                  f"runtime-updates:\n  {cli}: auto\n  gh: auto")
     if choices.priority_labels:
         priority = {"labels": list(choices.priority_labels)}
-        if choices.priority_default is not None:
-            priority["default"] = choices.priority_default
         content = content.replace("  dependencies: wait", "  dependencies: wait\n" +
                                   "\n".join("  " + line for line in
                                             yaml.safe_dump({"priority": priority}, sort_keys=False).splitlines()))
@@ -187,7 +180,7 @@ class Applied:
         return self.error is None
 
 
-def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
+def apply_plan(plan, github, remote_labels=()):
     """Stop on partial failure; retain and describe successful effects, never roll back."""
     from .doctor import Doctor, public
     result = Applied()
@@ -203,8 +196,7 @@ def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
     phase = "local"
     try:
         plan.protect()
-        if (plan.choices.board_requests or plan.choices.retrospectives or
-                verify_boards and any(a.retrospectives for a in plan.config.agents)):
+        if plan.choices.board_requests or plan.choices.retrospectives:
             from .init_boards import Boards
             boards = Boards(github, plan.config.repository)
             phase = "boards"
@@ -265,7 +257,7 @@ def apply_plan(plan, github, remote_labels=(), *, verify_boards=False):
         result.completed.append(pending.pop(0))
         phase = "labels"
         for label in remote_labels:
-            # Recheck to preserve labels another operator created during the wizard.
+            # Recheck to preserve labels another operator created during init.
             existing = {name.casefold() for name in github.labels()}
             if label.name.casefold() in existing:
                 result.completed.append(f"Kept existing label {label.name} on {plan.config.repository}")
@@ -305,11 +297,9 @@ def next_steps(plan):
     name = plan.path.name
     steps = [f"Review the agent permissions (runtime-args) in {name}; see {PERMISSIONS_GUIDE}" if plan.choices.permissions else
              f"Grant agent permissions later: uncomment runtime-args in {name}; see {PERMISSIONS_GUIDE}",
-             "Review checks and merge authority in .agents/ub_agents.md"]
+             "Review checks and merge authority in .agents/ub_agents.md; we set up sensible defaults you can adjust over time"]
     if cli == "claude":
         steps.append(f"Add your test command to --allowedTools in {name}")
-        if plan.choices.retrospectives or plan.choices.board_requests:
-            steps.append('Add "Bash({report_command} retrospective *)" to --allowedTools so agents can post lessons')
     steps.append("Open a PR with these files and merge it")
     return steps
 

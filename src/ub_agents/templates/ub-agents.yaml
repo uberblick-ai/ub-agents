@@ -19,6 +19,11 @@ queue:
 # An agent's runtime-args list or mapping replaces these defaults entirely.
 # Omit the agent key to inherit; an empty list or mapping disables the defaults.
 
+# Update the agent CLI and gh once a day between runs, each with its own updater.
+# runtime-updates:
+#   codex: auto
+#   gh: auto
+
 # Customize these outcomes and rules with the project's owners.
 agents:
   issue-preparer:

@@ -21,7 +21,7 @@ questions and writes the starter files after one confirmation.
 
 Use the arrow keys (or `h` `j` `k` `l`) to move, Space to select an extra, Enter to
 continue and Escape to cancel. Nothing is written before **Write setup?**, and a
-cancel leaves no files, labels or boards.
+cancel leaves no files, labels or boards, no branch and no PR.
 
 ## Questions
 
@@ -31,19 +31,27 @@ cancel leaves no files, labels or boards.
    default; review `runtime-args` in `ub-agents.yaml` before you launch. Agents always
    work in worktrees and branches; they never commit to main. See
    [permissions](/docs/configuration/permissions.html).
-3. **Extras**, all off by default:
+3. **Updates:** keeps the agent CLI and `gh` up to date once a day between runs,
+   each with its own updater. Yes is the default; see
+   [runtime updates](/docs/configuration/runtime-updates.html).
+4. **Extras**, all off by default:
    - **Priorities:** priority labels, highest first, that order the
      [queue](/docs/configuration/queue.html).
    - **Retrospectives:** agents post learnings per run, used to optimize delivery.
      Init sets up a board for each of the four roles: it reuses a
      discussion with the same title (for example "Implementer retrospectives") or
-     creates it in the General category. Needs Discussions turned on; see
+     creates it in the General category, and Claude agents get the permission to
+     post. Needs Discussions turned on; see
      [retrospectives](/docs/best-practices/retrospectives.html).
-   - **Uberblick:** a link to [uberblick.ai](https://uberblick.ai), shared knowledge
-     for agents and humans. Init enables no integration.
-4. **Labels:** creates missing workflow and priority labels. Existing labels stay
+   - **Uberblick:** [uberblick.ai](https://uberblick.ai), shared knowledge for agents
+     and humans. Needs `ub` (`brew install uberblick-ai/tap/uberblick`). Init uses the
+     nearest `.uberblick.json`; without one it offers to create a local workspace
+     with `ub workspace create`, which goes in the setup PR, or explains how to join
+     a hub workspace. Connect agents with `ub mcp install claude` or `codex`.
+5. **Labels:** creates missing workflow and priority labels. Existing labels stay
    unchanged; declining prints the `gh label create` commands.
-5. **Write setup?** shows what will change and writes it.
+6. **Write setup?** shows what will change and writes it. Labels and boards are
+   created on GitHub right away; the files go to a setup PR.
 
 Init asks for the repository only when it can't infer it from the checkout. When the
 checkout is on another branch, it asks to switch to the default branch: launch uses
@@ -65,16 +73,21 @@ Init writes `ub-agents.yaml`, `.agents/ub_agents.md` and four role files beside 
 and adds missing `.ub-agents/` and `ub-agents.local.yaml` entries to `.gitignore`.
 It refuses to run when a starter file already exists, never overwrites anything and
 leaves `AGENTS.md`, `CLAUDE.md` and an existing `ub-agents.local.yaml` unchanged.
-Init never commits or pushes.
+
+On the default branch, init then commits the files on a new `setup-ub-agents`
+branch, pushes it, opens the setup PR and switches back. If that fails, it says
+how far it got so you can open the PR yourself. Off the default branch and in
+unattended setup, the files stay local and uncommitted.
 
 When something fails halfway, init keeps what it did and prints what is left,
 including the content of files it could not write and the remaining label commands.
 
 ## Next steps
 
-Init ends with a short list: review permissions and `.agents/ub_agents.md`, add your
-test command for Claude, then open a PR with the files and merge it. Launch from a
-clean default-branch checkout with `ub-agents launch`.
+Init ends with a short list: review permissions and `.agents/ub_agents.md` (sensible
+defaults you can adjust over time), add your test command for Claude, then review and
+merge the setup PR. Launch from a clean
+default-branch checkout with `ub-agents launch` after the merge.
 
 ## Unattended setup
 
@@ -83,8 +96,8 @@ ub-agents init --use-defaults --repository org/project
 ```
 
 `--use-defaults`, a nonempty `CI` and non-TTY runs ask nothing and run no checks.
-They keep permissions commented out, leave the extras off, create no labels and
-print the label commands. Without `--repository`, `gh repo view` infers it.
+They keep permissions and updates commented out, leave the extras off, create no
+labels, open no PR and print the label commands. Without `--repository`, `gh repo view` infers it.
 `TERM=dumb` asks the same questions as numbered prompts.
 
 ```text

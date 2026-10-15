@@ -1,6 +1,8 @@
 """`ub-agents init`: a short Clack-style flow over the read-only plan and one explicit write."""
 
+import json
 import re
+import subprocess
 
 from rich.text import Text
 
@@ -19,11 +21,39 @@ from .labels import configured_labels
 RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
 PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"
 WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/"
+UPDATES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtime-updates"
 RUNTIMES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtimes"
 RETROSPECTIVES_GUIDE = "https://agents.uberblick.ai/docs/best-practices/retrospectives"
+SETUP_BRANCH = "setup-ub-agents"
+PR_TITLE = "Set up ub-agents"
+PR_BODY = ("Starter configuration, agent instructions and .gitignore entries written by `ub-agents init`.\n\n"
+           "Review the agent permissions (runtime-args) in ub-agents.yaml and the checks and merge authority in "
+           ".agents/ub_agents.md, then merge. Agents always work in worktrees and branches; they never commit to main.")
 SAFETY = "Agents always work in worktrees and branches; they never commit to main."
 UBERBLICK = "https://uberblick.ai"
+UB_INSTALL = "brew install uberblick-ai/tap/uberblick"
+WORKSPACE_FILE = ".uberblick.json"
 MARKS = {"ok": ("✓", GREEN), "warn": ("!", YELLOW), "fail": ("✗", RED)}
+
+
+def run(root, *command):
+    try:
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=120,
+                                check=False, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AgentError(f"{command[0]} failed: {exc}") from exc
+    if result.returncode:
+        raise AgentError(result.stderr.strip() or f"{command[0]} failed")
+    return result.stdout.strip()
+
+
+def workspace_binding(root):
+    """The nearest .uberblick.json, where ub looks for it."""
+    for directory in (root, *root.parents):
+        path = directory / WORKSPACE_FILE
+        if path.exists() or path.is_symlink():
+            return path
+    return None
 
 
 def board_title(role):
@@ -49,6 +79,8 @@ class Flow:
         self.github_factory, self.ask, self.t = github_factory, prompter, transcript
         self.unattended = unattended
         self.github = self.probes = self.doctor = None
+        self.on_default = False
+        self.workspace = None
 
     def run(self):
         self.t.intro("ub-agents init", f"v{__version__}")
@@ -69,11 +101,14 @@ class Flow:
             self.check()
         choices = Choices(self.choose_runtime())
         choices.permissions = self.choose_permissions(choices.runtime)
+        choices.updates = self.choose_updates(choices.runtime)
         extras = self.choose_extras()
         if "priority" in extras:
             value = self.ask.text("Priority labels, highest first", PRIORITIES, check_priorities)
             self.t.answered("Priority labels, highest first", value)
             choices.priority_labels = tuple(label.strip() for label in value.split(","))
+        if "uberblick" in extras:
+            self.choose_workspace()
         if "retrospectives" in extras:
             boards, repo = Boards(self.github, self.repository), self.probes.discussions
             names = [c["name"] for c in repo["discussionCategories"]["nodes"]]
@@ -88,7 +123,9 @@ class Flow:
             return self.failed(plan, result, labels)
         boards = ", ".join(f"#{n}" for n in result.board_numbers.values())
         self.t.step("Setup written" + (f" · boards {boards}" if boards else ""))
-        self.finish(plan, labels, extras)
+        extra = self.create_workspace() if self.workspace == "create" else []
+        url = self.open_pr(plan, extra) if self.on_default else None
+        self.finish(plan, labels, extras, url)
         return 0
 
     def check(self):
@@ -126,6 +163,7 @@ class Flow:
 
     def choose_branch(self):
         branch, default = self.probes.branch, self.probes.default_branch
+        self.on_default = bool(default) and branch == default
         if not branch or not default or branch == default:
             return
         message = f"Switch this checkout to {default}?"
@@ -141,6 +179,7 @@ class Flow:
             self.t.step(message, [Text(f"Not switched: {reason[0]}", style=RED),
                                   Text(f"Switch to {default} before you launch", style=DIM)], "▲", YELLOW)
             return
+        self.on_default = True
         self.t.step(message, [Text(f"Yes · now on {default}", style=DIM), Text(SAFETY.replace("main", default), style=DIM)])
 
     def probe(self):
@@ -181,16 +220,62 @@ class Flow:
         self.t.answered(message, answer)
         return enabled
 
+    def choose_updates(self, runtime):
+        cli = runtime.split(":", 1)[0]
+        message = f"Keep {cli} and gh up to date?"
+        note = ["Once a day between runs, each with its own updater (Homebrew, npm or the native installer).",
+                f"See {UPDATES_GUIDE}"]
+        # Unattended runs leave updates off, like permissions.
+        enabled = self.ask.confirm(message, not self.unattended, note)
+        self.t.answered(message, f"Yes · {cli} and gh update once a day between runs" if enabled else "No")
+        return enabled
+
     def choose_extras(self):
         available = self.probes and self.probes.discussions
         note = self.probes.discussions_note if self.probes else "unattended"
         options = [Option("priority", "Priorities", "order the queue by labels"),
                    Option("retrospectives", "Retrospectives", "agents post learnings per run; used to optimize delivery",
                           "" if available else note),
-                   Option("uberblick", "Uberblick", "shared knowledge for agents and humans")]
+                   Option("uberblick", "Uberblick", "shared knowledge for agents and humans",
+                          "" if self.probes and self.probes.ub else f"needs ub: {UB_INSTALL}")]
         extras = self.ask.multiselect("Extras", options)
         self.t.answered("Extras", ", ".join(o.label for o in options if o.value in extras) or "None")
         return extras
+
+    def choose_workspace(self):
+        root = self.path.parent
+        binding = workspace_binding(root)
+        if binding:
+            where = binding.relative_to(root) if binding.parent == root else binding
+            try:
+                hub = json.loads(binding.read_text()).get("hubUrl") or "local"
+                answer = f"Found {where} · {hub}"
+            except (OSError, ValueError, AttributeError):
+                answer = f"Found {where}; check it with ub workspace status"
+            self.workspace = "found"
+            self.t.answered("Uberblick workspace", answer)
+            return
+        message = "Set up an Uberblick workspace?"
+        options = [Option("create", "Create a local workspace",
+                          "ub workspace create; " + (f"{WORKSPACE_FILE} goes in the setup PR" if self.on_default else
+                                                     f"writes {WORKSPACE_FILE}")),
+                   Option("hub", "Use a hub workspace", "sign in, then ub workspace use <link>"),
+                   Option("later", "Later")]
+        self.workspace = self.ask.select(message, options, 0, f"No {WORKSPACE_FILE} found for this checkout.")
+        self.t.answered(message, next(o.label for o in options if o.value == self.workspace))
+
+    def create_workspace(self):
+        root = self.path.parent
+        try:
+            with self.t.spinner("Creating the Uberblick workspace"):
+                run(root, "ub", "workspace", "create", self.repository.split("/")[-1])
+        except AgentError as exc:
+            self.workspace = "failed"
+            self.t.step("Uberblick workspace not created", [Text(str(exc).splitlines()[-1], style=RED)], "▲", YELLOW)
+            return []
+        self.workspace = "created"
+        self.t.step("Uberblick workspace created", [Text(WORKSPACE_FILE, style=DIM)])
+        return [WORKSPACE_FILE] if (root / WORKSPACE_FILE).exists() else []
 
     def choose_labels(self, plan):
         existing = self.probes.existing_labels if self.probes else None
@@ -227,18 +312,61 @@ class Flow:
         if plan.choices.board_requests:
             lines.append(Text.assemble(("+ ", GREEN), f"{len(plan.choices.board_requests)} retrospective boards",
                                        (" (reused when the title exists)", DIM)))
+        if self.workspace == "create":
+            lines.append(Text.assemble(("+ ", GREEN), WORKSPACE_FILE, (" local Uberblick workspace", DIM)))
+        files = "the files go to a new PR." if self.on_default else "the files stay local."
+        if labels or plan.choices.board_requests:
+            files = "Labels and boards are created on GitHub right away; " + files
+        lines += [Text(""), Text(files[0].upper() + files[1:], style=DIM)]
         self.t.note("Changes", lines)
         if not self.ask.confirm("Write setup?", True):
             raise Cancelled("Write setup?")
         self.t.answered("Write setup?", "Yes")
 
-    def finish(self, plan, labels, extras):
+    def open_pr(self, plan, extra=()):
+        """Commit only init's files on a setup branch, push it and open a PR; the checkout returns to the default branch."""
+        root, default = plan.config.root, self.probes.default_branch
+        files = [str(path.relative_to(root)) for path in plan.targets]
+        if plan.ignore_after != (plan.ignore_before or b""):
+            files.append(".gitignore")
+        files += extra
+        done = []
+        try:
+            with self.t.spinner("Opening the setup PR"):
+                git(root, "switch", "--create", SETUP_BRANCH)
+                done.append(f"created {SETUP_BRANCH}")
+                git(root, "add", "--", *files)
+                git(root, "commit", "--quiet", "--message", PR_TITLE, "--", *files)
+                done.append("committed the files")
+                git(root, "push", "--quiet", "--set-upstream", "origin", SETUP_BRANCH)
+                done.append("pushed")
+                url = run(root, "gh", "pr", "create", "--repo", self.repository, "--base", default, "--head", SETUP_BRANCH,
+                          "--title", PR_TITLE, "--body", PR_BODY).splitlines()[-1]
+                git(root, "switch", "--quiet", default)
+        except AgentError as exc:
+            reason = (str(exc).removeprefix("Git operation failed: ").splitlines() or [""])[-1]
+            state = f"Init {', '.join(done)}; " if done else ""
+            self.t.step("Setup PR not opened", [Text(reason, style=RED),
+                                               Text(f"{state}open the PR yourself", style=DIM)], "▲", YELLOW)
+            return None
+        self.t.step("Setup PR opened", [Text(url, style=DIM), Text(f"Back on {default}", style=DIM)])
+        return url
+
+    def finish(self, plan, labels, extras, url=None):
         steps = next_steps(plan) + guidance_summary(plan)
+        if url:
+            steps[steps.index("Open a PR with these files and merge it")] = f"Review and merge the setup PR: {url}"
+            steps[0] = steps[0].replace(f"in {plan.path.name}", f"in {plan.path.name} on the PR")
         account = next((g for g in self.probes.groups if g.name == "Account"), None) if self.probes else None
         if account:
             steps.append(f"Use a dedicated agent account with write access; see {ACCOUNT_GUIDANCE}")
         if "uberblick" in extras:
-            steps.append(f"Uberblick, shared knowledge for agents and humans: {UBERBLICK}")
+            cli = plan.choices.runtime.split(":", 1)[0]
+            if self.workspace == "hub":
+                steps.append(f"Join your team's Uberblick workspace: ub auth login, then ub workspace use <link>; see {UBERBLICK}")
+            elif self.workspace in {"later", "failed"}:
+                steps.append(f"Bind an Uberblick workspace: ub workspace create <name> or ub workspace use <link>; see {UBERBLICK}")
+            steps.append(f"Connect agents to Uberblick with ub mcp install {cli}; see {UBERBLICK}")
         if "retrospectives" not in extras:
             steps.append(f"Want retrospectives later? Turn on Discussions if needed, then follow {RETROSPECTIVES_GUIDE}")
         self.t.note("Next", [f"{index}. {step}" for index, step in enumerate(steps, 1)])
@@ -250,7 +378,7 @@ class Flow:
         if pending:
             unique = {label.name.casefold(): label for label in pending}.values()
             self.t.step("Create the labels yourself", [label.command(self.repository) for label in unique])
-        self.t.outro("Then run ", ("ub-agents launch", "cyan"))
+        self.t.outro("After the merge, run " if url else "Then run ", ("ub-agents launch", "cyan"))
 
     def failed(self, plan, result, labels):
         created = {name.casefold() for name in result.label_names}

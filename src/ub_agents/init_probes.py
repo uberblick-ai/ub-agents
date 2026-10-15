@@ -38,6 +38,7 @@ class Probes:
         self.discussions = None
         self.discussions_note = ""
         self.branch = self.default_branch = self.clean = None
+        self.ub = False
 
     def collect(self, name, summary=()):
         group = Group(name, [part for part in summary if part])
@@ -120,6 +121,7 @@ class Probes:
             d.add("runtime-login", "warn", "No agent CLI is logged in", "Run claude auth login or codex login before launch",
                   required=False)
         self.collect("Agents", [f"{cli} {state}" for cli, state in self.clis.items()])
+        self.ub = bool(d.which("ub"))
 
         if actor:
             try:

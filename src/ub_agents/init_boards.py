@@ -15,10 +15,6 @@ class BoardRequest:
     category_id: str
     repository_id: str
 
-    def preview(self, repository):
-        return (f"Create public discussion in {repository}: {self.title}\n"
-                f"Category: {self.category}\nBody: {board_body(self.title)}")
-
 
 def board_body(title):
     return f"# {title}\n\nLessons from completed ub-agents runs. Agents publish retrospectives here as the launcher account.\n"

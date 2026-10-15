@@ -28,7 +28,7 @@ class BoardSetupTests(unittest.TestCase):
     def test_discovery_and_requests_are_read_only_and_only_real_numbers_enter_config(self):
         plan = self.plan()
         request = self.choices.board_requests['implementer']
-        self.assertIn('Create public discussion', request.preview('org/project'))
+        self.assertEqual((request.title, request.category), ('implementer lessons', 'General'))
         self.assertEqual(self.github.writes, [])
         self.assertFalse(self.path.parent.exists())
         self.assertNotIn('retrospectives:', plan.targets[self.path])

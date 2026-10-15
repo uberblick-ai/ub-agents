@@ -425,7 +425,7 @@ class InitTests(unittest.TestCase):
                     self.assertIn('Add the project\'s check commands to --allowedTools', text)
                     self.assertIn('"Bash(<project check command>)"', text)
                 cli = runtime.split(':', 1)[0]
-                uncommented = text.replace('# runtime-args:', 'runtime-args:').replace(f'#   {cli}:', f'  {cli}:')
+                uncommented = text.replace(f'# runtime-args:\n#   {cli}:', f'runtime-args:\n  {cli}:')
                 enabled = yaml.safe_load(uncommented)
                 self.assertEqual(enabled['runtime-args'], {cli: expected})
                 self.assertTrue(all('runtime-args' not in agent for agent in enabled['agents'].values()))

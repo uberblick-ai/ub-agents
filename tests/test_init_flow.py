@@ -24,6 +24,18 @@ def flat(output):
     return ' '.join(re.sub(r'[│╮╯├─]', ' ', output).split())
 
 
+class SetupResponses(dict):
+    """Answer the setup PR's git and gh commands, whose file order follows the plan."""
+    PR = 'https://github.com/org/project/pull/9'
+
+    def __missing__(self, command):
+        if command[:2] == ('gh', 'pr'):
+            return self.PR + '\n'
+        if command[0] == 'git' and command[3] in {'switch', 'add', 'commit', 'push'}:
+            return ''
+        raise KeyError(command)
+
+
 class Script:
     """Answer questions by message prefix; anything unscripted takes its default."""
     def __init__(self, **answers):
@@ -68,6 +80,7 @@ class FlowTests(unittest.TestCase):
         self.github.roles['operator'] = 'write'
         self.github.label_names = ['ready', 'needs-human', 'needs-review']
         self.runner = RecordingRunner(self.root)
+        self.runner.responses = SetupResponses(self.runner.responses)
         self.installed = {'git', 'gh', 'ps', 'claude', 'codex'}
 
     def run_flow(self, script=None, *, repository='org/project', runtime=None, unattended=False):
@@ -85,18 +98,32 @@ class FlowTests(unittest.TestCase):
     def test_defaults_ask_only_the_decisions_and_write_setup(self):
         code, text = self.run_flow()
         self.assertEqual(code, 0)
-        self.assertEqual(self.script.asked, ['Which agent runs the loop?', 'Let agents work without asking?', 'Extras',
-                                             'Create 3 missing labels?', 'Write setup?'])
+        self.assertEqual(self.script.asked, ['Which agent runs the loop?', 'Let agents work without asking?',
+                                             'Keep codex and gh up to date?', 'Extras', 'Create 3 missing labels?',
+                                             'Write setup?'])
+        self.assertIn('Yes · codex and gh update once a day between runs', text)
+        self.assertIn('runtime-updates:\n  codex: auto\n  gh: auto', self.path.read_text())
         self.assertIn('✓ Machine', text)
         self.assertIn('✓ Agents claude logged in · codex logged in', text)
         self.assertIn('Codex · gpt-6.1-sol · high', text)
         self.assertIn('Great, Codex is the default for all agents. Review later; '
                       'see https://agents.uberblick.ai/docs/configuration/runtimes', text)
         self.assertIn('Yes · review runtime-args in ub-agents.yaml before you launch', text)
-        self.assertIn('Review the agent permissions (runtime-args) in ub-agents.yaml; see '
+        self.assertIn('Review the agent permissions (runtime-args) in ub-agents.yaml on the PR; see '
                       'https://agents.uberblick.ai/docs/configuration/permissions', text)
         self.assertIn('Want retrospectives later?', text)
         self.assertNotIn('Create the labels yourself', text)
+        self.assertIn('Labels and boards are created on GitHub right away; the files go to a new PR.', text)
+        self.assertIn('Setup PR opened https://github.com/org/project/pull/9 Back on main', text)
+        self.assertIn('Review and merge the setup PR: https://github.com/org/project/pull/9', text)
+        self.assertIn('After the merge, run ub-agents launch', text)
+        commands = [call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] in {
+            ('switch',), ('add',), ('commit',), ('push',)}]
+        self.assertEqual([c[3] if c[0] == 'git' else 'gh' for c in commands],
+                         ['switch', 'add', 'commit', 'push', 'gh', 'switch'])
+        self.assertEqual(set(commands[1][5:]), {'ub-agents.yaml', '.gitignore', *(
+            f'.agents/{name}.md' for name in ('ub_agents', 'issue-preparer', 'implementer', 'reviewer', 'integrator'))})
+        self.assertEqual(commands[4][3:9], ('--repo', 'org/project', '--base', 'main', '--head', 'setup-ub-agents'))
         config = load_config(self.path)
         self.assertTrue(all(agent.runtime_args for agent in config.agents))
         self.assertEqual({w[1] for w in self.github.writes if w[0] == 'create-label'},
@@ -144,6 +171,57 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(retrospectives.disabled, 'Discussions are off in org/project')
         self.assertIn('Want retrospectives later? Turn on Discussions if needed, then follow '
                       'https://agents.uberblick.ai/docs/best-practices/retrospectives', text)
+
+    def test_claude_retrospectives_get_the_retrospective_permission(self):
+        code, text = self.run_flow(Script(Extras=['retrospectives']), runtime='claude:claude-opus-5-5:high')
+        self.assertEqual(code, 0)
+        self.assertIn('"Bash({report_command} retrospective *)"', self.path.read_text())
+        self.assertNotIn('--allowedTools so agents can post lessons', text)
+
+    def test_uberblick_needs_ub(self):
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.script.options['Extras'][2].disabled, 'needs ub: brew install uberblick-ai/tap/uberblick')
+
+    def test_uberblick_creates_a_local_workspace_for_the_setup_pr(self):
+        self.installed.add('ub')
+
+        def create(command, **kwargs):
+            (kwargs['cwd'] / '.uberblick.json').write_text('{"workspaceId": "w", "hubUrl": null}')
+            return ''
+        self.runner.responses[('ub', 'workspace', 'create', 'project')] = create
+        code, text = self.run_flow(Script(Extras=['uberblick']))
+        self.assertEqual(code, 0)
+        self.assertIn('Set up an Uberblick workspace?', self.script.asked)
+        self.assertIn('+ .uberblick.json local Uberblick workspace', text)
+        self.assertIn('Uberblick workspace created', text)
+        self.assertIn('Connect agents to Uberblick with ub mcp install codex; see https://uberblick.ai', text)
+        added = next(call for call, _ in self.runner.calls if call[3:4] == ('add',))
+        self.assertIn('.uberblick.json', added)
+
+    def test_uberblick_workspace_choices(self):
+        self.installed.add('ub')
+        self.runner.responses[('ub', 'workspace', 'create', 'project')] = AgentError('hub unreachable')
+        for answer, expected in (('hub', "Join your team's Uberblick workspace: ub auth login, then ub workspace use"),
+                                 ('create', 'Bind an Uberblick workspace: ub workspace create <name>')):
+            with self.subTest(answer=answer):
+                for path in [self.path, self.root / '.gitignore']:
+                    path.unlink(missing_ok=True)
+                for child in sorted(self.root.glob('.agents/*')):
+                    child.unlink()
+                code, text = self.run_flow(Script(Extras=['uberblick'], Set_up_an_Uberblick=answer))
+                self.assertEqual(code, 0)
+                self.assertIn(expected, text)
+                self.assertEqual('Uberblick workspace not created' in text, answer == 'create')
+
+    def test_existing_uberblick_workspace_is_not_questioned(self):
+        self.installed.add('ub')
+        (self.root / '.uberblick.json').write_text('{"workspaceId": "w", "hubUrl": "wss://hub.example/ws"}')
+        code, text = self.run_flow(Script(Extras=['uberblick']))
+        self.assertEqual(code, 0)
+        self.assertNotIn('Set up an Uberblick workspace?', self.script.asked)
+        self.assertIn('Uberblick workspace Found .uberblick.json · wss://hub.example/ws', text)
+        self.assertNotIn('Bind an Uberblick workspace', text)
 
     def test_declined_labels_print_their_commands(self):
         code, text = self.run_flow(Script(Create=False))
@@ -221,6 +299,31 @@ class FlowTests(unittest.TestCase):
                                  expected.startswith('Yes'))
                 self.assertEqual(switch in [call for call, _ in self.runner.calls], answer)
 
+    def test_failed_push_keeps_the_files_and_asks_for_a_manual_pr(self):
+        self.runner.responses[('git', '-C', str(self.root), 'push', '--quiet', '--set-upstream', 'origin',
+                               'setup-ub-agents')] = subprocess.CompletedProcess([], 1, '', 'remote: rejected')
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertIn('Setup PR not opened remote: rejected Init created setup-ub-agents, committed the files; '
+                      'open the PR yourself', text)
+        self.assertIn('Open a PR with these files and merge it', text)
+        self.assertIn('Then run ub-agents launch', text)
+
+    def test_files_stay_local_off_the_default_branch_and_unattended(self):
+        self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
+        for script, unattended in ((Script(Switch=False), False), (Script(), True)):
+            with self.subTest(unattended=unattended):
+                for path in [self.path, self.root / '.gitignore']:
+                    path.unlink(missing_ok=True)
+                for child in sorted(self.root.glob('.agents/*')):
+                    child.unlink()
+                self.runner.calls.clear()
+                code, text = self.run_flow(script, unattended=unattended)
+                self.assertEqual(code, 0)
+                self.assertIn('files stay local.', text)
+                self.assertNotIn('Setup PR', text)
+                self.assertFalse([call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] == ('push',)])
+
     def test_local_changes_stop_before_any_question(self):
         self.runner.responses[('git', '-C', str(self.root), '--no-optional-locks', 'status', '--porcelain=v1',
                                '--untracked-files=all')] = '?? notes.txt'
@@ -241,6 +344,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual((self.github.reads, self.github.writes), ([], []))
         self.assertIn('Checks skipped', text)
         self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
+        self.assertIn('# runtime-updates:\n#   codex: auto\n#   gh: auto', self.path.read_text())
         self.assertIn('gh label create ready --repo org/project', text)
 
     def test_partial_label_failure_reports_what_is_left(self):
@@ -352,6 +456,8 @@ with patch('ub_agents.cli.GitHub', lambda repo: github), \\
                 terminal.send(b'\r')
                 terminal.expect(b'Let agents work without asking?')
                 terminal.send(b'\x1b[B')
+                terminal.send(b'\r')
+                terminal.expect(b'up to date?')
                 terminal.send(b'\r')
                 terminal.expect(b'Extras')
                 terminal.send(b'\r')
