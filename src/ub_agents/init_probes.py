@@ -11,7 +11,7 @@ from .errors import AgentError
 from .execution import parse_process_table, repository_checks
 from .refresh import control_checkout_checks
 
-ACCOUNT_GUIDANCE = "https://agents.uberblick.ai/docs/best-practices/launcher-account.html"
+ACCOUNT_GUIDANCE = "https://agents.uberblick.ai/docs/best-practices/launcher-account"
 PROBE_ERRORS = (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired)
 CLIS = ("claude", "codex")
 
@@ -127,7 +127,7 @@ class Probes:
             except PROBE_ERRORS:
                 role = None
             if role in {"maintain", "admin"}:
-                d.add("account", "warn", f"{actor} is {role} on GitHub; run agents as a write-only account",
+                d.add("account", "warn", f"{actor} is {role} on GitHub; use a dedicated agent account with write access",
                       f"See {ACCOUNT_GUIDANCE}", required=False)
             elif role is None:
                 d.add("account", "warn", f"{actor}'s repository role can't be read", f"See {ACCOUNT_GUIDANCE}", required=False)

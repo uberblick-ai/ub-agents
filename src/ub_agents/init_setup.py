@@ -297,7 +297,7 @@ def recovery_content(plan, result):
     return "\n\n".join(lines)
 
 
-PERMISSIONS_GUIDE = "https://agents.uberblick.ai/docs/configuration/permissions.html"
+PERMISSIONS_GUIDE = "https://agents.uberblick.ai/docs/configuration/permissions"
 
 
 def next_steps(plan):

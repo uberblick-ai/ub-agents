@@ -18,9 +18,9 @@ from .labels import configured_labels
 
 RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
 PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"
-WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/index.html"
-RUNTIMES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtimes.html"
-RETROSPECTIVES_GUIDE = "https://agents.uberblick.ai/docs/best-practices/retrospectives.html"
+WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/"
+RUNTIMES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtimes"
+RETROSPECTIVES_GUIDE = "https://agents.uberblick.ai/docs/best-practices/retrospectives"
 SAFETY = "Agents always work in worktrees and branches; they never commit to main."
 UBERBLICK = "https://uberblick.ai"
 MARKS = {"ok": ("✓", GREEN), "warn": ("!", YELLOW), "fail": ("✗", RED)}
@@ -185,7 +185,7 @@ class Flow:
         available = self.probes and self.probes.discussions
         note = self.probes.discussions_note if self.probes else "unattended"
         options = [Option("priority", "Priorities", "order the queue by labels"),
-                   Option("retrospectives", "Retrospectives", "a lessons board per role",
+                   Option("retrospectives", "Retrospectives", "agents post learnings per run; used to optimize delivery",
                           "" if available else note),
                    Option("uberblick", "Uberblick", "shared knowledge for agents and humans")]
         extras = self.ask.multiselect("Extras", options)
@@ -236,7 +236,7 @@ class Flow:
         steps = next_steps(plan) + guidance_summary(plan)
         account = next((g for g in self.probes.groups if g.name == "Account"), None) if self.probes else None
         if account:
-            steps.append(f"Run agents as a separate write-access account; see {ACCOUNT_GUIDANCE}")
+            steps.append(f"Use a dedicated agent account with write access; see {ACCOUNT_GUIDANCE}")
         if "uberblick" in extras:
             steps.append(f"Uberblick, shared knowledge for agents and humans: {UBERBLICK}")
         if "retrospectives" not in extras:

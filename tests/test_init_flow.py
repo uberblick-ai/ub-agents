@@ -91,10 +91,10 @@ class FlowTests(unittest.TestCase):
         self.assertIn('✓ Agents claude logged in · codex logged in', text)
         self.assertIn('Codex · gpt-6.1-sol · high', text)
         self.assertIn('Great, Codex is the default for all agents. Review later; '
-                      'see https://agents.uberblick.ai/docs/configuration/runtimes.html', text)
+                      'see https://agents.uberblick.ai/docs/configuration/runtimes', text)
         self.assertIn('Yes · review runtime-args in ub-agents.yaml before you launch', text)
         self.assertIn('Review the agent permissions (runtime-args) in ub-agents.yaml; see '
-                      'https://agents.uberblick.ai/docs/configuration/permissions.html', text)
+                      'https://agents.uberblick.ai/docs/configuration/permissions', text)
         self.assertIn('Want retrospectives later?', text)
         self.assertNotIn('Create the labels yourself', text)
         config = load_config(self.path)
@@ -143,7 +143,7 @@ class FlowTests(unittest.TestCase):
         retrospectives = self.script.options['Extras'][1]
         self.assertEqual(retrospectives.disabled, 'Discussions are off in org/project')
         self.assertIn('Want retrospectives later? Turn on Discussions if needed, then follow '
-                      'https://agents.uberblick.ai/docs/best-practices/retrospectives.html', text)
+                      'https://agents.uberblick.ai/docs/best-practices/retrospectives', text)
 
     def test_declined_labels_print_their_commands(self):
         code, text = self.run_flow(Script(Create=False))
@@ -191,9 +191,9 @@ class FlowTests(unittest.TestCase):
         self.github.roles['operator'] = 'admin'
         code, text = self.run_flow()
         self.assertIn('! Account operator is admin on GitHub', text)
-        self.assertIn('! Account operator is admin on GitHub; run agents as a write-only account See https', text)
-        self.assertIn('Run agents as a separate write-access account; see '
-                      'https://agents.uberblick.ai/docs/best-practices/launcher-account.html', text)
+        self.assertIn('! Account operator is admin on GitHub; use a dedicated agent account with write access See https', text)
+        self.assertIn('Use a dedicated agent account with write access; see '
+                      'https://agents.uberblick.ai/docs/best-practices/launcher-account', text)
 
     def test_other_branch_asks_to_switch_to_the_default_branch(self):
         head = ('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')

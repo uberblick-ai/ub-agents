@@ -12,7 +12,7 @@ the choices.
 ◆  Switch this checkout to main?
 │  ub-agents only uses main to start fresh branches and worktrees for agents.
 │  Agents always work in worktrees and branches; they never commit to main.
-│  See https://agents.uberblick.ai/docs/configuration/permissions.html
+│  See https://agents.uberblick.ai/docs/configuration/permissions
 │  ● Yes / ○ No
 └
 ```
@@ -20,7 +20,7 @@ the choices.
 ```text
 ◆  Create 7 missing labels?
 │  Workflow:   needs-preparation, needs-changes, ready-to-merge
-│              trigger the loop; see https://agents.uberblick.ai/docs/configuration/index.html
+│              trigger the loop; see https://agents.uberblick.ai/docs/configuration/
 │  Priorities: prio:urgent, prio:high, prio:medium, prio:low
 │  ● Yes / ○ No
 └
@@ -48,8 +48,8 @@ A checkout on another branch, Claude logged in, an admin account, Priorities and
 │  ✓ GitHub     operator · org/project · labels writable
 │  ✓ Checkout   feature · clean · in sync with origin
 │  ✓ Agents     claude logged in · codex not installed
-│  ! Account    operator is admin on GitHub; run agents as a write-only account
-│               See https://agents.uberblick.ai/docs/best-practices/launcher-account.html
+│  ! Account    operator is admin on GitHub; use a dedicated agent account with write access
+│               See https://agents.uberblick.ai/docs/best-practices/launcher-account
 │
 ◇  Switch this checkout to main?
 │  Yes · now on main
@@ -58,7 +58,7 @@ A checkout on another branch, Claude logged in, an admin account, Priorities and
 ◇  Which agent runs the loop?
 │  Claude Code · claude-opus-5-5 · high
 │  Great, Claude Code is the default for all agents.
-│  Review later; see https://agents.uberblick.ai/docs/configuration/runtimes.html
+│  Review later; see https://agents.uberblick.ai/docs/configuration/runtimes
 │
 ◇  Let agents work without asking?
 │  Yes · review runtime-args in ub-agents.yaml before you launch
@@ -90,14 +90,14 @@ A checkout on another branch, Claude logged in, an admin account, Priorities and
 ◇  Next ──────────────────────────────────────────────────────────────────────────╮
 │                                                                                 │
 │  1. Review the agent permissions (runtime-args) in ub-agents.yaml; see          │
-│     https://agents.uberblick.ai/docs/configuration/permissions.html             │
+│     https://agents.uberblick.ai/docs/configuration/permissions             │
 │  2. Review checks and merge authority in .agents/ub_agents.md                   │
 │  3. Add your test command to --allowedTools in ub-agents.yaml                   │
 │  4. Add "Bash({report_command} retrospective *)" to --allowedTools so agents    │
 │     can post lessons                                                            │
 │  5. Open a PR with these files and merge it                                     │
-│  6. Run agents as a separate write-access account; see                          │
-│     https://agents.uberblick.ai/docs/best-practices/launcher-account.html       │
+│  6. Use a dedicated agent account with write access; see                          │
+│     https://agents.uberblick.ai/docs/best-practices/launcher-account       │
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │
@@ -167,11 +167,11 @@ A checkout with local changes (untracked files included) stops after the checks:
 ◇  Next ──────────────────────────────────────────────────────────────────────────╮
 │                                                                                 │
 │  1. Grant agent permissions later: uncomment runtime-args in ub-agents.yaml:    │
-│     https://agents.uberblick.ai/docs/configuration/permissions.html             │
+│     https://agents.uberblick.ai/docs/configuration/permissions             │
 │  2. Review checks and merge authority in .agents/ub_agents.md                   │
 │  3. Open a PR with these files and merge it                                     │
 │  4. Want retrospectives later? Turn on Discussions if needed, then follow       │
-│     https://agents.uberblick.ai/docs/best-practices/retrospectives.html         │
+│     https://agents.uberblick.ai/docs/best-practices/retrospectives         │
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │

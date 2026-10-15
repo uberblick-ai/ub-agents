@@ -34,7 +34,8 @@ cancel leaves no files, labels or boards.
 3. **Extras**, all off by default:
    - **Priorities:** priority labels, highest first, that order the
      [queue](/docs/configuration/queue.html).
-   - **Retrospectives:** a lessons board for each of the four roles. Init reuses a
+   - **Retrospectives:** agents post learnings per run, used to optimize delivery.
+     Init sets up a board for each of the four roles: it reuses a
      discussion with the same title (for example "Implementer retrospectives") or
      creates it in the General category. Needs Discussions turned on; see
      [retrospectives](/docs/best-practices/retrospectives.html).
