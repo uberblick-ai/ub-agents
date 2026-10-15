@@ -45,17 +45,22 @@ usage: ub-agents init [options]
 
 Ask a few setup questions in the terminal, show the changes, then write them.
 Use --use-defaults for unattended setup; CI/non-TTY also uses defaults. Existing
-starter files will never be overwritten.
+starter files are preserved; --create-boards and --create-priorities only add
+missing entries to ub-agents.yaml.
 
 options:
   --repository OWNER/REPO  # repository owner/name (otherwise inferred through gh)
   --runtime RUNTIME        # starter cli:model:effort (default: the detected CLI)
   --use-defaults           # unattended starters, even in a terminal
+  --create-boards          # add missing retrospective boards to an existing setup
+  --create-priorities      # add priority labels to an existing setup
   --config PATH            # project configuration (default: ub-agents.yaml)
   -h, --help               # show this help
 
 examples:
   ub-agents init
+  ub-agents init --create-boards
+  ub-agents init --create-priorities
   ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high
 """
 
@@ -270,7 +275,7 @@ class HelpTests(unittest.TestCase):
                 self.assertIn("examples:", detailed[1])
                 self.assertTrue(command.description)
                 self.assertIn("".join(command.description.split()), "".join(detailed[1].split()))
-                self.assertIn(len(command.examples), (2, 3))
+                self.assertIn(len(command.examples), (2, 3, 4) if name == "init" else (2, 3))
                 for example in command.examples:
                     self.assertIn(example, detailed[1])
                     words = shlex.split(example)

@@ -53,6 +53,8 @@ class ExistingSetupTests(unittest.TestCase):
         self.assertEqual(next(role for role in configured.agents if role.name == 'implementer').retrospectives, 203)
         for role in configured.agents:
             self.assertIn(RULE, role.runtime_args_for(role.runtimes[0]))
+        result = Doctor(runner=self.runner, which=lambda name: '/bin/' + name).run(self.path, offline=True)
+        self.assertTrue(result['ok'], result)
         self.assertEqual(sum(write[0] == 'create-board' for write in self.github.writes), 4)
         self.assertEqual(self.script.asked, ['Write setup?'])
         # Removing just the insertions recovers every byte of the original file.
@@ -64,6 +66,7 @@ class ExistingSetupTests(unittest.TestCase):
         for path, content in self.before.items():
             if path != self.path.relative_to(self.root):
                 self.assertEqual((self.root / path).read_bytes(), content)
+        self.assertEqual({path.relative_to(self.root) for path in self.root.rglob('*') if path.is_file()}, set(self.before))
         writes = self.github.writes.copy()
         before = self.path.read_bytes()
         code, text = self.run_flow()
@@ -167,6 +170,12 @@ class ExistingSetupTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), self.before[self.path.relative_to(self.root)])
         self.assertEqual(self.github.writes, [])
 
+    def test_invalid_config_reports_a_configuration_error_before_github(self):
+        self.path.write_text('agents: [broken')
+        with self.assertRaisesRegex(AgentError, 'Cannot read proposed configuration'):
+            self.run_flow()
+        self.assertEqual(self.github.reads, [])
+
     def test_dirty_checkout_stops_even_with_default_answers(self):
         self.starter()
         self.runner.responses[('git', '-C', str(self.root), '--no-optional-locks', 'status',
@@ -251,6 +260,53 @@ class ExistingSetupTests(unittest.TestCase):
         self.assertIn('changed during setup', text)
         self.assertTrue(self.path.read_text().endswith('# concurrent change\n'))
         self.assertEqual(self.github.writes, [])
+
+    def test_local_overrides_changed_during_confirmation_are_preserved(self):
+        self.starter()
+        script = Script()
+        def confirm(*args):
+            (self.root / 'ub-agents.local.yaml').write_text('poll-seconds: 17\n')
+            return True
+        script.confirm = confirm
+        code, text = self.run_flow(script=script)
+        self.assertEqual(code, 1)
+        self.assertIn('ub-agents.local.yaml changed', text)
+        self.assertEqual(self.path.read_bytes(), self.before[self.path.relative_to(self.root)])
+        self.assertEqual(self.github.writes, [])
+
+    def test_newly_duplicated_board_title_prevents_all_mutations(self):
+        self.starter()
+        script = Script()
+        def confirm(*args):
+            self.github.boards[204] = self.github.board(204, 'Implementer retrospectives')
+            return True
+        script.confirm = confirm
+        code, text = self.run_flow(priorities=True, script=script)
+        self.assertEqual(code, 1)
+        self.assertIn('Several boards', text)
+        self.assertEqual(self.path.read_bytes(), self.before[self.path.relative_to(self.root)])
+        self.assertEqual(self.github.writes, [])
+
+    def test_existing_priorities_are_kept_when_only_boards_are_missing(self):
+        self.starter()
+        content = self.path.read_text().replace('queue:\n', 'queue:\n  priority: {labels: [p2, p1], default: p1} # keep\n')
+        self.path.write_text(content)
+        code, text = self.run_flow(priorities=True)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.script.asked, ['Write setup?'])
+        self.assertIn('priority: {labels: [p2, p1], default: p1} # keep', self.path.read_text())
+        self.assertFalse(any(write[0] == 'create-label' for write in self.github.writes))
+
+    def test_failed_atomic_replace_keeps_file_and_reports_remaining_entries(self):
+        self.starter()
+        with patch('ub_agents.init_extend.os.replace', side_effect=OSError('disk error')):
+            code, text = self.run_flow(priorities=True)
+        self.assertEqual(code, 1)
+        self.assertIn('disk error', text)
+        self.assertIn('Created label prio:urgent', text)
+        self.assertIn('Entries still to add', text)
+        self.assertEqual(self.path.read_bytes(), self.before[self.path.relative_to(self.root)])
+        self.assertEqual(list(self.root.glob('.ub-agents-init-*')), [])
 
     def test_cli_routes_both_flags_and_non_tty_uses_defaults(self):
         self.starter()

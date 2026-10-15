@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import yaml
 
-from .config import LOCAL_CONFIG, load_config, preview_config
+from .config import LOCAL_CONFIG, preview_config
 from .doctor import public
 from .errors import AgentError
 from .init_boards import Boards
@@ -30,9 +30,12 @@ class ExistingFlow(Flow):
         if self.path.is_symlink():
             raise AgentError(f"{self.path.name} is a symlink; add the optional entries by hand")
         self.before = self.path.read_bytes()
-        self.content = self.before.decode("utf-8")
+        try:
+            self.content = self.before.decode("utf-8")
+        except UnicodeError as exc:
+            raise AgentError(f"Cannot read configuration {self.path}: {exc}") from exc
+        self.config = preview_config(self.content, self.path, ())
         self.data = yaml.safe_load(self.content)
-        self.config = load_config(self.path)
         self.repository = self.repository or self.config.repository
         if self.repository != self.config.repository:
             raise AgentError(f"Use --repository {self.config.repository} to match {self.path.name}")
@@ -62,7 +65,7 @@ class ExistingFlow(Flow):
     def steps(self):
         # Explicit optional steps need GitHub checks even with default answers.
         self.check()
-        names = [name for name, role in self.data["agents"].items()
+        names = [name for name, role in self.data.get("agents", {}).items()
                  if self.create_boards and "retrospectives" not in role]
         need_priority = self.create_priorities and "priority" not in self.data.get("queue", {})
         if not names and not need_priority:
