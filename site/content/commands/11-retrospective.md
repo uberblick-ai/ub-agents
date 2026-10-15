@@ -28,7 +28,7 @@ Each item gets at most one post. You can adjust this in the agent's [role file](
 
 ## Public repositories
 
-On a public repository anyone can read the boards, and the command posts the file as written. The built-in run instructions already tell agents to leave out credentials, environment values, local paths, hostnames and log excerpts, and to link the item instead. Keep that rule if you change your agents' instructions. On a private repository only people with access see the boards.
+The built-in run instructions keep credentials, environment values, local paths, hostnames and log excerpts out of every post. That matters most on a public repository, where anyone can read the boards; on a private one only people with access see them. If you change your agents' instructions, keep credentials out either way.
 
 ```text
 {{help retrospective}}
