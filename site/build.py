@@ -210,6 +210,7 @@ HEAD = '''<!doctype html>
 <title>{title}</title>
 <meta name="description" content="{description}">
 <link rel="canonical" href="{canonical}">
+<link rel="icon" href="data:,">
 <link rel="preload" href="{fonts}/ibm-plex-mono-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="{fonts}/ibm-plex-mono-600.woff2" as="font" type="font/woff2" crossorigin>
 <style>{css}</style>
