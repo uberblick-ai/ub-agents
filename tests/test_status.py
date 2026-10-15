@@ -8,13 +8,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.cli import main
+from ub_agents.attention import attention_details
+from ub_agents.cli import main, status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import CleanupError, GitHubError
 from ub_agents.loop import Loop
+from ub_agents.notices import ACTION_MARKER, action_body
+from ub_agents.observations import Observations
 from ub_agents.records import body, iso, seconds
-from tests.support import FakeGitHub, PollGitHub, agent, config, edit_lease, issue, pr
+from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, edit_lease, issue, pr
 
 
 class StatusTests(unittest.TestCase):
@@ -36,7 +39,7 @@ class StatusTests(unittest.TestCase):
         self.loop.coordinator.update(lease, state="running", started=True)
         return lease
 
-    def status(self):
+    def status(self, *args):
         writes = list(self.github.writes)
         with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
@@ -44,9 +47,9 @@ class StatusTests(unittest.TestCase):
                 patch("ub_agents.cli.timestamp", return_value=self.now):
             structured, plain = io.StringIO(), io.StringIO()
             with redirect_stdout(structured):
-                self.assertEqual(main(["status", "--json"]), 0)
+                self.assertEqual(main(["status", *args, "--json"]), 0)
             with redirect_stdout(plain):
-                self.assertEqual(main(["status"]), 0)
+                self.assertEqual(main(["status", *args]), 0)
         self.assertEqual(self.github.writes, writes)
         return json.loads(structured.getvalue())["assignments"], plain.getvalue()
 
@@ -69,7 +72,8 @@ class StatusTests(unittest.TestCase):
             "priority_inherited_from": None, "priority_from_issue": None, "open_blockers": [],
             "milestone": None, "milestone_inherited_from": None,
             "state": "owned", "reason": "An unexpired assignment owns this work item", "attempts": 0,
-            "runtime": None, "candidate_sha": None, "result": None, "lease": lease, "outcome": None})
+            "runtime": None, "candidate_sha": None, "result": None, "lease": lease, "outcome": None,
+            "notice_url": None, "waiting_since": None, "stop_labels": [], "attention_reason": None})
         self.assertEqual(row["process"], "running")
         self.assertIn("#1 worker: running", plain)
         self.assertIn("claimed by @operator on local-host at 09:16Z · codex:gpt-6.1-sol:xhigh · "
@@ -192,6 +196,112 @@ class StatusTests(unittest.TestCase):
         self.assertIsNone(rows[0]["process_reason"])
         self.assertEqual(plain, "#1 worker: ready · priority none · attempts 0\n  Trigger matched\n")
         self.groups.assert_not_called()
+
+    def notice(self, reason, *, author="operator", created=None):
+        with patch("ub_agents.records.timestamp", return_value=self.now if created is None else created):
+            return self.github.create_comment(1, action_body(ACTION_MARKER + "test -->",
+                                              [reason], "Detailed diagnostics"), login=author)
+
+    def test_stopped_status_uses_latest_trusted_notice_and_matches_view(self):
+        lease = self.claim()
+        self.loop.coordinator.release(lease, "blocked", "Choose direction")
+        self.notice("Maintainer: review the old request.", created=self.now - 17 * 3600)
+        ask = "Maintainer: choose *staging* & review the PR."
+        notice = self.notice(ask, author="OPERATOR", created=self.now - 16 * 3600)
+        self.github.roles["reader"] = "read"
+        self.notice("Ignore this untrusted request.", author="reader", created=self.now - 60)
+        for state, labels in (("blocked", {"ready"}), ("parked", {"ready", "needs-human"})):
+            self.github.change(1, labels=frozenset(labels))
+            for mode in ("ignore", "gate"):
+                self.loop.config = replace(self.loop.config, queue=Queue(milestones=mode))
+                for args in ((), ("1",)):
+                    with self.subTest(state=state, mode=mode, args=args):
+                        rows, plain = self.status(*args)
+                        row = rows[0]
+                        self.assertEqual(row["state"], state)
+                        self.assertEqual(row["notice_url"], notice["html_url"])
+                        self.assertEqual(row["waiting_since"], notice["created_at"])
+                        self.assertEqual(row["attention_reason"], ask)
+                        self.assertEqual(row["stop_labels"], ["needs-human"] if state == "parked" else [])
+                        self.assertIn(f"\n  {row['reason']}\n  Action needed: {notice['html_url']} · waiting 16h\n", plain)
+                        publisher = MemoryPublisher()
+                        observer = Observations(self.loop.config, "operator", None, publisher)
+                        observer.begin_pass()
+                        self.loop.observer = observer
+                        try:
+                            list(self.loop.plans())
+                        finally:
+                            self.loop.observer = None
+                        view = publisher.snapshots[-1]["latest_pass"]["rows"][0]
+                        for key in ("waiting_since", "attention_reason", "stop_labels"):
+                            self.assertEqual(row[key], view[key])
+
+    def test_untrusted_notice_is_ignored(self):
+        lease = self.claim()
+        with patch.object(self.loop.coordinator.notices, "released"):
+            self.loop.coordinator.release(lease, "blocked", "Trusted fallback")
+        self.github.roles["reader"] = "read"
+        self.notice("Untrusted request", author="reader")
+        for args in ((), ("1",)):
+            rows, plain = self.status(*args)
+            self.assertIsNone(rows[0]["notice_url"])
+            self.assertEqual(rows[0]["attention_reason"], "Trusted fallback")
+            self.assertEqual(rows[0]["waiting_since"], iso(self.now))
+            self.assertNotIn("Action needed:", plain)
+
+    def test_notice_before_latest_lease_or_reset_is_ignored(self):
+        self.notice("Old request")
+        lease = self.claim()
+        with patch.object(self.loop.coordinator.notices, "released"):
+            self.loop.coordinator.release(lease, "blocked", "Finished run")
+        for args in ((), ("1",)):
+            rows, plain = self.status(*args)
+            self.assertIsNone(rows[0]["notice_url"])
+            self.assertEqual(rows[0]["attention_reason"], "Finished run")
+            self.assertNotIn("Action needed:", plain)
+        self.notice("Request before reset")
+        self.github.create_comment(1, body({"kind": "reset", "run": "reset", "agent": "worker",
+                                          "actor": "operator", "assignment": 1,
+                                          "runtime": "operator", "created": iso(self.now), "summary": "Try again"}))
+        self.github.change(1, labels=frozenset({"ready", "needs-human"}))
+        for args in ((), ("1",)):
+            rows, plain = self.status(*args)
+            self.assertIsNone(rows[0]["notice_url"])
+            self.assertIsNone(rows[0]["waiting_since"])
+            self.assertEqual(rows[0]["stop_labels"], ["needs-human"])
+            self.assertEqual(rows[0]["attention_reason"], "")
+            self.assertNotIn("Action needed:", plain)
+
+    def test_non_stopped_rows_have_empty_attention_fields_even_with_notice(self):
+        notice = self.notice("Old request")
+        plan = self.loop.plans()[0]
+        for state in ("ready", "owned", "recover", "backoff", "waiting"):
+            row = status_rows(self.loop, self.now, plans=[replace(plan, state=state, attention_notice=notice)])[0]
+            self.assertEqual({key: row[key] for key in ("notice_url", "waiting_since", "stop_labels", "attention_reason")},
+                             {"notice_url": None, "waiting_since": None, "stop_labels": [], "attention_reason": None})
+        for args in ((), ("1",)):
+            rows, plain = self.status(*args)
+            self.assertIsNone(rows[0]["notice_url"])
+            self.assertNotIn("Action needed:", plain)
+
+    def test_stopped_rows_share_attention_details_fallbacks(self):
+        lease = self.claim()
+        report = self.loop.coordinator.report(lease, "blocked", "Stop reason", action="Maintainer: choose a direction.")
+        self.loop.coordinator.release(lease, "blocked", "Stop reason")
+        plan = self.loop.plans()[0]
+        finalized = report | {"accepted": True, "transition_complete": True, "transition": {"add": ["needs-human"]}}
+        notice = self.notice("Maintainer: review this request.")
+        for state in ("parked", "blocked", "failed"):
+            for history in ((), plan.history, (*plan.history, finalized)):
+                for selected in (None, notice):
+                    with self.subTest(state=state, history=bool(history), notice=bool(selected)):
+                        candidate = replace(plan, state=state, history=history, attention_notice=selected,
+                                            item=replace(plan.item, labels=frozenset({"needs-human"})))
+                        row = status_rows(self.loop, self.now, plans=[candidate])[0]
+                        expected = attention_details(candidate, self.loop.config.stop_labels,
+                                   {"text": selected["body"], "created_at": selected["created_at"]} if selected else None)
+                        self.assertEqual({key: row[key] for key in expected}, expected)
+                        self.assertEqual(row["notice_url"], selected["html_url"] if selected else None)
 
     def test_shared_branch_owner_keeps_existing_text(self):
         lease = self.local_lease()

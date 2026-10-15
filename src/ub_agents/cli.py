@@ -13,6 +13,7 @@ import threading
 import uuid
 
 from . import __version__
+from .attention import attention_details, waiting_time
 from .config import DEFAULT_CONFIG, LOCAL_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
 from .denials import denial_count
@@ -215,6 +216,11 @@ def status_rows(loop, now=None, *, plans=None):
         plans = loop.plans()
     for plan in plans:
         history = plan.history
+        notice = plan.attention_notice if plan.state in {"parked", "blocked", "failed"} else None
+        attention = {"notice_url": notice.get("html_url") if notice else None,
+                     "waiting_since": None, "stop_labels": [], "attention_reason": None}
+        attention.update(attention_details(plan, loop.config.stop_labels,
+                         {"text": notice["body"], "created_at": notice.get("created_at")} if notice else None))
         active = live_leases(history, now)
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None
@@ -239,7 +245,7 @@ def status_rows(loop, now=None, *, plans=None):
                      "result": latest.get("result") if latest else None,
                      "lease": lease,
                      "process": process, "process_reason": process_reason,
-                     "outcome": outcomes[-1] if outcomes else None})
+                     "outcome": outcomes[-1] if outcomes else None, **attention})
     return rows
 
 
@@ -396,6 +402,10 @@ def run(args):
                 state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
                 print(f"#{row['number']} {row['agent']}: {state} · priority {priority}{milestone} · attempts {row['attempts']}{owner}{verdict}{outcome}")
                 print(f"  {row['process_reason'] or row['reason']}")
+                if row["notice_url"]:
+                    waiting = waiting_time(row["waiting_since"], now)
+                    suffix = f" · waiting {waiting}" if waiting else ""
+                    print(f"  Action needed: {row['notice_url']}{suffix}")
         if not args.json:
             for line in loop.milestone_skips:
                 print(line)

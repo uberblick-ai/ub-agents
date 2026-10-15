@@ -9,7 +9,7 @@ import threading
 import uuid
 
 from .records import iso, seconds, timestamp
-from .attention import attention_details, notice_summary
+from .attention import attention_details, latest_notice, notice_summary
 from .notices import ACTION_MARKER
 from .github import closing_issues
 from .eligibility import AgentMatches
@@ -550,7 +550,6 @@ class Observations:
 
     def plan(self, plan, filing=None, comments=None, authors=None):
         if comments is not None:
-            epoch = max((r["id"] for r in plan.history if r["kind"] in {"lease", "reset"}), default=0)
             for comment in comments:
                 login = (comment.get("user") or {}).get("login")
                 if (isinstance(login, str) and login.casefold() in (authors or {})
@@ -558,11 +557,7 @@ class Observations:
                     trusted = authors[login.casefold()]
                     self.coordination_author(login, trusted, None if trusted else
                                              "The launcher account is not authorized for coordination records")
-            notices = [c for c in comments if isinstance(c.get("body"), str)
-                       and c["body"].startswith(ACTION_MARKER) and c["id"] > epoch
-                       and isinstance((c.get("user") or {}).get("login"), str)
-                       and (authors or {}).get((c.get("user") or {}).get("login", "").casefold())]
-            self.action_needed(plan.item.number, max(notices, key=lambda c: c["id"], default=None), emit=False)
+            self.action_needed(plan.item.number, latest_notice(plan.history, comments, authors or {}), emit=False)
         notice = self.state["action_needed"].get(str(plan.item.number))
         if notice and any(record["kind"] in {"lease", "reset"} and record["id"] > notice["id"]
                           for record in plan.history):

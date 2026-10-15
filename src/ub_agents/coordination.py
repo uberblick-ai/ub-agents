@@ -40,6 +40,8 @@ class Plan:
     owner: dict | None = field(default=None, compare=False, repr=False)
     matches: AgentMatches | None = field(default=None, compare=False, repr=False)
     health_wait: bool = False
+    # Display-only GitHub comment, never coordination input.
+    attention_notice: dict | None = field(default=None, compare=False, repr=False)
 
 
 class Coordinator:

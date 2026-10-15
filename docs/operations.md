@@ -159,6 +159,12 @@ trigger label added, or can be picked up by a running launcher on its next poll.
 It leaves labels unchanged; `ub-agents status` shows progress and other pickup gates.
 The issue and handoff PR keep separate counts; `ub-agents status` shows the
 consecutive failure count in `attempts`.
+Stopped rows also show their trusted Action needed notice link and waiting time.
+`status --json` includes `notice_url`, `waiting_since`, `stop_labels` and
+`attention_reason` on every assignment, with the same attention details as the
+terminal view. Other states carry null values and an empty `stop_labels` list.
+See the [status reference](https://agents.uberblick.ai/docs/commands/status.html) for
+notice selection and fallback details.
 A success counts only after the launcher has checked the result on GitHub; an exit
 code alone never does.
 A report followed by a nonzero exit is validated and applied normally after

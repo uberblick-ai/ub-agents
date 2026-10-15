@@ -11,6 +11,7 @@ from dataclasses import replace
 
 from . import approvals as input_approvals
 from .agent_health import AgentHealth
+from .attention import latest_notice
 from .approvals import ApprovalCheck, resolve_policy
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .checkout_setup import discard_unused_baseline, preserve_baseline, run_setup
@@ -579,8 +580,7 @@ class Loop:
                 github.prepare_approval_inputs([observed.item])
                 continue
             if milestone_plans is None:
-                self._observe_plan(observed, github)
-                yield observed
+                yield self._observe_plan(observed, github)
             else:
                 milestone_plans.append(observed)
         if milestone_plans is not None:
@@ -605,8 +605,7 @@ class Loop:
                 self._milestone_diagnostics(milestone_plans, milestones)
             for observed in self._milestone_plans(milestone_plans, milestones,
                                                   approve=approve if lazy_approval else None):
-                self._observe_plan(observed, github)
-                yield observed
+                yield self._observe_plan(observed, github)
         if self._launch_agent is not None:
             self._observe("queue_idle", self.idle_message())
 
@@ -648,8 +647,7 @@ class Loop:
 
         def observed_plans():
             for plan in plans:
-                self._observe_plan(plan, github)
-                yield plan
+                yield self._observe_plan(plan, github)
         return item, observed_plans()
 
     def _planning_coordinator(self, github, observe=None):
@@ -669,7 +667,10 @@ class Loop:
         authors = {login: role in {"write", "maintain", "admin"} and
                    (self.config.launchers is None or login in {a.casefold() for a in self.config.launchers})
                    for login, role in github.pass_roles.items()}
-        (observe or self._observe)("plan", plan, filing, github.observed_comments(plan.item.number), authors)
+        comments = github.observed_comments(plan.item.number)
+        plan = replace(plan, attention_notice=latest_notice(plan.history, comments, authors))
+        (observe or self._observe)("plan", plan, filing, comments, authors)
+        return plan
 
     def _replan_finished_item(self, plan):
         # A cancelled worker cannot publish an older pass over this item's update.
