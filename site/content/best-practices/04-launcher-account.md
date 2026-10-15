@@ -1,19 +1,15 @@
 # Give launchers their own account
 
-Run launchers under an account with write access, not maintain or admin. Agents can then push and label, but they cannot start or approve their own work.
+We recommend launching the loop with a dedicated GitHub account for your agents, with write access to this repository. It needs no access to other repositories and no higher role such as maintain or admin.
 
 ## Why not admin
 
-With [approvals on](/docs/configuration/approvals.html#on), maintainers start work and approve outside input. A launcher with maintain or admin could do both for itself. [`ub-agents doctor`](/docs/commands/doctor.html) warns about it.
+Write access is enough to push branches, open pull requests and set labels. With [`approvals: on`](/docs/configuration/approvals.html#on), issues and pull requests from people outside your team wait until a maintainer approves them. An agent account with maintain or admin counts as a maintainer, so it could approve that outside work itself. [`ub-agents init`](/docs/commands/init.html) and [`ub-agents doctor`](/docs/commands/doctor.html) warn about it.
 
 ```sh
 ub-agents doctor
 ```
 
-## People keep their roles
+## Several loops
 
-Maintainers use their own accounts to start work, approve input and merge what the integrator leaves to them.
-
-## Several machines
-
-Every launcher can use the same bot account, or each engineer their own. See [Launcher accounts](/docs/configuration/launchers.html).
+Several loops can share one agent account. GitHub's API limits apply per account, but up to ten loops on one account work fine. See [How many launchers one account supports](/docs/best-practices/account-capacity.html) and [Launcher accounts](/docs/configuration/launchers.html).

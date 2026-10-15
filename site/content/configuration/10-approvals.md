@@ -2,6 +2,10 @@
 
 Decides whose input reaches the agents. On by default for public repositories, off for private and internal ones.
 
+Interactive [init](/docs/commands/init.html) shows the effective value and its source
+on the "Who answers the agents' questions?" step. Without an explicit policy,
+unreadable visibility leaves the value unresolved; run `ub-agents doctor` before launching.
+
 ```yaml
 approvals: on
 ```

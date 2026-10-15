@@ -405,6 +405,12 @@ class GitHub:
             return "none"
         return role if isinstance(role, str) and role in {"admin", "maintain", "write", "triage", "read", "none"} else None
 
+    def teams(self):
+        """Teams that maintain or administer this repository, as @org/slug handles."""
+        owner = self.repository.split("/")[0]
+        return [f"@{owner}/{team['slug']}" for team in self.request(f"{self.prefix}/teams", paginate=True)
+                if isinstance(team, dict) and isinstance(team.get("slug"), str) and team.get("permission") in {"admin", "maintain"}]
+
     def visibility(self):
         return repository_visibility(self.request(self.prefix))
 

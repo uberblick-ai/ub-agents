@@ -21,6 +21,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.14"]
     runs-on: ${{ matrix.os }}
+    # Leave time for the runner's five-minute limit and stack/process cleanup.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

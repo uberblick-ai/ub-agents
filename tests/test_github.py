@@ -18,6 +18,14 @@ from tests.support import DiscoveryCostRunner, RecordingRunner, agent, config, i
 
 
 class GitHubTests(unittest.TestCase):
+    def test_teams_lists_maintaining_teams_as_handles(self):
+        github = GitHub('org/project')
+        teams = [{'slug': 'core', 'permission': 'maintain'}, {'slug': 'docs', 'permission': 'push'},
+                 {'slug': 'owners', 'permission': 'admin'}]
+        with patch.object(github, 'request', return_value=teams) as request:
+            self.assertEqual(github.teams(), ['@org/core', '@org/owners'])
+        request.assert_called_once_with('repos/org/project/teams', paginate=True)
+
     def test_empty_role_is_readable_none_but_failed_or_invalid_roles_are_unreadable(self):
         github = GitHub("org/project")
         for raw, expected in (({"role_name": ""}, "none"), ({"role_name": "none"}, "none"),
