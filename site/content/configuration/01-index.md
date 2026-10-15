@@ -82,7 +82,7 @@ All optional:
 | `runtime-updates` | [Runtime updates](/docs/configuration/runtime-updates.html) |
 | `runtime-args` | [Per-CLI argument defaults](/docs/configuration/permissions.html#arguments-for-alternatives) |
 
-## Another file
+## Using a different configuration file
 
 Every command reads `ub-agents.yaml` by default. Pass `--config` to use another file.
 
