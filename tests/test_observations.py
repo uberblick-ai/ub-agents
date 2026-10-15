@@ -1038,6 +1038,10 @@ class PublisherTests(unittest.TestCase):
         self.assertFalse(self.read(observers[1].state["session"])["ended"])
         observers[1].close()
         self.wait_for(lambda: self.read(observers[1].state["session"])["ended"])
+        # An ended snapshot can precede the worker's final write after pipe EOF.
+        for observer in observers:
+            observer.publisher.process.wait(timeout=5)
+            observer.publisher.diagnostics.join(timeout=5)
         self.assertEqual(list((self.root / ".ub-agents" / "sessions").glob("*.tmp")), [])
         self.assertEqual(self.lines, [])
 

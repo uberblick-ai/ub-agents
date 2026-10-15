@@ -5,6 +5,27 @@ import re
 import time
 
 from .records import lease_summary, reported_actions
+from .notices import ACTION_MARKER
+
+MAX_TEXT = 2048
+
+
+def display_notice(comment):
+    """Share the view's bounded notice text with other attention displays."""
+    body = comment['body']
+    return {'id': comment['id'], 'text': body[:MAX_TEXT],
+            'author': comment['user']['login'], 'created_at': comment.get('created_at'),
+            'omitted_characters': max(0, len(body) - MAX_TEXT)}
+
+
+def latest_notice(history, comments, authors):
+    """Select display prose from trusted authors after the latest lease or reset."""
+    epoch = max((r['id'] for r in history if r['kind'] in {'lease', 'reset'}), default=0)
+    notices = (c for c in comments if isinstance(c.get('body'), str)
+               and c['body'].startswith(ACTION_MARKER) and c['id'] > epoch
+               and isinstance((c.get('user') or {}).get('login'), str)
+               and authors.get(c['user']['login'].casefold()))
+    return max(notices, key=lambda c: c['id'], default=None)
 
 
 def stamp(value):
