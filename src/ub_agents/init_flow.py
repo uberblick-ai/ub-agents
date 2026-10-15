@@ -7,6 +7,7 @@ from rich.text import Text
 from . import __version__
 from .doctor import public
 from .errors import AgentError
+from .execution import git
 from .github import REPOSITORY
 from .init_boards import Boards
 from .init_probes import ACCOUNT_GUIDANCE, PROBE_ERRORS, Probes
@@ -16,7 +17,9 @@ from .init_setup import (PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance
 from .labels import configured_labels
 
 RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
-PRIORITIES = "urgent, high, medium, low"
+PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"
+WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/index.html"
+RUNTIMES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtimes.html"
 RETROSPECTIVES_GUIDE = "https://agents.uberblick.ai/docs/best-practices/retrospectives.html"
 SAFETY = "Agents always work in worktrees and branches; they never commit to main."
 UBERBLICK = "https://uberblick.ai"
@@ -111,12 +114,32 @@ class Flow:
             for index, problem in enumerate(group.problems):
                 lines.append(Text.assemble((f"{mark} ", color) if not index else "  ",
                                            f"{group.name if not index else '':<11}", problem.message))
-                if problem.remedy:
+                if problem.remedy and problem.remedy not in {p.remedy for p in group.problems[index + 1:]}:
                     lines.append(Text.assemble(" " * 13, (problem.remedy, DIM)))
         if any(group.status == "fail" for group in self.probes.groups):
             self.t.step("Checks · fix these before launch; setup can continue", lines, "▲", YELLOW)
         else:
             self.t.step("Checks", lines)
+        self.choose_branch()
+
+    def choose_branch(self):
+        branch, default = self.probes.branch, self.probes.default_branch
+        if not branch or not default or branch == default:
+            return
+        message = f"Switch this checkout to {default}?"
+        note = [f"ub-agents only uses {default} to start fresh branches and worktrees for agents;",
+                f"it never commits to {default}. Your changes stay in the working tree."]
+        if not self.ask.confirm(message, True, note):
+            self.t.answered(message, f"No · switch to {default} before you launch")
+            return
+        try:
+            git(self.probes.plan.config.root, "switch", default)
+        except AgentError as exc:
+            reason = str(exc).removeprefix("Git operation failed: ").splitlines()[-1:] or [""]
+            self.t.step(message, [Text(f"Not switched: {reason[0]}", style=RED),
+                                  Text(f"Switch to {default} before you launch", style=DIM)], "▲", YELLOW)
+            return
+        self.t.answered(message, f"Yes · now on {default}")
 
     def probe(self):
         self.github = self.github_factory(self.repository)
@@ -139,7 +162,9 @@ class Flow:
         message = "Which agent runs the loop?"
         cli = self.ask.select(message, options, clis.index(cli), "Model and effort can be changed later in ub-agents.yaml.")
         option = next(o for o in options if o.value == cli)
-        self.t.answered(message, f"{option.label} · {option.hint}" if option.hint else option.label)
+        self.t.step(message, [Text(f"{option.label} · {option.hint}" if option.hint else option.label, style=DIM),
+                              Text(f"Great, {option.label} is the default for all agents.", style=DIM),
+                              Text(f"Review later; see {RUNTIMES_GUIDE}", style=DIM)])
         return values[cli]
 
     def choose_permissions(self, runtime):
@@ -149,7 +174,7 @@ class Flow:
         message = "Let agents work without asking?"
         options = [Option(True, "Yes", grant), Option(False, "No", "set runtime-args later")]
         # Unattended runs keep permissions off: nobody saw what they grant.
-        enabled = self.ask.select(message, options, 1 if self.unattended else 0, [SAFETY, PERMISSIONS_GUIDE])
+        enabled = self.ask.select(message, options, 1 if self.unattended else 0, [SAFETY, f"See {PERMISSIONS_GUIDE}"])
         answer = f"Yes · review runtime-args in {self.path.name} before you launch" if enabled else "No"
         self.t.step(message, [Text(answer, style=DIM), Text(SAFETY, style=DIM)])
         return enabled
@@ -170,16 +195,23 @@ class Flow:
         if existing is None:
             return []
         missing = {}
-        for label in configured_labels(plan.config) + priority_labels(plan.choices):
-            if label.name.casefold() not in existing:
-                missing.setdefault(label.name.casefold(), label)
+        groups = {"workflow": configured_labels(plan.config), "priority": priority_labels(plan.choices)}
+        for group, labels in groups.items():
+            for label in labels:
+                if label.name.casefold() not in existing:
+                    missing.setdefault(label.name.casefold(), (group, label))
         if not missing:
             return []
+        names = {group: ", ".join(label.name for g, label in missing.values() if g == group) for group in groups}
+        note = []
+        if names["workflow"]:
+            note += [f"Workflow:   {names['workflow']}", f"            trigger the loop; see {WORKFLOW_GUIDE}"]
+        if names["priority"]:
+            note.append(f"Priorities: {names['priority']}")
         message = f"Create {len(missing)} missing label{'s' if len(missing) > 1 else ''}?"
-        names = ", ".join(label.name for label in missing.values())
-        create = self.ask.confirm(message, True, [names])
+        create = self.ask.confirm(message, True, note)
         self.t.answered(message, "Yes" if create else "No")
-        return list(missing.values()) if create else []
+        return [label for _, label in missing.values()] if create else []
 
     def confirm_write(self, plan, labels):
         root = plan.path.parent
@@ -202,7 +234,7 @@ class Flow:
         steps = next_steps(plan) + guidance_summary(plan)
         account = next((g for g in self.probes.groups if g.name == "Account"), None) if self.probes else None
         if account:
-            steps.append(f"Run agents as a separate write-access account: {ACCOUNT_GUIDANCE}")
+            steps.append(f"Run agents as a separate write-access account; see {ACCOUNT_GUIDANCE}")
         if "uberblick" in extras:
             steps.append(f"Uberblick, shared knowledge for agents and humans: {UBERBLICK}")
         if "retrospectives" not in extras:

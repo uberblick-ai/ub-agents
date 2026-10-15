@@ -42,7 +42,7 @@ Claude logged in, an admin account, Priorities and Retrospectives selected.
 │  ✓ GitHub     operator · org/project · labels writable
 │  ✓ Checkout   main · clean · in sync with origin
 │  ✓ Agents     claude logged in · codex not installed
-│  ! Account    operator is admin here; run agents as a write-only account
+│  ! Account    operator is admin on GitHub; run agents as a write-only account
 │               https://agents.uberblick.ai/docs/best-practices/launcher-account.html
 │
 ◇  Which agent runs the loop?
@@ -56,7 +56,7 @@ Claude logged in, an admin account, Priorities and Retrospectives selected.
 │  Priorities, Retrospectives
 │
 ◇  Priority labels, highest first
-│  urgent, high, medium, low
+│  prio:urgent, prio:high, prio:medium, prio:low
 │
 ◇  Create 7 missing labels?
 │  Yes

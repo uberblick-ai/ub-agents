@@ -90,9 +90,11 @@ class FlowTests(unittest.TestCase):
         self.assertIn('✓ Machine', text)
         self.assertIn('✓ Agents claude logged in · codex logged in', text)
         self.assertIn('Codex · gpt-6.1-sol · high', text)
+        self.assertIn('Great, Codex is the default for all agents. Review later; '
+                      'see https://agents.uberblick.ai/docs/configuration/runtimes.html', text)
         self.assertIn('Yes · review runtime-args in ub-agents.yaml before you launch', text)
         self.assertIn('Agents always work in worktrees and branches; they never commit to main.', text)
-        self.assertIn('Review the agent permissions (runtime-args) in ub-agents.yaml: '
+        self.assertIn('Review the agent permissions (runtime-args) in ub-agents.yaml; see '
                       'https://agents.uberblick.ai/docs/configuration/permissions.html', text)
         self.assertIn('Want retrospectives later?', text)
         self.assertNotIn('Create the labels yourself', text)
@@ -189,9 +191,38 @@ class FlowTests(unittest.TestCase):
     def test_admin_account_gets_the_account_guide(self):
         self.github.roles['operator'] = 'admin'
         code, text = self.run_flow()
-        self.assertIn('! Account operator is admin here', text)
-        self.assertIn('Run agents as a separate write-access account: '
+        self.assertIn('! Account operator is admin on GitHub', text)
+        self.assertIn('! Account operator is admin on GitHub; run agents as a write-only account See https', text)
+        self.assertIn('Run agents as a separate write-access account; see '
                       'https://agents.uberblick.ai/docs/best-practices/launcher-account.html', text)
+
+    def test_other_branch_asks_to_switch_to_the_default_branch(self):
+        head = ('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')
+        switch = ('git', '-C', str(self.root), 'switch', 'main')
+        for answer, outcome, expected in ((True, '', 'Yes · now on main'),
+                                          (True, subprocess.CompletedProcess([], 1, '', 'error: local changes\nAborting'),
+                                           'Not switched: Aborting Switch to main before you launch'),
+                                          (False, None, 'No · switch to main before you launch')):
+            with self.subTest(answer=answer, outcome=outcome):
+                for path in self.root.iterdir():
+                    if path.is_file():
+                        path.unlink()
+                    else:
+                        for child in sorted(path.rglob('*'), reverse=True):
+                            child.unlink() if child.is_file() else child.rmdir()
+                        path.rmdir()
+                self.runner.calls.clear()
+                self.runner.responses[head] = 'feature'
+                self.runner.responses[switch] = outcome
+                code, text = self.run_flow(Script(Switch=answer))
+                self.assertEqual(code, 0)
+                self.assertEqual(self.script.asked[0], 'Switch this checkout to main?')
+                self.assertIn(expected, text)
+                self.assertEqual(switch in [call for call, _ in self.runner.calls], answer)
+
+    def test_default_branch_is_not_questioned(self):
+        self.run_flow()
+        self.assertNotIn('Switch this checkout to main?', self.script.asked)
 
     def test_unattended_reads_nothing_and_keeps_permissions_off(self):
         code, text = self.run_flow(unattended=True)

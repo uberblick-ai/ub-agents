@@ -37,6 +37,7 @@ class Probes:
         self.existing_labels = None
         self.discussions = None
         self.discussions_note = ""
+        self.branch = self.default_branch = None
 
     def collect(self, name, summary=()):
         group = Group(name, [part for part in summary if part])
@@ -90,10 +91,12 @@ class Probes:
             except PROBE_ERRORS:
                 d.add("branch", "fail", "This is not a Git checkout", "Run init inside a clone of the repository")
             default = metadata.get("default_branch") if metadata else None
+            self.branch, self.default_branch = branch, default if isinstance(default, str) and default else None
             synced = False
             if isinstance(default, str) and default and branch:
+                # init asks to switch branches itself; a dirty tree is expected during setup.
                 problems = [error for id, error in control_checkout_checks(config, default, read_git)
-                            if error and id != "control-checkout-dirty"]
+                            if error and id not in {"control-checkout-branch", "control-checkout-dirty"}]
                 for error in problems:
                     d.add("control-checkout", "warn", str(error), "Fine for setup; launch from a clean default-branch checkout",
                           required=False)
@@ -123,12 +126,12 @@ class Probes:
             except PROBE_ERRORS:
                 role = None
             if role in {"maintain", "admin"}:
-                d.add("account", "warn", f"{actor} is {role} here; run agents as a write-only account", ACCOUNT_GUIDANCE,
-                      required=False)
+                d.add("account", "warn", f"{actor} is {role} on GitHub; run agents as a write-only account",
+                      f"See {ACCOUNT_GUIDANCE}", required=False)
             elif role is None:
-                d.add("account", "warn", f"{actor}'s repository role can't be read", ACCOUNT_GUIDANCE, required=False)
+                d.add("account", "warn", f"{actor}'s repository role can't be read", f"See {ACCOUNT_GUIDANCE}", required=False)
             elif role != "write":
-                d.add("account", "fail", f"{actor} can't push to {config.repository}", ACCOUNT_GUIDANCE)
+                d.add("account", "fail", f"{actor} can't push to {config.repository}", f"See {ACCOUNT_GUIDANCE}")
             if config.launchers is not None and actor.casefold() not in {v.casefold() for v in config.launchers}:
                 d.add("launcher-listed", "warn", f"{actor} is not in local launchers; it will claim no work",
                       "Review ub-agents.local.yaml", required=False)

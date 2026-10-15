@@ -44,7 +44,10 @@ cancel leaves no files, labels or boards.
    unchanged; declining prints the `gh label create` commands.
 5. **Write setup?** shows what will change and writes it.
 
-Init asks for the repository only when it can't infer it from the checkout.
+Init asks for the repository only when it can't infer it from the checkout. When the
+checkout is on another branch, it asks to switch to the default branch: launch uses
+that branch only to start fresh branches and worktrees for agents and never commits
+to it. Local changes come along; if Git refuses the switch, init says why and continues.
 
 ## Checks
 
@@ -58,7 +61,7 @@ Init writes `ub-agents.yaml`, `.agents/ub_agents.md` and four role files beside 
 and adds missing `.ub-agents/` and `ub-agents.local.yaml` entries to `.gitignore`.
 It refuses to run when a starter file already exists, never overwrites anything and
 leaves `AGENTS.md`, `CLAUDE.md` and an existing `ub-agents.local.yaml` unchanged.
-Init never switches branches, commits or pushes.
+Init never commits or pushes.
 
 When something fails halfway, init keeps what it did and prints what is left,
 including the content of files it could not write and the remaining label commands.

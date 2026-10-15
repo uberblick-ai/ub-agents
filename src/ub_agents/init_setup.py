@@ -303,8 +303,8 @@ PERMISSIONS_GUIDE = "https://agents.uberblick.ai/docs/configuration/permissions.
 def next_steps(plan):
     cli = plan.choices.runtime.split(":", 1)[0]
     name = plan.path.name
-    steps = [f"Review the agent permissions (runtime-args) in {name}: {PERMISSIONS_GUIDE}" if plan.choices.permissions else
-             f"Grant agent permissions later: uncomment runtime-args in {name}: {PERMISSIONS_GUIDE}",
+    steps = [f"Review the agent permissions (runtime-args) in {name}; see {PERMISSIONS_GUIDE}" if plan.choices.permissions else
+             f"Grant agent permissions later: uncomment runtime-args in {name}; see {PERMISSIONS_GUIDE}",
              "Review checks and merge authority in .agents/ub_agents.md"]
     if cli == "claude":
         steps.append(f"Add your test command to --allowedTools in {name}")

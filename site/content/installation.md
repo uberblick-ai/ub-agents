@@ -66,7 +66,7 @@ ub-agents launch
 
 Use a separate launcher checkout if you also code here. Launch fetches and
 fast-forwards origin's default branch before each run; agents use private worktrees
-and PRs. Init works on a setup branch and never switches, resets, stashes or clones.
+and PRs. Init offers to switch the checkout to your default branch and never resets, stashes, clones or commits.
 
 Then add the `ready` label to an issue. The launcher will:
 
