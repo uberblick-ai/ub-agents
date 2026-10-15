@@ -130,6 +130,9 @@ Configured [agent health checks](/docs/configuration/agents.html#health-check) m
 While a new run's log file has not appeared yet, Log shows `No log output yet.`
 without a read error and follows output automatically once it appears. Other read
 failures, including a log that disappears after being read, still show `Read error`.
+Press `h` in a paused Log pane to read older output while new output appends.
+Truncation, replacement or changes to the page or its validation anchor discard
+the older read.
 
 The item tab bar shows `│ Formatted  Raw (u)` on every tab. Press `u` to toggle
 the selected log's mode; the active label stays accented (Formatted underlined,

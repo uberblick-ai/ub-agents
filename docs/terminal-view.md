@@ -874,8 +874,9 @@ limit and hidden-entry count. These diagnostics do not occupy rows above the log
 Ingestion reads at
 most 32 KiB and processes at most 128 records per update; a bounded first-read
 selection avoids replaying a tiny-record history before recent output. Retention
-is 200 entries per reader. Older reads inspect at most 32 KiB plus identity
-anchors and decode at most 200 complete records and one fragment. Rendering keeps
+is 200 entries per reader. Older reads cover at most 32 KiB, reread those bytes
+and their boundary byte for validation, and check identity anchors. They decode
+at most 200 complete records and one fragment. Rendering keeps
 at most 400 wrapped lines, discarding whole older entries. `p` shows this rendered
 limit and hidden-entry boundary, plus eviction, skip and shortening counts.
 Press `h` to recover earlier bytes from disk. A paused page is independent of reader
@@ -887,8 +888,10 @@ retain the labelled raw display.
 
 Replacement, rotation and truncation reset the reader without mixing generations.
 A paused older generation remains visibly labelled until follow resumes. Older
-reads validate the file identity and byte anchor before and after reading; a
-changed file's page is rejected. Snapshot, context and log reads run on one daemon
+reads validate the file identity and byte anchor before and after reading, then
+check the page bytes and record boundary again. Appended output preserves the
+page; truncation, replacement or changes to the page or anchor discard it.
+Snapshot, context and log reads run on one daemon
 thread with single-slot request/result mailboxes. A slow read never blocks input
 or grows a backlog. The separate GitHub transport reads bounded nonblocking pipes.
 No file writes or launcher execution imports occur in the view. Cached own-run readers are

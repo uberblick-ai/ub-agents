@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -937,6 +938,137 @@ class ViewLogTests(unittest.TestCase):
                 other.write_bytes(b'replaced\n')
                 other.replace(self.log)
         with patch.object(reader, '_validate', side_effect=replace), self.assertRaises(FileChanged):
+            reader.older(reader.page().start, reader.resets)
+
+    def test_append_during_older_read_accepts_new_mtime_with_old_size(self):
+        data = b'original\n' * 5000
+        for old_size in (False, True):
+            with self.subTest(old_size=old_size):
+                self.log.write_bytes(data)
+                reader = ViewReader(self.log, 'command')
+                self.drain(reader)
+                end = reader.page().start
+                expected = reader.older(end, reader.resets)
+                fstat = os.fstat
+                observed = []
+
+                def append(fd):
+                    if observed:
+                        with self.log.open('ab') as stream:
+                            stream.write(b'appended\n')
+                        timestamp = observed[0].st_mtime_ns + 1_000_000_000
+                        os.utime(self.log, ns=(timestamp, timestamp))
+                    info = fstat(fd)
+                    if old_size and observed:
+                        # Model Linux publishing the append's mtime before size.
+                        info = SimpleNamespace(st_dev=info.st_dev, st_ino=info.st_ino,
+                                               st_mode=info.st_mode, st_size=observed[0].st_size,
+                                               st_mtime_ns=info.st_mtime_ns)
+                    observed.append(info)
+                    return info
+
+                with patch('ub_agents.view_logs.os.fstat', side_effect=append):
+                    page = reader.older(end, reader.resets)
+                self.assertEqual(page, expected)
+                self.assertEqual(len(observed), 2)
+                self.assertNotEqual(observed[0].st_mtime_ns, observed[1].st_mtime_ns)
+                if old_size:
+                    self.assertEqual(observed[0].st_size, observed[1].st_size)
+                self.assertEqual(self.log.read_bytes(), data + b'appended\n')
+
+    def test_rewrite_inside_older_page_discards_result_with_or_without_growth(self):
+        for append in (False, True):
+            with self.subTest(append=append):
+                # Fit page and anchor in one I/O buffer to catch cached validation.
+                self.log.write_bytes(b'original\n' * 500)
+                reader = ViewReader(self.log, 'command')
+                self.drain(reader)
+                end = reader.page().start
+                fstat = os.fstat
+                observed = []
+
+                def rewrite(fd):
+                    if observed:
+                        with self.log.open('r+b') as stream:
+                            stream.seek(end - 20)
+                            stream.write(b'!')
+                            if append:
+                                stream.seek(0, os.SEEK_END)
+                                stream.write(b'appended\n')
+                        timestamp = observed[0].st_mtime_ns + 1_000_000_000
+                        os.utime(self.log, ns=(timestamp, timestamp))
+                    info = fstat(fd)
+                    observed.append(info)
+                    return info
+
+                with patch('ub_agents.view_logs.os.fstat', side_effect=rewrite), self.assertRaises(FileChanged):
+                    reader.older(end, reader.resets)
+                self.assertEqual(len(observed), 2)
+                if not append:
+                    self.assertEqual(observed[0].st_size, observed[1].st_size)
+
+    def test_rewrite_of_older_page_boundary_or_anchor_discards_result_despite_growth(self):
+        for target in ('boundary', 'anchor'):
+            with self.subTest(target=target):
+                self.log.write_bytes(b'x' * PAGE_BYTES * 3 + b'\n')
+                reader = ViewReader(self.log, 'command')
+                self.drain(reader)
+                end = reader.page().start
+                self.assertGreater(end, PAGE_BYTES)
+                position = end - PAGE_BYTES - 1 if target == 'boundary' else reader.offset - 1
+                fstat = os.fstat
+                calls = 0
+
+                def rewrite(fd):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 2:
+                        with self.log.open('r+b') as stream:
+                            stream.seek(position)
+                            stream.write(b'\n' if target == 'boundary' else b'!')
+                            stream.seek(0, os.SEEK_END)
+                            stream.write(b'appended\n')
+                    return fstat(fd)
+
+                with patch('ub_agents.view_logs.os.fstat', side_effect=rewrite), self.assertRaises(FileChanged):
+                    reader.older(end, reader.resets)
+
+    def test_truncation_during_older_read_discards_result(self):
+        self.log.write_bytes(b'original\n' * 5000)
+        reader = ViewReader(self.log, 'command')
+        self.drain(reader)
+        fstat = os.fstat
+        calls = 0
+
+        def truncate(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                with self.log.open('r+b') as stream:
+                    stream.truncate(reader.page().start)
+            return fstat(fd)
+
+        with patch('ub_agents.view_logs.os.fstat', side_effect=truncate), self.assertRaises(FileChanged):
+            reader.older(reader.page().start, reader.resets)
+
+    def test_truncation_of_unread_append_during_older_read_discards_result(self):
+        self.log.write_bytes(b'original\n' * 5000)
+        reader = ViewReader(self.log, 'command')
+        self.drain(reader)
+        with self.log.open('ab') as stream:
+            stream.write(b'appended\n' * 100)
+        fstat = os.fstat
+        calls = 0
+
+        def truncate(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                with self.log.open('r+b') as stream:
+                    stream.truncate(reader.size + 1)
+            return fstat(fd)
+
+        with patch('ub_agents.view_logs.os.fstat', side_effect=truncate), self.assertRaises(FileChanged):
             reader.older(reader.page().start, reader.resets)
 
 
