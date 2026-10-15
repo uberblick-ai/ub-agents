@@ -160,8 +160,8 @@ class InitTests(unittest.TestCase):
                     self.assertIn('Leave changes to workflow, permissions and release policy to `@acme/core`;',
                                   customized)
                     self.assertNotIn('maintainer team', policy)
-                    self.assertEqual(policy.split('## Review focus\n\n')[1].strip(),
-                                     "Replace this section with the project's review priorities and required evidence.")
+                    self.assertIn('- New behavior has tests that fail without the change.',
+                                  policy.split('## Review focus\n\n')[1])
                     self.assertEqual(policy.count('before handoff'), 1)
                     prose = ' '.join(line for line in policy.splitlines() if not line.startswith('#'))
                     sentences = re.split(r'(?<=[.!?])\s+', prose.strip())

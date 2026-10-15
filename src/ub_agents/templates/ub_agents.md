@@ -25,4 +25,10 @@ act next.
 
 ## Review focus
 
-Replace this section with the project's review priorities and required evidence.
+Defaults; adjust them to the project's priorities.
+
+- The change stays within the issue's scope; other ideas become follow-up issues.
+- New behavior has tests that fail without the change.
+- No secrets, and no untrusted text reaching commands or output.
+- Changed behavior is documented where users and agents read it.
+- The simplest working change wins; no dead code or speculative options.
