@@ -67,7 +67,7 @@ Both show the changes first and only add what's missing.
 ub-agents init --use-defaults --repository org/project
 ```
 
-Asks nothing, runs no checks, creates no labels and opens no PR. It prints the label commands; run `ub-agents doctor` before you launch. CI and non-terminal runs behave the same.
+Writes the starter files without asking. Then run `ub-agents doctor`, which finds anything still missing, such as labels.
 
 ```text
 {{help init}}
