@@ -44,16 +44,14 @@ Init also creates the workflow labels on GitHub, plus any extras you picked. The
 
 Init never overwrites existing starter files, `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
-## Add boards or priorities later
-
-For an existing setup, run either flag or both:
+## Add the optional steps later on
 
 ```sh
-ub-agents init --create-boards
-ub-agents init --create-priorities
+ub-agents init --create-boards       # retrospective boards; turn on GitHub Discussions first
+ub-agents init --create-priorities   # priority labels
 ```
 
-`--create-boards` adds a [retrospective](/docs/commands/retrospective.html) board for every agent that doesn't have one yet; turn on GitHub Discussions first. `--create-priorities` asks for your priority labels and creates them. Both show the changes first and add only the missing entries to `ub-agents.yaml`.
+Both show the changes first and only add what's missing.
 
 ## Unattended setup
 
