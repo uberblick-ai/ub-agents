@@ -12,6 +12,7 @@ from .errors import AgentError
 from .execution import git
 from .github import REPOSITORY
 from .init_boards import Boards
+from .init_mcp import preview as mcp_preview
 from .init_probes import ACCOUNT_GUIDANCE, PROBE_ERRORS, Probes
 from .init_prompts import DIM, GREEN, RED, YELLOW, Cancelled, Option
 from .init_setup import (PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance_summary, infer_repository, make_plan, next_steps,
@@ -86,6 +87,7 @@ class Flow:
         self.github = self.probes = self.doctor = None
         self.on_default = False
         self.workspace = None
+        self.mcp = None
 
     def run(self):
         self.t.intro("ub-agents init", f"v{__version__}")
@@ -115,6 +117,7 @@ class Flow:
             choices.priority_labels = tuple(label.strip() for label in value.split(","))
         if "uberblick" in extras:
             self.choose_workspace()
+            self.mcp = mcp_preview(self.path.parent, choices.runtime.split(":", 1)[0], for_pr=self.on_default)
         if "retrospectives" in extras:
             boards, repo = Boards(self.github, self.repository), self.probes.discussions
             names = [c["name"] for c in repo["discussionCategories"]["nodes"]]
@@ -130,6 +133,9 @@ class Flow:
         boards = ", ".join(f"#{n}" for n in result.board_numbers.values())
         self.t.step("Setup written" + (f" · boards {boards}" if boards else ""))
         extra = self.create_workspace() if self.workspace == "create" else []
+        if self.mcp:
+            with self.t.spinner("Registering the Uberblick MCP server"):
+                extra += self.mcp.apply()
         url = self.open_pr(plan, extra) if self.on_default else None
         self.finish(plan, labels, extras, url)
         return 0
@@ -338,6 +344,10 @@ class Flow:
                                        (" (reused when the title exists)", DIM)))
         if self.workspace == "create":
             lines.append(Text.assemble(("+ ", GREEN), WORKSPACE_FILE, (" local Uberblick workspace", DIM)))
+        if self.mcp:
+            lines.append(Text(self.mcp.preview))
+            if self.mcp.action not in {"add", "reused"}:
+                lines.append(Text(f"Manual command: {self.mcp.command}", style=DIM))
         files = "the files go to a new PR." if self.on_default else "the files stay local."
         if labels or plan.choices.board_requests:
             files = "Labels and boards are created on GitHub right away; " + files
@@ -387,12 +397,17 @@ class Flow:
         if account and any(problem.id == "launcher-listed" for problem in account.problems):
             steps.append("Review ub-agents.local.yaml: list this launcher account before launch")
         if "uberblick" in extras:
-            cli = plan.choices.runtime.split(":", 1)[0]
             if self.workspace == "hub":
                 steps.append(f"Join your team's Uberblick workspace: ub auth login, then ub workspace use <link>; see {UBERBLICK}")
             elif self.workspace in {"later", "failed"}:
                 steps.append(f"Bind an Uberblick workspace: ub workspace create <name> or ub workspace use <link>; see {UBERBLICK}")
-            steps.append(f"Connect agents to Uberblick with ub mcp install {cli}; see {UBERBLICK}")
+            outcome = f"{self.mcp.description} · {self.mcp.action}"
+            if self.mcp.reason:
+                outcome += f" ({self.mcp.reason})"
+            steps.append(outcome)
+            if self.mcp.action not in {"registered", "reused"} or self.mcp.reason:
+                steps.append(f"Manual command: {self.mcp.command}; see {UBERBLICK}")
+            steps.append("Restart running agent sessions to pick up the Uberblick MCP server")
         if "retrospectives" not in extras:
             steps.append(f"Want retrospectives later? Turn on Discussions if needed, then follow {RETROSPECTIVES_GUIDE}")
         self.t.note("Next", [f"{index}. {step}" for index, step in enumerate(steps, 1)])

@@ -9,6 +9,22 @@ In a terminal it asks a few questions and writes after one confirmation.
 defaults without checks. Unattended runs keep permissions and extras off and print
 label commands. Existing local overrides still take precedence. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html).
+
+The interactive Uberblick extra previews project-scope MCP registration before
+**Write setup?**, then runs `ub mcp install claude` or `ub mcp install codex` for the
+selected runtime. `ub` 0.4.3 defaults to project scope; init uses its read-only
+`--print` preview to verify the destination and plain `ub mcp serve` entry.
+Claude Code uses `.mcp.json`; Codex uses `.codex/config.toml`. Registration works
+without a workspace binding and follows the nearest `.uberblick.json` when agents
+start. Matching entries are reused, conflicting entries stay unchanged, and
+unrelated settings are preserved. The new or changed project config goes into the
+setup PR, or stays local when the other setup files do. Init skips registration
+when the destination cannot be verified or the setup PR would need an ignored
+config file, preserving private settings. It reports the reason and manual command;
+registration failures also leave core setup and the setup PR available. Credentials,
+workspace pins and hub URLs are never added to the MCP entry. Running agent sessions
+need a restart. Unattended setup selects no extras and registers no MCP server.
+
 If the selected file is missing, `status`, `launch`, `retry` and
 unsupervised `read` exit 1 with a message naming `ub-agents init`.
 An explicit `--config PATH` is named in the message. `launch` creates no

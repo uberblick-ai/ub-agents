@@ -95,6 +95,15 @@ agents may work without asking, and which extras you want (priorities, retrospec
 Uberblick). It writes nothing until you confirm **Write setup?**. Agents always work
 in worktrees and branches; they never commit to main. See the
 [init command guide](https://agents.uberblick.ai/docs/commands/init.html).
+Selecting Uberblick also previews and registers its project MCP server for the
+chosen CLI after confirmation: `.mcp.json` for Claude Code or `.codex/config.toml`
+for Codex. The plain `ub mcp serve` entry follows `.uberblick.json`, including a
+binding you add later. Matching entries are reused; conflicts stay unchanged.
+New or changed MCP config joins the setup PR on the default branch, or stays local
+with the other setup files. Unsupported `ub` versions and registration failures
+leave a manual command without blocking setup. Restart running agent sessions
+after registration. Requires `ub` 0.4.3 or newer with project-scope support.
+
 The starter files are:
 
 ```text
