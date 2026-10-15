@@ -26,9 +26,9 @@ Suggest creating: empty config behavior
 
 Each item gets at most one post. You can adjust this in the agent's [role file](/docs/configuration/instructions.html#role-files).
 
-## Keep it public
+## Public repositories
 
-Discussions on a public repository are public, and the command posts the file as written. The built-in run instructions already tell agents to leave out credentials, environment values, local paths, hostnames and log excerpts, and to link the item instead. Keep that rule if you change your agents' instructions.
+On a public repository anyone can read the boards, and the command posts the file as written. The built-in run instructions already tell agents to leave out credentials, environment values, local paths, hostnames and log excerpts, and to link the item instead. Keep that rule if you change your agents' instructions. On a private repository only people with access see the boards.
 
 ```text
 {{help retrospective}}
