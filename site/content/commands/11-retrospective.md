@@ -16,7 +16,7 @@ implementer:
 When a run lost something, such as an extra review round, rework or a long search, or missed something it needed, the agent names the cost, the cause and the smallest change that would have prevented it in one short paragraph. A post can also hold, or be only, up to two topic lines. For example:
 
 ```text
-#287 spent about fifteen minutes finding which command runs the
+#287 spent about four minutes finding which command runs the
 integration tests; the contributing guide doesn't say. One line there
 would have saved the search.
 
