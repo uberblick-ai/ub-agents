@@ -18,9 +18,7 @@ brew update && brew upgrade ub-agents
 ub-agents launch
 ```
 
-## Under tmux or systemd
-
-When something restarts the launcher for you, upgrade first and then send `SIGTERM`.
+If a service such as systemd restarts the launcher for you, upgrade first, then stop it with `SIGTERM`.
 
 ## The update banner
 
