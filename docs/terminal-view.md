@@ -667,8 +667,10 @@ when paused or behind. It shows PAUSED or BEHIND, nonzero unread entries and byt
 lag, and RAW when that projection is on. There is no FOLLOW badge. Log notices
 appear only when applicable: file changes or an earlier generation, read errors,
 unfinished records, unknown-runtime fallback and older-page notices. Pausing
-freezes the page and its position while ingestion continues. Notices and the
-pill can change the pane's height without rewrapping or moving the paused page.
+freezes the page and its position while ingestion continues. Pausing or scrolling
+up preserves the chosen position even when a follow update is waiting to redraw.
+Notices and the pill can change the pane's height without rewrapping or moving
+the paused page.
 The separate run status describes the process and reported outcome. Revisiting
 tabs or selected rows restores that page and position. Width changes and
 raw-mode changes retain the

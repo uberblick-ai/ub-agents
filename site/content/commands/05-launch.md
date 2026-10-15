@@ -175,6 +175,8 @@ Pane and overlay scrollbars stay hidden until you scroll. Each muted bar uses
 one reserved column, so appearing or disappearing never shifts the content.
 It hides after 1.5 seconds of inactivity; hovering or dragging keeps it visible.
 Log follow updates and automatic position changes leave the bar hidden.
+Pausing or scrolling up in Log preserves the chosen position even when a follow
+update is waiting to redraw.
 
 Recent activity fills the lower half of Work and scrolls independently of the
 live sections above it. Use the mouse wheel or trackpad to reach all 20 retained
