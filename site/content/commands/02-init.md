@@ -4,7 +4,7 @@ Run `ub-agents init` in your project's checkout. It checks your machine, asks a 
 questions and writes the starter files after one confirmation.
 
 ```text
-┌   ub-agents init  v0.3.0
+┌   ub-agents init  v0.3.1
 │
 ◇  Checks
 │  ✓ Machine    Python 3.13 · git · gh · ps

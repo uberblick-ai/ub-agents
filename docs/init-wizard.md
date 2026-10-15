@@ -93,7 +93,7 @@ an ignored config, init keeps the manual command instead of registering.
 A checkout on another branch, Claude logged in, an admin account, a maintaining team, `ub` installed and all extras selected.
 
 ```text
-┌   ub-agents init  v0.3.0
+┌   ub-agents init  v0.3.1
 │
 ◇  Checks
 │  ✓ Machine    Python 3.13 · git · gh · ps
@@ -227,7 +227,7 @@ A checkout with local changes (untracked files included) stops after the checks:
 These runs skip all extras and register no MCP server. The setup remains local-only.
 
 ```text
-┌   ub-agents init  v0.3.0
+┌   ub-agents init  v0.3.1
 │
 ◇  Checks skipped
 │  Unattended setup; run ub-agents doctor before launch
