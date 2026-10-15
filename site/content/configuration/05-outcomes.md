@@ -32,6 +32,32 @@ An empty mapping changes nothing else.
 merged: {}
 ```
 
+## Start sub-issues
+
+An agent that takes issues can start the native sub-issues its run creates:
+
+```yaml
+split: {sub-issues: {add: [needs-preparation]}}
+```
+
+The launcher applies the labels to open sub-issues in the same repository,
+authored by the account holding the run's lease and created after its claim.
+Other sub-issues receive no label and are named in the outcome summary. The parent
+loses its triggers. Targets are stored before the transition, so recovery finishes
+the same set. Agents file issues without trigger labels and report `split` normally.
+
+`sub-issues` accepts only `add`, with a nonempty list of issue-agent trigger labels.
+Stop labels and PR-only agents are rejected by `doctor --offline`. Adding the
+preparer's own trigger to its sub-issues is allowed.
+
+With [approvals on](/docs/configuration/approvals.html), the accepted parent outcome
+lets these labels inherit the parent's start. Later outside edits and comments
+follow the usual approval rules. Approvals off still allow any trigger to start work.
+
+**Upgrading:** Before using this key, stop and upgrade all project launchers, then
+restart them on the new version. Older launchers reject the key and would park
+inherited starts.
+
 ## Ask a person
 
 Add a stop label to park the item for a human decision.

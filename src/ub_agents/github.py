@@ -190,6 +190,12 @@ class Dependency:
                 else f"{self.repository}#{self.number}")
 
 
+@dataclass(frozen=True)
+class SubIssue(Dependency):
+    created_at: str
+    author: str | None
+
+
 def links_issue(pr, repository, number):
     link = f"https://github.com/{repository}/issues/{number}"
     return bool(re.search(rf"(?<![\w/])#{number}\b", pr.body) or link in pr.body)
@@ -410,6 +416,47 @@ class GitHub:
 
     def timeline(self, number):
         return self.request(f"{self.prefix}/issues/{number}/timeline", paginate=True)
+
+    def sub_issues(self, number):
+        endpoint = f"{self.prefix}/issues/{number}/sub_issues?per_page=100"
+        data = self.request(endpoint, paginate=True)
+        try:
+            if not isinstance(data, list):
+                raise ValueError("invalid sub-issues list")
+            children = []
+            for raw in data:
+                match = re.fullmatch(rf"https://api\.github\.com/repos/({REPOSITORY})/issues/([1-9][0-9]*)",
+                                     raw["url"])
+                if (not positive_int(raw["number"]) or match is None or int(match[2]) != raw["number"]
+                        or raw["state"] not in {"open", "closed"} or "pull_request" in raw):
+                    raise ValueError("invalid sub-issue")
+                seconds(raw["created_at"])
+                author = (raw.get("user") or {}).get("login")
+                if author is not None and (not isinstance(author, str) or not author):
+                    raise ValueError("invalid sub-issue author")
+                children.append(SubIssue(match[1], raw["number"], raw["state"], raw["created_at"], author))
+            return children
+        except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
+            raise GitHubError("GET", endpoint, "Unreadable GitHub sub-issues") from exc
+
+    def parent_issue(self, number):
+        owner, name = self.repository.split("/")
+        data = self.graphql("""query($owner:String!, $name:String!, $number:Int!) {
+          repository(owner:$owner, name:$name) {
+            issue(number:$number) { parent { number state repository { nameWithOwner } } }
+          }
+        }""", {"owner": owner, "name": name, "number": number})
+        try:
+            parent = data["repository"]["issue"]["parent"]
+            if parent is None:
+                return None
+            repository = parent["repository"]["nameWithOwner"]
+            if (not positive_int(parent["number"]) or parent["state"] not in {"OPEN", "CLOSED"}
+                    or not isinstance(repository, str) or not re.fullmatch(REPOSITORY, repository)):
+                raise ValueError("invalid parent issue")
+            return Dependency(repository, parent["number"], parent["state"].lower())
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GitHubError("POST", "graphql", "Unreadable GitHub parent issue") from exc
 
     def issue_content(self, number):
         return self._content(number, "issue")

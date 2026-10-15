@@ -69,6 +69,8 @@ class RunConfigTests(unittest.TestCase):
             "agent": (None, True, 1, [], {}, "", "Worker", "../worker"),
             "approvals": (True, 1, [], {}, "invalid"),
             "trusted-bots": (None, True, "copilot", {}, [1], [" "], ["@copilot"], ["copilot", "Copilot"]),
+            "launchers": (None, True, "operator", {}, [], [1], [" "], ["operator "], ["operator", "OPERATOR"]),
+            "sub-issue-labels": (None, True, "ready", {}, [1], [" "], ["unknown"]),
             "triggers": (None, [], {}, {"issue": []}, {"issue": [], "pr": [], "extra": []},
                          {"issue": "ready", "pr": []}, {"issue": [], "pr": [1]},
                          {"issue": [" "], "pr": []}),
@@ -98,3 +100,14 @@ class RunConfigTests(unittest.TestCase):
             loaded = supervised_run()
         self.assertIsNone(loaded["approvals"])
         self.assertIsNone(loaded["retrospectives"])
+
+    def test_optional_launcher_allowlist_is_valid_and_pinned(self):
+        self.path.write_text(json.dumps(self.context | {"launchers": ["operator"]}))
+        with patch.dict(os.environ, self.env, clear=True):
+            self.assertEqual(supervised_run()["launchers"], ["operator"])
+
+    def test_optional_sub_issue_labels_are_valid_and_pinned(self):
+        for labels in ([], ["ready"]):
+            self.path.write_text(json.dumps(self.context | {"sub-issue-labels": labels}))
+            with self.subTest(labels=labels), patch.dict(os.environ, self.env, clear=True):
+                self.assertEqual(supervised_run()["sub-issue-labels"], labels)

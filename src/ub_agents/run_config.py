@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 
-from .config import bot_logins
+from .config import argv, bot_logins
 from .errors import AgentError
 from .github import REPOSITORY
 from .read_input import read_policy
@@ -30,7 +30,7 @@ def supervised_run():
             raise ValueError("missing launcher context")
         context = json.loads(Path(path).read_text(encoding="utf-8"))
         if (not isinstance(context, dict)
-                or set(context) != {"repository", "run", "assignment", "lease_id", "agent",
+                or set(context) - {"launchers", "sub-issue-labels"} != {"repository", "run", "assignment", "lease_id", "agent",
                                     "approvals", "trusted-bots", "triggers", "retrospectives"}
                 or not isinstance(context["repository"], str)
                 or not re.fullmatch(REPOSITORY, context["repository"])
@@ -48,9 +48,16 @@ def supervised_run():
                 or set(context["triggers"]) != {"issue", "pr"}):
             raise ValueError("invalid launcher context")
         bot_logins(context["trusted-bots"])
-        for labels in context["triggers"].values():
+        if "launchers" in context:
+            launchers = argv(context["launchers"], "launchers")
+            if (any(login != login.strip() for login in launchers)
+                    or len({login.casefold() for login in launchers}) != len(launchers)):
+                raise ValueError("invalid launcher accounts")
+        for labels in [*context["triggers"].values(), context.get("sub-issue-labels", [])]:
             if not isinstance(labels, list) or any(not isinstance(s, str) or not s.strip() for s in labels):
                 raise ValueError("invalid launcher triggers")
+        if not set(context.get("sub-issue-labels", ())).issubset(context["triggers"]["issue"]):
+            raise ValueError("invalid sub-issue labels")
         return context
     except (OSError, ValueError, TypeError, KeyError, AgentError) as exc:
         raise AgentError("Command requires a supervised ub-agents assignment and the launcher's readable "

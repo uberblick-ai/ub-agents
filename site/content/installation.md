@@ -81,6 +81,6 @@ Then add the `ready` label to an issue. The launcher will:
 8. Remove `ready` from the issue and add `needs-review` to the pull request.
 9. Remove the worktree and release the claim.
 
-In a public repository, only a label added by someone with maintain or admin access starts work. See [Approvals](/docs/configuration/approvals.html).
+In a public repository, a label added by someone with maintain or admin access starts work. See [Approvals](/docs/configuration/approvals.html).
 
 That's it. Add a reviewer for `needs-review` and an integrator for `ready-to-merge`, or keep the four starter roles `init` wrote. For more machines, see [Add a launcher](/docs/guides/add-a-launcher.html).

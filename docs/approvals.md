@@ -52,7 +52,8 @@ To require maintainer starts in private or internal repositories, set
 
 ## With approvals on
 
-Issue work needs a maintainer's start. Once started, the pipeline can move its own
+Issue work needs a maintainer's start, directly or inherited from a parent's
+accepted `sub-issues` outcome. Once started, the pipeline can move its own
 labels and accept trusted edits without further human involvement. Outside content
 needs a maintainer's review before it becomes input.
 
@@ -107,7 +108,7 @@ labels, claims, notices or records. The effective `approvals` policy resolves fr
 configuration or repository visibility for each invocation, just as in discovery.
 Inside a supervised run, invoke the launcher's literal `report_command` followed
 by `read N`. The launcher pins its repository, configured approvals policy,
-trigger labels and trusted bot list in the run; a changed worktree configuration
+trigger labels, trusted bot list and any launcher allowlist in the run; a changed worktree configuration
 or `--config` cannot replace them.
 
 The output contains `number`, `kind`, `state`, `title`, `body` and `comments`. PRs
@@ -196,7 +197,29 @@ one of the configured triggers of any `issue` or `either` agent. It normally sta
 with `needs-preparation`. A maintainer applying `ready` also starts an issue if that
 is an issue agent's trigger. PR-only triggers do not start issues. The event remains
 a start after the label is removed or agents apply other workflow labels. A `write`
-account, including the launcher account, cannot start work by applying labels.
+account, including the launcher account, cannot ordinarily start work by applying labels.
+
+An issue can inherit a start from its native parent through a declared
+[`sub-issues: {add: [...]}` outcome](configuration.md#outcomes-and-transitions).
+The outcome records the open, same-repository sub-issues authored by the lease's
+launcher account after its claim. The parent record must name the sub-issue and
+trigger label, match its source lease's declaration, be accepted and complete, and
+have a successful released source or recovery lease with confirmed cleanup.
+Both the record author and label actor must be trusted launcher accounts under the
+current roles and `launchers` configuration; listed bots gain no such authority.
+The trigger must have been added during the parent's transition. A later launcher
+reapplication cannot use the old record to clear new outside edits.
+Only labels declared in the current configuration's `sub-issues` outcomes prompt
+a fresh parent lookup; other launcher-applied triggers keep their cached reads.
+In-run `read` pins that label set along with the launcher allowlist.
+
+While a recorded parent transition is still pending, pickup waits without adding
+an approval stop label. A launcher label without matching provenance remains
+"No maintainer start". The inherited start has the same clearance time as its
+trigger event: later outside title/body edits suspend work and later outside
+comments remain withheld until a maintainer re-applies a trigger. No extra
+maintainer start is needed for each qualifying sub-issue, including preparation.
+Approvals off still allow any trigger label to start work.
 
 Each maintainer trigger label approves the issue as it stands at that time, including
 outside comments already present and last updated before that event. After the

@@ -150,7 +150,7 @@ ub-agents launch     # runs the loop and opens the terminal view
 Setup success does not establish launch readiness. Launch fetches and fast-forwards
 the control checkout before runs; use a separate checkout if you also code here.
 
-Now add `needs-preparation` to an issue. In a public repository, only a label added
+Now add `needs-preparation` to an issue. In a public repository, a label added
 by someone with `maintain` or `admin` access starts work on an issue, and outside
 edits wait for their approval ([approvals](docs/approvals.md)).
 
@@ -183,6 +183,12 @@ implementer:
   instructions: .agents/implementer.md
   worktree: true                          # private checkout for each run
 ```
+
+An issue agent can use `split: {sub-issues: {add: [needs-preparation]}}` to have the
+launcher start the qualifying native sub-issues its run creates. With approvals on,
+they inherit the parent's start through its accepted outcome. See the
+[outcome reference](docs/configuration.md#outcomes-and-transitions) for eligibility
+and the requirement to upgrade every launcher before adopting this key.
 
 The launcher removes the trigger label and applies the outcome's labels only after
 it has checked the agent's report on GitHub. The

@@ -394,8 +394,10 @@ class Coordinator:
                   "stop_labels": list(stop_labels), "action_required": True}
         if not recovery:
             record["outcomes"] = {
-                name: ({"add": list(changes["add"]), "remove": list(changes["remove"])}
-                       if changes["remove"] else list(changes["add"]))
+                name: (({"add": list(changes["add"]), "remove": list(changes["remove"])} |
+                        ({"sub-issues": {"add": list(changes["sub-issues"]["add"])}}
+                         if "sub-issues" in changes else {}))
+                       if changes["remove"] or "sub-issues" in changes else list(changes["add"]))
                 for name, changes in plan.agent.outcomes.items()}
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
@@ -606,6 +608,23 @@ class Coordinator:
             if isinstance(declaration, list):
                 declaration = {"add": declaration}
             record |= {"outcome": outcome, "transition": declaration | {"started": False}}
+            if "sub-issues" in declaration:
+                assignment = self.github.item(lease["assignment"])
+                if assignment.kind != "issue":
+                    raise AgentError("A sub-issues outcome requires an issue assignment")
+                children, skipped = [], []
+                for child in self.github.sub_issues(lease["assignment"]):
+                    if (child.repository.casefold() == self.github.repository.casefold()
+                            and child.state == "open" and child.author is not None
+                            and child.author.casefold() == lease["actor"].casefold()
+                            and seconds(child.created_at) > seconds(lease["created"])):
+                        children.append(child.number)
+                    else:
+                        skipped.append(child.reference(self.github.repository))
+                record["sub_issues"] = sorted(set(children))
+                if skipped:
+                    record["summary"] += "\n\nSub-issues left unchanged (only open, same-repository sub-issues created by " \
+                                         "this run's launcher account after its claim qualify): " + ", ".join(sorted(set(skipped))) + "."
         self.assert_owned(lease)
         reported = records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
         self.observed(reported)

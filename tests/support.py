@@ -10,7 +10,7 @@ import tempfile
 import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
-from ub_agents.github import Dependency, Item
+from ub_agents.github import Dependency, Item, SubIssue
 from ub_agents.records import MARKER, body, payload, records
 
 
@@ -226,6 +226,7 @@ class FakeGitHub:
         self.items = {item.number: item for item in items}
         self.milestones = []
         self.dependencies = {}
+        self.children = {}
         self.store = {}
         self.next_id = 1
         self.lock = threading.Lock()
@@ -324,6 +325,17 @@ class FakeGitHub:
     def blocked_by(self, number):
         return [Dependency(self.repository, n, self.items[n].state) if isinstance(n, int) else n
                 for n in self.dependencies.get(number, [])]
+
+    def sub_issues(self, number):
+        return [SubIssue(self.repository, n, self.items[n].state,
+                         self.items[n].created_at, self.items[n].author) if isinstance(n, int) else n
+                for n in self.children.get(number, [])]
+
+    def parent_issue(self, number):
+        return next((Dependency(self.repository, parent, self.items[parent].state)
+                     for parent in self.children
+                     if any(c.number == number and c.repository.casefold() == self.repository.casefold()
+                            for c in self.sub_issues(parent))), None)
 
     def change(self, number, **changes):
         self.items[number] = replace(self.items[number], **changes)

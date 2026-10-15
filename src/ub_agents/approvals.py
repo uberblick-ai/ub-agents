@@ -8,8 +8,8 @@ import re
 from .bots import is_bot, listed_bot
 from .errors import AgentError, GitHubError, LostOwnership
 from .notices import ACTION_MARKER
-from .records import (lease_by_id,
-                      positive_int, records, recovers, same_run, seconds)
+from .records import (declared_transition, lease_by_id,
+                      positive_int, records, recovers, resolve_transition, same_run, seconds)
 from .trust import LauncherTrust
 
 MAINTAINERS = {"maintain", "admin"}
@@ -105,7 +105,7 @@ def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False):
 
 
 def filter_input(github, item, policy, trigger_labels, *, actor=None, launchers=None,
-                 trusted_bots=(), read_only=False, raise_read_errors=False):
+                 sub_issue_labels=(), trusted_bots=(), read_only=False, raise_read_errors=False):
     """One filtering entry point for assignment contexts and read-only item reads.
 
     Reads skip pickup gates, but never skip input clearance or edit history.
@@ -116,7 +116,8 @@ def filter_input(github, item, policy, trigger_labels, *, actor=None, launchers=
         return trusted_input(github, item, trusted_bots=trusted_bots, strict_permissions=read_only)
     try:
         return _check_input(github, item.number, set(trigger_labels), item.kind, actor, launchers,
-                            trusted_bots=trusted_bots, read_only=read_only, expected=item)
+                            sub_issue_labels=sub_issue_labels, trusted_bots=trusted_bots,
+                            read_only=read_only, expected=item)
     except (AgentError, KeyError, TypeError, ValueError, AttributeError) as exc:
         if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and (exc.rate_limited or raise_read_errors)):
             raise
@@ -175,7 +176,7 @@ def validate_content(content):
 
 
 def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None, *,
-                 trusted_bots=(), read_only=False, expected=None):
+                 sub_issue_labels=(), trusted_bots=(), read_only=False, expected=None):
     content = github.issue_content(number) if kind == "issue" else github.pr_content(number)
     if not isinstance(content["title"], str) or not isinstance(content["body"], str):
         raise ValueError("invalid content")
@@ -186,7 +187,7 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
     created, edits = seconds(content["createdAt"]), content["edits"]
     timeline = github.timeline(number)
     roles = Roles(github, trusted_bots=trusted_bots, strict=read_only)
-    starts, renames = [], []
+    starts, renames, launcher_events = [], [], []
     for event in timeline:
         if event["event"] not in {"labeled", "renamed"}:
             continue
@@ -195,8 +196,13 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
             if not all(isinstance(event["rename"][key], str) for key in ("from", "to")):
                 raise ValueError("invalid rename")
             renames.append(event)
-        elif event["label"]["name"] in trigger_labels and roles(event.get("actor")) in MAINTAINERS:
-            starts.append(at)
+        elif event["label"]["name"] in trigger_labels:
+            if roles(event.get("actor")) in MAINTAINERS:
+                starts.append(at)
+            elif kind == "issue" and event["label"]["name"] in sub_issue_labels:
+                launcher_events.append(event)
+    inherited, pending = inherited_starts(github, number, launcher_events, roles, launchers)
+    starts.extend(inherited)
     renames.sort(key=lambda e: seconds(e["created_at"]))
     comments = github.comments(number)
     groups = {"comments": comments}
@@ -264,6 +270,8 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
                 return verdict(False, snapshot[name]["reason"], "input", outside_edits[name])
         return verdict(True, "Trusted PR author; outside feedback requires clearance")
     if not starts:
+        if pending:
+            return verdict(False, "Sub-issue start is pending completion of its parent outcome")
         article = "an issue" if kind == "issue" else "a PR"
         return verdict(False, f"No maintainer has applied {article} agent's trigger label", "start")
     if kind == "pr":
@@ -294,6 +302,58 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
         return verdict(False, "Outside PR feedback after approval; a maintainer must re-apply a trigger label",
                        "input", [latest, feedback])
     return verdict(True, "Maintainer start approved; no later outside input edits")
+
+
+def inherited_starts(github, number, events, roles, launchers):
+    """Only accepted parent transitions authorize launcher-applied issue starts."""
+    trusted = LauncherTrust(github, launchers, role=lambda login: roles({"login": login}),
+                            trusted_bots=roles.bots)
+
+    def launcher(author):
+        # Keep bot/deleted-user handling identical to direct starts. Turning
+        # an actor into just a login would lose its bot attribution.
+        return roles(author) in TRUSTED and trusted(author)
+
+    events = [e for e in events if launcher(e.get("actor"))]
+    if not events:
+        return [], False
+    parent = github.parent_issue(number)
+    if parent is None or parent.repository.casefold() != github.repository.casefold():
+        return [], False
+    history = records(github.comments(parent.number), trusted=launcher)
+    starts, pending = [], False
+    for outcome in history:
+        if (outcome["kind"] != "outcome" or outcome["assignment"] != parent.number
+                or outcome["status"] != "success" or outcome.get("rejected")
+                or number not in outcome.get("sub_issues", ())):
+            continue
+        lease = lease_by_id(history, outcome["lease_id"])
+        name = outcome.get("outcome")
+        if (not lease or not same_run(outcome, lease) or name not in lease.get("outcomes", {})
+                or lease.get("cleanup") == "unconfirmed"):
+            continue
+        declaration = declared_transition(lease, name)
+        transition = outcome.get("transition", {})
+        if (not transition.get("started") or "sub-issues" not in declaration
+                or {k: v for k, v in resolve_transition(transition, declaration).items() if k != "started"}
+                != declaration):
+            continue
+        # Timeline events have second precision; the label can be applied in
+        # the same second as the higher precision durable outcome timestamp.
+        matching = [seconds(e["created_at"]) for e in events
+                    if e["label"]["name"] in declaration["sub-issues"]["add"]
+                    and seconds(e["created_at"]) >= int(seconds(outcome["created"]))]
+        releases = [seconds(r["expires"]) for r in history
+                    if (r["id"] == lease["id"] or recovers(r, lease))
+                    and r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
+                    and r.get("cleanup") != "unconfirmed"]
+        if outcome.get("accepted") and outcome.get("transition_complete") and releases:
+            # A later unrelated reapplication must not clear outside edits on
+            # the authority of an old parent transition.
+            starts.extend(at for at in matching if at <= int(max(releases)))
+        elif matching and lease.get("result") not in {"retry", "blocked"}:
+            pending = True
+    return starts, pending
 
 
 def eligible_head(head, number, approving_reviews, starts, comments, roles, actor, *,

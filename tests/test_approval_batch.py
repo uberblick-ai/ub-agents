@@ -271,6 +271,29 @@ class ApprovalBatchTests(unittest.TestCase):
                 self.assertEqual(list(loop.iter_plans(claiming=claiming)), plans)
             self.assertFalse(any(c[c.index("--include") + 1] == "graphql" for c in runner.calls))
 
+    def test_ordinary_launcher_triggers_need_no_parent_read_on_cold_or_warm_passes(self):
+        for sub_issue_labels in ((), ('needs-preparation',)):
+            for claiming in (False, True):
+                with self.subTest(sub_issue_labels=sub_issue_labels, claiming=claiming):
+                    outcomes = {'done': {'add': (), 'remove': ()}}
+                    if sub_issue_labels:
+                        outcomes['split'] = {'add': (), 'remove': (), 'sub-issues': {'add': sub_issue_labels}}
+                    worker = agent(self.root, kind='issue', triggers=('ready', 'needs-preparation'), outcomes=outcomes)
+                    github = PollGitHub(issue(1), issue(2, labels=()))
+                    github.children[2] = [1]
+                    github.timeline(1)  # The maintainer's original start.
+                    github.timelines[1].append({'event': 'labeled', 'actor': {'login': 'operator'},
+                                               'label': {'name': 'ready'}, 'created_at': iso(1767225601)})
+                    loop = Loop(config(self.root, worker), github, 'operator', output=lambda *_: None)
+                    with patch.object(github, 'parent_issue', wraps=github.parent_issue) as parent:
+                        plans = list(loop.iter_plans(claiming=claiming))
+                        self.assertEqual([(p.item.number, p.state) for p in plans], [(1, 'ready')])
+                        for _ in range(3):
+                            github.reads.clear()
+                            self.assertEqual(list(loop.iter_plans(claiming=claiming)), plans)
+                            self.assertFalse(any(name in {'issue_content', 'timeline'} for name, _ in github.reads))
+                    parent.assert_not_called()
+
     def test_claiming_recovery_does_not_evaluate_later_agents_or_read_approval(self):
         for later_state in ("ready", "recover"):
             with self.subTest(later_state=later_state):
