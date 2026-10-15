@@ -1,6 +1,6 @@
 """Age-based startup retention of local diagnostics, without following links."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import json
 import os
 import shutil
@@ -15,6 +15,16 @@ from .records import timestamp
 RETENTION_SECONDS = 7 * 24 * 60 * 60
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+
+
+@contextmanager
+def removing(cleaner, artifact, output):
+    control = cleaner.control
+    with control.mutation(artifact) if control is not None else nullcontext():
+        if control is not None:
+            output(f"pruning {artifact.kind} {artifact.name}")
+            control.checkpoint()
+        yield
 
 
 @contextmanager
@@ -68,8 +78,10 @@ def run_files(parent, name):
         os.close(descriptor)
 
 
-def prune_runs(cleaner, parent, cutoff, removed, failed):
+def prune_runs(cleaner, parent, cutoff, removed, failed, output):
     for name in sorted(os.listdir(parent)):
+        if cleaner.control is not None:
+            cleaner.control.checkpoint()
         try:
             info = os.stat(name, dir_fd=parent, follow_symlinks=False)
             link = stat.S_ISLNK(info.st_mode)
@@ -98,9 +110,11 @@ def prune_runs(cleaner, parent, cutoff, removed, failed):
                 newest, size = run_files(parent, name)
                 if newest >= cutoff:
                     continue
-                shutil.rmtree(name, dir_fd=parent)
+                with removing(cleaner, artifact, output):
+                    shutil.rmtree(name, dir_fd=parent)
             else:
-                os.unlink(name, dir_fd=parent)
+                with removing(cleaner, artifact, output):
+                    os.unlink(name, dir_fd=parent)
             removed("runs", size)
         except FileNotFoundError:
             continue  # A concurrent sweep may already have removed this entry.
@@ -132,7 +146,7 @@ def inactive_snapshot(parent, name, now, host):
         os.close(descriptor)
 
 
-def prune_sessions(parent, own, now, removed, failed):
+def prune_sessions(cleaner, parent, own, now, removed, failed, output):
     host, cutoff = socket.gethostname(), now - RETENTION_SECONDS
 
     def remove(name, *, companion=False):
@@ -144,7 +158,8 @@ def prune_sessions(parent, own, now, removed, failed):
                 return False
             if not same_file(info, os.stat(name, dir_fd=parent, follow_symlinks=False)):
                 return False
-            os.unlink(name, dir_fd=parent)
+            with removing(cleaner, Artifact("session", name, name), output):
+                os.unlink(name, dir_fd=parent)
             removed("sessions", info.st_size)
             return True
         except FileNotFoundError:
@@ -156,6 +171,8 @@ def prune_sessions(parent, own, now, removed, failed):
     names = sorted(os.listdir(parent))
     # Snapshots first, so companion logs can be removed with them even if newer.
     for name in sorted(names, key=lambda n: not n.endswith(".json")):
+        if cleaner.control is not None:
+            cleaner.control.checkpoint()
         suffix = next((s for s in (".json", ".tmp", ".cleanup.log") if name.endswith(s)), None)
         if suffix is None or name[:-len(suffix)] == own:
             continue
@@ -202,12 +219,14 @@ def prune(cleaner, output, *, session=None, runs=True, now=None):
             output(f"Cannot prune {entry}: {' '.join(str(exc).split())}; continuing to poll")
 
     for name in ("runs", "sessions") if runs else ("sessions",):
+        if cleaner.control is not None:
+            cleaner.control.checkpoint()
         try:
             with directory(cleaner.root, name) as parent:
                 if name == "runs":
-                    prune_runs(cleaner, parent, now - RETENTION_SECONDS, removed, failed)
+                    prune_runs(cleaner, parent, now - RETENTION_SECONDS, removed, failed, output)
                 else:
-                    prune_sessions(parent, session, now, removed, failed)
+                    prune_sessions(cleaner, parent, session, now, removed, failed, output)
         except FileNotFoundError:
             pass
         except OSError as exc:

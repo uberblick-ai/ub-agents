@@ -38,7 +38,7 @@ class LaunchSetupTests(unittest.TestCase):
         self.checks = self.enterContext(patch("ub_agents.cli.launch_checks"))
         self.open_view = self.enterContext(patch("ub_agents.launch_ui.open_view", return_value=self.view))
         self.update_factory = self.enterContext(patch("ub_agents.updates.Updates", return_value=self.updates))
-        self.sweep = self.enterContext(patch("ub_agents.cli.startup_cleanup", return_value=False))
+        self.sweep = self.enterContext(patch("ub_agents.cli.StartupCleanup"))
 
         def create(*args, **kwargs):
             self.loop = Loop(*args, **kwargs)
@@ -81,11 +81,10 @@ class LaunchSetupTests(unittest.TestCase):
                         self.update_factory.assert_not_called()
                         events.append("checks")
 
-                    def sweep(*args, **kwargs):
+                    def sweep():
                         self.assertEqual(events, ["view", "checks"])
                         self.updates.start.assert_called_once()
                         events.append("sweep")
-                        return False
 
                     def poll(*_):
                         self.assertEqual(events, ["view", "checks", "sweep"])
@@ -95,7 +94,7 @@ class LaunchSetupTests(unittest.TestCase):
 
                     self.open_view.side_effect = view
                     self.checks.side_effect = checks
-                    self.sweep.side_effect = sweep
+                    self.sweep.return_value.start.side_effect = sweep
                     self.poll.side_effect = self.item_poll.side_effect = poll
                     self.update_factory.reset_mock()
                     self.updates.reset_mock()

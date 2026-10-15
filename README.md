@@ -279,21 +279,23 @@ or queue work starts. Quitting during setup exits without claiming work.
 
 Every launch sweeps all roles' leftover worktrees, unregistered folders under
 `.ub-agents/worktrees/`, and local `ub-agents/` or older `ub-agent/` run branches
-once before polling. It keeps artifacts of live leases on this host, branches
+once in the background while the view opens and polling starts. It keeps artifacts of live leases on this host, branches
 heading open PRs or checked out in remaining worktrees, and artifacts whose
 processes may still be running. Missing, older, unreadable or other-host leases,
 ended runs without a PR, dirty trees and locked trees do not prevent removal.
 Symlinks are removed as links. Cleanup hooks run before removal; failed hooks and
-GitHub coordination or PR read failures keep affected artifacts. Decisions appear
-in the launch log and terminal view, or plain output with `--no-ui`; removed
-branches with tips not known remotely include their restoration SHA. Sweep
-failures do not stop launch. See [stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
+GitHub coordination or PR read failures keep affected artifacts. Decisions and
+failures go only to `.ub-agents/sessions/<session>.cleanup.log`, including with
+`--no-ui`; without a session the log has a unique name in that directory.
+Unpushed tips are flushed to the log before deletion. Without a writable log,
+nothing is removed. Sweep failures do not stop launch. See
+[stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
 
 The same startup sweep prunes run diagnostics whose newest file is older than
 7 days, preserving live or uncertain runs and runs with kept worktrees or branches.
 It also prunes ended or stale session snapshots and orphan session files older
 than 7 days, preserving live sessions and the current launcher's files. One line
-reports the counts and space freed when anything is pruned; retention is fixed.
+in the cleanup log reports the counts and space freed when anything is pruned; retention is fixed.
 
 In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
 `y` copies the current selection again. Recent activity scrolls independently of

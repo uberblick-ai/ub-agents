@@ -33,7 +33,7 @@ hangs. Successful publications prune old ended or stale files, retaining at most
 are retained. Consumers should check liveness as well as timestamps because PID
 reuse is possible.
 
-Every launch's startup sweep also prunes ended or stale snapshots whose file
+Every launch's background startup sweep also prunes ended or stale snapshots whose file
 modification time is more than a fixed 7 days old, together with their
 `<session-id>.cleanup.log` files. Leftover `.tmp` and `.cleanup.log` files older
 than 7 days are pruned when no live snapshot protects them. Live sessions and
@@ -42,9 +42,15 @@ pruned. Unreadable snapshots preserve their companion files, and pruning never
 follows symlinks. The 20-inactive-session cap remains in effect, so busy launchers
 can remove inactive snapshots sooner. There is no retention configuration key.
 Pruning reports one summary line with run-directory and session-file counts and
-total space freed in launch output, `launch.log` and the Startup cleanup fold;
+total space freed only in `.ub-agents/sessions/<session-id>.cleanup.log`;
 companion logs and temporary files count individually. No pruning summary is
 printed when nothing was removed; removal failures are logged and launch continues.
+
+Every sweep creates a cleanup log and flushes each line, including recovery SHAs
+before branch deletion. If publication provides no session ID, cleanup uses a
+unique `*.cleanup.log` in the same directory, retained as an orphan. Cleanup is
+silent in the terminal, including with `--no-ui`, and cannot remove anything
+without a writable log. The view and polling start without waiting for it.
 
 ## Snapshot fields
 

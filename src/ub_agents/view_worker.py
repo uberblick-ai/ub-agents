@@ -35,7 +35,6 @@ class Result:
     runtime: str = 'unknown'
     description: object = None
     chosen: bool = False
-    cleanup: tuple[str, ...] = ()
 
 
 class LocalWorker:
@@ -45,7 +44,6 @@ class LocalWorker:
         self.stopping = threading.Event()
         self.readers = OrderedDict()
         self.contexts = OrderedDict()
-        self.cleanup = None
         self.thread = threading.Thread(target=self.run, name='local-view-reader', daemon=True)
 
     def start(self):
@@ -63,11 +61,6 @@ class LocalWorker:
 
     def read(self, request):
         session = load_session(self.session_path)
-        if session.data.get('startup_cleanup') and self.cleanup is None:
-            try:
-                self.cleanup = tuple(self.session_path.with_suffix('.cleanup.log').read_text(encoding='utf-8').splitlines())
-            except (OSError, UnicodeError) as exc:
-                self.cleanup = (f'Startup cleanup output unavailable: {exc}',)
         pane = work_pane(session, self.root, request.previous, request.key, request.chosen)
         selected = next((row for row in pane.rows if row.key == pane.selected), None)
         # Preserve the selected own run while a sparse snapshot or new pass arrives.
@@ -104,8 +97,7 @@ class LocalWorker:
                 except (OSError, ValueError) as exc:
                     error = str(exc)
         return Result(session, pane, pane.selected, request.token,
-                      context_text(selected, context), log, page, history, error, runtime, context, request.chosen,
-                      self.cleanup or ())
+                      context_text(selected, context), log, page, history, error, runtime, context, request.chosen)
 
     def run(self):
         while not self.stopping.is_set():

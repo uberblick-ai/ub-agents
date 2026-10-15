@@ -12,10 +12,14 @@ a retry wait exits without claiming work; fatal setup errors restore the termina
 before printing the error.
 
 Every invocation sweeps all roles' leftover worktrees and local run branches from
-this machine once, after startup checks and before the first poll or claim. This
-includes `--agent`, `NUMBER` and `--once`. Each `removed` or `kept` line includes
-its reason in the launch log and the terminal view's Startup cleanup fold, or
-plain output with `--no-ui`. Sweep failures are logged and polling continues.
+this machine once in the background after startup checks. This includes `--agent`,
+`NUMBER` and `--once`; the view opens and polling starts without waiting.
+Every decision, failure and pruning summary goes only to
+`.ub-agents/sessions/<session>.cleanup.log`, including with `--no-ui`.
+If session publication is unavailable, the sweep uses a unique `*.cleanup.log`
+in that directory. The log is created on every sweep and each line is flushed.
+Without a writable cleanup log, the sweep removes nothing. Sweep failures leave
+launch and its runs running. `ub-agents clean` keeps its usual output.
 The sweep covers registered worktrees and unregistered entries under
 `.ub-agents/worktrees/`, plus `ub-agents/<agent>/<number>/<run>` and older
 `ub-agent/` local branches. Symlinks are removed as links. It keeps live leases
@@ -27,7 +31,7 @@ dirty trees and locked trees do not prevent removal. GitHub coordination scan or
 PR lookup failures keep affected artifacts and log the reason. Removed branches
 whose tips are not reachable from fetched origin branches or merged PR heads
 include `unpushed tip SHA`, also when reachability cannot be checked; restore one
-with `git branch <name> <sha>`.
+with `git branch <name> <sha>`. Each unpushed tip is logged before deletion.
 
 The [cleanup hook](/docs/configuration/cleanup.html) runs before each worktree
 removal with unknown context fields set to `null`; a failed hook keeps the
@@ -35,14 +39,17 @@ worktree and branch for retry. A crashed run's local lease stays live until expi
 so a quick restart keeps its artifacts until a later launch start; there is no
 periodic sweep.
 
+Runs claimed by this launcher are protected from the sweep. On any exit, including
+`q`, signals and the end of a once or targeted launch, cleanup starts no further
+hook, removal or prune. Exit waits at most for the artifact already being handled.
+
 The startup sweep also prunes run directories whose newest file is older than
 a fixed 7 days, preserving live or uncertain runs and runs whose worktrees or
 branches were kept. Ended or stale session snapshots and orphan session files
 older than 7 days are pruned too, while live sessions and the current launcher's
 files survive. The existing cap of 20 inactive sessions remains. Pruning never
 follows symlinks and has no configuration key. One summary line reports counts
-and space freed when anything was removed, in launch output, `launch.log` and
-the Startup cleanup fold, including with `--no-ui`. Removal failures are logged
+and space freed when anything was removed, only in the cleanup log. Removal failures are logged
 once and launch continues. See [diagnostic retention](/docs/configuration/cleanup.html#diagnostic-retention).
 
 Before opening `.ub-agents/launch.log`, a launch rotates a log larger than a

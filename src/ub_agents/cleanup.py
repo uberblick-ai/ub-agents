@@ -1,6 +1,7 @@
 """Remove private artifacts that no local run or open PR still needs."""
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 from pathlib import Path
 import json
 import re
@@ -9,7 +10,7 @@ import socket
 
 from .coordination import Coordinator
 from .errors import AgentError, CleanupError, RecordError
-from .execution import git, group_members
+from .execution import fetched_head, git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
 from .records import records, seconds
 from .run_config import run_directory
@@ -42,12 +43,13 @@ def worktrees(root):
 
 
 class Cleaner:
-    def __init__(self, config, github, actor, output=print):
+    def __init__(self, config, github, actor, output=print, *, control=None):
         self.config = config
         self.root = config.root
         self.github = github
         self.coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
         self.output = output
+        self.control = control
         self.blocked_runs = set()
         self.kept_runs = set()
         self.preview_worktrees = set()
@@ -125,6 +127,8 @@ class Cleaner:
             raise AgentError("Expired run's process group is still present")
 
     def run_state(self, artifact, branch=None, *, check_diagnostics=True):
+        if self.control is not None:
+            self.control.check(artifact)
         index, invalid = self.coordinator.repository_history()
         # Discovery is not authority. Reread referring assignments, including
         # malformed threads that may also contain a valid, protective lease.
@@ -173,23 +177,24 @@ class Cleaner:
     def known_tip(self, branch, tip):
         # Remote reachability affects the restoration hint, never eligibility.
         try:
-            git(self.root, "fetch", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
+            git(self.root, "fetch", "--no-write-fetch-head", "--prune", "origin",
+                "+refs/heads/*:refs/remotes/origin/*")
             if git(self.root, "for-each-ref", f"--contains={tip}", "--format=%(refname)", "refs/remotes/origin/"):
                 return True
             for pr in self.github.prs_for_branch(branch, state="all"):
                 if not pr.merged:
                     continue
-                git(self.root, "fetch", "origin", f"refs/pull/{pr.number}/head")
-                head = git(self.root, "rev-parse", "FETCH_HEAD")
-                if head != pr.head:
-                    continue
-                try:
-                    git(self.root, "merge-base", "--is-ancestor", tip, head)
-                except AgentError:
-                    continue
-                return True
-        except (AgentError, OSError):
-            pass
+                with fetched_head(self.root, f"refs/pull/{pr.number}/head") as head:
+                    if head != pr.head:
+                        continue
+                    try:
+                        git(self.root, "merge-base", "--is-ancestor", tip, head)
+                    except AgentError:
+                        continue
+                    return True
+        except (AgentError, OSError) as exc:
+            if self.control is not None:
+                self.output(f"Cannot check remote reachability for {branch}: {exc}; unpushed tip {tip}")
         return False
 
     def remove_worktree(self, artifact):
@@ -206,6 +211,18 @@ class Cleaner:
         else:
             path.unlink()
 
+    def mutation(self, artifact):
+        if self.control is None:
+            return nullcontext()
+        return self.control.mutation(artifact)
+
+    def intent(self, artifact, reason):
+        if self.control is not None:
+            # Flush recovery SHAs before deleting refs, rather than relying on
+            # the result line surviving a crash after deletion.
+            self.output(f"removing {artifact.kind} {artifact.name}: {' '.join(reason.split())}")
+            self.control.checkpoint()
+
     def clean(self, apply=False):
         self.preview_worktrees.clear()
         self.blocked_runs.clear()
@@ -213,6 +230,8 @@ class Cleaner:
         self.branch_tips.clear()
         rows = []
         for artifact in self.inventory():
+            if self.control is not None:
+                self.control.checkpoint()
             try:
                 lease, outcome = self.check(artifact)
                 reason = "No live run or open PR"
@@ -228,19 +247,29 @@ class Cleaner:
                     # Inventory/preview conclusions never authorize a deletion.
                     lease, outcome = self.check(artifact)
                     if artifact.kind == "worktree":
-                        failure = run_hook(self.config, lease, Path(artifact.name), outcome)
-                        if failure:
-                            self.blocked_runs.add(artifact.run)
-                            raise AgentError(f"Cleanup hook failed; retry later: {failure}")
-                        self.check(artifact)  # hooks may alter the tree or lease
-                        self.remove_worktree(artifact)
+                        with self.mutation(artifact):
+                            self.intent(artifact, reason)
+                            failure = run_hook(self.config, lease, Path(artifact.name), outcome)
+                            if failure:
+                                self.blocked_runs.add(artifact.run)
+                                raise AgentError(f"Cleanup hook failed; retry later: {failure}")
+                        # Reads after a hook must not hold up quitting or a new
+                        # claim. Reacquire the guard before the actual removal.
+                        self.check(artifact)
+                        with self.mutation(artifact):
+                            self.intent(artifact, reason)
+                            self.remove_worktree(artifact)
                     else:
-                        # Compare-and-delete refuses to discard a newly moved tip.
-                        if any(t.get("branch") == f"refs/heads/{artifact.name}"
-                               for t in worktrees(self.root)):
-                            raise AgentError("Branch became checked out before deletion")
-                        git(self.root, "update-ref", "-d", f"refs/heads/{artifact.name}",
-                            self.branch_tips[artifact.name])
+                        with self.mutation(artifact):
+                            self.intent(artifact, reason)
+                            # Compare-and-delete refuses to discard a newly moved tip.
+                            if any(t.get("branch") == f"refs/heads/{artifact.name}"
+                                   for t in worktrees(self.root)):
+                                raise AgentError("Branch became checked out before deletion")
+                            if self.control is not None:
+                                self.control.checkpoint()
+                            git(self.root, "update-ref", "-d", f"refs/heads/{artifact.name}",
+                                self.branch_tips[artifact.name])
                     action = "removed"
                 elif artifact.kind == "worktree":
                     self.preview_worktrees.add(artifact.name)

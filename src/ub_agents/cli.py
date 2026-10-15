@@ -31,7 +31,7 @@ from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases
                       record_version, records, same_run, timestamp)
 from .run_config import supervised_run
 from .status import lease_summary, process_details
-from .startup_cleanup import sweep as startup_cleanup
+from .startup_cleanup import StartupCleanup
 
 
 def parser():
@@ -435,6 +435,7 @@ def run(args):
     from .observations import Observations, Publisher
     publisher = None
     view = None
+    cleanup = None
     try:
         try:
             publisher = Publisher(config.root, output=loop.output)
@@ -463,8 +464,9 @@ def run(args):
         if loop.updates is not None:
             loop.updates.start()
         loop._before_claim()
-        swept = startup_cleanup(config, github, loop.coordinator.actor, output=loop.output, session=session)
-        loop._observe("startup_cleanup", swept)
+        cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)
+        loop.coordinator.cleanup_control = cleanup.control
+        cleanup.start()
         loop._before_claim()
         if args.number is not None:
             loop.refusal_output = args.launch_output.refusals
@@ -475,6 +477,8 @@ def run(args):
     except _GracefulStop:
         return
     finally:
+        if cleanup is not None:
+            cleanup.close()
         if loop.updates is not None:
             loop.updates.close()
         if view is not None:

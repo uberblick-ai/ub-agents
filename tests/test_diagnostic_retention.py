@@ -3,10 +3,12 @@ import os
 from pathlib import Path
 import socket
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 from ub_agents.cleanup import Artifact, Cleaner
+from ub_agents.cleanup_control import CleanupControl
 from ub_agents.coordination import Coordinator
 from ub_agents.diagnostic_retention import RETENTION_SECONDS, prune
 from ub_agents.errors import AgentError, CleanupError
@@ -317,8 +319,9 @@ class DiagnosticRetentionTests(unittest.TestCase):
         self.make_run()
         self.snapshot("ended")
         with patch("ub_agents.cleanup.Cleaner.clean", side_effect=AgentError("inventory failed")):
-            self.assertTrue(sweep(self.config, self.github, "operator", self.lines.append, session="own"))
+            sweep(self.config, self.github, "operator", session="own", control=CleanupControl(threading.Event()))
         self.assertTrue((self.runs / "old").exists())
         self.assertFalse((self.sessions / "ended.json").exists())
-        self.assertEqual(len(self.lines), 2)
-        self.assertEqual((self.sessions / "own.cleanup.log").read_text().splitlines(), self.lines)
+        lines = (self.sessions / "own.cleanup.log").read_text().splitlines()
+        self.assertIn("Startup cleanup failed: inventory failed; continuing to poll", lines)
+        self.assertTrue(any(line.startswith("pruned 0 run directories and 1 session files") for line in lines))
