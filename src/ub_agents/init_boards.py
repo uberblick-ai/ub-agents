@@ -111,7 +111,8 @@ class Boards:
 
     def request(self, title, category, repo):
         if repo["viewerPermission"] not in {"WRITE", "MAINTAIN", "ADMIN"}:
-            raise AgentError(f"The launcher account cannot create requested boards in {self.repository}")
+            raise AgentError(f"The launcher account cannot create requested boards in {self.repository}; "
+                             "grant it Discussions write access")
         chosen = [c for c in repo["discussionCategories"]["nodes"] if c["name"] == category]
         if len(chosen) != 1:
             raise AgentError(f"Discussion category {category!r} is not available")

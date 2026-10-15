@@ -6,9 +6,16 @@ errors; `ub-agents doctor --offline` validates the file. Commands use this file 
 `init` writes the selected file or `ub-agents.yaml` by default.
 In a terminal it asks a few questions and writes after one confirmation.
 `init --use-defaults` stays prompt-free even in a terminal; CI/non-TTY also uses
-defaults without checks. Unattended runs keep permissions and extras off and print
-label commands. Existing local overrides still take precedence. See the
+defaults without checks for plain init. Unattended first-time setup keeps
+permissions and extras off and prints label commands. Existing local overrides still take precedence. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html).
+
+On an existing setup, `init --create-boards` adds missing retrospective boards and
+Claude `--allowedTools` entries, and `init --create-priorities` adds missing
+`queue.priority.labels`. The flags can be combined and only extend the selected
+configuration file, preserving other content. They run checks even with default
+answers, create boards and labels after one confirmation, and open one setup PR
+on the default branch or keep the config edit local on another branch.
 
 The interactive Uberblick extra previews project-scope MCP registration before
 **Write setup?**, then runs `ub mcp install claude` or `ub mcp install codex` for the
@@ -649,6 +656,9 @@ older versions reject the unknown agent key.
 "<Role> retrospectives" (for example "Implementer retrospectives") or creates one,
 verifies it and only then writes its number. No test comments are posted. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html).
+For an existing setup, `ub-agents init --create-boards` does this for every agent
+without a board, including custom roles, and adds missing Claude posting rules to
+the `--allowedTools` lists those agents use.
 
 Set `retrospectives: 203` on an agent to enable its supervised posting command:
 

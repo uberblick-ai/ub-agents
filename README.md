@@ -95,6 +95,12 @@ agents may work without asking, and which extras you want (priorities, retrospec
 Uberblick). It writes nothing until you confirm **Write setup?**. Agents always work
 in worktrees and branches; they never commit to main. See the
 [init command guide](https://agents.uberblick.ai/docs/commands/init.html).
+For an existing setup, `ub-agents init --create-boards` adds missing retrospective
+boards and Claude posting permissions; `--create-priorities` adds priority labels.
+Use either or both flags. They check the checkout and only add entries to
+`ub-agents.yaml`, opening one setup PR on the default branch or keeping the edit
+local on another branch. Default answers work with `--use-defaults` or no terminal.
+
 Selecting Uberblick also previews and registers its project MCP server for the
 chosen CLI after confirmation: `.mcp.json` for Claude Code or `.codex/config.toml`
 for Codex. The plain `ub mcp serve` entry follows `.uberblick.json`, including a
