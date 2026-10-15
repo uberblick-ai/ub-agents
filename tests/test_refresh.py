@@ -650,7 +650,7 @@ class RefreshTests(unittest.TestCase):
                 if once:
                     self.assertIs(raised.exception, failure)
                 else:
-                    self.assertIn("failure is not retryable; retries not exhausted", str(raised.exception))
+                    self.assertIn("ub-agents does not retry this error", str(raised.exception))
                     self.assertIn("Fix the cause and restart ub-agents launch", str(raised.exception))
                 self.assertEqual(self.snapshot(), before)
                 self.assertEqual(self.github.writes, [])

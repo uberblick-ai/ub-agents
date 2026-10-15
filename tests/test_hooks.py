@@ -10,7 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import CleanupHook, load_config
-from ub_agents.errors import AgentError, CleanupError, LostOwnership
+from ub_agents.errors import (AgentError, CleanupError, GitHubError, LostOwnership,
+                             RetryableExecutionError, TransitionPaused)
 from ub_agents.execution import Workspace, group_members, supervise
 from ub_agents.hooks import run_hook
 from ub_agents.loop import Loop
@@ -295,6 +296,93 @@ class HookTests(unittest.TestCase):
             self.execute(loop, lose)
         self.assertEqual(self.github.writes, self.last_writes)
         self.assertFalse(self.removed)
+
+    def test_github_failures_during_cleanup_leave_report_recoverable_without_further_writes(self):
+        for stage in ("outcome read", "hook ownership", "hook write"):
+            with self.subTest(stage=stage):
+                self.github = FakeGitHub(issue(), pr(labels=("needs-review",)))
+                loop = self.loop("pass" if stage == "outcome read" else "import sys; sys.exit(1)")
+                failure = GitHubError("GET", stage, "connection reset", retryable=True)
+                exited, failed = [], []
+                outcome, owned, update = loop.coordinator.outcome, loop.coordinator.assert_owned, self.github.update_comment
+
+                def report(lease):
+                    loop.coordinator.report(lease, "success", "done", handoff=2, outcome="done")
+                    exited.append(True)
+                    return 0
+
+                def read_outcome(lease):
+                    if stage == "outcome read" and exited and not failed:
+                        failed.append(list(self.github.writes))
+                        raise failure
+                    return outcome(lease)
+
+                def check_owned(lease):
+                    if stage == "hook ownership" and exited and not failed:
+                        failed.append(list(self.github.writes))
+                        with patch.object(loop.coordinator, "history", side_effect=failure):
+                            return owned(lease)
+                    return owned(lease)
+
+                def record(comment_id, body):
+                    if stage == "hook write" and '"cleanup_hook_error":' in body and not failed:
+                        failed.append(list(self.github.writes))
+                        raise failure
+                    return update(comment_id, body)
+
+                with patch.object(loop.coordinator, "outcome", side_effect=read_outcome), \
+                        patch.object(loop.coordinator, "assert_owned", side_effect=check_owned), \
+                        patch.object(self.github, "update_comment", side_effect=record), \
+                        self.assertRaises((GitHubError, LostOwnership)):
+                    self.execute(loop, report)
+                self.assertEqual(self.github.writes, failed[0])
+                lease, reported = loop.coordinator.history(1)
+                self.assertEqual(lease["state"], "running")
+                self.assertNotIn("result", lease)
+                self.assertFalse(reported["accepted"])
+                self.assertIsNone(loop._renewal)
+
+    def test_github_failure_during_failure_cleanup_still_runs_hook_without_further_writes(self):
+        for stop in (RetryableExecutionError("agent timeout"), KeyboardInterrupt(), TransitionPaused("stop label")):
+            for stage in ("outcome read", "hook write"):
+                with self.subTest(stop=type(stop).__name__, stage=stage), ExitStack() as stack:
+                    self.github = FakeGitHub(issue(), pr(labels=("needs-review",)))
+                    self.removed.clear()
+                    loop = self.loop("pass" if stage == "outcome read" else "import sys; sys.exit(1)")
+                    failure = GitHubError("GET", stage, "unavailable", retryable=True)
+                    read, update = loop.coordinator.outcome, self.github.update_comment
+                    stopped = []
+
+                    def execution(lease):
+                        loop.coordinator.report(lease, "success", "early report", handoff=2, outcome="done")
+                        stopped.append(list(self.github.writes))
+                        raise stop
+
+                    def read_outcome(lease):
+                        if stopped and stage == "outcome read":
+                            raise failure
+                        return read(lease)
+
+                    def write(comment_id, body):
+                        if '"cleanup_hook_error":' in body:
+                            raise failure
+                        return update(comment_id, body)
+
+                    stack.enter_context(patch.object(loop.coordinator, "outcome", side_effect=read_outcome))
+                    stack.enter_context(patch.object(self.github, "update_comment", side_effect=write))
+                    hook = stack.enter_context(patch("ub_agents.loop.run_hook", wraps=run_hook))
+                    with self.assertRaises(GitHubError) as raised:
+                        self.execute(loop, execution)
+                    self.assertIs(raised.exception, failure)
+                    hook.assert_called_once()
+                    self.assertEqual(self.github.writes, stopped[0])
+                    self.assertEqual(len(self.removed), int(stage == "outcome read"))
+                    self.assertEqual(self.workspace.created, stage == "hook write")
+                    lease, reported = loop.coordinator.history(1)
+                    self.assertEqual(lease["state"], "running")
+                    self.assertNotIn("result", lease)
+                    self.assertFalse(reported["accepted"])
+                    self.assertIsNone(loop._renewal)
 
     def test_unconfirmed_agent_stop_never_runs_hook_or_removes_tree(self):
         output = self.root / "should-not-exist"

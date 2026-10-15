@@ -74,19 +74,25 @@ Track remaining/limit/reset independently for `core` and `graphql`.
 | --- | --- |
 | Any resource below 20% remaining | Double the idle/observation gap until the earliest applicable reset; never shorten the ordinary gap or exceed its one-hour cap. Ignore expired/incomplete headers. |
 | Rate-limited 403/429 | Recognize zero remaining, `Retry-After`, or GitHub's primary/secondary rate-limit message. Primary: reset plus **5 seconds**. Secondary: `Retry-After`. Missing wait metadata: one minute. Cap each wait at one hour, then retry. |
-| Transient continuous-launch failure | Timeouts, connection failures, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling; stop on the **sixth consecutive failed poll**. A completed poll resets the count. |
-| Other errors | Authentication, permission, missing repository, other malformed responses and unclassified failures stop immediately. `launch --once` and `status` fail on their first transient error. |
+| Retryable continuous-launch failure | A failed gh call without an HTTP status (regardless of its text), request timeouts, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling, without a retry limit. A completed poll resets the delay. |
+| Other errors | gh authentication required (exit 4), a gh binary that cannot run, non-rate-limited HTTP 4xx, configuration errors and other malformed responses stop immediately. `launch --once` and `status` fail on their first error. |
 
 Rate-limit waits spend no poll failures or item attempts and make no waiting-path
 writes. They count toward the discovery gap. Observation failures never stop the
 launcher. Failed discovery reads make no GitHub writes; skipped polls report the
-error and next delay, never an empty queue. Poll retry limits are independent of
-agent execution retries.
+error and next delay, never an empty queue. These unlimited retries are independent
+of bounded agent execution retries.
 
-A retryable claim POST failure counts toward poll failures. Before replanning,
+A retryable claim POST failure uses the same unlimited poll backoff. Before replanning,
 reconcile whether the claim was created; withdraw it if present without charging
 an attempt or item backoff. A restart leaves normal lease expiry to recover it.
-Completed-run finalization retries preserve the durable outcome; expiry recovery
+Other retryable failures after a claim write, during election, execution or
+finalization, end that pass and continue polling. A failed ownership check caused
+by a retryable GitHub failure also follows this policy, including local lease
+expiry after failed renewals. Stop the owned process and renewal, make no further
+writes for that lease, and leave it to expiry and
+durable-outcome recovery. No second run starts while its lease is live.
+Completed-run finalization preserves the durable outcome; expiry recovery
 finishes completion without rerunning the agent. Rate-limited owned reads retry
 while renewal continues; expiry triggers lost ownership, not further writes.
 Other rate-limited writes are not automatically replayed. See

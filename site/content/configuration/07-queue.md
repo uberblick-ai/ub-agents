@@ -15,6 +15,10 @@ queue:
 
 Priority labels, highest first. Items without one get the default. Pull requests inherit the priority of the open issues they close.
 
+Run `ub-agents init --create-priorities` on an existing setup to choose and create
+priority labels and add `queue.priority.labels`. An existing `queue.priority` is
+left unchanged. See [init](/docs/commands/init.html#add-boards-or-priorities-later).
+
 ```yaml
 priority:
   labels: [priority:high, priority:low]

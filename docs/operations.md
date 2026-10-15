@@ -50,11 +50,26 @@ delay rounded to whole seconds below a minute or whole minutes otherwise.
 After work, claiming resumes immediately, subject to active rate-limit waits and
 runtime usage pauses. Idle and observation passes may wait
 longer than `poll-seconds` for request budget or low quota. Continuous launch retries
-transient discovery errors and waits out GitHub rate limits without charging item
-attempts; authentication and permission errors need operator action. `launch --once`
-and `status` fail on their first error. `doctor --verbose` shows quota and reset
-time, warning below 10% remaining. See [Polling and GitHub requests](polling.md)
-for the exact accounting, waits and failure limits.
+network and DNS failures, request timeouts and GitHub outages indefinitely, backing
+off from 5 seconds to a 60-second cap. A failed gh call without an HTTP status is
+retryable regardless of its text, except authentication required (exit 4) or a
+gh binary that cannot run. HTTP 5xx and rate limits retry; other HTTP 4xx stop.
+Each failed pass prints `Skipped GitHub poll: …; retrying in Ns` and the terminal
+view shows the launcher waiting. These waits do not charge item attempts.
+`launch --once` and `status` fail on their first error. `doctor --verbose` shows
+quota and reset time, warning below 10% remaining. See [Polling and GitHub requests](polling.md)
+for the exact accounting and waits.
+
+A retryable failure after a claim write also returns to polling, including an
+ownership check that cannot reach GitHub or lease expiry after failed renewals.
+The launcher stops its owned process and renewal and makes no further writes for
+that lease. The live lease prevents
+a second run until expiry; a stored outcome then finishes through recovery without
+rerunning the agent. An uncertain claim POST is reconciled and withdrawn before
+replanning. Authentication, other HTTP 4xx, configuration and other non-retryable
+errors stop the launcher. Fatal GitHub errors say `ub-agents does not retry this
+error. Fix the cause and restart ub-agents launch.` Resolve the cause and restart
+to recover the lease.
 
 ## Stopping and restarting
 
@@ -100,13 +115,23 @@ upgrading any.
 
 ## When things go wrong
 
-Checkout refresh failures, unconfirmed run cleanup and GitHub request failures end
-`launch` with one `ub-agents:` line naming the problem and the next step, including
+Checkout refresh failures, unconfirmed run cleanup and fatal GitHub request failures
+end `launch` with one `ub-agents:` line naming the problem and the next step, including
 `launch --once` and `launch N`. Resolve the reported problem before launching again.
 If cleanup cannot confirm termination, make `ps` usable or confirm the named process
 group has exited. Retained artifacts remain subject to
 [stale artifact cleanup](configuration.md#stale-artifact-cleanup). Failures in the
 startup artifact sweep are logged and launch continues to poll.
+
+After local configuration and repository validation, launch publishes its session
+and opens the terminal view before the setup checks, showing `checking setup`.
+In continuous launch, retryable GitHub failures during setup show `waiting` and
+retry with poll backoff from 5 seconds up to 60 seconds, without a retry limit. `--no-ui` prints one
+`Skipped GitHub poll: …; retrying in Ns` line per wait, with no setup activity line.
+The view also opens before setup for `--once` and `launch N`, which fail on their
+first error. The update watcher, startup sweep and queue begin only after setup passes. Quitting during
+setup or its retry wait exits without a claim; fatal setup errors restore the
+terminal before printing the error.
 
 Before its first pass, `launch` requires a clean control checkout on the default
 branch with no commits outside the local `origin` ref. `doctor` warns about the
@@ -191,8 +216,9 @@ a moved branch survives. Keeping a branch leaves the outcome, cleanup status and
 lease unchanged. A kept worktree also keeps its branch. PR worktrees are detached.
 
 Every `ub-agents launch` invocation sweeps private worktrees left by crashed runs
-and leftover local branches once, after startup checks and before the first poll
-or claim, including `--agent`, `NUMBER` and `--once`. It covers all roles' registered
+and leftover local branches once in the background after startup checks, including
+`--agent`, `NUMBER` and `--once`. The terminal view opens before those setup checks,
+and polling starts without waiting for the sweep. It covers all roles' registered
 worktrees and unregistered entries under `.ub-agents/worktrees/`, plus local
 `ub-agents/<agent>/<number>/<run>` and older `ub-agent/` branches. Symlinks are removed
 as links. It keeps artifacts of live leases on this host, branches heading open
@@ -203,15 +229,24 @@ leases, ended runs without a PR, dirty trees and locked trees do not prevent rem
 The cleanup hook runs before every worktree removal with unknown context fields
 set to `null`; a failed hook preserves its worktree and branch for retry. Repository
 coordination scan or PR lookup failures keep affected artifacts and log the reason.
-Each `removed` or `kept` line includes its reason in `.ub-agents/launch.log` and the
-terminal view's Startup cleanup fold, or plain output with `--no-ui`. Sweep
-failures are logged without stopping launch. Removed branches whose tips are not
+Every decision, failure and pruning summary goes only to
+`.ub-agents/sessions/<session>.cleanup.log`, including with `--no-ui`. Without
+a session, the sweep creates a unique `*.cleanup.log` in the same directory.
+Every sweep creates its log and flushes each line; without a writable log it
+removes nothing. Sweep failures leave launch and its runs running.
+`ub-agents clean` keeps its usual output. Removed branches whose tips are not
 reachable from fetched origin branches or merged PR heads include `unpushed tip SHA`,
-also when reachability cannot be checked. Restore one with `git branch <name> <sha>`.
+also when reachability cannot be checked. The SHA is logged before deletion.
+Restore one with `git branch <name> <sha>`.
 See [stale artifact cleanup](configuration.md#stale-artifact-cleanup) for process
 uncertainty and recovery details. A crashed run's local lease remains live until
 expiry, so a quick restart leaves its worktree until a later launch start. There
 is no periodic sweep.
+
+The sweep protects this launcher's new claims and worktrees, and fetches use
+private refs so cleanup cannot change a run's checkout. Quitting with `q`, a
+signal, or the end of a once or targeted launch stops new hooks, removals and
+pruning. Exit waits at most for the artifact already being handled and its hook.
 
 The startup sweep also prunes `.ub-agents/runs/<run>/` when its newest file,
 including setup and cleanup-hook records, is more than 7 days old. It preserves
@@ -225,8 +260,7 @@ older than 7 days are pruned with their companion cleanup logs. Old orphan
 temporary files and cleanup logs are pruned when no live snapshot protects them.
 Live sessions and this launcher's own files survive, and the existing cap of
 20 inactive sessions still applies. Both retention periods are fixed, with no
-configuration key. When anything is pruned, one summary line appears in launch
-output, `launch.log` and the Startup cleanup fold, including with `--no-ui`:
+configuration key. When anything is pruned, one summary line appears in the cleanup log:
 
 ```text
 pruned 63 run directories and 4 session files older than 7 days (41 MB)

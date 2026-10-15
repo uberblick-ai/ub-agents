@@ -241,7 +241,7 @@ class GitHubTests(unittest.TestCase):
         runner.responses[delete] = 'HTTP/1.1 204 No Content\r\nX-RateLimit-Remaining: 10\r\n\r\n'
         github.remove_label(1, 'ready')
 
-    def test_known_transport_failures_retry_but_http_and_local_errors_take_precedence(self):
+    def test_failures_without_http_status_retry_but_http_and_local_errors_take_precedence(self):
         command = ('gh', 'api', '--hostname', 'github.com', '--method', 'GET', '-H',
                    'Accept: application/vnd.github+json', '--include', 'user')
         cases = [(subprocess.TimeoutExpired('gh', 20), True),
@@ -252,7 +252,10 @@ class GitHubTests(unittest.TestCase):
                         'read: connection reset by peer', 'i/o timeout', 'TLS handshake timeout',
                         'context deadline exceeded', 'unexpected EOF', 'unexpected end of JSON input',
                         'net/http: request canceled (Client.Timeout exceeded while awaiting headers)',
-                        'net/http: timeout awaiting response headers', 'connect: operation timed out'):
+                        'net/http: timeout awaiting response headers', 'connect: operation timed out',
+                        'error connecting to api.github.com\n'
+                        'check your internet connection or https://githubstatus.com',
+                        'certificate signed by unknown authority', 'unknown failure', ''):
             cases.append((subprocess.CompletedProcess([], 1, '', message), True))
         cases.extend([(subprocess.CompletedProcess([], 1, 'HTTP/2.0 200 OK\n\n[]', 'unexpected EOF'), True),
                       (subprocess.CompletedProcess([], 1, 'HTTP/2.0 201 Created\n\n',
@@ -260,8 +263,8 @@ class GitHubTests(unittest.TestCase):
                       (subprocess.CompletedProcess([], 1, 'HTTP/2.0 403 Error\n\n{}',
                                                    'unexpected end of JSON input'), False),
                       (subprocess.CompletedProcess([], 1, 'HTTP/2.0 401 Error\n\n{}', 'i/o timeout'), False),
-                      (subprocess.CompletedProcess([], 1, '', 'certificate signed by unknown authority'), False),
-                      (subprocess.CompletedProcess([], 1, '', 'unknown failure'), False)])
+                      (subprocess.CompletedProcess([], 4, '', 'authentication required'), False),
+                      (subprocess.CompletedProcess([], 4, '', 'i/o timeout'), False)])
         for response, retryable in cases:
             with self.subTest(response=response):
                 runner = RecordingRunner(Path('/synthetic'))

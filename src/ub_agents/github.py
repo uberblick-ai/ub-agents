@@ -131,7 +131,7 @@ def is_rate_limit(status, headers, detail):
 
 
 def failure_retry(status, headers, detail):
-    """Known rate limits, transport failures and server errors may retry."""
+    """Failures without a response, rate limits and server errors may retry."""
     if is_rate_limit(status, headers, detail):
         try:
             if headers.get("x-ratelimit-remaining") == "0" or "api rate limit exceeded" in detail.lower():
@@ -153,7 +153,7 @@ def failure_retry(status, headers, detail):
                           r"timeout awaiting response headers|operation timed out|"
                           r"no route to host|broken pipe|unexpected end of JSON input|"
                           r"(?:unexpected )?EOF\s*$", detail, re.IGNORECASE)
-    return bool(transport), None
+    return status is None or bool(transport), None
 
 
 @dataclass(frozen=True)
@@ -378,6 +378,8 @@ class GitHub:
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
             limited = is_rate_limit(status, headers, detail + " " + payload)
             retryable, reset_at = failure_retry(status, headers, detail + " " + payload if limited else detail)
+            if status is None and result.returncode == 4:
+                retryable, reset_at = False, None  # gh requires authentication.
             error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at,
                                 rate_limited=limited)
             error.probe_reason = f"exit {result.returncode}"

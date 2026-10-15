@@ -270,8 +270,8 @@ These runs skip all extras and register no MCP server. The setup remains local-o
 │  3. Open a PR with these files and merge it                                     │
 │  4. Warning: codex loads no project guidance; add AGENTS.md so agents know      │
 │     how to build and test.                                                      │
-│  5. Want retrospectives later? Turn on Discussions if needed, then follow       │
-│     https://agents.uberblick.ai/docs/best-practices/retrospectives              │
+│  5. Want retrospectives later? Turn on Discussions if needed, then run          │
+│     ub-agents init --create-boards                                             │
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │

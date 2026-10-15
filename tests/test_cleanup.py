@@ -545,7 +545,7 @@ class CleanupTests(unittest.TestCase):
     def test_fetch_failure_removes_branch_with_restoration_sha(self):
         read = git
         def fail(root, *args):
-            if args[:2] == ("fetch", "--prune"):
+            if args[:3] == ("fetch", "--no-write-fetch-head", "--prune"):
                 raise AgentError("origin unavailable")
             return read(root, *args)
         with patch("ub_agents.cleanup.git", side_effect=fail):
@@ -561,7 +561,7 @@ class CleanupTests(unittest.TestCase):
             with self.subTest(change=change):
                 def race(root, *args):
                     result = read(root, *args)
-                    if args[:2] == ("fetch", "--prune"):
+                    if args[:3] == ("fetch", "--no-write-fetch-head", "--prune"):
                         if change == "lease":
                             self.update(state="running", expires=iso(timestamp() + 60))
                         elif change == "pr":
@@ -605,7 +605,21 @@ class CleanupTests(unittest.TestCase):
         import io
         from ub_agents.cli import main
         from tests.support import MemoryPublisher, isolate_runtime_state
+        from ub_agents.startup_cleanup import StartupCleanup
         isolate_runtime_state(self)
+        workers = []
+        publisher = MemoryPublisher()
+
+        def factory(*args, **kwargs):
+            worker = StartupCleanup(*args, **kwargs)
+            workers.append(worker)
+            return worker
+
+        def after_cleanup():
+            workers[0].thread.join(10)
+            self.assertFalse(workers[0].thread.is_alive())
+            return poll()
+
         path = self.root / "ub-agents.yaml"
         path.write_text("repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n"
                         "    outcomes: {done: {}}\n")
@@ -613,16 +627,18 @@ class CleanupTests(unittest.TestCase):
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.launch_checks"), \
                 patch("ub_agents.updates.Updates", return_value=None), \
-                patch("ub_agents.observations.Publisher", MemoryPublisher), \
-                patch("ub_agents.cli.Loop.tick", side_effect=poll), \
+                patch("ub_agents.observations.Publisher", return_value=publisher), \
+                patch("ub_agents.cli.StartupCleanup", side_effect=factory), \
+                patch("ub_agents.cli.Loop.tick", side_effect=after_cleanup), \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["--config", str(path), "launch", "--once", "--no-ui"]), 0)
-        lines = output.getvalue().splitlines()
-        self.assertEqual([line.split(" ", 1)[1] for line in
-                          (self.root / ".ub-agents/launch.log").read_text().splitlines()], lines)
-        return lines
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual((self.root / ".ub-agents/launch.log").read_text(), "")
+        session = publisher.snapshots[-1]["session"]
+        lines = (self.root / ".ub-agents/sessions" / f"{session}.cleanup.log").read_text().splitlines()
+        return [line for line in lines if line.startswith(("removed ", "kept ", "pruned "))]
 
-    def test_launch_removes_leftovers_and_logs_before_the_first_poll(self):
+    def test_launch_removes_leftovers_and_logs_in_the_background(self):
         lines = self.launch_leftovers(self.assert_removed)
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[0].startswith(f"removed worktree {self.path.relative_to(self.root)}:"))

@@ -65,6 +65,9 @@ ub-agents doctor
 ub-agents launch
 ```
 
+Launch opens its terminal view before setup checks, showing `checking setup`.
+The startup sweep and queue wait until those checks pass.
+
 Use a separate launcher checkout if you also code here. Launch fetches and
 fast-forwards origin's default branch before each run; agents use private worktrees
 and PRs. Init offers to switch the checkout to your default branch and never resets, stashes or clones.

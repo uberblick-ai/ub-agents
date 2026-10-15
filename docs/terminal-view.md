@@ -5,6 +5,13 @@ own session when stdin and stdout are terminals. `launch --no-ui` keeps plain li
 output. Pipes, CI and services remain plain. Other commands do not import the UI
 packages.
 
+The view opens after local configuration and repository validation, before the
+GitHub and control-checkout setup checks. Its activity shows `checking setup`,
+or `waiting` while retryable GitHub failures back off. Updates, the startup sweep
+and queue work start only after setup passes. Quitting during checks or a retry
+wait exits without a claim; fatal setup errors close the view and restore the
+terminal before printing the error.
+
 The view runs in its own process. It reads local files on the same macOS or Linux
 host, as the same user as the launcher, from the **control checkout** rather than
 an agent's private worktree. A launcher passes its exact session ID; it never
@@ -94,11 +101,11 @@ no focus. Ready rows whose check fails show `waiting` in Eligible, outside Needs
 attention. Each failure, changed error or recovery also appears in plain launch
 output and `.ub-agents/launch.log`.
 
-When the startup artifact sweep reports decisions or a failure, a **Startup
-cleanup** fold appears above the panes. Expand it to scroll through every
-`removed` or `kept` line with its reason and any sweep error. The same lines
-appear in `.ub-agents/launch.log` and plain output with `--no-ui`. The sweep runs
-once after startup checks and before polling; its failures do not stop launch.
+The startup artifact sweep runs in the background while the view opens and polling
+starts. Its decisions, failures and pruning summary go only to
+`.ub-agents/sessions/<session>.cleanup.log`, including with `--no-ui`. Without a
+session it creates a unique `*.cleanup.log` in the same directory. Each line is
+flushed, and an unwritable log prevents deletions. Sweep failures do not stop launch.
 
 At **110 columns × 32 rows** and above, the combined view shows both panes. At that size
 and above, the Work pane's outer width, including its border, is one third of the
@@ -592,7 +599,7 @@ stays on one row without cutting the version, enabled keep-awake indicator or
 separators, or overlapping the right-side keys.
 Busy activity text shortens before the repository loses its readable prefix;
 the repository shortens further only when the remaining space requires it.
-Waiting counts down as `next poll Ns`; other activities say `polling`,
+Waiting counts down as `next poll Ns`; other activities say `checking setup`, `polling`,
 `running assignment` or `stopping`. Stale, ended and malformed snapshots are
 labelled there, including the malformed error, without a snapshot-age counter.
 In an attached view, `r` starts the next poll immediately or requests a read-only

@@ -72,7 +72,7 @@ def resolve_policy(configured, visibility):
     return ("on" if value == "public" else "off"), f"visibility ({value})"
 
 
-def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False):
+def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False, raise_read_errors=False):
     """Current content and write+ feedback, without approval or history reads."""
     roles = Roles(github, role=getattr(github, "current_role", None),
                   trusted_bots=trusted_bots, strict=strict_permissions)
@@ -83,7 +83,8 @@ def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False):
         try:
             return roles.feedback(row.get("user"))
         except AgentError as exc:
-            if strict_permissions or isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and exc.rate_limited):
+            if (strict_permissions or isinstance(exc, LostOwnership)
+                    or (isinstance(exc, GitHubError) and (exc.rate_limited or raise_read_errors))):
                 raise
             # Unreadable comment permissions exclude input, never park work.
             login = (row.get("user") or {}).get("login")
@@ -113,7 +114,8 @@ def filter_input(github, item, policy, trigger_labels, *, actor=None, launchers=
     treatment of unknown authors as outside input.
     """
     if policy == "off":
-        return trusted_input(github, item, trusted_bots=trusted_bots, strict_permissions=read_only)
+        return trusted_input(github, item, trusted_bots=trusted_bots, strict_permissions=read_only,
+                             raise_read_errors=raise_read_errors)
     try:
         return _check_input(github, item.number, set(trigger_labels), item.kind, actor, launchers,
                             sub_issue_labels=sub_issue_labels, trusted_bots=trusted_bots,

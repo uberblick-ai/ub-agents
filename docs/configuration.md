@@ -6,9 +6,16 @@ errors; `ub-agents doctor --offline` validates the file. Commands use this file 
 `init` writes the selected file or `ub-agents.yaml` by default.
 In a terminal it asks a few questions and writes after one confirmation.
 `init --use-defaults` stays prompt-free even in a terminal; CI/non-TTY also uses
-defaults without checks. Unattended runs keep permissions and extras off and print
-label commands. Existing local overrides still take precedence. See the
+defaults without checks for plain init. Unattended first-time setup keeps
+permissions and extras off and prints label commands. Existing local overrides still take precedence. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html).
+
+On an existing setup, `init --create-boards` adds missing retrospective boards and
+Claude `--allowedTools` entries, and `init --create-priorities` adds missing
+`queue.priority.labels`. The flags can be combined and only extend the selected
+configuration file, preserving other content. They run checks even with default
+answers, create boards and labels after one confirmation, and open one setup PR
+on the default branch or keep the config edit local on another branch.
 
 The interactive Uberblick extra previews project-scope MCP registration before
 **Write setup?**, then runs `ub mcp install claude` or `ub mcp install codex` for the
@@ -203,8 +210,8 @@ poll-seconds: 30
 ```
 
 For the detailed rules previously covered here, see
-[Polling and GitHub requests](polling.md), including its fixed
-[retry limits](polling.md#quota-and-failure-handling) and
+[Polling and GitHub requests](polling.md), including its unlimited
+[failure retries](polling.md#quota-and-failure-handling) and
 [rate-limit waits](polling.md#quota-and-failure-handling).
 Launch logs are described in [Running launchers](operations.md#launch-output).
 Local session files have no configuration key; their format and lifecycle are in
@@ -368,8 +375,9 @@ safe to retry, because a crash after hook success can leave a worktree to clean 
 
 ## Stale artifact cleanup
 
-Every `ub-agents launch` invocation sweeps leftover artifacts once, after startup
-checks pass and before the first poll or claim. This includes `--agent`, `NUMBER`
+Every `ub-agents launch` invocation sweeps leftover artifacts once in the background,
+after startup checks pass. The view opens and polling starts without waiting.
+This includes `--agent`, `NUMBER`
 and `--once`. For every role, it inspects registered worktrees and unregistered
 entries directly under this checkout's `.ub-agents/worktrees/<run>`, plus local
 branches named `ub-agents/<agent>/<number>/<run>` or the older
@@ -397,12 +405,18 @@ do not prevent removal. If the repository coordination scan or PR lookup fails,
 the affected artifacts stay and the reason is logged.
 
 The sweep rechecks each eligible artifact before deletion and reports `removed`
-or `kept` with a reason in `.ub-agents/launch.log`, the terminal view's Startup
-cleanup fold, or plain output with `--no-ui`. Worktrees are considered before
+or `kept` with a reason only in `.ub-agents/sessions/<session>.cleanup.log`,
+including with `--no-ui`. Without a session, it creates a unique `*.cleanup.log`
+in the same directory. Every sweep creates its log and flushes each line; without
+a writable log it removes nothing. Worktrees are considered before
 branches, so a branch can be removed after its worktree. The cleanup hook runs
 before each worktree removal, including unregistered entries; unknown context
 fields are `null`. A failed hook preserves the worktree and branch for a later
 retry.
+
+Local claims protect their runs and branches from the background sweep. Quitting
+starts no further hook, removal or prune, waiting at most for the artifact already
+being handled and its hook. `ub-agents clean` keeps its usual output.
 
 At run end, after removing its private worktree, the launcher fetches origin
 branches and deletes the run's local branch only if its tip is reachable from an
@@ -424,7 +438,7 @@ more than 7 days old, unless live leases, process uncertainty, unreadable or
 redirected diagnostics, or a kept worktree or branch protect them. It also
 prunes ended or stale session snapshots and orphan session files older than
 7 days, preserving live sessions and the current launcher's files. One summary
-line reports the counts and space freed when anything was removed; individual
+line in the cleanup log reports the counts and space freed when anything was removed; individual
 removal failures are logged without stopping launch. Retention is fixed, with
 no configuration key. See [diagnostic retention](operations.md#when-things-go-wrong)
 and [session liveness](session-snapshots.md#publication-and-liveness).
@@ -441,7 +455,7 @@ signals a previous run's processes.
 Startup sweep branch removal does not require the tip to be known remotely. The
 sweep fetches `origin` branches and merged PR heads for that branch. If the tip is not reachable
 from those fetched references, or reachability cannot be checked, its full SHA is
-included in the removal line as `unpushed tip SHA`. Restore it with
+flushed to the cleanup log before deletion as `unpushed tip SHA`. Restore it with
 `git branch <name> <sha>`. A merged PR head can preserve checkpoint commits after
 a squash merge deletes the remote branch. No GitHub branches are deleted.
 
@@ -642,6 +656,9 @@ older versions reject the unknown agent key.
 "<Role> retrospectives" (for example "Implementer retrospectives") or creates one,
 verifies it and only then writes its number. No test comments are posted. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html).
+For an existing setup, `ub-agents init --create-boards` does this for every agent
+without a board, including custom roles, and adds missing Claude posting rules to
+the `--allowedTools` lists those agents use.
 
 Set `retrospectives: 203` on an agent to enable its supervised posting command:
 
@@ -716,6 +733,9 @@ needs explicit maintainer approval. Outside edits or feedback after approval sus
 outside PRs again. Fork PRs can be reviewed, but agents cannot revise them and
 revision runs remain blocked.
 
+The terminal view opens before setup checks, showing `checking setup`; continuous
+launch waits and retries retryable GitHub failures before any sweep or queue work.
+`launch --once` and `launch N` fail on their first setup error.
 Before its first pass, `launch` checks that the control checkout is clean, on the
 repository's default branch (not detached), and has no commits outside the local
 `origin` ref for that branch. Missing origin refs require `git fetch origin`.

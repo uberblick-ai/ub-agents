@@ -49,7 +49,6 @@ from .worktree_setup import confirm_worktree_setup_stopped, run_worktree_setup
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
-POLL_FAILURE_LIMIT = 6
 COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
 
 
@@ -352,7 +351,7 @@ class Loop:
                                                actor=self.coordinator.actor, launchers=self.config.launchers,
                                                sub_issue_labels=self.config.sub_issue_labels,
                                                trusted_bots=self.config.trusted_bots,
-                                               raise_read_errors=self._targeted_pass)
+                                               raise_read_errors=self._targeted_pass or self._poll_complete)
         approval = check()
         if (isinstance(github, Discovery) and item.number in github.bulk_inputs
                 and approval.gate == "input" and isinstance(approval.snapshot.get("title"), dict)):
@@ -1253,7 +1252,7 @@ class Loop:
         try:
             fresh = self.github.item(plan.item.number, plan.item.kind)
             approval = self.input_check(fresh)
-        except LostOwnership:
+        except (LostOwnership, GitHubError):
             raise
         except AgentError:
             approval = ApprovalCheck(False, "Assignment approval history is unreadable; retry or ask a maintainer")
@@ -1280,8 +1279,8 @@ class Loop:
             diagnostic("cleanup-unconfirmed", error=str(exc))
             cause = exc
             while cause is not None:
-                if isinstance(cause, LostOwnership):
-                    return  # Even a transient ownership loss forbids further writes.
+                if isinstance(cause, (LostOwnership, GitHubError)):
+                    return  # GitHub failures and ownership loss forbid further writes.
                 cause = cause.__context__
             try:
                 self.coordinator.assert_owned(lease)
@@ -1300,14 +1299,18 @@ class Loop:
                 nonlocal hook_attempted
                 if hook_attempted:
                     return False
-                hook_attempted = True
                 try:
                     reported = self.coordinator.outcome(lease)
+                except GitHubError:
+                    if record:
+                        raise
+                    reported = outcome
                 except (AgentError, KeyboardInterrupt) as exc:
                     if isinstance(exc, KeyboardInterrupt):
                         self.interrupt_event.set()
                         self.stop_event.set()
                     reported = outcome
+                hook_attempted = True
                 failure = run_hook(self.config, lease, workspace.private, reported,
                                    expires=(lambda: self.coordinator.deadline(lease)) if record else None,
                                    pass_fds=reservation.descriptors if reservation is not None else ())
@@ -1316,6 +1319,8 @@ class Loop:
                         try:
                             self.coordinator.assert_owned(lease)
                             self.coordinator.update(lease, cleanup_hook_error=failure)
+                        except (LostOwnership, GitHubError):
+                            raise
                         except (AgentError, KeyboardInterrupt) as exc:
                             if isinstance(exc, KeyboardInterrupt):
                                 self.interrupt_event.set()
@@ -1331,6 +1336,14 @@ class Loop:
                     record_uncertainty(exc)
                 else:
                     diagnostic("cleanup-unconfirmed", error=str(exc))
+                raise
+
+        def cleanup_after_failure():
+            try:
+                cleanup_workspace()
+            except (LostOwnership, GitHubError):
+                self._renewal.close()
+                cleanup_workspace(record=False)
                 raise
 
         def record_process(pid):
@@ -1457,13 +1470,20 @@ class Loop:
             raise
         except LostOwnership as exc:
             diagnostic("ownership-lost", error=str(exc))
+            self._renewal.close()
             cleanup_workspace(record=False)
             # Do not report, release, or accept after losing ownership.
+            raise
+        except GitHubError as exc:
+            diagnostic("github-failed", error=str(exc))
+            self._renewal.close()
+            cleanup_workspace(record=False)
+            # The lease and any stored report remain for expiry recovery.
             raise
         except KeyboardInterrupt as exc:
             if completing:
                 diagnostic("transition-interrupted", outcome=outcome["id"] if outcome else None)
-                cleanup_workspace()
+                cleanup_after_failure()
                 # A request can be interrupted after GitHub applied its write,
                 # before our in-memory outcome reflects it. Even a read before
                 # transition start must preserve the report for expiry recovery.
@@ -1473,10 +1493,10 @@ class Loop:
             summary = "Launcher interrupted; attributable execution terminated"
             if isinstance(exc, CheckoutSetupInterrupted):
                 summary += f"; {exc}"
-            cleanup_workspace()
+            cleanup_after_failure()
         except TransitionPaused as exc:
             result, summary, effect = "blocked", str(exc), "unchanged"
-            cleanup_workspace()
+            cleanup_after_failure()
         except Exception as exc:
             if completing and not isinstance(exc, ValidationError):
                 raise  # Keep completed reports recoverable; never invent a failure verdict.
@@ -1484,7 +1504,7 @@ class Loop:
                       or (setup and isinstance(exc, (AgentError, OSError))
                           and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
             summary = str(exc)
-            cleanup_workspace()
+            cleanup_after_failure()
         finally:
             if not preserve_scratch:
                 try:
@@ -1779,8 +1799,8 @@ class Loop:
 
     def _end_poll(self):
         self._before_claim()
-        # Starting a claim write ends discovery. Only a retryable POST failure
-        # may skip this pass; its uncertain record is withdrawn before planning.
+        # Starting a claim write ends discovery and defers graceful stopping
+        # until owned execution or recovery has unwound.
         self._poll_complete = True
 
     def launch(self, once=False, number=None, agent_name=None):
@@ -1811,7 +1831,7 @@ class Loop:
         if self._launch_agent is not None and self._launch_number is None:
             self.output(f"Serving queue for agent {self._launch_agent}")
             self._observe("queue_scope", self._launch_agent)
-        failures = 0
+        retry_delay = POLL_RETRY_BASE_SECONDS
         idle_state = None
         while not self.stop_event.is_set():
             self.github.lease = None
@@ -1827,32 +1847,30 @@ class Loop:
             except (_InvalidReload, CleanupError, RecordError):
                 raise
             except AgentError as exc:
-                if isinstance(exc, LostOwnership):
-                    if not self._finalizing or not isinstance(exc.__cause__, GitHubError):
-                        raise
-                    # Ownership reads fail closed, but a completed agent needs no
-                    # termination. Preserve the underlying request's poll policy.
-                    exc = exc.__cause__
                 if self.interrupt_event.is_set():
                     raise KeyboardInterrupt from None
-                if once or (self._poll_complete and not self._finalizing
-                            and self.coordinator.lost_claim is None):
+                if once:
                     raise
-                failures += 1
-                delay = min(POLL_RETRY_MAX_SECONDS, POLL_RETRY_BASE_SECONDS * 2 ** (failures - 1))
+                if isinstance(exc, LostOwnership):
+                    if not isinstance(exc.__cause__, GitHubError):
+                        raise
+                    # Execution has stopped and renewal has closed. Ownership
+                    # reads fail closed; retain the request's retry policy.
+                    exc = exc.__cause__
                 retryable = isinstance(exc, GitHubError) and exc.retryable
                 detail = str(exc)
                 # Keep each diagnostic on one line, even when gh prints several.
                 detail = " ".join(detail.split())
-                if not retryable or failures >= POLL_FAILURE_LIMIT:
-                    reason = (f"retries exhausted after {failures} consecutive failed polls"
-                              if retryable else "failure is not retryable; retries not exhausted")
-                    raise AgentError(f"{detail}; {reason}. Fix the cause and restart ub-agents launch.") from exc
+                if not retryable:
+                    raise AgentError(f"{detail}; ub-agents does not retry this error. "
+                                     "Fix the cause and restart ub-agents launch.") from exc
+                delay = retry_delay
+                retry_delay = min(POLL_RETRY_MAX_SECONDS, retry_delay * 2)
                 self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
                 delay = self.usage.bound_wait(delay)
                 self._wait(self.stop_event, delay, "poll retry or runtime pause")
                 continue
-            failures = 0
+            retry_delay = POLL_RETRY_BASE_SECONDS
             if self.interrupt_event.is_set():
                 raise KeyboardInterrupt
             if self.stop_event.is_set():

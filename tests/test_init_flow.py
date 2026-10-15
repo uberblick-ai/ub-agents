@@ -207,8 +207,8 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         retrospectives = self.script.options['Extras'][1]
         self.assertEqual(retrospectives.disabled, 'Discussions are off in org/project')
-        self.assertIn('Want retrospectives later? Turn on Discussions if needed, then follow '
-                      'https://agents.uberblick.ai/docs/best-practices/retrospectives', text)
+        self.assertIn('Want retrospectives later? Turn on Discussions if needed, then run '
+                      'ub-agents init --create-boards', text)
 
     def test_questions_go_to_a_maintaining_team_or_the_logged_in_account(self):
         self.github.team_handles = ['@org/core']

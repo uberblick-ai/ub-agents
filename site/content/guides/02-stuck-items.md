@@ -55,8 +55,9 @@ ub-agents launch 219 --agent reviewer
 
 The launcher removes each run's worktree when the run ends. A crashed run can
 leave it behind. Restart [`launch`](/docs/commands/launch.html) to sweep all roles'
-leftover worktrees and local run branches from this machine before polling, with the
+leftover worktrees and local run branches from this machine in the background, with the
 [cleanup hook](/docs/configuration/cleanup.html) before each worktree removal.
+The terminal view opens before setup checks; the sweep waits until they pass.
 The sweep covers registered worktrees and unregistered entries under
 `.ub-agents/worktrees/`, plus `ub-agents/<agent>/<number>/<run>` and older
 `ub-agent/` local branches. Symlinks are removed as links. It keeps live leases
@@ -69,9 +70,12 @@ worktree and branch for retry; unknown hook context fields are `null`. GitHub
 coordination scan or PR lookup failures keep affected artifacts and log the reason.
 Removed branches whose tips are not reachable from fetched origin branches or
 merged PR heads include `unpushed tip SHA`, also when reachability cannot be checked.
-Restore one with `git branch <name> <sha>`. The launch log and
-terminal view's Startup cleanup fold show each decision and its reason; `--no-ui`
-prints plain lines. Sweep failures are logged and polling continues.
+Restore one with `git branch <name> <sha>`. Each unpushed tip is flushed to the
+cleanup log before deletion. Every decision, failure and pruning summary goes only
+to `.ub-agents/sessions/<session>.cleanup.log`, including with `--no-ui`. Without
+a session, the sweep creates a unique `*.cleanup.log` in the same directory.
+Without a writable log, nothing is removed. The view and polling start without
+waiting, and sweep failures leave launch and its runs running.
 
 A crashed run's local lease stays live until expiry, so a quick restart keeps its
 worktree until a later launch start. The sweep runs once per launch invocation,

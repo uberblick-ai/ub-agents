@@ -22,7 +22,7 @@ from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted,
 from .execution import repository_checks
 from .github import GitHub
 from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
-from .loop import Loop, _GracefulStop
+from .loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS, _GracefulStop
 from .init_setup import runtime_guidance
 from .launch_log import launch_output
 from .labels import configured_labels
@@ -31,7 +31,7 @@ from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases
                       record_version, records, same_run, timestamp)
 from .run_config import supervised_run
 from .status import lease_summary, process_details
-from .startup_cleanup import sweep as startup_cleanup
+from .startup_cleanup import StartupCleanup
 
 
 def parser():
@@ -47,12 +47,17 @@ def parser():
                                formatter_class=InitHelpFormatter,
                                description="Ask a few setup questions in the terminal, show the changes, then write them. "
                                "Use --use-defaults for unattended setup; CI/non-TTY also uses defaults. "
-                               "Existing starter files will never be overwritten.",
+                               "Existing starter files are preserved; --create-boards and --create-priorities "
+                               "only add missing entries to ub-agents.yaml.",
                                examples=("ub-agents init",
+                                         "ub-agents init --create-boards",
+                                         "ub-agents init --create-priorities",
                                          "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
     init.add_argument("--runtime", help="starter cli:model:effort (default: the detected CLI)")
     init.add_argument("--use-defaults", action="store_true", help="unattended starters, even in a terminal")
+    init.add_argument("--create-boards", action="store_true", help="add missing retrospective boards to an existing setup")
+    init.add_argument("--create-priorities", action="store_true", help="add priority labels to an existing setup")
     doctor = commands.add_parser("doctor", help="check the machine, GitHub access, labels and agent runtimes",
                                  formatter_class=CommentHelpFormatter,
                                  overview_options=("--json",),
@@ -145,6 +150,11 @@ def init_project(args):
     interactive = (not args.use_defaults and not os.environ.get("CI")
                    and sys.stdin.isatty() and sys.stdout.isatty())
     prompter = interactive_prompter(os.environ) if interactive else DefaultPrompter()
+    if args.create_boards or args.create_priorities:
+        from .init_extend import ExistingFlow
+        return ExistingFlow(Path(args.config).absolute(), args.repository, args.runtime, GitHub, prompter, Transcript(),
+                            unattended=not interactive, create_boards=args.create_boards,
+                            create_priorities=args.create_priorities).run()
     return Flow(Path(args.config).absolute(), args.repository, args.runtime, GitHub, prompter, Transcript(),
                 unattended=not interactive).run()
 
@@ -249,6 +259,46 @@ def launch_checks(config, github, read_git=None):
     if missing:
         raise AgentError(f"Missing GitHub workflow labels ({', '.join(missing)}); "
                          "run ub-agents doctor for setup commands")
+
+
+def check_launch_setup(config, github, loop, *, once=False):
+    # No ownership exists yet: interrupt even a slow gh/git subprocess. The
+    # normal in-run handlers defer interruption until execution can be cleaned up.
+    def interrupt_checks(*_):
+        loop.interrupt_event.set()
+        loop.stop_event.set()
+        # subprocess.run kills and reaps on this exception. KeyboardInterrupt
+        # instead assumes the terminal also signalled the child (UI keys do not).
+        raise _GracefulStop
+
+    handlers = {sig: signal.signal(sig, interrupt_checks)
+                for sig in (signal.SIGINT, signal.SIGHUP)}
+    delay = POLL_RETRY_BASE_SECONDS
+    try:
+        while True:
+            loop._before_claim()
+            loop._observe("activity", "checking setup")
+            try:
+                launch_checks(config, github)
+            except GitHubError as exc:
+                loop._before_claim()
+                if once or not exc.retryable:
+                    raise
+                detail = " ".join(str(exc).split())
+                loop.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
+                loop._wait(loop.stop_event, delay, "setup retry")
+                delay = min(POLL_RETRY_MAX_SECONDS, delay * 2)
+            else:
+                loop._before_claim()
+                loop._observe("activity", "polling")
+                return
+    except _GracefulStop:
+        if loop.interrupt_event.is_set():
+            raise KeyboardInterrupt from None
+        raise
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
 
 
 def run(args):
@@ -395,12 +445,8 @@ def run(args):
     from .observations import Observations, Publisher
     publisher = None
     view = None
+    cleanup = None
     try:
-        launch_checks(config, github)
-        from .updates import Updates
-        loop.updates = Updates(config.root)
-        if loop.updates is not None:
-            loop.updates.start()
         try:
             publisher = Publisher(config.root, output=loop.output)
             loop._before_claim()
@@ -415,14 +461,23 @@ def run(args):
                 loop.output(f"Cannot publish launcher observations: {exc}")
         loop._before_claim()
         session = loop.observer.state['session'] if loop.observer is not None else None
-        swept = startup_cleanup(config, github, loop.coordinator.actor, output=loop.output, session=session)
-        loop._observe("startup_cleanup", swept)
+        loop._observe("activity", "checking setup")
         if not stop.is_set():
             from .launch_ui import open_view
             view = open_view(config.root, session, args.launch_output, stop,
                              no_ui=args.no_ui, poll=loop.request_poll)
             if view is not None:
                 loop.enable_poll_now()
+        check_launch_setup(config, github, loop, once=args.once or args.number is not None)
+        from .updates import Updates
+        loop.updates = Updates(config.root)
+        if loop.updates is not None:
+            loop.updates.start()
+        loop._before_claim()
+        cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)
+        loop.coordinator.cleanup_control = cleanup.control
+        cleanup.start()
+        loop._before_claim()
         if args.number is not None:
             loop.refusal_output = args.launch_output.refusals
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
@@ -432,10 +487,13 @@ def run(args):
     except _GracefulStop:
         return
     finally:
+        if cleanup is not None:
+            cleanup.close()
         if loop.updates is not None:
             loop.updates.close()
         if view is not None:
             view.close()
+        loop._observe("close")
         if publisher is not None:
             publisher.close()
         for sig, handler in handlers.items():
@@ -459,6 +517,9 @@ def launch_error_message(exc, root):
     elif any(isinstance(error, GitHubError) for error in errors):
         detail = str(exc)
         advice = "Fix the cause and restart ub-agents launch."
+        no_retry = "ub-agents does not retry this error."
+        if any(isinstance(error, GitHubError) and not error.retryable for error in errors) and no_retry not in detail:
+            detail = f"{detail}; {no_retry} {advice}"
         if not detail.endswith(advice):
             detail = f"{detail}; {advice}"
     elif any(isinstance(error, InstructionError) for error in errors):

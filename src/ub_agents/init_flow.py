@@ -24,7 +24,6 @@ PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"
 WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/"
 UPDATES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtime-updates"
 RUNTIMES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtimes"
-RETROSPECTIVES_GUIDE = "https://agents.uberblick.ai/docs/best-practices/retrospectives"
 APPROVALS_GUIDE = "https://agents.uberblick.ai/docs/configuration/approvals"
 SETUP_BRANCH = "setup-ub-agents"
 PR_TITLE = "Set up ub-agents"
@@ -357,7 +356,7 @@ class Flow:
             raise Cancelled("Write setup?")
         self.t.answered("Write setup?", "Yes")
 
-    def open_pr(self, plan, extra=()):
+    def open_pr(self, plan, extra=(), *, unique=False, title=PR_TITLE, body=PR_BODY):
         """Commit only init's files on a setup branch, push it and open a PR; the checkout returns to the default branch."""
         root, default = plan.config.root, self.probes.default_branch
         files = [str(path.relative_to(root)) for path in plan.targets]
@@ -367,15 +366,27 @@ class Flow:
         done = []
         try:
             with self.t.spinner("Opening the setup PR"):
-                git(root, "switch", "--create", SETUP_BRANCH)
-                done.append(f"created {SETUP_BRANCH}")
+                branch = SETUP_BRANCH
+                if unique:
+                    # Old setup branches are often retained after their PR merges.
+                    # Inspect local and remote names without changing either one.
+                    local = set(git(root, "for-each-ref", "--format=%(refname:short)", "refs/heads/", "refs/remotes/origin/").splitlines())
+                    remote = {line.split()[-1].removeprefix("refs/heads/")
+                              for line in git(root, "ls-remote", "--heads", "origin").splitlines()}
+                    taken = local | {name.removeprefix("origin/") for name in local} | remote
+                    suffix = 2
+                    while branch in taken:
+                        branch = f"{SETUP_BRANCH}-{suffix}"
+                        suffix += 1
+                git(root, "switch", "--create", branch)
+                done.append(f"created {branch}")
                 git(root, "add", "--", *files)
-                git(root, "commit", "--quiet", "--message", PR_TITLE, "--", *files)
+                git(root, "commit", "--quiet", "--message", title, "--", *files)
                 done.append("committed the files")
-                git(root, "push", "--quiet", "--set-upstream", "origin", SETUP_BRANCH)
+                git(root, "push", "--quiet", "--set-upstream", "origin", branch)
                 done.append("pushed")
-                url = run(root, "gh", "pr", "create", "--repo", self.repository, "--base", default, "--head", SETUP_BRANCH,
-                          "--title", PR_TITLE, "--body", PR_BODY).splitlines()[-1]
+                url = run(root, "gh", "pr", "create", "--repo", self.repository, "--base", default, "--head", branch,
+                          "--title", title, "--body", body).splitlines()[-1]
                 git(root, "switch", "--quiet", default)
         except AgentError as exc:
             reason = (str(exc).removeprefix("Git operation failed: ").splitlines() or [""])[-1]
@@ -409,7 +420,7 @@ class Flow:
                 steps.append(f"Manual command: {self.mcp.command}; see {UBERBLICK}")
             steps.append("Restart running agent sessions to pick up the Uberblick MCP server")
         if "retrospectives" not in extras:
-            steps.append(f"Want retrospectives later? Turn on Discussions if needed, then follow {RETROSPECTIVES_GUIDE}")
+            steps.append("Want retrospectives later? Turn on Discussions if needed, then run ub-agents init --create-boards")
         self.t.note("Next", [f"{index}. {step}" for index, step in enumerate(steps, 1)])
         created = {label.name.casefold() for label in labels}
         pending = [label for label in configured_labels(plan.config) + priority_labels(plan.choices)
@@ -430,5 +441,6 @@ class Flow:
         content = recovery_content(plan, result)
         if content:
             self.t.console.print(content, markup=False, highlight=False)
-        self.t.outro("Finish the rest by hand; init never overwrites existing files.")
+        self.t.outro("Finish the rest by hand; plain init preserves existing starter files. "
+                     "--create-boards and --create-priorities only add missing config entries.")
         return 1
