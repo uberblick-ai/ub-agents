@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
@@ -439,7 +439,7 @@ class PollingTests(unittest.TestCase):
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch("ub_agents.cli.Loop", return_value=self.loop), \
-                        patch("ub_agents.cli.threading.Event", side_effect=[self.loop.stop_event, interrupt]), \
+                        patch("ub_agents.cli.threading", Mock(Event=Mock(side_effect=[self.loop.stop_event, interrupt]))), \
                         patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(sig)), \
                         redirect_stderr(io.StringIO()):
                     self.assertEqual(main(["launch"]), 0 if sig == signal.SIGTERM else 130)
@@ -457,7 +457,7 @@ class PollingTests(unittest.TestCase):
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.threading.Event", side_effect=[self.loop.stop_event, interrupt]), \
+                patch("ub_agents.cli.threading", Mock(Event=Mock(side_effect=[self.loop.stop_event, interrupt]))), \
                 patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(signal.SIGTERM)), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(main(["launch"]), 0)

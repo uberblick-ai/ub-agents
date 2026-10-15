@@ -2,11 +2,13 @@
 
 import threading
 import uuid
+import subprocess
 
 from .cleanup import Cleaner
 from .cleanup_control import CleanupControl, CleanupLogError, CleanupStopped
 from .diagnostic_retention import prune
 from .errors import CleanupError
+from .github import GitHub
 
 
 def sweep(config, github, actor, *, session=None, control, failure=None):
@@ -59,8 +61,18 @@ def sweep(config, github, actor, *, session=None, control, failure=None):
 
 class StartupCleanup:
     def __init__(self, config, github, actor, stop, *, session=None):
-        self.config, self.github, self.actor, self.session = config, github, actor, session
         self.control = CleanupControl(stop)
+        # Use the same transport/authentication with private request counters,
+        # caches and rate-limit state. Recording fakes share their durable store.
+        if isinstance(github, GitHub):
+            runner = github.runner or subprocess.run
+
+            def request(*args, **kwargs):
+                self.control.checkpoint()
+                return runner(*args, **kwargs)
+
+            github = GitHub(github.repository, request)
+        self.config, self.github, self.actor, self.session = config, github, actor, session
         self.thread = threading.Thread(target=sweep, name="startup-cleanup", daemon=True,
                                        args=(config, github, actor),
                                        kwargs={"session": session, "control": self.control})

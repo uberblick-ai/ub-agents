@@ -152,8 +152,8 @@ def isolate_observations(test):
     mock = patch("ub_agents.observations.Publisher", MemoryPublisher)
     test.addCleanup(mock.stop)
     mock.start()
-    # Advisory requests have their own suite. Synthetic CLI roots should not
-    # start a thread (several launch tests replace Event.wait globally).
+    # Advisory requests have their own suite; synthetic CLI roots do not need
+    # a release-checking worker.
     updates = patch("ub_agents.updates.Updates", return_value=None)
     test.addCleanup(updates.stop)
     updates.start()

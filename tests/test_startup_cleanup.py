@@ -3,16 +3,18 @@ from dataclasses import replace
 import io
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.cleanup import Cleaner
 from ub_agents.cleanup_control import CleanupControl
 from ub_agents.coordination import Coordinator
 from ub_agents.diagnostic_retention import RETENTION_SECONDS
 from ub_agents.execution import Workspace, git
+from ub_agents.github import GitHub
 from ub_agents.records import timestamp
 from ub_agents.startup_cleanup import StartupCleanup, sweep
 from tests.support import FakeGitHub, agent, config, issue, pr
@@ -293,6 +295,26 @@ class StartupCleanupTests(unittest.TestCase):
             worker.start()
         clean.assert_not_called()
         self.assertIn("Startup cleanup failed: no threads", self.log.read_text())
+
+    def test_cleanup_github_failures_do_not_change_launch_client_state(self):
+        runner = Mock(return_value=subprocess.CompletedProcess([], 1,
+            "HTTP/2.0 403 Forbidden\nX-RateLimit-Resource: core\nX-RateLimit-Remaining: 0\n\n"
+            '{"message":"API rate limit exceeded"}', ""))
+        github = GitHub("org/project", runner)
+        worker = StartupCleanup(self.config, github, "operator", self.stop, session="own")
+        worker.start()
+        try:
+            self.join(worker.thread)
+        finally:
+            worker.close()
+            self.join(worker.thread)
+        self.assertGreater(worker.github.gh_calls, 0)
+        self.assertEqual(github.gh_calls, 0)
+        self.assertEqual(github.resource_quotas, {})
+        self.assertEqual(github._etag_cache, {})
+        self.assertFalse(github.rate_limited)
+        self.assertIn("rate limit exceeded", self.log.read_text())
+        self.assertEqual(git(self.root, "rev-parse", self.branch), self.tip)
 
     def old_session_files(self):
         self.sessions.mkdir()
