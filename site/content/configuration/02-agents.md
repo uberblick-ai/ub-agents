@@ -110,26 +110,13 @@ runtime-args: [--sandbox, danger-full-access]
 
 ## Retrospectives
 
-A GitHub Discussion number in this repository. Only agents with this key receive retrospective guidance. A loss paragraph needs a real loss or something the run needed but missed, and a change that would have prevented it.
+The GitHub discussion where this agent posts its [retrospectives](/docs/commands/retrospective.html).
 
 ```yaml
 retrospectives: 203
 ```
 
-Claude agents also need `"Bash({report_command} retrospective *)"` in [`--allowedTools`](/docs/configuration/permissions.html#report-command). `ub-agents doctor` checks that the board exists.
-
-A post may consist of, or end with, at most two optional topic lines, even when the run lost nothing:
-
-```text
-Would have helped: topic A, topic B
-Suggest creating: topic C, topic D
-```
-
-The first names existing guidance, records or pointers the run lacked or had to reconstruct. The second names lasting choices no record covers for later human review. Omit empty lines, use short comma-separated topic names, and reuse a name from an existing record or earlier post when it fits. Include no per-topic rationale, scores, identifiers or other structure; link the item for evidence. Posting is optional, at most once per item, without repeating an earlier run's post. Use a scratch body file and keep public posts free of credentials, environment values, local paths, hostnames and log excerpts; a failed post blocks nothing.
-
-A person groups topic lines over several weeks and reads the linked items for rationale before deciding which records to create. Repetition is evidence, not a creation threshold: one consequential compatibility or security choice can merit a record. Records are never created automatically; this route uses no scoring, analytics service or scheduler.
-
-A project's own rules decide when a run creates a record. They can defer optional new records to topic lines, so a missing proposed record alone does not block completion. Binding decisions, behavior guarantees and human-approval gates stay in force; this framework guidance does not override project rules. See [Learn from runs](/docs/best-practices/retrospectives.html).
+Claude agents also need `"Bash({report_command} retrospective *)"` in [`--allowedTools`](/docs/configuration/permissions.html#report-command).
 
 ## Limits
 
