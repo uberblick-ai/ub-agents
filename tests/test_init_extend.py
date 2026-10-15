@@ -127,6 +127,8 @@ class ExistingSetupTests(unittest.TestCase):
                 self.assertEqual(code, 0, text)
                 self.assertEqual(yaml.safe_load(self.path.read_text())['queue']['priority']['labels'], ['p1', 'p3', 'p2'])
                 self.assertEqual([write[1] for write in self.github.writes if write[0] == 'create-label'], ['p3', 'p2'])
+                self.assertEqual([write[3] for write in self.github.writes if write[0] == 'create-label'],
+                                 ['c98a86', 'd4d4d4'])
                 self.assertEqual(self.script.asked, ['Priority labels, highest first', 'Write setup?'])
                 self.assertEqual(self.path.read_text().replace('  priority:\n    labels: ["p1", "p3", "p2"]\n', '')
                                  .replace('queue:\n', '' if not existing_queue else 'queue:\n'), content)

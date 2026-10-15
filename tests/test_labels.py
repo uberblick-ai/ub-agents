@@ -33,6 +33,26 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(labels[3].explanation,
                          'parks an issue or PR until a person decides; added when worker reports parked')
 
+    def test_workflow_colors_match_names_case_insensitively_with_a_fallback(self):
+        expected = {'needs-preparation': 'c5def5', 'ready': '0e8a16', 'needs-review': 'fbca04',
+                    'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db', 'custom-start': '1d76db',
+                    'needs-human': '1d76db'}
+        for uppercase in (False, True):
+            with self.subTest(uppercase=uppercase):
+                names = tuple(name.upper() if uppercase else name for name in expected)
+                cfg = replace(self.config, agents=(agent(self.config.root, triggers=names),), stop_labels=())
+                self.assertEqual({label.name.casefold(): label.color for label in configured_labels(cfg)}, expected)
+
+    def test_stop_colors_override_starter_names_and_custom_names(self):
+        cfg = replace(self.config, agents=(agent(self.config.root, triggers=('READY', 'custom-stop')),),
+                      stop_labels=('ready', 'CUSTOM-STOP', 'needs-human'))
+        labels = configured_labels(cfg)
+        self.assertEqual({label.name: label.color for label in labels},
+                         {'READY': 'b60205', 'custom-stop': 'b60205', 'needs-human': 'b60205'})
+        for label in labels:
+            command = shlex.split(label.command(cfg.repository))
+            self.assertEqual(command[command.index('--color') + 1], 'b60205')
+
     def test_description_keeps_whole_clauses_at_the_character_limit(self):
         effect = LabelUse('reviewer', 'starts reviewer on a PR')
         transition = LabelUse('worker', 'added when worker reports ' + 'x' * 38)
