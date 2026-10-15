@@ -257,6 +257,10 @@ def check_setup(*args):
     if mode == 'setup-error':
         raise AgentError('Intentional setup error')
     if mode == 'setup-retry':
+        # Hold the first check until the terminal observes it. Publication
+        # coalesces snapshots, so an immediate failure can skip that frame.
+        while not (root / 'continue-setup').exists():
+            time.sleep(0.01)
         raise GitHubError('GET', 'repos/org/project', 'Connection reset', retryable=True)
     if mode == 'setup-slow':
         script = ("import os,pathlib,time; "
@@ -328,6 +332,7 @@ class LaunchTerminalTests(unittest.TestCase):
             with Terminal(HARNESS, repository, root, mode) as terminal:
                 terminal.expect(b'checking setup', timeout=8)
                 if mode == 'setup-retry':
+                    (root / 'continue-setup').touch()
                     terminal.expect(b'next poll ', timeout=3)
                 else:
                     terminal.wait_for((root / 'setup-pid').exists)
