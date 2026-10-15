@@ -127,8 +127,9 @@ class Flow:
         if not branch or not default or branch == default:
             return
         message = f"Switch this checkout to {default}?"
-        note = [f"ub-agents only uses {default} to start fresh branches and worktrees for agents;",
-                f"it never commits to {default}. Your changes stay in the working tree."]
+        note = [f"ub-agents only uses {default} to start fresh branches and worktrees for agents.",
+                SAFETY.replace("main", default), f"See {PERMISSIONS_GUIDE}",
+                "Your local changes come along."]
         if not self.ask.confirm(message, True, note):
             self.t.answered(message, f"No · switch to {default} before you launch")
             return
@@ -139,7 +140,7 @@ class Flow:
             self.t.step(message, [Text(f"Not switched: {reason[0]}", style=RED),
                                   Text(f"Switch to {default} before you launch", style=DIM)], "▲", YELLOW)
             return
-        self.t.answered(message, f"Yes · now on {default}")
+        self.t.step(message, [Text(f"Yes · now on {default}", style=DIM), Text(SAFETY.replace("main", default), style=DIM)])
 
     def probe(self):
         self.github = self.github_factory(self.repository)
@@ -174,9 +175,9 @@ class Flow:
         message = "Let agents work without asking?"
         options = [Option(True, "Yes", grant), Option(False, "No", "set runtime-args later")]
         # Unattended runs keep permissions off: nobody saw what they grant.
-        enabled = self.ask.select(message, options, 1 if self.unattended else 0, [SAFETY, f"See {PERMISSIONS_GUIDE}"])
+        enabled = self.ask.select(message, options, 1 if self.unattended else 0)
         answer = f"Yes · review runtime-args in {self.path.name} before you launch" if enabled else "No"
-        self.t.step(message, [Text(answer, style=DIM), Text(SAFETY, style=DIM)])
+        self.t.answered(message, answer)
         return enabled
 
     def choose_extras(self):

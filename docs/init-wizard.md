@@ -9,14 +9,21 @@ the choices.
 ## Active question
 
 ```text
-◇  Which agent runs the loop?
-│  Claude Code · claude-opus-5-5 · high
-│
-◆  Let agents work without asking?
+◆  Switch this checkout to main?
+│  ub-agents only uses main to start fresh branches and worktrees for agents.
 │  Agents always work in worktrees and branches; they never commit to main.
-│  https://agents.uberblick.ai/docs/configuration/permissions.html
-│  ● Yes (edits, git, gh and report commands without asking)
-│  ○ No
+│  See https://agents.uberblick.ai/docs/configuration/permissions.html
+│  Your local changes come along.
+│  ● Yes / ○ No
+└
+```
+
+```text
+◆  Create 7 missing labels?
+│  Workflow:   needs-preparation, needs-changes, ready-to-merge
+│              trigger the loop; see https://agents.uberblick.ai/docs/configuration/index.html
+│  Priorities: prio:urgent, prio:high, prio:medium, prio:low
+│  ● Yes / ○ No
 └
 ```
 
@@ -32,7 +39,7 @@ Hints show only on the highlighted option. Disabled extras show their reason:
 
 ## Full run
 
-Claude logged in, an admin account, Priorities and Retrospectives selected.
+A checkout on another branch, Claude logged in, an admin account, Priorities and Retrospectives selected.
 
 ```text
 ┌   ub-agents init  v0.3.0
@@ -40,17 +47,22 @@ Claude logged in, an admin account, Priorities and Retrospectives selected.
 ◇  Checks
 │  ✓ Machine    Python 3.13 · git · gh · ps
 │  ✓ GitHub     operator · org/project · labels writable
-│  ✓ Checkout   main · clean · in sync with origin
+│  ✓ Checkout   feature · clean · in sync with origin
 │  ✓ Agents     claude logged in · codex not installed
 │  ! Account    operator is admin on GitHub; run agents as a write-only account
-│               https://agents.uberblick.ai/docs/best-practices/launcher-account.html
+│               See https://agents.uberblick.ai/docs/best-practices/launcher-account.html
+│
+◇  Switch this checkout to main?
+│  Yes · now on main
+│  Agents always work in worktrees and branches; they never commit to main.
 │
 ◇  Which agent runs the loop?
 │  Claude Code · claude-opus-5-5 · high
+│  Great, Claude Code is the default for all agents.
+│  Review later; see https://agents.uberblick.ai/docs/configuration/runtimes.html
 │
 ◇  Let agents work without asking?
 │  Yes · review runtime-args in ub-agents.yaml before you launch
-│  Agents always work in worktrees and branches; they never commit to main.
 │
 ◇  Extras
 │  Priorities, Retrospectives
@@ -78,14 +90,14 @@ Claude logged in, an admin account, Priorities and Retrospectives selected.
 │
 ◇  Next ──────────────────────────────────────────────────────────────────────────╮
 │                                                                                 │
-│  1. Review the agent permissions (runtime-args) in ub-agents.yaml:              │
+│  1. Review the agent permissions (runtime-args) in ub-agents.yaml; see          │
 │     https://agents.uberblick.ai/docs/configuration/permissions.html             │
 │  2. Review checks and merge authority in .agents/ub_agents.md                   │
 │  3. Add your test command to --allowedTools in ub-agents.yaml                   │
 │  4. Add "Bash({report_command} retrospective *)" to --allowedTools so agents    │
 │     can post lessons                                                            │
 │  5. Open a PR with these files and merge it                                     │
-│  6. Run agents as a separate write-access account:                              │
+│  6. Run agents as a separate write-access account; see                          │
 │     https://agents.uberblick.ai/docs/best-practices/launcher-account.html       │
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
@@ -121,7 +133,6 @@ and lists the fix under the failing line.
 │
 ◇  Let agents work without asking?
 │  No
-│  Agents always work in worktrees and branches; they never commit to main.
 │
 ◇  Extras
 │  None

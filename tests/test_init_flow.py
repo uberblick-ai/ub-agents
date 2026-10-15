@@ -93,7 +93,6 @@ class FlowTests(unittest.TestCase):
         self.assertIn('Great, Codex is the default for all agents. Review later; '
                       'see https://agents.uberblick.ai/docs/configuration/runtimes.html', text)
         self.assertIn('Yes · review runtime-args in ub-agents.yaml before you launch', text)
-        self.assertIn('Agents always work in worktrees and branches; they never commit to main.', text)
         self.assertIn('Review the agent permissions (runtime-args) in ub-agents.yaml; see '
                       'https://agents.uberblick.ai/docs/configuration/permissions.html', text)
         self.assertIn('Want retrospectives later?', text)
@@ -218,6 +217,8 @@ class FlowTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(self.script.asked[0], 'Switch this checkout to main?')
                 self.assertIn(expected, text)
+                self.assertEqual('Agents always work in worktrees and branches; they never commit to main.' in text,
+                                 expected.startswith('Yes'))
                 self.assertEqual(switch in [call for call, _ in self.runner.calls], answer)
 
     def test_default_branch_is_not_questioned(self):
@@ -339,7 +340,7 @@ with patch('ub_agents.cli.GitHub', lambda repo: github), \\
             with Terminal(script, path, env={'CI': None}) as terminal:
                 terminal.expect(b'Which agent runs the loop?')
                 terminal.send(b'\r')
-                terminal.expect(b'Let agents work without asking?', b'never commit to main')
+                terminal.expect(b'Let agents work without asking?')
                 terminal.send(b'\x1b[B')
                 terminal.send(b'\r')
                 terminal.expect(b'Extras')
