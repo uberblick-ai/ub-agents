@@ -210,7 +210,9 @@ HEAD = '''<!doctype html>
 <title>{title}</title>
 <meta name="description" content="{description}">
 <link rel="canonical" href="{canonical}">
-<link rel="icon" href="data:,">
+<link rel="icon" href="{favicon}" sizes="48x48">
+<link rel="icon" href="{icon}" type="image/png" sizes="512x512">
+<link rel="apple-touch-icon" href="{touch_icon}">
 <link rel="preload" href="{fonts}/ibm-plex-mono-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="{fonts}/ibm-plex-mono-600.woff2" as="font" type="font/woff2" crossorigin>
 <style>{css}</style>
@@ -227,7 +229,9 @@ def head(here, **fields):
     """The page head with site.css inlined, so the first paint needs no other request."""
     fonts = rel('assets/fonts', here)
     css = re.sub(r'url\(/assets/fonts', f'url({fonts}', (ROOT / 'site.css').read_text())
-    return HEAD.format(fonts=fonts, css=css, **fields)
+    icons = {k: rel(f, here) for k, f in
+             (('favicon', 'favicon.ico'), ('icon', 'icon.png'), ('touch_icon', 'apple-touch-icon.png'))}
+    return HEAD.format(fonts=fonts, css=css, **icons, **fields)
 
 MENU_JS = '''<script>
 (function () { var d = document.querySelector('details.side'); if (!d) return;
@@ -274,6 +278,7 @@ def not_found():
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
+    shutil.copytree(ROOT / 'static', OUT)
     shutil.copytree(ROOT / 'fonts', OUT / 'assets' / 'fonts')
     (OUT / '_headers').write_text(HEADERS)
     pages = collect()
