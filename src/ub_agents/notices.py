@@ -5,7 +5,8 @@ import re
 import socket
 
 from .errors import LostOwnership
-from .records import MARKER, declared_transition, lease_by_id, records, reported_actions, resolve_transition, same_handoff
+from .records import (MARKER, declared_transition, exhausted_rounds, lease_by_id, records,
+                      reported_actions, resolve_transition, same_handoff)
 from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
@@ -216,16 +217,21 @@ class Notices:
     def released(self, lease, outcome, summary, parking_outcome=None, max_attempts=None):
         reported = parking_outcome or outcome
         target = lease["assignment"]
+        rounds = None
         transition = reported.get("transition", {}) if reported else {}
         if transition:
             source = lease if reported["lease_id"] == lease["id"] else lease_by_id(
                 records(self.comments(reported["assignment"])), reported["lease_id"])
             transition = resolve_transition(transition, declared_transition(source, reported["outcome"]))
+            rounds = exhausted_rounds(source, reported["outcome"])
         stops = sorted(set(transition.get("add", ())).intersection(transition.get("stop_labels", ())))
         parked = (lease["result"] == "success" and reported
                   and reported.get("accepted") and reported.get("transition_complete") and stops)
         if parked:
             target = reported.get("handoff") or target
+            if rounds:
+                summary = (f"{reported['outcome']} reached max-rounds: {rounds['limit']} "
+                           f"({rounds['used']} rounds already used).\n\n{reported['summary']}")
         self.superseded(lease["assignment"], lease["agent"], lease["run"])
         if reported and reported.get("handoff") and reported["handoff"] != lease["assignment"]:
             self.superseded(reported["handoff"], lease["agent"], reported["run"])
@@ -237,14 +243,14 @@ class Notices:
         if lease["result"] == "blocked" or parked or exhausted:
             self.advisory(f"Action needed post on #{target}",
                           lambda: self.post_action(target, lease, reported, summary, stops if parked else (),
-                                                   transition.get("triggers", ())))
+                                                   transition.get("triggers", ()), rounds=rounds if parked else None))
         # A parking handoff can post a new notice. Preserve its evidence rather
         # than the links of the notice it just superseded.
         if (lease["result"] == "success" and reported and reported.get("accepted")
                 and not reported.get("rejected") and reported.get("handoff") and reported.get("candidate_sha")):
             self.superseded_candidates(reported)
 
-    def post_action(self, number, lease, outcome, summary, stops, resume_triggers=()):
+    def post_action(self, number, lease, outcome, summary, stops, resume_triggers=(), *, rounds=None):
         marker = f"{ACTION_MARKER}{lease['run']} -->"
         comments = self.comments(number)
         existing = next((c for c in comments if (c.get("body") or "").startswith(marker)), None)
@@ -273,6 +279,11 @@ class Notices:
             labels = ", ".join(f"`{label}`" for label in stops)
             triggers = ", ".join(f"`{label}`" for label in resume_triggers)
             resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
+            if rounds:
+                resume += (" This allows one more run with the count kept; another limited outcome parks it again."
+                           f"\n\nFor a fresh set of {rounds['limit']} rounds, reset the count first:\n\n"
+                           f"```sh\n{retry_command(number, lease['agent'])}\n```\n\n"
+                           f"Then remove {labels} and apply a trigger: {triggers}. Retry does not restore labels.")
         else:
             command = retry_command(number, lease['agent'])
             triggers = ", ".join(f"`{label}`" for label in lease.get("triggers", ()))
@@ -290,6 +301,12 @@ class Notices:
                      f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
         actions = reported_actions(outcome) if outcome and not outcome.get("rejected") else []
         options = outcome.get("options", ()) if outcome and not outcome.get("rejected") else ()
+        if rounds:
+            options = [
+                f"Maintainer: remove {labels} and apply a trigger ({triggers}) for one more run; keep the round count.",
+                f"Maintainer: reset the round count with `{retry_command(number, lease['agent'])}`, "
+                f"then remove {labels} and apply a trigger ({triggers}) for a fresh set of rounds.",
+                *options]
         if not actions and not options:
             actions = ["Maintainer: review the blocker details and decide the next step."]
         self.post_once(number, action_body(marker, actions,

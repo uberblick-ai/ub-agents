@@ -22,8 +22,13 @@ Write a review body naming the assigned SHA, concrete findings and the checks ru
 Immediately before publishing, run `gh pr view N --json headRefOid` as a separate
 command and compare its output with `candidate_sha`; report blocked if they differ.
 Publish a GitHub COMMENT review with `gh pr review N --comment --body-file PATH`.
-Report changes-requested for required corrections, or approved if the project's
-acceptance criteria pass.
+Mark each finding P1 or P2. P1 means the PR must not merge as is: an unmet acceptance
+criterion, a bug, a security or data-loss risk, or a failing check. Everything else
+is P2. The assignment context's outcome_rounds shows the counted outcome, rounds
+used and limit. When used is at least the limit, this is the final review: report
+approved when only P2 findings remain and list them in the review. Otherwise report
+changes-requested and name each open P1 finding in the summary. Before the final
+review, report changes-requested for corrections, or approved if acceptance passes.
 Both are successful review handoffs: use `ub-agents report --outcome NAME
 --summary "Review verdict for SHA: ..."`.
 

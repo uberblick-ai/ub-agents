@@ -32,6 +32,33 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
   If stop labels are present and triggers are missing, both need attention.
   Use `ub-agents status` for progress and other pickup gates.
 
+An outcome's optional `max-rounds` limits accepted handoffs separately from failure
+attempts. A round is one accepted record of that named outcome by that configured
+agent on that item, since its latest retry reset. An accepted success resets
+failures but keeps rounds. Other agents' outcomes do not count, including the
+integrator's `changes-requested` and `on-conflict` routing; a new PR starts at zero.
+The count is derived from trusted GitHub history on every launcher. Recovery
+accepts the original outcome once, without adding another round.
+
+The starter sets `max-rounds: 3` on the PR reviewer's `changes-requested`: three
+reports return the PR to `needs-changes`. On the fourth review, an approval still
+adds `ready-to-merge`; another `changes-requested` removes the triggers but adds
+the first stop label (`needs-human`) instead of the outcome's `add` labels. An
+**Action needed** notice names the limit and carries the reviewer's summary,
+including open P1 findings. The starter reviewer marks P1 findings that prevent
+merging and P2 suggestions; on this final review it approves with P2 findings
+listed when no P1 remains. P1 corrections always return for review.
+
+Assignment context's `outcome_rounds` maps each limited outcome to `used` and
+`limit`; `used >= limit` identifies the final review. The lease pins that count
+and the resolved transition for recovery even if configuration later changes.
+Removing `needs-human` and reapplying `needs-review` allows one more review with
+the count kept; another `changes-requested` parks it again. To get a fresh set,
+run `ub-agents retry N --agent reviewer --reason TEXT`: it resets both rounds and
+failures for that item and agent. Then remove the stop label and reapply the
+trigger, because retry does not restore labels. Older launchers reject
+`max-rounds`; upgrade every launcher before enabling it.
+
 | How a run ends | Count | Afterwards |
 |---|---|---|
 | Accepted success at completion or through outcome-only recovery | Reset to 0 | Normal transition |

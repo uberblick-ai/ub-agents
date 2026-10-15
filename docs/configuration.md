@@ -765,10 +765,54 @@ agents:
 
 `outcomes` must be a nonempty mapping of names to transitions. A transition accepts
 `add` and `remove`, each a list of nonempty string labels (empty lists are
-allowed), and the optional `sub-issues` mapping described below. Omitted lists are empty.
+allowed), the optional `max-rounds` limit and the `sub-issues` mapping described below.
+Omitted lists are empty.
 `doctor --offline` rejects unknown keys, non-string labels,
 adding the agent's own trigger, and removing a stop label, including through an
 agent's trigger. Adding a stop label is allowed as a human gate.
+
+Set `max-rounds` on an outcome to bound repeated successful handoffs:
+
+```yaml
+reviewer:
+  kind: pr
+  trigger: needs-review
+  outcomes:
+    approved: {add: [ready-to-merge]}
+    changes-requested: {add: [needs-changes], max-rounds: 3}
+```
+
+One round is an accepted record of that outcome by that configured agent on that
+item since its latest `ub-agents retry` reset. The first three `changes-requested`
+reports above add `needs-changes`; the fourth removes the triggers as usual but
+adds the first configured stop label (`needs-human` by default) instead of the
+outcome's `add` labels. Its **Action needed** notice names the limit, preserves the
+agent's summary and gives both resume paths. Approval still adds `ready-to-merge`
+at any round. Other agents' outcomes, including integrator conflict routing, do
+not count. A new PR starts at zero even when it closes the same issue.
+
+Counts come from GitHub, persist across launchers and restarts, and include a
+recovered transition exactly once. The lease pins the count and effective
+transition at claim time. Assignment context includes `outcome_rounds`, keyed by
+outcome with `used` and `limit`, so a reviewer knows when it is on the final review
+(`used >= limit`). The starter uses three rounds only for the PR reviewer's
+`changes-requested`. Its reviewer marks findings P1 (must not merge as is) or P2;
+on the final review it approves with P2 findings listed when no P1 remains, or
+requests changes with each open P1 in the summary.
+
+Removing the stop label and reapplying the agent's trigger permits one more run
+with the count kept; another limited outcome parks the item again. For a fresh
+set of rounds, use `ub-agents retry N --agent reviewer --reason TEXT`, then restore
+the trigger and remove the stop label. Retry resets both rounds and consecutive
+failures for that item and agent, without restoring labels. Accepted successes
+reset consecutive failures but keep round counts.
+
+`max-rounds` works on any agent's outcome and must be a positive integer.
+`doctor --offline` rejects it when there are no stop labels or the outcome already
+adds a stop label. Omitting it leaves the outcome unlimited.
+
+**Upgrading:** Older launchers reject `max-rounds`. Upgrade every project launcher
+before adding it to the configuration.
 
 An agent that takes issues can declare labels to start the native sub-issues its
 run creates. The labels must be triggers of an `issue` or `either` agent, and must
@@ -821,6 +865,9 @@ do not change the current run.
 
 Stop reports are `--status blocked` and named outcomes whose lease declaration adds
 a configured stop label. They require at least one `--action "TEXT"` or `--option "TEXT"`.
+For a stop caused by `max-rounds`, the launcher supplies a review request when no
+ask is provided and includes both ways to resume; the agent still supplies its
+findings in the summary.
 Repeat actions for independent asks that are all needed; repeat options for
 alternative ways to clear one blocker, with the recommendation first. Each value
 is one non-empty line of at most 300 characters (8000 total across both),

@@ -5,8 +5,40 @@ When an agent finishes, it reports a named outcome. ub-agents checks the result 
 ```yaml
 outcomes:
   approved: {add: [ready-to-merge]}
-  changes-requested: {add: [needs-changes]}
+  changes-requested: {add: [needs-changes], max-rounds: 3}
 ```
+
+## Limit rounds
+
+`max-rounds` counts an agent's accepted records of that outcome on the same item
+since its latest `ub-agents retry` reset. With the example above, the first three
+`changes-requested` reports add `needs-changes`. The fourth removes the triggers
+but adds the first configured stop label (`needs-human` by default) instead. An
+**Action needed** notice names the limit, carries the agent's summary and explains
+both ways to resume. Approval still adds `ready-to-merge` at any round.
+
+The count lives on GitHub and survives restarts, different launchers and recovery,
+which counts each transition once. Other agents' outcomes, including integrator
+`changes-requested` and conflict routing, do not count. Each new PR starts at zero.
+Accepted successes reset consecutive failures, without resetting rounds.
+
+To allow one more review, remove `needs-human` and reapply `needs-review`; the count
+stays. Another `changes-requested` parks the PR again. To start a fresh set of
+rounds, run `ub-agents retry N --agent reviewer --reason TEXT`, then remove the stop
+label and reapply the trigger. Retry never restores labels.
+
+Assignment context includes `outcome_rounds`, keyed by outcome with `used` and
+`limit`. The starter limits only the PR reviewer's `changes-requested` to three.
+It marks findings P1 (must not merge as is) or P2. On the final review
+(`used >= limit`), it approves when only P2 findings remain, listing them in the
+review. Open P1 findings require `changes-requested`, named in the summary.
+
+The key works on any agent's outcome. It must be a positive integer, needs at least
+one configured stop label, and cannot be used on an outcome that already adds a
+stop label. `doctor --offline` rejects invalid values. Omit it for no limit.
+
+**Upgrading:** Older launchers reject `max-rounds`. Upgrade every project launcher
+before using it.
 
 ## Add labels
 
@@ -78,6 +110,8 @@ ub-agents report --outcome handed-off --summary "Ready for review" --handoff 219
 ## Stop reports
 
 A report that parks the item needs one `--action` per decision: who acts, the choices and a recommendation, in one sentence.
+For a `max-rounds` stop, the launcher supplies a review request if no ask is given,
+plus both resume paths. Keep every open P1 finding in the report's summary.
 
 ```sh
 ub-agents report --outcome needs-human --summary "Storage policy unclear" \

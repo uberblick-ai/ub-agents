@@ -1392,6 +1392,8 @@ class Loop:
                        "report_command": report_command,
                        "agent": plan.agent.name, "branch": lease.get("branch"),
                        "earlier_branches": self.earlier_branches(plan.item, plan.agent, lease["run"])}
+            if "outcome_rounds" in lease:
+                context["outcome_rounds"] = lease["outcome_rounds"]
             if plan.item.kind == "pr":
                 context |= {name: approval.snapshot[name] for name in ("reviews", "review_comments")}
             context_path = run_dir / "context.json"

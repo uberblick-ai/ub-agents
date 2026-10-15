@@ -13,9 +13,9 @@ from .errors import AgentError, GitHubError, LostOwnership, RecordError, Runtime
 from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
-from .records import (MARKER, attempt_effect, attempts, backoff, body, iso, latest_leases, lease_by_id, lease_summary, live_leases,
+from .records import (MARKER, attempt_effect, attempts, backoff, body, exhausted_rounds, iso, latest_leases, lease_by_id, lease_summary, live_leases,
                       payload, records, recovers, same_handoff, same_run, seconds, stop_report, timestamp,
-                      report_asks)
+                      outcome_rounds, report_asks)
 from .trust import LauncherTrust
 
 
@@ -393,12 +393,24 @@ class Coordinator:
                   "attempt_effect": "pending", "declared_triggers": list(plan.agent.triggers),
                   "stop_labels": list(stop_labels), "action_required": True}
         if not recovery:
+            rounds = {name: {"used": outcome_rounds(history, current.number, plan.agent.name, name),
+                             "limit": changes["max-rounds"]}
+                      for name, changes in plan.agent.outcomes.items() if "max-rounds" in changes}
+            if rounds:
+                record["outcome_rounds"] = rounds
             record["outcomes"] = {
                 name: (({"add": list(changes["add"]), "remove": list(changes["remove"])} |
                         ({"sub-issues": {"add": list(changes["sub-issues"]["add"])}}
                          if "sub-issues" in changes else {}))
                        if changes["remove"] or "sub-issues" in changes else list(changes["add"]))
                 for name, changes in plan.agent.outcomes.items()}
+            # Pin the effective transition before execution. Recovery uses this
+            # declaration even if the configuration or count later changes.
+            for name, budget in rounds.items():
+                if budget["used"] >= budget["limit"]:
+                    declaration = record["outcomes"][name]
+                    record["outcomes"][name] = ([stop_labels[0]] if isinstance(declaration, list)
+                                               else declaration | {"add": [stop_labels[0]]})
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
@@ -581,6 +593,8 @@ class Coordinator:
                 raise AgentError("Outcome is not declared by the running agent")
         elif status == "success" and declarations is not None:
             raise AgentError("Success must name a declared outcome: report --outcome NAME")
+        if status == "success" and exhausted_rounds(lease, outcome) and action is None and option is None:
+            action = "Maintainer: review the open findings and decide whether to allow more rounds."
         try:
             actions, options = report_asks(action, option, required=agent_report and stop_report(lease, status, outcome))
         except ValueError as exc:

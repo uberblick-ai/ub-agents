@@ -68,7 +68,7 @@ agents:
     trigger: needs-review
     outcomes:
       approved: {add: [ready-to-merge]}
-      changes-requested: {add: [needs-changes]}
+      changes-requested: {add: [needs-changes], max-rounds: 3}
     instructions: .agents/reviewer.md
     worktree: true
     agent-timeout-minutes: 180
