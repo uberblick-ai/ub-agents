@@ -5,6 +5,7 @@ import signal
 import threading
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -717,11 +718,16 @@ class PollingTests(unittest.TestCase):
                 if stage == "approval permissions off":
                     self.loop.config = replace(self.config, approvals="off")
                     self.github.create_comment(1, "Feedback")
+                if stage.startswith("process"):
+                    # Keep the child alive until its registration fails, so this
+                    # checks termination rather than racing a natural exit.
+                    worker = replace(self.config.agents[0], command=(sys.executable, "-c", "import time; time.sleep(30)"))
+                    self.loop.config = replace(self.config, agents=(worker,))
                 self.loop.interrupt_event = threading.Event()
                 now = timestamp()
                 self.loop.coordinator.clock = lambda: now
                 failure = GitHubError("GET", stage, "GitHub unavailable", retryable=retryable)
-                failed, delays, executions = [], [], []
+                failed, delays, executions, supervision_errors = [], [], [], []
                 claim, claimed = self.loop.coordinator.claim, self.loop.coordinator.on_claim
                 owned = self.loop.coordinator.assert_owned
                 update = self.github.update_comment
@@ -773,11 +779,15 @@ class PollingTests(unittest.TestCase):
 
                 def execute(*args, **kwargs):
                     executions.append(True)
-                    return supervise(*args, **kwargs)
+                    try:
+                        return supervise(*args, **kwargs)
+                    except BaseException as exc:
+                        supervision_errors.append(repr(exc))
+                        raise
 
                 def wait(delay):
                     delays.append(delay)
-                    self.assertEqual(self.github.writes, failed[0])
+                    self.assertEqual(self.github.writes, failed[0], (supervision_errors, self.lines))
                     history = self.loop.coordinator.history(1)
                     self.assertEqual(len(history), 1)
                     self.assertIn(history[0]["state"], {"claiming", "running"})
