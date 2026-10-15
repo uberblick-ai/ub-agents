@@ -1,0 +1,33 @@
+flow v0
+# A stop label pauses the item until a person answers.
+
+columns side main
+
+box agent col=main "reports needs-human with one ask per decision"
+panel stopped tone=stop
+  pill needs-human
+  strong "Action needed comment"
+  muted "one line per ask"
+panel answer tone=stop
+  strong "A person answers on GitHub"
+  muted "removes needs-human"
+  muted "re-adds the trigger label"
+end again "The agent runs again"
+
+panel blocked col=side row=stopped tone=muted
+  strong "Blocked run"
+  muted "same ask, no label"
+panel retry col=side row=answer tone=stop
+  strong "ub-agents retry N"
+  muted "with a reason"
+
+agent --> stopped tone=stop : needs-human
+stopped --> answer tone=stop
+answer --> again
+agent --> blocked : blocked
+blocked --> retry tone=stop
+retry --> again from=bottom to=left
+
+legend
+  pill tone=stop "GitHub label"
+  panel tone=stop "human involved"

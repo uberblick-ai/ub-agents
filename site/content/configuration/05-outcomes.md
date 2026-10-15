@@ -10,37 +10,11 @@ outcomes:
 
 ## Limit rounds
 
-`max-rounds` counts an agent's accepted records of that outcome on the same item
-since its latest `ub-agents retry` reset. With the example above, the first three
-`changes-requested` reports add `needs-changes`. The fourth removes the triggers
-but adds the first configured stop label (`needs-human` by default) instead. An
-**Action needed** notice names the limit, carries the agent's summary and explains
-both ways to resume. Approval still adds `ready-to-merge` at any round.
+`max-rounds` caps how often an agent can report an outcome on the same item. With the example above, the first three `changes-requested` reports add `needs-changes`. The fourth adds `needs-human` instead, with an **Action needed** comment. Approval still adds `ready-to-merge` at any round.
 
-The count lives on GitHub and survives restarts, different launchers and recovery,
-which counts each transition once. Other agents' outcomes, including integrator
-`changes-requested` and conflict routing, do not count. Each new PR starts at zero.
-Accepted successes reset consecutive failures, without resetting rounds.
+{{flow limit-rounds}}
 
-To allow one more review, remove `needs-human` and reapply `needs-review`; the count
-stays. Another `changes-requested` parks the PR again. To start a fresh set of
-rounds, run `ub-agents retry N --agent reviewer --reason TEXT`, then remove the stop
-label and reapply the trigger. Retry never restores labels.
-
-Assignment context includes `outcome_rounds`, keyed by outcome with `used` and
-`limit`. The starter limits only the PR reviewer's `changes-requested` to three.
-It marks findings P1 (must not merge as is) or P2. On the final review
-(`used >= limit`), it approves when only P2 findings remain, listing them in the
-review. P1 findings include unmet acceptance criteria, bugs, security or data-loss
-risks, and failing checks; their fixes always need another review. Open P1 findings
-require `changes-requested`, named in the summary.
-
-The key works on any agent's outcome. It must be a positive integer, needs at least
-one configured stop label, and cannot be used on an outcome that already adds a
-stop label. `doctor --offline` rejects invalid values. Omit it for no limit.
-
-**Upgrading:** Older launchers reject `max-rounds`. Upgrade every project launcher
-before using it.
+To allow one more round, remove `needs-human` and re-add `needs-review`; the count stays. To start over, run `ub-agents retry N --agent reviewer --reason TEXT` first. The count lives on GitHub, so restarts and other launchers don't reset it, and each new pull request starts at zero.
 
 ## Add labels
 
