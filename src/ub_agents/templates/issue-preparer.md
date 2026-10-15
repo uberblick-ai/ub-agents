@@ -29,8 +29,9 @@ blockers, and they may be in another repository; the launcher holds the issue un
 every open blocker closes. Use a blocker issue named in the issue input or found with the
 launcher's `read N`. Get its numeric id with `gh api repos/OWNER/REPO/issues/M --jq .id` and
 link it with `gh api repos/THIS_OWNER/THIS_REPO/issues/N/dependencies/blocked_by -F
-issue_id=BLOCKER_ID`, then finish preparation normally. Do not create issues or edit
-pull requests outside the assignment. If the prerequisite is only a pull request with
+issue_id=BLOCKER_ID`, then finish preparation normally. Create new issues only as
+sub-issues when splitting the assignment below; do not edit pull requests outside the
+assignment. If the prerequisite is only a pull request with
 no issue, or the link is refused, report needs-human and ask a maintainer to link a
 blocker issue, naming the prerequisite.
 
@@ -38,5 +39,16 @@ If a human decision is required, explain it on the issue and report
 `ub-agents report --outcome needs-human --summary "Preparation blocked: REASON"
 --option "Owner: choose A." --option "Owner: choose B."`.
 
-When requirements can be implemented, report
-`ub-agents report --outcome prepared --summary "Issue prepared"`.
+When the work does not fit one reviewable PR, create native GitHub sub-issues of the
+assigned issue. Give each a prepared body and no workflow label; a maintainer must
+label each one before it can start. Record every sub-issue as a blocker of the parent
+using the blocked-by relationship above. Keep the parent open, then report
+`ub-agents report --outcome split --summary "Issue split into prepared sub-issues"`.
+
+For small, bounded and clear work, report
+`ub-agents report --outcome prepared --summary "Issue prepared"`. Also use `prepared`
+after applying the issue-reviewer's `changes-requested` findings from the assignment
+context's `feedback`; do not report `review` again.
+
+For all other implementable work, report
+`ub-agents report --outcome review --summary "Issue prepared for review"`.

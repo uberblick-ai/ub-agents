@@ -83,4 +83,32 @@ Then add the `ready` label to an issue. The launcher will:
 
 In a public repository, only a label added by someone with maintain or admin access starts work. See [Approvals](/docs/configuration/approvals.html).
 
-That's it. Add a reviewer for `needs-review` and an integrator for `ready-to-merge`, or keep the four starter roles `init` wrote. For more machines, see [Add a launcher](/docs/guides/add-a-launcher.html).
+That's it. Add a reviewer for `needs-review` and an integrator for `ready-to-merge`, or keep the five starter roles `init` wrote. The starter also prepares, reviews and splits issues before implementation; see [How the loop works](#how-the-loop-works). For more machines, see [Add a launcher](/docs/guides/add-a-launcher.html).
+
+## How the loop works
+
+Start the default workflow by labelling an issue `needs-preparation`.
+
+```text
+needs-preparation -> issue-preparer
+  prepared -> ready (small, bounded, clear work)
+  review   -> needs-review -> issue-reviewer
+    approved          -> ready
+    changes-requested -> needs-preparation
+  split    -> prepared sub-issues; open parent blocked by each
+  needs-human -> needs-human
+ready -> implementer -> PR with needs-review -> reviewer
+  approved          -> ready-to-merge -> integrator
+  changes-requested -> needs-changes -> implementer
+```
+
+The issue-reviewer checks scope, feasibility and acceptance criteria without editing
+the issue. Its findings reach the preparer as feedback; after applying them, the
+preparer reports `prepared` without another review. Either issue role can ask for a
+person's decision with `needs-human`. The issue-reviewer and PR reviewer share
+`needs-review`, selected by item kind. Use a different runtime for issue review;
+the starter recommends this because `different-runtime-from` requires a PR.
+
+For a split, the preparer creates native GitHub sub-issues with prepared bodies and
+no workflow labels, then records each as a blocker of the open parent. A maintainer
+labels each sub-issue before it starts.

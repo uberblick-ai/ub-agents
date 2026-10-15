@@ -135,6 +135,48 @@ policy; role procedures belong in role files.
 Stop-report formatting, input trust, reporting and workflow-label ownership come
 from the launcher prompt and need no project copies.
 
+### Starter issue preparation and review
+
+`init` writes five roles: issue-preparer, issue-reviewer, implementer, reviewer and
+integrator. The issue roles use these triggers and outcomes (their runtime, worktree,
+instructions and timeout settings are included in the generated configuration):
+
+```yaml
+agents:
+  issue-preparer:
+    kind: issue
+    trigger: needs-preparation
+    outcomes:
+      prepared: {add: [ready]}
+      review: {add: [needs-review]}
+      split: {}
+      needs-human: {add: [needs-human]}
+  issue-reviewer:
+    kind: issue
+    trigger: needs-review
+    instructions: .agents/issue-reviewer.md
+    outcomes:
+      approved: {add: [ready]}
+      changes-requested: {add: [needs-preparation]}
+      needs-human: {add: [needs-human]}
+```
+
+The preparer reports `prepared` for small, bounded and clear work, and `review` for
+other implementable work. The issue-reviewer independently checks scope, feasibility
+and acceptance criteria without editing the issue. Its `changes-requested` summary
+reaches the preparer as feedback; after applying it, the preparer reports `prepared`
+without another `review`. Either role uses `needs-human` for a person's decision.
+
+When work needs more than one reviewable PR, the preparer creates native GitHub
+sub-issues with prepared bodies and no workflow labels, records each as a blocker of
+the open parent and reports `split`. This removes `needs-preparation` and adds no
+label. A maintainer must label each sub-issue before it can start.
+
+The issue-reviewer (`kind: issue`) and reviewer (`kind: pr`) share `needs-review`;
+`init` and `doctor` list the label once with both uses. Run the issue-reviewer on a
+different runtime from the preparer for independent review. This recommendation is
+not enforced: `different-runtime-from` currently requires a PR.
+
 Approval defaults, trusted feedback and start authorization are defined in
 [Issue and PR starts and outside input](approvals.md). `doctor --offline` reports the configured
 policy locally; `doctor --verbose` resolves repository visibility when needed.
@@ -596,7 +638,7 @@ older versions reject the unknown agent key.
 
 ### Retrospectives
 
-`init` can set up a board for each of the four roles: it reuses a discussion titled
+`init` can set up a board for each of the five roles: it reuses a discussion titled
 "<Role> retrospectives" (for example "Implementer retrospectives") or creates one,
 verifies it and only then writes its number. No test comments are posted. See the
 [init guide](https://agents.uberblick.ai/docs/commands/init.html).
@@ -1053,11 +1095,11 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 
 These list examples belong inside an agent definition. `init` instead includes
 one commented top-level mapping entry for the CLI chosen at the agent question,
-inherited by all four starter agents. `--runtime` sets the preselection; otherwise
+inherited by all five starter agents. `--runtime` sets the preselection; otherwise
 init preselects the detected, logged-in CLI (Codex when both are logged in).
 Selecting the Retrospectives extra adds the retrospective rule for Claude. In an
 interactive terminal, init asks whether agents may work without asking (default Yes)
-and writes the grant uncommented for all four agents when you accept.
+and writes the grant uncommented for all five agents when you accept.
 `--use-defaults`, a nonempty `CI`, or non-TTY
 stdin/stdout asks nothing and keeps it commented out, matching label provisioning.
 Whenever it remains commented out, init prints a next step to uncomment or customize it before

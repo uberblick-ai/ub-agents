@@ -15,6 +15,7 @@
     <h2>What does ub-agents do?</h2>
     <p>It runs coding agents on your GitHub issues and pull requests. You start a launcher on your own computer. It watches the repository, claims an item whose label matches one of your agents, runs that agent, and records the result.</p>
     <p>Labels are the queue. Put <code>ready</code> on an issue and the implementer picks it up. When it opens a pull request, that PR gets <code>needs-review</code> and the reviewer takes over. You decide what each label means and what happens after each outcome.</p>
+    <p>The starter workflow begins at <code>needs-preparation</code>: the preparer sends small, clear work to implementation, other work to an issue-reviewer, and work needing several PRs to prepared sub-issues. See <a href="/docs/installation.html#how-the-loop-works">how the loop works</a>.</p>
     <p>GitHub is the only state. Claims, attempts and outcomes are comments on the issue or PR, so a restarted launcher rebuilds everything from there. There is no database and nothing to host.</p>
     <p>Use the agents you already have. Each role names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository. Launchers on several machines share one queue.</p>
   </section>

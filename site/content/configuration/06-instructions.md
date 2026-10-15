@@ -1,6 +1,6 @@
 # Instructions
 
-Each agent's job is a Markdown file in your repository. `init` writes starter files for four roles; rewrite them in your own words. The launcher puts its own short run rules in front, such as how to report and which input to trust, and adds the issue or pull request details.
+Each agent's job is a Markdown file in your repository. `init` writes starter files for five roles; rewrite them in your own words. The launcher puts its own short run rules in front, such as how to report and which input to trust, and adds the issue or pull request details.
 
 ```text
 your-project/
@@ -8,6 +8,7 @@ your-project/
 └── .agents/
     ├── ub_agents.md
     ├── issue-preparer.md
+    ├── issue-reviewer.md
     ├── implementer.md
     ├── reviewer.md
     └── integrator.md
@@ -20,6 +21,20 @@ Point each agent at its file. Say what the role does, which checks to run, what 
 ```yaml
 instructions: .agents/implementer.md
 ```
+
+The starter issue-preparer reports `prepared` for small, bounded and clear work and
+`review` for other implementable work. The issue-reviewer checks scope, feasibility
+and acceptance criteria without editing the issue. It reports `approved` to send it
+to `ready`, `changes-requested` to return it to `needs-preparation`, or `needs-human`
+for a person's decision. The preparer receives findings as feedback, applies them
+and reports `prepared` without another `review`.
+
+When an issue needs multiple reviewable PRs, the preparer creates native sub-issues
+with prepared bodies and no workflow labels, makes each a blocker of the open
+parent and reports `split`. A maintainer labels each sub-issue to start it.
+The issue-reviewer and PR reviewer share `needs-review`, distinguished by `kind`.
+Use a different runtime for issue review; the starter recommends this but
+`different-runtime-from` currently requires a PR.
 
 ## Shared policy
 

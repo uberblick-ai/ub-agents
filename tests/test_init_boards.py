@@ -35,7 +35,8 @@ class BoardSetupTests(unittest.TestCase):
         result = apply_plan(plan, self.github)
         self.assertTrue(result.ok, result.error)
         self.assertEqual(result.board_numbers, {'implementer': 204})
-        self.assertEqual(load_config(self.path).agents[1].retrospectives, 204)
+        roles = {role.name: role for role in load_config(self.path).agents}
+        self.assertEqual(roles['implementer'].retrospectives, 204)
         self.assertEqual([write[0] for write in self.github.writes], ['create-board'])
         mutation = self.github.writes[0][2]
         self.assertEqual(mutation['categoryId'], 'general-id')
@@ -57,7 +58,8 @@ class BoardSetupTests(unittest.TestCase):
         self.assertTrue(result.ok, result.error)
         self.assertEqual(self.github.writes, [])
         self.assertIn('Reused public board', result.completed[0])
-        self.assertEqual(load_config(self.path).agents[1].retrospectives, 204)
+        roles = {role.name: role for role in load_config(self.path).agents}
+        self.assertEqual(roles['implementer'].retrospectives, 204)
 
     def test_duplicate_titles_require_an_explicit_number(self):
         for number in (204, 205):
@@ -98,7 +100,8 @@ class BoardSetupTests(unittest.TestCase):
         retry = apply_plan(plan, self.github)
         self.assertTrue(retry.ok, retry.error)
         self.assertEqual(len(self.github.writes), 2)
-        self.assertEqual(load_config(self.path).agents[2].retrospectives, 205)
+        roles = {role.name: role for role in load_config(self.path).agents}
+        self.assertEqual(roles['reviewer'].retrospectives, 205)
 
     def test_created_but_unverifiable_board_never_enables_retrospectives(self):
         plan = self.plan()

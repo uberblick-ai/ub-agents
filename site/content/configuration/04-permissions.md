@@ -12,7 +12,7 @@ implementer:
 
 `ub-agents init` includes one commented top-level `runtime-args` mapping entry for
 the selected CLI. In a terminal, [init](/docs/commands/init.html) asks whether
-agents may work without asking; Yes (the default) uncomments it for all four
+agents may work without asking; Yes (the default) uncomments it for all five
 starter agents. Review it before you launch. Agents always work in worktrees and
 branches; they never commit to main.
 Selecting the Retrospectives extra also adds Claude's `retrospective` permission.

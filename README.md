@@ -112,6 +112,7 @@ your-project/
 └── .agents/
     ├── ub_agents.md        # project policy every agent reads
     ├── issue-preparer.md
+    ├── issue-reviewer.md
     ├── implementer.md
     ├── reviewer.md
     └── integrator.md
@@ -157,13 +158,31 @@ edits wait for their approval ([approvals](docs/approvals.md)).
 ## The starter workflow
 
 ```text
-needs-preparation ──▶ issue-preparer ──▶ ready, or needs-human
+needs-preparation ──▶ issue-preparer
+  prepared ─────────▶ ready (small, bounded, clear work)
+  review ───────────▶ needs-review (issue) ──▶ issue-reviewer
+    approved ───────▶ ready
+    changes-requested ──▶ needs-preparation
+  split ────────────▶ prepared sub-issues; open parent blocked by each
+  needs-human ──────▶ needs-human
 ready ──────────────▶ implementer ─────▶ PR with needs-review
-needs-review ───────▶ reviewer ────────▶ ready-to-merge, or needs-changes
+needs-review (PR) ──▶ reviewer ────────▶ ready-to-merge, or needs-changes
 needs-changes ──────▶ implementer ─────▶ needs-review
 ready-to-merge ─────▶ integrator ──────▶ merged, needs-changes or needs-human
 needs-human ────────▶ waits for a person
 ```
+
+The issue-reviewer checks scope, feasibility and acceptance criteria without editing
+the issue. Its `changes-requested` summary reaches the preparer as feedback; after
+applying the findings, the preparer reports `prepared`, without another review round.
+Either issue role can report `needs-human` for decisions that need a person.
+Use a different runtime for the issue-reviewer than for the preparer; this is a
+recommendation because `different-runtime-from` currently requires a PR.
+
+For work that needs more than one reviewable PR, the preparer creates native GitHub
+sub-issues with prepared bodies and no workflow labels, links each as a blocker of
+the open parent and reports `split`. A maintainer labels each sub-issue to start it.
+The issue-reviewer and PR reviewer share `needs-review`, selected by item kind.
 
 Before handoff, the implementer fetches the PR's base and fixes any merge conflicts.
 If GitHub reports an approved PR as conflicting, the launcher sends it back to the
