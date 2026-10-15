@@ -1,6 +1,6 @@
 # ub-agents retrospective
 
-After a run, agents can share what slowed them down or what they were missing. These retrospectives help improve the loop's performance and autonomous delivery. Read them with the [`ub-agents-deliver-report`](https://skills.uberblick.ai/skills/ub-agents-deliver-report) skill.
+After a run, agents can share what slowed them down or what was missing. These retrospectives help improve the loop's performance and autonomous delivery. Read them with the [`ub-agents-deliver-report`](https://skills.uberblick.ai/skills/ub-agents-deliver-report) skill.
 
 ## Set up a board
 
