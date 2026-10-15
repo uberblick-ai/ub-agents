@@ -16,11 +16,15 @@ implementer:
 When a run lost something, such as an extra review round, rework or a long search, or missed something it needed, the agent names the cost, the cause and the smallest change that would have prevented it in one short paragraph. A post can also hold, or be only, up to two topic lines:
 
 ```text
-Would have helped: topic A, topic B
-Suggest creating: topic C, topic D
+#412 took a second review round: the empty-config case was named in an
+issue comment, not in the acceptance list. Preparers could move every
+acceptance case into the issue body.
+
+Would have helped: acceptance checklist
+Suggest creating: empty config behavior
 ```
 
-Each item gets at most one post. You can adjust this in the agent's [role file](/docs/configuration/instructions.html#role-files). [Learn from runs](/docs/best-practices/retrospectives.html) has the details.
+Each item gets at most one post. You can adjust this in the agent's [role file](/docs/configuration/instructions.html#role-files).
 
 ## Keep it public
 
