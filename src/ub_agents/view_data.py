@@ -337,6 +337,10 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
             if selection.state != 'earlier observation':
                 selection = replace(selection, state='earlier observation',
                                     reason=f'Last observed state: {selection.state}. {selection.reason}')
+            history = item_history(selection, session)
+            # Keep the latest observation if a later snapshot omits this item.
+            if history and history != selection.data.get('history'):
+                selection = replace(selection, data=selection.data | {'history': history})
             work.append(selection)
     if selection is None and work:
         selection = work[0]
@@ -376,7 +380,8 @@ def item_history(row, session):
     if not row:
         return {}
     history = mapping(row.data.get('history'))
-    return history or (mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {})
+    current = mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {}
+    return (current or history) if row.state == 'earlier observation' else (history or current)
 
 
 def related_plan(work, previous):
