@@ -99,13 +99,13 @@ is never used.
 
 To change settings on one machine only, put them in `ub-agents.local.yaml` next to `ub-agents.yaml`. `init` adds it to `.gitignore`; in an existing project, add that line yourself before creating the file.
 
-Give only the keys you change; everything else stays as shared. A setting you give, such as a runtime list, replaces the shared one. To keep the shared runtime and add a model only this machine has, repeat it:
+Give only the keys you change; everything else stays as shared. A setting you give, such as a runtime list, replaces the shared one. To keep the shared runtime and add a local model only this machine has, repeat it:
 
 ```yaml
 # ub-agents.local.yaml
 agents:
   implementer:
-    runtime: ["codex:gpt-6.1-sol:high", "codex:machine-model:high"]
+    runtime: ["codex:gpt-6.1-sol:high", "opencode:ollama/qwen3.8:27b-mlx"]   # opencode is planned
 ```
 
 An agent that only exists in the local file needs a full definition. `doctor` checks both files, and `launch` picks up changes before its next run.

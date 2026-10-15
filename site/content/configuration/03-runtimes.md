@@ -8,12 +8,12 @@ runtime: "claude:claude-opus-5-5:high"
 
 ## CLI, model and effort
 
-Written as `cli:model:effort`. The CLI is `claude` or `codex`. `opencode`, for local models through Ollama, is planned and not supported yet.
+Written as `cli:model:effort`. The CLI is `claude` or `codex`. `opencode`, for local models through Ollama, is planned and not supported yet. It will be written as `opencode:provider/model`, without an effort, because local models have none.
 
 ```yaml
 runtime: "claude:claude-opus-5-5:high"
 runtime: "codex:gpt-6.1-sol:high"
-runtime: "opencode:ollama/qwen3.8:high"   # planned, not supported yet
+runtime: "opencode:ollama/qwen3.8:27b-mlx"   # planned, not supported yet
 ```
 
 ## Alternatives
@@ -31,12 +31,12 @@ To customize one machine, supply only the agent's runtime in
 # ub-agents.local.yaml
 agents:
   implementer:
-    runtime: ["codex:gpt-6.1-sol:high", "codex:machine-model:high"]
+    runtime: ["codex:gpt-6.1-sol:high", "opencode:ollama/qwen3.8:27b-mlx"]   # opencode is planned
 ```
 
 The local runtime replaces the whole shared string or ordered list. This example
 keeps the base `codex:gpt-6.1-sol:high` alternative by repeating it, then adds a
-model available on this machine through Codex. Other agent settings inherit.
+local Qwen model through opencode and Ollama, once opencode is supported. Other agent settings inherit.
 Supported CLIs, selection and independence rules are unchanged; no runtime adapter
 is added. See [machine-local overrides](/docs/configuration/index.html#machine-local-overrides).
 
