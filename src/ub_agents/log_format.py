@@ -380,7 +380,14 @@ class ClaudeFormatter(StructuredFormatter):
                         last_call = None
                 elif block_type == "thinking":
                     kinds.append("thinking")
-                    parts.append(Line("· thinking", "dim"))
+                    thinking = block.get("thinking")
+                    lines = [value for value in thinking.split("\n") if value.strip()] if isinstance(thinking, str) else []
+                    if lines:
+                        parts.extend(Line(("· " if index == 0 else "") + value, "dim italic",
+                                          continuation=index > 0)
+                                     for index, value in enumerate(lines))
+                    else:
+                        parts.append(Line("· thinking", "dim"))
                     last_call = None
                 else:
                     kinds.append("other block")

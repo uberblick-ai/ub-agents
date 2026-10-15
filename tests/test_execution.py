@@ -33,7 +33,7 @@ class ExecutionTests(unittest.TestCase):
                                  'model_reasoning_effort="high"', "--sandbox", "read-only"])
         claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high"), scratch)
         self.assertEqual(claude, ["claude", "--print", "--output-format", "stream-json", "--verbose",
-                                  "--model", "opus", "--effort", "high"])
+                                  "--model", "opus", "--effort", "high", "--thinking-display", "summarized"])
         extra = ("--verbose", "--allowedTools", "Bash(git *)")
         self.assertEqual(command_for(replace(configured, runtime_args=extra), Runtime("claude", "opus", "high"), scratch),
                          claude + list(extra))

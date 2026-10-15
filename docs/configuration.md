@@ -949,7 +949,7 @@ The [run prompt](coordination.md#run-prompt), made of the launcher contract, ass
 context, optional shared policy and role instructions, arrives on stdin:
 
 - `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
-- `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
+- `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT --thinking-display summarized`.
 
 Top-level `runtime-args` accepts a mapping from CLI (`codex`, `claude`) to a list
 of strings. Runtime agents inherit it when they omit their own `runtime-args`;

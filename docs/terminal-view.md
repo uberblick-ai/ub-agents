@@ -701,7 +701,7 @@ Claude's formatted Log pane shows a compact transcript:
  07:41:18 ▸ Read packages/hub/src/directory.ts
  07:41:40 Both paths rebuild stubs independently.
           Moving to a shared repairStubs() in schema.
- 07:41:41 · thinking
+ 07:41:41 · I'll check the callers before editing the shared helper.
  07:42:11 ▸ Edit packages/schema/src/directory.ts +48 -0
  07:42:30 ▸ Bash pnpm test --filter schema · 1m
  07:43:31   ✗ Exit code 1
@@ -740,8 +740,10 @@ until follow resumes.
 Successful tool results add no line. Failed results show one red, indented `✗`
 line with the first error line. When another visible line has intervened, it
 includes the tool name, or `tool:` if the call is outside the retained pairing
-history. Thinking
-blocks show one dim `· thinking` line; unfamiliar blocks show a dim type label and
+history. Thinking blocks show non-empty summaries after `· ` in dim italic,
+with continuation lines aligned like assistant text and blank or whitespace-only
+lines omitted. Missing, empty or whitespace-only thinking text shows one dim
+`· thinking` line. Unfamiliar blocks show a dim type label and
 the rest of the message still renders. System records, including initialization,
 thinking-token updates and task notifications, and rate-limit events are hidden.
 Other complete JSON records show a dim type/subtype label. A final successful

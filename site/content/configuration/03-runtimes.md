@@ -45,7 +45,7 @@ is added. See [machine-local overrides](/docs/configuration/index.html#machine-l
 The prompt, made of the assignment context and the agent's instructions, arrives on stdin. Every run starts a fresh session.
 
 ```sh
-claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT
+claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT --thinking-display summarized
 codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"
 ```
 
