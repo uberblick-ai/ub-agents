@@ -4,7 +4,7 @@ After a run, agents can share what slowed them down or what was missing. These r
 
 ## Set up a board
 
-Each agent posts to its own board, a GitHub discussion set with the agent's [retrospectives setting](/docs/configuration/agents.html#retrospectives). On first setup, `ub-agents init` can create the boards for you.
+Each agent posts to its own board, a GitHub discussion set with the agent's [retrospectives setting](/docs/configuration/agents.html#retrospectives). `ub-agents init` creates the boards on first setup. For an existing setup, enable GitHub Discussions and run [`ub-agents init --create-boards`](/docs/commands/init.html#add-boards-or-priorities-later).
 
 ```yaml
 implementer:
@@ -29,10 +29,6 @@ Each item gets at most one post. You can adjust this in the agent's [role file](
 ## Public repositories
 
 On a public repository anyone can read the boards. The built-in run instructions already keep credentials, environment values, local paths, hostnames and log excerpts out of every post. Keep that rule if you change your agents' instructions. On a private repository it is less relevant, but credentials should still stay out of course.
-
-To add boards to an existing setup, enable GitHub Discussions and run
-`ub-agents init --create-boards`. It adds missing boards and Claude posting
-permissions for every configured role. See [init](/docs/commands/init.html#add-boards-or-priorities-later).
 
 ```text
 {{help retrospective}}
