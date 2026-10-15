@@ -140,7 +140,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  + .agents/ ub_agents.md and 5 role files                                         │
 │  ~ .gitignore +4 lines                                                            │
 │  + 7 labels on org/project                                                        │
-│  + 4 retrospective boards (reused when the title exists)                          │
+│  + 5 retrospective boards (reused when the title exists)                          │
 │  + .uberblick.json local Uberblick workspace                                      │
 │  Uberblick MCP · Claude Code · project scope · .mcp.json · add entry               │
 │                                                                                   │
@@ -151,7 +151,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 ◇  Write setup?
 │  Yes
 │
-◇  Setup written · boards #204, #203, #205, #206
+◇  Setup written · boards #204, #207, #203, #205, #206
 │
 ◇  Uberblick workspace created
 │  .uberblick.json
