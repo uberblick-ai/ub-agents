@@ -86,8 +86,9 @@ prefer a separate [write-access launcher account](/docs/best-practices/launcher-
 
 Init writes `ub-agents.yaml`, `.agents/ub_agents.md` and five role files beside it,
 and adds missing `.ub-agents/` and `ub-agents.local.yaml` entries to `.gitignore`.
-It refuses to run when a starter file already exists, never overwrites starter files and
-leaves `AGENTS.md`, `CLAUDE.md` and an existing `ub-agents.local.yaml` unchanged.
+Plain init refuses to run when a starter file already exists. The optional setup
+flags below only add missing entries to `ub-agents.yaml`. Init leaves `AGENTS.md`,
+`CLAUDE.md` and an existing `ub-agents.local.yaml` unchanged.
 
 The roles are issue-preparer, issue-reviewer, implementer, reviewer and integrator.
 The preparer sends small, bounded and clear work straight to `ready` with `prepared`,
@@ -114,6 +115,39 @@ settings stay local and cannot block the other setup files from reaching the PR.
 When something fails halfway, init keeps what it did and prints what is left,
 including the content of files it could not write and the remaining label commands.
 
+## Add boards or priorities later
+
+On an existing setup, run either flag or combine them:
+
+```sh
+ub-agents init --create-boards
+ub-agents init --create-priorities
+ub-agents init --create-boards --create-priorities
+```
+
+`--create-boards` covers every agent in `ub-agents.yaml` without `retrospectives`,
+including custom roles. It reuses an open discussion with the role's title or
+creates one, then adds the discussion number. Turn on GitHub Discussions and give
+the account write access first. Duplicate titles stop setup so you can choose the
+board numbers by hand. For affected Claude agents, it also adds the retrospective
+command to their own or inherited `--allowedTools` lists; args without that option
+stay unchanged.
+
+`--create-priorities` asks for priority labels, highest first, creates the missing
+labels and adds `queue.priority.labels` inside the existing queue or a new block.
+An existing `queue.priority` stays unchanged.
+
+These flags run the checks, stop on local changes, show the planned changes and
+ask once before writing. `--use-defaults`, CI and non-TTY runs take the default
+answers, including the default priority labels. GitHub boards and labels are
+created immediately after confirmation. On the default branch, the config goes
+to one setup PR, using an unused branch name if an older setup branch remains.
+On any other branch the edit stays local. The flags change only `ub-agents.yaml`,
+preserving comments, order and other settings. Layouts that cannot be extended
+safely stay unchanged, with the entries printed for a manual edit. Partial failures
+list completed effects and entries still to add. Rerunning a completed setup does
+nothing and opens no PR.
+
 ## Next steps
 
 Init ends with a short list: review permissions and `.agents/ub_agents.md` (sensible
@@ -131,7 +165,7 @@ pick up the server. Joining a hub or binding a workspace later remains a manual 
 ub-agents init --use-defaults --repository org/project
 ```
 
-`--use-defaults`, a nonempty `CI` and non-TTY runs ask nothing and run no checks.
+For plain init, `--use-defaults`, a nonempty `CI` and non-TTY runs ask nothing and run no checks.
 They keep permissions and updates commented out, leave the extras off, register no
 MCP server, create no labels, open no PR and print the label commands. Without `--repository`, `gh repo view` infers it.
 `TERM=dumb` asks the same questions as numbered prompts.
