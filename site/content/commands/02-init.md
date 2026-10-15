@@ -34,7 +34,10 @@ cancel leaves no files, labels or boards, no branch and no PR.
 3. **Updates:** keeps the agent CLI and `gh` up to date once a day between runs,
    each with its own updater. Yes is the default; see
    [runtime updates](/docs/configuration/runtime-updates.html).
-4. **Extras**, all off by default:
+4. **Questions:** who answers the agents' scope and policy questions, written into
+   `.agents/ub_agents.md`. Init offers the teams that maintain the repository, then
+   your own account, or any `@user` or `@org/team`.
+5. **Extras**, all off by default:
    - **Priorities:** priority labels, highest first, that order the
      [queue](/docs/configuration/queue.html).
    - **Retrospectives:** agents post learnings per run, used to optimize delivery.
@@ -48,9 +51,9 @@ cancel leaves no files, labels or boards, no branch and no PR.
      nearest `.uberblick.json`; without one it offers to create a local workspace
      with `ub workspace create`, which goes in the setup PR, or explains how to join
      a hub workspace. Connect agents with `ub mcp install claude` or `codex`.
-5. **Labels:** creates missing workflow and priority labels. Existing labels stay
+6. **Labels:** creates missing workflow and priority labels. Existing labels stay
    unchanged; declining prints the `gh label create` commands.
-6. **Write setup?** shows what will change and writes it. Labels and boards are
+7. **Write setup?** shows what will change and writes it. Labels and boards are
    created on GitHub right away; the files go to a setup PR.
 
 Init asks for the repository only when it can't infer it from the checkout. When the

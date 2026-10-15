@@ -26,6 +26,15 @@ the choices.
 └
 ```
 
+```text
+◆  Who answers the agents' questions?
+│  They decide scope and policy questions and own workflow changes; see .agents/ub_agents.md.
+│  ● @org/core (maintains this repository)
+│  ○ @operator
+│  ○ Someone else
+└
+```
+
 Hints show only on the highlighted option. Disabled extras show their reason:
 
 ```text
@@ -49,7 +58,7 @@ With Uberblick selected and no `.uberblick.json` in the checkout or above it:
 
 ## Full run
 
-A checkout on another branch, Claude logged in, an admin account, `ub` installed and all extras selected.
+A checkout on another branch, Claude logged in, an admin account, a maintaining team, `ub` installed and all extras selected.
 
 ```text
 ┌   ub-agents init  v0.3.0
@@ -76,6 +85,9 @@ A checkout on another branch, Claude logged in, an admin account, `ub` installed
 │
 ◇  Keep claude and gh up to date?
 │  Yes · claude and gh update once a day between runs
+│
+◇  Who answers the agents' questions?
+│  @org/core
 │
 ◇  Extras
 │  Priorities, Retrospectives, Uberblick

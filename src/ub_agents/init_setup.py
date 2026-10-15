@@ -55,6 +55,7 @@ class Choices:
     runtime: str
     permissions: bool = False
     updates: bool = False
+    owner: str = ""
     priority_labels: tuple[str, ...] = ()
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)
@@ -145,8 +146,11 @@ def make_plan(path, repository, choices):
               "Replace these placeholders with the project's required commands before launch:\n\n"
               "- Build: `<project build command>`\n- Tests: `<project test command>`\n"
               "- Other checks: `<project lint or validation command>`")
-    targets[root / ".agents" / "ub_agents.md"] = templates.joinpath("ub_agents.md").read_text().replace(
-        "{checks}", checks)
+    policy = templates.joinpath("ub_agents.md").read_text().replace("{checks}", checks)
+    if choices.owner:
+        policy = policy.replace("; replace this handle with the\nproject's person or team", "").replace(
+            "@org/maintainers", choices.owner)
+    targets[root / ".agents" / "ub_agents.md"] = policy
     ignore = root / ".gitignore"
     before = ignore.read_bytes() if ignore.exists() else None
     entries = (before or b"").decode("utf-8").splitlines()

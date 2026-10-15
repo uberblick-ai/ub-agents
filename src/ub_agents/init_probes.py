@@ -39,6 +39,8 @@ class Probes:
         self.discussions_note = ""
         self.branch = self.default_branch = self.clean = None
         self.ub = False
+        self.actor = None
+        self.teams = []
 
     def collect(self, name, summary=()):
         group = Group(name, [part for part in summary if part])
@@ -138,6 +140,11 @@ class Probes:
             if config.launchers is not None and actor.casefold() not in {v.casefold() for v in config.launchers}:
                 d.add("launcher-listed", "warn", f"{actor} is not in local launchers; it will claim no work",
                       "Review ub-agents.local.yaml", required=False)
+            self.actor = actor
+            try:
+                self.teams = self.github.teams()
+            except PROBE_ERRORS:
+                self.teams = []
             account = self.collect("Account")
             if not account.problems:
                 self.groups.remove(account)

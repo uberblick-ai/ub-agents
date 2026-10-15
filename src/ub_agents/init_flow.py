@@ -64,6 +64,10 @@ def check_repository(value):
     return None if re.fullmatch(REPOSITORY, value) else "Enter owner/name"
 
 
+def check_owner(value):
+    return None if re.fullmatch(r"@[A-Za-z0-9-]+(/[A-Za-z0-9._-]+)?", value) else "Enter @user or @org/team"
+
+
 def check_priorities(value):
     labels = [label.strip() for label in value.split(",")]
     if not value.strip() or any(not label for label in labels):
@@ -102,6 +106,7 @@ class Flow:
         choices = Choices(self.choose_runtime())
         choices.permissions = self.choose_permissions(choices.runtime)
         choices.updates = self.choose_updates(choices.runtime)
+        choices.owner = self.choose_owner()
         extras = self.choose_extras()
         if "priority" in extras:
             value = self.ask.text("Priority labels, highest first", PRIORITIES, check_priorities)
@@ -229,6 +234,20 @@ class Flow:
         enabled = self.ask.confirm(message, not self.unattended, note)
         self.t.answered(message, f"Yes · {cli} and gh update once a day between runs" if enabled else "No")
         return enabled
+
+    def choose_owner(self):
+        if not self.probes or not self.probes.actor:
+            return ""
+        message = "Who answers the agents' questions?"
+        handles = [*self.probes.teams, f"@{self.probes.actor}"]
+        options = [Option(handle, handle, "you" if handle == handles[-1] else "maintains this repository")
+                   for handle in handles] + [Option("", "Someone else")]
+        note = "They decide scope and policy questions and own workflow changes; see .agents/ub_agents.md."
+        owner = self.ask.select(message, options, 0, note)
+        if not owner:
+            owner = self.ask.text("Which @user or @org/team?", handles[0], check_owner)
+        self.t.answered(message, owner)
+        return owner
 
     def choose_extras(self):
         available = self.probes and self.probes.discussions

@@ -99,7 +99,8 @@ class FlowTests(unittest.TestCase):
         code, text = self.run_flow()
         self.assertEqual(code, 0)
         self.assertEqual(self.script.asked, ['Which agent runs the loop?', 'Let agents work without asking?',
-                                             'Keep codex and gh up to date?', 'Extras', 'Create 3 missing labels?',
+                                             'Keep codex and gh up to date?', "Who answers the agents' questions?",
+                                             'Extras', 'Create 3 missing labels?',
                                              'Write setup?'])
         self.assertIn('Yes · codex and gh update once a day between runs', text)
         self.assertIn('runtime-updates:\n  codex: auto\n  gh: auto', self.path.read_text())
@@ -171,6 +172,23 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(retrospectives.disabled, 'Discussions are off in org/project')
         self.assertIn('Want retrospectives later? Turn on Discussions if needed, then follow '
                       'https://agents.uberblick.ai/docs/best-practices/retrospectives', text)
+
+    def test_questions_go_to_a_maintaining_team_or_the_logged_in_account(self):
+        self.github.team_handles = ['@org/core']
+        for script, expected in ((Script(), '@org/core'), (Script(Who_answers='@operator'), '@operator'),
+                                 (Script(Who_answers='', **{'Which @user': '@org/leads'}), '@org/leads')):
+            with self.subTest(expected=expected):
+                for path in [self.path, self.root / '.gitignore']:
+                    path.unlink(missing_ok=True)
+                for child in sorted(self.root.glob('.agents/*')):
+                    child.unlink()
+                code, text = self.run_flow(script)
+                self.assertEqual(code, 0)
+                options = self.script.options["Who answers the agents' questions?"]
+                self.assertEqual([o.value for o in options], ['@org/core', '@operator', ''])
+                policy = ' '.join((self.root / '.agents' / 'ub_agents.md').read_text().split())
+                self.assertIn(f'`{expected}` answers scope and policy questions. An issue', policy)
+                self.assertNotIn('@org/maintainers', policy)
 
     def test_claude_retrospectives_get_the_retrospective_permission(self):
         code, text = self.run_flow(Script(Extras=['retrospectives']), runtime='claude:claude-opus-5-5:high')
