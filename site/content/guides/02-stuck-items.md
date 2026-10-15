@@ -57,6 +57,7 @@ The launcher removes each run's worktree when the run ends. A crashed run can
 leave it behind. Restart [`launch`](/docs/commands/launch.html) to sweep all roles'
 leftover worktrees and local run branches from this machine before polling, with the
 [cleanup hook](/docs/configuration/cleanup.html) before each worktree removal.
+The terminal view opens before setup checks; the sweep waits until they pass.
 The sweep covers registered worktrees and unregistered entries under
 `.ub-agents/worktrees/`, plus `ub-agents/<agent>/<number>/<run>` and older
 `ub-agent/` local branches. Symlinks are removed as links. It keeps live leases

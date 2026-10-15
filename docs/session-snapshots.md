@@ -6,6 +6,9 @@ readers. These files never authorize claims, coordination or recovery.
 Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
 publishes a local JSON snapshot at `.ub-agents/sessions/<session-id>.json` in the
 control checkout. Publication is always on and has no configuration key.
+The session exists and the terminal view opens before setup checks, publishing
+`checking setup` or `waiting` during setup retries. The startup sweep and queue
+begin only after setup passes.
 Writing the snapshot makes no GitHub requests; continuous launch also runs
 read-only observation passes during assignments to refresh the planned queue.
 `status` and embedded loops without an observer keep their existing

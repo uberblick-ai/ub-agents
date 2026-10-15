@@ -716,6 +716,8 @@ needs explicit maintainer approval. Outside edits or feedback after approval sus
 outside PRs again. Fork PRs can be reviewed, but agents cannot revise them and
 revision runs remain blocked.
 
+The terminal view opens before setup checks, showing `checking setup`; retryable
+GitHub failures wait and retry before any sweep or queue work.
 Before its first pass, `launch` checks that the control checkout is clean, on the
 repository's default branch (not detached), and has no commits outside the local
 `origin` ref for that branch. Missing origin refs require `git fetch origin`.

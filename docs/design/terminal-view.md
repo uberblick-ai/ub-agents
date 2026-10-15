@@ -11,6 +11,10 @@ notice and no cached load result. It has no workflow controls,
 so there is no retry key and no filter. `q` stops the launch after the current run;
 Ctrl-C stops it immediately. The view stays open through launcher cleanup (#287).
 
+The view opens before setup checks and shows `checking setup`, or `waiting`
+during retryable GitHub failures. The update watcher, startup sweep and queue
+start only after setup passes; quitting during setup claims no work.
+
 ## Layout
 
 Two panes at 110×32 and above: **Work** on the left and the selected item on the
