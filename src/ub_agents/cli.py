@@ -31,7 +31,7 @@ from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases
                       record_version, records, same_run, timestamp)
 from .run_config import supervised_run
 from .status import lease_summary, process_details
-from .startup_cleanup import sweep as startup_cleanup
+from .startup_cleanup import StartupCleanup
 
 
 def parser():
@@ -395,6 +395,7 @@ def run(args):
     from .observations import Observations, Publisher
     publisher = None
     view = None
+    cleanup = None
     try:
         launch_checks(config, github)
         from .updates import Updates
@@ -415,8 +416,9 @@ def run(args):
                 loop.output(f"Cannot publish launcher observations: {exc}")
         loop._before_claim()
         session = loop.observer.state['session'] if loop.observer is not None else None
-        swept = startup_cleanup(config, github, loop.coordinator.actor, output=loop.output, session=session)
-        loop._observe("startup_cleanup", swept)
+        cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)
+        loop.coordinator.cleanup_control = cleanup.control
+        cleanup.start()
         if not stop.is_set():
             from .launch_ui import open_view
             view = open_view(config.root, session, args.launch_output, stop,
@@ -432,6 +434,8 @@ def run(args):
     except _GracefulStop:
         return
     finally:
+        if cleanup is not None:
+            cleanup.close()
         if loop.updates is not None:
             loop.updates.close()
         if view is not None:

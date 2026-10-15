@@ -368,8 +368,9 @@ safe to retry, because a crash after hook success can leave a worktree to clean 
 
 ## Stale artifact cleanup
 
-Every `ub-agents launch` invocation sweeps leftover artifacts once, after startup
-checks pass and before the first poll or claim. This includes `--agent`, `NUMBER`
+Every `ub-agents launch` invocation sweeps leftover artifacts once in the background,
+after startup checks pass. The view opens and polling starts without waiting.
+This includes `--agent`, `NUMBER`
 and `--once`. For every role, it inspects registered worktrees and unregistered
 entries directly under this checkout's `.ub-agents/worktrees/<run>`, plus local
 branches named `ub-agents/<agent>/<number>/<run>` or the older
@@ -397,12 +398,18 @@ do not prevent removal. If the repository coordination scan or PR lookup fails,
 the affected artifacts stay and the reason is logged.
 
 The sweep rechecks each eligible artifact before deletion and reports `removed`
-or `kept` with a reason in `.ub-agents/launch.log`, the terminal view's Startup
-cleanup fold, or plain output with `--no-ui`. Worktrees are considered before
+or `kept` with a reason only in `.ub-agents/sessions/<session>.cleanup.log`,
+including with `--no-ui`. Without a session, it creates a unique `*.cleanup.log`
+in the same directory. Every sweep creates its log and flushes each line; without
+a writable log it removes nothing. Worktrees are considered before
 branches, so a branch can be removed after its worktree. The cleanup hook runs
 before each worktree removal, including unregistered entries; unknown context
 fields are `null`. A failed hook preserves the worktree and branch for a later
 retry.
+
+Local claims protect their runs and branches from the background sweep. Quitting
+starts no further hook, removal or prune, waiting at most for the artifact already
+being handled and its hook. `ub-agents clean` keeps its usual output.
 
 At run end, after removing its private worktree, the launcher fetches origin
 branches and deletes the run's local branch only if its tip is reachable from an
@@ -424,7 +431,7 @@ more than 7 days old, unless live leases, process uncertainty, unreadable or
 redirected diagnostics, or a kept worktree or branch protect them. It also
 prunes ended or stale session snapshots and orphan session files older than
 7 days, preserving live sessions and the current launcher's files. One summary
-line reports the counts and space freed when anything was removed; individual
+line in the cleanup log reports the counts and space freed when anything was removed; individual
 removal failures are logged without stopping launch. Retention is fixed, with
 no configuration key. See [diagnostic retention](operations.md#when-things-go-wrong)
 and [session liveness](session-snapshots.md#publication-and-liveness).
@@ -441,7 +448,7 @@ signals a previous run's processes.
 Startup sweep branch removal does not require the tip to be known remotely. The
 sweep fetches `origin` branches and merged PR heads for that branch. If the tip is not reachable
 from those fetched references, or reachability cannot be checked, its full SHA is
-included in the removal line as `unpushed tip SHA`. Restore it with
+flushed to the cleanup log before deletion as `unpushed tip SHA`. Restore it with
 `git branch <name> <sha>`. A merged PR head can preserve checkpoint commits after
 a squash merge deletes the remote branch. No GitHub branches are deleted.
 

@@ -738,9 +738,10 @@ Durable attempts and backoff survive restarts.
 At startup, launcher and `status` discovery read repository issue comments updated
 within 30 minutes plus seven days. Renewed live leases stay inside that window,
 independently of execution and cleanup timeouts. The launch startup artifact sweep
-scans the full repository comment history once, after startup checks and before
-the first poll or claim, in every launch mode. It logs removal and keep decisions
-and continues to poll after a sweep failure. A quick restart keeps crashed runs
+scans the full repository comment history once in the background after startup checks,
+in every launch mode. The view opens and polling starts without waiting. It logs
+decisions and failures only to `.ub-agents/sessions/<session>.cleanup.log`, using
+a unique name in the same directory without a session. A quick restart keeps crashed runs
 with live leases until a later launch start after expiry; there is no periodic
 sweep. Later discovery scans poll updated comments with
 `sort=updated` and `since`, a 60-second overlap and a cursor captured before the

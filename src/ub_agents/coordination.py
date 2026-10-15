@@ -55,6 +55,7 @@ class Coordinator:
         self.clock = clock
         self.queue = queue
         self.on_claim = on_claim
+        self.cleanup_control = None
         self.on_decline = on_decline
         self.on_record = on_record
         self.runtime_available = runtime_available
@@ -414,6 +415,8 @@ class Coordinator:
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
+        if self.cleanup_control is not None:
+            self.cleanup_control.protect(record)
         if before_write is not None:
             before_write()
         try:

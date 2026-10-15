@@ -1,6 +1,7 @@
 """Thin argv adapters and attributable POSIX process supervision."""
 
 import json
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -8,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import time
+import uuid
 
 from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from .report_command import launcher_report_command
@@ -38,6 +40,21 @@ def git(root, *arguments, strip=True):
     if result.returncode:
         raise AgentError(f"Git operation failed: {result.stderr.strip()}")
     return result.stdout.strip() if strip else result.stdout
+
+
+@contextmanager
+def fetched_head(root, source):
+    """Keep each fetch result pinned independently of shared FETCH_HEAD."""
+    ref = f"refs/ub-agents/fetch/{uuid.uuid4().hex}"
+    head = None
+    try:
+        git(root, "fetch", "--no-write-fetch-head", "--no-tags", "--refmap=",
+            "origin", f"+{source}:{ref}")
+        head = git(root, "rev-parse", ref)
+        yield head
+    finally:
+        if head is not None:
+            git(root, "update-ref", "-d", ref, head)
 
 
 def repository_checks(config, read_git=None):
@@ -128,17 +145,16 @@ class Workspace:
         self.private.parent.mkdir(parents=True, exist_ok=True)
         self.check_private_boundary()
         if self.item.kind == "pr":
-            git(self.root, "fetch", "origin", f"refs/pull/{self.item.number}/head")
-            head = git(self.root, "rev-parse", "FETCH_HEAD")
-            if head != self.item.head:
-                raise AgentError("Candidate changed while preparing its private worktree")
-            git(self.root, "worktree", "add", "--detach", str(self.private), head)
+            with fetched_head(self.root, f"refs/pull/{self.item.number}/head") as head:
+                if head != self.item.head:
+                    raise AgentError("Candidate changed while preparing its private worktree")
+                git(self.root, "worktree", "add", "--detach", str(self.private), head)
         else:
             base = self.github.default_branch()
-            git(self.root, "fetch", "origin", base)
             branch = f"ub-agents/{self.agent.name}/{self.item.number}/{self.lease['run']}"
             self.lease["branch"] = branch
-            git(self.root, "worktree", "add", "-b", branch, str(self.private), "FETCH_HEAD")
+            with fetched_head(self.root, f"refs/heads/{base}") as head:
+                git(self.root, "worktree", "add", "-b", branch, str(self.private), head)
         self.created = True
         return self.private
 

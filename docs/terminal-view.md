@@ -94,11 +94,11 @@ no focus. Ready rows whose check fails show `waiting` in Eligible, outside Needs
 attention. Each failure, changed error or recovery also appears in plain launch
 output and `.ub-agents/launch.log`.
 
-When the startup artifact sweep reports decisions or a failure, a **Startup
-cleanup** fold appears above the panes. Expand it to scroll through every
-`removed` or `kept` line with its reason and any sweep error. The same lines
-appear in `.ub-agents/launch.log` and plain output with `--no-ui`. The sweep runs
-once after startup checks and before polling; its failures do not stop launch.
+The startup artifact sweep runs in the background while the view opens and polling
+starts. Its decisions, failures and pruning summary go only to
+`.ub-agents/sessions/<session>.cleanup.log`, including with `--no-ui`. Without a
+session it creates a unique `*.cleanup.log` in the same directory. Each line is
+flushed, and an unwritable log prevents deletions. Sweep failures do not stop launch.
 
 At **110 columns × 32 rows** and above, the combined view shows both panes. At that size
 and above, the Work pane's outer width, including its border, is one third of the
