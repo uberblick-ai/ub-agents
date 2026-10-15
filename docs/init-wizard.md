@@ -57,6 +57,27 @@ With Uberblick selected and no `.uberblick.json` in the checkout or above it:
 └
 ```
 
+The Uberblick extra also plans project-scope MCP registration for the chosen
+runtime, including when the workspace choice is **Use a hub workspace** or
+**Later**. The Changes note shows the client, scope, path and planned action:
+
+```text
+│  Uberblick MCP · Claude Code · project scope · .mcp.json · add entry
+│  Uberblick MCP · Codex · project scope · .codex/config.toml · reuse matching entry
+│  Uberblick MCP · Codex · project scope · .codex/config.toml · keep existing entry (conflicting uberblick entry; left unchanged)
+│  Manual command: ub mcp install codex
+```
+
+Only the line for the selected runtime and actual outcome appears. Init requires
+`ub` 0.4.3 or newer and checks the project destination and plain `ub mcp serve`
+snippet with `ub mcp install <client> --print`, which runs nothing. Nothing is
+registered until **Write setup?** is confirmed. Cancelling leaves MCP config
+unchanged. Project scope is the command's default; init never passes `--user`.
+Matching entries are reused without rewriting and unrelated settings stay intact.
+Unreadable, symlinked or conflicting config stays unchanged. If `ub` would target
+a different project (for example an ancestor binding), or the setup PR would need
+an ignored config, init keeps the manual command instead of registering.
+
 ## Full run
 
 A checkout on another branch, Claude logged in, an admin account, a maintaining team, `ub` installed and all extras selected.
@@ -111,6 +132,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  + 7 labels on org/project                                                        │
 │  + 4 retrospective boards (reused when the title exists)                          │
 │  + .uberblick.json local Uberblick workspace                                      │
+│  Uberblick MCP · Claude Code · project scope · .mcp.json · add entry               │
 │                                                                                   │
 │  Labels and boards are created on GitHub right away; the files go to a new PR.    │
 │                                                                                   │
@@ -140,8 +162,8 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │     .claude/CLAUDE.md or AGENTS.md so agents know how to build and test.        │
 │  6. Use a dedicated agent account with write access; see                        │
 │     https://agents.uberblick.ai/docs/best-practices/launcher-account            │
-│  7. Connect agents to Uberblick with ub mcp install claude; see                 │
-│     https://uberblick.ai                                                        │
+│  7. Uberblick MCP · Claude Code · project scope · .mcp.json · registered         │
+│  8. Restart running agent sessions to pick up the Uberblick MCP server         │
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │
@@ -150,6 +172,18 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 
 A failed check turns the step title into `▲  Checks · fix these before launch; setup can continue`
 and lists the fix under the failing line.
+
+### Uberblick result and Next steps
+
+The result reports the actual MCP outcome: **registered**, **reused**, **kept
+existing** or **not registered**, with the reason when applicable. Failure and
+unsupported installations retain `ub mcp install claude` or `ub mcp install codex`
+as the manual retry command and still allow core setup and its PR. Running agent
+sessions need a restart to load the server. A new or changed project config joins
+the setup-only commit; when setup files stay local, the MCP config stays local too.
+The entry contains no credentials, workspace ID or hub URL: `ub mcp serve` follows
+the project's `.uberblick.json`, including a binding added later. Next steps still
+explain how to join a hub or select a workspace for **Later** or a failed creation.
 
 ## Local changes
 
@@ -179,6 +213,8 @@ A checkout with local changes (untracked files included) stops after the checks:
 ## Unattended
 
 `--use-defaults`, CI and non-TTY runs:
+
+These runs skip all extras and register no MCP server. The setup remains local-only.
 
 ```text
 ┌   ub-agents init  v0.3.0

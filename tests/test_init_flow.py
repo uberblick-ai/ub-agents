@@ -1,5 +1,6 @@
 from contextlib import redirect_stdout
 import io
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -84,6 +85,28 @@ class FlowTests(unittest.TestCase):
         self.runner = RecordingRunner(self.root)
         self.runner.responses = SetupResponses(self.runner.responses)
         self.installed = {'git', 'gh', 'ps', 'claude', 'codex'}
+        self.runner.responses[('ub', '--version')] = '0.4.3'
+        for cli, name in (('claude', '.mcp.json'), ('codex', '.codex/config.toml')):
+            self.runner.responses[('git', '-C', str(self.root), 'check-ignore', '-q', '--', name)] = subprocess.CompletedProcess(
+                [], 1, '', '')
+            snippet = ('{"mcpServers":{"uberblick":{"command":"ub","args":["mcp","serve"]}}}' if cli == 'claude' else
+                       '[mcp_servers.uberblick]\ncommand = "ub"\nargs = ["mcp", "serve"]\n')
+            self.runner.responses[('ub', 'mcp', 'install', cli, '--print')] = subprocess.CompletedProcess(
+                [], 0, snippet, f'ub mcp install: --print runs nothing — paste this into {self.root / name}\n')
+
+            def install(command, *, cwd, **kwargs):
+                if command[-1] == 'claude':
+                    path = cwd / '.mcp.json'
+                    data = json.loads(path.read_text()) if path.exists() else {}
+                    data.setdefault('mcpServers', {})['uberblick'] = {'command': 'ub', 'args': ['mcp', 'serve']}
+                    path.write_text(json.dumps(data))
+                else:
+                    path = cwd / '.codex/config.toml'
+                    path.parent.mkdir(exist_ok=True)
+                    content = path.read_text() if path.exists() else ''
+                    path.write_text(content + '\n[mcp_servers.uberblick]\ncommand = "ub"\nargs = ["mcp", "serve"]\n')
+                return 'uberblick registered'
+            self.runner.responses[('ub', 'mcp', 'install', cli)] = install
 
     def run_flow(self, script=None, *, repository='org/project', runtime=None, unattended=False):
         self.script = script or Script()
@@ -243,9 +266,11 @@ class FlowTests(unittest.TestCase):
         self.assertIn('Set up an Uberblick workspace?', self.script.asked)
         self.assertIn('+ .uberblick.json local Uberblick workspace', text)
         self.assertIn('Uberblick workspace created', text)
-        self.assertIn('Connect agents to Uberblick with ub mcp install codex; see https://uberblick.ai', text)
+        self.assertIn('Uberblick MCP · Codex · project scope · .codex/config.toml · registered', text)
+        self.assertNotIn('Manual command:', text)
         added = next(call for call, _ in self.runner.calls if call[3:4] == ('add',))
         self.assertIn('.uberblick.json', added)
+        self.assertIn('.codex/config.toml', added)
 
     def test_uberblick_workspace_choices(self):
         self.installed.add('ub')

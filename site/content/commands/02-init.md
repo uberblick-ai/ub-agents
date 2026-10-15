@@ -52,7 +52,16 @@ cancel leaves no files, labels or boards, no branch and no PR.
      and humans. Needs `ub` (`brew install uberblick-ai/tap/uberblick`). Init uses the
      nearest `.uberblick.json`; without one it offers to create a local workspace
      with `ub workspace create`, which goes in the setup PR, or explains how to join
-     a hub workspace. Connect agents with `ub mcp install claude` or `codex`.
+     a hub workspace. Before **Write setup?**, Changes shows the chosen client,
+     project scope, config path and whether init will add, reuse or keep an entry.
+     After confirmation, init runs `ub mcp install claude` or `ub mcp install codex`
+     (project scope is the default in `ub` 0.4.3). Claude Code uses `.mcp.json`;
+     Codex uses `.codex/config.toml`. The entry runs plain `ub mcp serve`, with no
+     workspace pins, hub URLs or credentials, and follows the project's binding.
+     It also registers when you pick a hub workspace or Later. Matching entries
+     are reused without rewriting, unrelated settings are preserved, and conflicts
+     stay unchanged with a manual command. Init verifies the destination through
+     `ub`'s read-only `--print` option; unsupported installations register nothing.
 6. **Labels:** creates missing workflow and priority labels. Existing labels stay
    unchanged; declining prints the `gh label create` commands.
 7. **Write setup?** shows what will change and writes it. Labels and boards are
@@ -77,13 +86,16 @@ prefer a separate [write-access launcher account](/docs/best-practices/launcher-
 
 Init writes `ub-agents.yaml`, `.agents/ub_agents.md` and four role files beside it,
 and adds missing `.ub-agents/` and `ub-agents.local.yaml` entries to `.gitignore`.
-It refuses to run when a starter file already exists, never overwrites anything and
+It refuses to run when a starter file already exists, never overwrites starter files and
 leaves `AGENTS.md`, `CLAUDE.md` and an existing `ub-agents.local.yaml` unchanged.
 
 On the default branch, init then commits the files on a new `setup-ub-agents`
 branch, pushes it, opens the setup PR and switches back. If that fails, it says
 how far it got so you can open the PR yourself. Off the default branch and in
 unattended setup, the files stay local and uncommitted.
+This includes a project MCP config created or changed by the Uberblick extra.
+Init leaves ignored MCP config files unchanged when opening a setup PR, so private
+settings stay local and cannot block the other setup files from reaching the PR.
 
 When something fails halfway, init keeps what it did and prints what is left,
 including the content of files it could not write and the remaining label commands.
@@ -94,6 +106,10 @@ Init ends with a short list: review permissions and `.agents/ub_agents.md` (sens
 defaults you can adjust over time), add your test command for Claude, then review and
 merge the setup PR. Launch from a clean
 default-branch checkout with `ub-agents launch` after the merge.
+With Uberblick selected, the result reports registered, reused, kept existing or
+not registered, with any reason and the exact manual command to retry. Registration
+failure does not block core setup or its PR. Restart running agent sessions to
+pick up the server. Joining a hub or binding a workspace later remains a manual step.
 
 ## Unattended setup
 
@@ -102,8 +118,8 @@ ub-agents init --use-defaults --repository org/project
 ```
 
 `--use-defaults`, a nonempty `CI` and non-TTY runs ask nothing and run no checks.
-They keep permissions and updates commented out, leave the extras off, create no
-labels, open no PR and print the label commands. Without `--repository`, `gh repo view` infers it.
+They keep permissions and updates commented out, leave the extras off, register no
+MCP server, create no labels, open no PR and print the label commands. Without `--repository`, `gh repo view` infers it.
 `TERM=dumb` asks the same questions as numbered prompts.
 
 ```text
