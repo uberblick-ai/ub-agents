@@ -445,9 +445,17 @@ def _parse_config(data, root, *, planned=()):
         outcomes = {}
         for outcome, transition in declared.items():
             string(outcome, f"{name} outcome")
-            mapping(transition, {"add", "remove", "sub-issues"}, f"{name} outcome {outcome}")
+            mapping(transition, {"add", "remove", "sub-issues", "max-rounds"}, f"{name} outcome {outcome}")
             labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
                       for key in ("add", "remove")}
+            if "max-rounds" in transition:
+                limit = transition["max-rounds"]
+                if type(limit) is not int or limit <= 0:
+                    raise AgentError(f"{name} {outcome} max-rounds must be a positive integer")
+                if not stop or set(labels["add"]).intersection(stop):
+                    raise AgentError(f"{name} {outcome} max-rounds requires stop labels "
+                                     "and an outcome that adds no stop label")
+                labels["max-rounds"] = limit
             if "sub-issues" in transition:
                 if kind == "pr":
                     raise AgentError(f"{name}: sub-issues requires an agent that takes issues")

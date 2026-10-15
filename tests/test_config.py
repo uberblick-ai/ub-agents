@@ -31,6 +31,33 @@ class ConfigTests(unittest.TestCase):
                    if entry.group == "console_scripts"}
         self.assertEqual(scripts, {"ub-agents": "ub_agents.cli:main"})
 
+    def test_max_rounds_validation_in_offline_doctor(self):
+        base = '''repository: org/project
+agents:
+  reviewer:
+    kind: pr
+    command: [echo]
+    trigger: needs-review
+    outcomes:
+      changes-requested: {add: [needs-changes], max-rounds: 3}
+'''
+        self.assertEqual(self.load(base).agents[0].outcomes['changes-requested']['max-rounds'], 3)
+        for replacement in ('0', '-1', 'true', '3.0', 'null', '"3"', '[]', '{}'):
+            with self.subTest(value=replacement):
+                self.path.write_text(base.replace('max-rounds: 3', f'max-rounds: {replacement}'))
+                with redirect_stdout(io.StringIO()) as error, redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
+                self.assertIn('max-rounds must be a positive integer', error.getvalue())
+        for content in (base + 'stop-labels: []\n', base.replace('add: [needs-changes]', 'add: [needs-human]')):
+            with self.subTest(content=content):
+                self.path.write_text(content)
+                with redirect_stdout(io.StringIO()) as error, redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
+                self.assertIn('max-rounds requires stop labels', error.getvalue())
+        # The key is available to any role and omitted outcomes stay unlimited.
+        configured = self.load(base.replace('kind: pr', 'kind: issue').replace('max-rounds: 3', 'max-rounds: 1'))
+        self.assertEqual(configured.agents[0].outcomes['changes-requested']['max-rounds'], 1)
+
     def test_sub_issue_outcome_validation_in_offline_doctor(self):
         base = '''repository: org/project
 agents:

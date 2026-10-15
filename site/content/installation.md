@@ -102,6 +102,21 @@ ready -> implementer -> PR with needs-review -> reviewer
   changes-requested -> needs-changes -> implementer
 ```
 
+The PR reviewer allows three `changes-requested` rounds (`max-rounds: 3`). On the
+fourth review, it approves when only P2 suggestions remain and lists them in the
+review. P1 findings mean the PR must not merge as is: unmet acceptance criteria,
+bugs, security or data-loss risks, or failing checks. These always require another
+review. A fourth `changes-requested` parks the PR with `needs-human` and an
+**Action needed** notice naming the limit and open P1 findings.
+
+Remove `needs-human` and reapply `needs-review` for one more review with the count
+kept. For a fresh set of rounds, run
+`ub-agents retry N --agent reviewer --reason TEXT`, then restore those labels.
+Retry resets the count but never restores labels. Counts come from GitHub,
+survive restarts and recovery, and exclude other agents' outcomes, including
+integrator conflict routing. A new PR starts at zero. Older launchers reject
+`max-rounds`; upgrade every launcher before enabling it in an existing project.
+
 The issue-reviewer checks scope, feasibility and acceptance criteria without editing
 the issue. Its findings reach the preparer as feedback; after applying them, the
 preparer reports `prepared` without another review. Either issue role can ask for a

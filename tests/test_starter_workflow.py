@@ -59,6 +59,26 @@ class StarterWorkflowTests(unittest.TestCase):
         self.assertEqual([use['meaning'] for use in label['uses'][:2]],
                          ['starts issue-reviewer on an issue', 'starts reviewer on a PR'])
 
+    def test_only_pr_reviewer_starts_with_a_round_limit_and_p1_p2_rules(self):
+        bounded = [(role.name, name, changes['max-rounds']) for role in self.loop.config.agents
+                   for name, changes in role.outcomes.items() if 'max-rounds' in changes]
+        self.assertEqual(bounded, [('reviewer', 'changes-requested', 3)])
+        text = (self.root / '.agents/reviewer.md').read_text()
+        for phrase in ('P1 or P2', 'unmet acceptance', 'failing check', 'outcome_rounds',
+                       'only P2 findings remain', 'each open P1 finding'):
+            self.assertIn(phrase, text)
+
+    def test_starter_parks_the_fourth_pr_changes_request(self):
+        self.github.items[2] = pr(labels=('needs-review', 'unrelated'))
+        for used in range(4):
+            self.github.change(2, labels=frozenset({'needs-review', 'unrelated'}))
+            self.execute('reviewer', 'changes-requested', number=2, summary='P1: acceptance criterion unmet.')
+            self.assertEqual(self.github.item(2).labels,
+                             {'unrelated', 'needs-changes' if used < 3 else 'needs-human'})
+        notice, = [c['body'] for c in self.github.store[2] if '**Action needed**' in c['body']]
+        self.assertIn('max-rounds: 3', notice)
+        self.assertIn('P1: acceptance criterion unmet.', notice)
+
     def test_shared_review_label_starts_each_reviewer_only_for_its_kind(self):
         self.github.items = {1: issue(labels=('needs-review',)), 2: pr(labels=('needs-review',)),
                              3: issue(3, labels=()), 4: pr(4, labels=())}

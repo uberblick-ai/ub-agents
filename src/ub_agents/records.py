@@ -192,6 +192,21 @@ def declared_transition(lease, name):
                       "remove": sorted(set(lease["declared_triggers"]).union(changes.get("remove", ())))}
 
 
+def outcome_rounds(history, assignment, agent, outcome):
+    """Accepted rounds on this item since this agent's latest explicit reset."""
+    reset = max((r["id"] for r in history if r["kind"] == "reset"
+                 and r["assignment"] == assignment and r["agent"] == agent), default=0)
+    return len({(r["run"], r["lease_id"]) for r in history
+                if r["kind"] == "outcome" and r["assignment"] == assignment and r["agent"] == agent
+                and r["id"] > reset and r["status"] == "success" and r["accepted"]
+                and not r.get("rejected") and r.get("outcome") == outcome})
+
+
+def exhausted_rounds(lease, outcome):
+    rounds = lease.get("outcome_rounds", {}).get(outcome)
+    return rounds if rounds and rounds["used"] >= rounds["limit"] else None
+
+
 def stop_report(lease, status, outcome=None):
     return (status == "blocked" or status == "success" and outcome is not None
             and outcome in (lease.get("outcomes") or {})
@@ -287,6 +302,14 @@ def validate(record):
             and record.get("attempt_effect") not in {"pending", "failure", "reset", "unchanged"}):
         raise ValueError("invalid attempt effect")
     if record.get("kind") == "lease":
+        if "outcome_rounds" in record:
+            rounds = record["outcome_rounds"]
+            if (not isinstance(rounds, dict) or not rounds
+                    or any(name not in record.get("outcomes", {}) or not isinstance(value, dict)
+                           or set(value) != {"used", "limit"}
+                           or type(value["used"]) is not int or value["used"] < 0
+                           or not positive_int(value["limit"]) for name, value in rounds.items())):
+                raise ValueError("invalid outcome rounds")
         if "action_required" in record and type(record["action_required"]) is not bool:
             raise ValueError("invalid action requirement")
         validate_labels(record.get("declared_triggers"))
