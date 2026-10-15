@@ -116,6 +116,8 @@ A GitHub Discussion number in this repository. Only agents with this key receive
 retrospectives: 203
 ```
 
+Claude agents also need `"Bash({report_command} retrospective *)"` in [`--allowedTools`](/docs/configuration/permissions.html#report-command). `ub-agents doctor` checks that the board exists.
+
 A post may consist of, or end with, at most two optional topic lines, even when the run lost nothing:
 
 ```text
