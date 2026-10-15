@@ -272,7 +272,8 @@ worktree also keeps its branch.
 
 After local configuration and repository validation, launch opens its terminal
 view with `checking setup` before checking GitHub and the control checkout.
-Retryable GitHub failures wait and retry with capped poll backoff; `--no-ui`
+Continuous launch waits through network and GitHub outages with capped poll backoff
+and no retry limit; `--no-ui`
 prints one retry line per wait. Setup must pass before update checks, cleanup
 or queue work starts. Quitting during setup exits without claiming work.
 

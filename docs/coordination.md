@@ -397,6 +397,9 @@ and are never renewed. A failed renewal leaves execution running and retries at
 the next interval; ownership is lost if another claim owns the item or the last
 confirmed expiry passes. A renewal write starts only with enough time remaining
 for its 20-second request timeout, so a late renewal cannot revive an expired claim.
+If retryable GitHub failures prevent renewal until expiry, continuous launch stops
+the owned process and returns to polling without further writes for that lease.
+Successful renewal clears the failure; unrelated ownership loss still stops launch.
 If the renewal worker stops unexpectedly, the launcher reports the failure in its
 terminal output and `.ub-agents/launch.log`; supervision keeps the last confirmed expiry.
 
@@ -728,7 +731,10 @@ unfinished lease recoverable without a blocked or failure verdict. Only the
 agent's report or a failed validation, including a paused transition, can block
 completion. Continuous launch ends a failed pass with the existing
 `Skipped GitHub poll: …; retrying in Ns` message for retryable requests; these
-failures count toward the same poll limit and backoff as discovery failures.
+failures use the same unlimited, capped backoff as discovery failures.
+If GitHub fails during cleanup after a timeout, interruption or stop label, the
+launcher still attempts the cleanup hook and worktree removal using local outcome
+context when necessary, without recording a hook verdict or releasing the lease.
 Non-retryable errors stop the launcher with the lease still recoverable;
 `launch --once` fails on the first error. No agent restarts while its lease is live.
 After expiry, the stored outcome finishes through outcome-only recovery. If no
@@ -937,7 +943,7 @@ message telling the operator what to fix before restarting. These failures do
 not claim an assignment, charge an attempt, or mark work blocked or retrying.
 
 The GitHub read of the default branch is part of pre-claim discovery. Continuous
-launch retries its transient failures under the [poll limits](polling.md);
+launch retries its transient failures with [unlimited poll backoff](polling.md);
 Git fetch and local checkout or instruction failures still stop immediately.
 
 `ub-agents.yaml` is reloaded before each new execution claim. If the refreshed

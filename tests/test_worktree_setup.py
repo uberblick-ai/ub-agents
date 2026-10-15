@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from ub_agents.cleanup import Cleaner
 from ub_agents.config import CheckoutSetup, instruction_text
-from ub_agents.errors import CleanupError, LostOwnership
+from ub_agents.errors import CleanupError, GitHubError, LostOwnership
 from ub_agents.execution import git, group_members, supervise
 from ub_agents.loop import Loop
 from ub_agents.records import iso, timestamp
@@ -230,6 +230,44 @@ class WorktreeSetupTests(unittest.TestCase):
         self.assertEqual(lease["state"], "running")
         self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
         self.assertFalse(worktree.exists())
+
+    def test_github_failure_recording_setup_process_stops_child_and_continues_polling(self):
+        loop = self.loop("import time; time.sleep(30)")
+        now = timestamp()
+        loop.coordinator.clock = lambda: now
+        failure = GitHubError("PATCH", "lease", "connection reset", retryable=True)
+        update = self.github.update_comment
+        failed, delays = [], []
+
+        def record(comment_id, body):
+            if '"process_group":' in body and not failed:
+                failed.append(list(self.github.writes))
+                raise failure
+            return update(comment_id, body)
+
+        def wait(delay):
+            delays.append(delay)
+            self.assertEqual(self.github.writes, failed[0])
+            lease, directory, worktree = self.artifacts()
+            self.assertEqual(lease["state"], "running")
+            self.assertNotIn("result", lease)
+            self.assertEqual(loop.plans()[0].state, "owned")
+            self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
+            self.assertEqual((directory / "checkout-setup/stopped").read_text(), "confirmed\n")
+            self.assertFalse(worktree.exists())
+            if len(delays) == 2:
+                loop.stop_event.set()
+
+        with patch.object(self.github, "update_comment", side_effect=record), \
+                patch.object(loop.stop_event, "wait", side_effect=wait), \
+                patch("ub_agents.loop.supervise") as execution:
+            loop.launch()
+        execution.assert_not_called()
+        self.assertEqual(len(delays), 2)
+        self.assertEqual(delays[0], 5)
+        self.assertGreater(delays[1], 0)
+        self.assertLessEqual(delays[1], loop.config.poll_seconds)
+        self.assertEqual(self.github.writes, failed[0])
 
     def crashed(self, *, outcome=False):
         loop = self.loop()
