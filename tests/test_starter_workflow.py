@@ -68,6 +68,17 @@ class StarterWorkflowTests(unittest.TestCase):
                        'only P2 findings remain', 'each open P1 finding'):
             self.assertIn(phrase, text)
 
+    def test_starter_parks_the_fourth_pr_changes_request(self):
+        self.github.items[2] = pr(labels=('needs-review', 'unrelated'))
+        for used in range(4):
+            self.github.change(2, labels=frozenset({'needs-review', 'unrelated'}))
+            self.execute('reviewer', 'changes-requested', number=2, summary='P1: acceptance criterion unmet.')
+            self.assertEqual(self.github.item(2).labels,
+                             {'unrelated', 'needs-changes' if used < 3 else 'needs-human'})
+        notice, = [c['body'] for c in self.github.store[2] if '**Action needed**' in c['body']]
+        self.assertIn('max-rounds: 3', notice)
+        self.assertIn('P1: acceptance criterion unmet.', notice)
+
     def test_shared_review_label_starts_each_reviewer_only_for_its_kind(self):
         self.github.items = {1: issue(labels=('needs-review',)), 2: pr(labels=('needs-review',)),
                              3: issue(3, labels=()), 4: pr(4, labels=())}

@@ -666,6 +666,12 @@ The launcher resolves the implied trigger removals and stop labels from the
 original lease. The transition must match that lease's declaration, so
 configuration edits or a restarted launcher cannot replace the recorded changes.
 
+For limited outcomes, the lease also stores `outcome_rounds`, for example
+`{"changes-requested": {"used": 3, "limit": 3}}`. Its `outcomes` declaration
+already contains the first stop label in place of the configured additions when
+`used >= limit`. The outcome's transition uses that declaration unchanged;
+recovery never recalculates the count or limit.
+
 For a `sub-issues` outcome, reporting resolves open native sub-issues in the same
 repository, authored by the lease account after its claim. Their numbers are stored
 in the outcome's top-level `sub_issues` list; excluded sub-issues are named in the
