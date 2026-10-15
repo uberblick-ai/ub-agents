@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.attention import attention_details
+from ub_agents.attention import attention_details, display_notice
 from ub_agents.cli import main, status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
@@ -249,6 +249,24 @@ class StatusTests(unittest.TestCase):
             self.assertEqual(rows[0]["waiting_since"], iso(self.now))
             self.assertNotIn("Action needed:", plain)
 
+    def test_long_notice_summary_matches_bounded_terminal_view(self):
+        lease = self.claim()
+        self.loop.coordinator.release(lease, "blocked", "Choose direction")
+        self.github.change(1, labels=frozenset({"ready", "needs-human"}))
+        self.notice("Maintainer: review " + "long request " * 200)
+        publisher = MemoryPublisher()
+        observer = Observations(self.loop.config, "operator", None, publisher)
+        observer.begin_pass()
+        self.loop.observer = observer
+        try:
+            for args in ((), ("1",)):
+                rows, _ = self.status(*args)
+                view = publisher.snapshots[-1]["latest_pass"]["rows"][0]
+                self.assertEqual(rows[0]["attention_reason"], view["attention_reason"])
+                self.assertTrue(rows[0]["notice_url"])
+        finally:
+            self.loop.observer = None
+
     def test_notice_before_latest_lease_or_reset_is_ignored(self):
         self.notice("Old request")
         lease = self.claim()
@@ -299,7 +317,7 @@ class StatusTests(unittest.TestCase):
                                             item=replace(plan.item, labels=frozenset({"needs-human"})))
                         row = status_rows(self.loop, self.now, plans=[candidate])[0]
                         expected = attention_details(candidate, self.loop.config.stop_labels,
-                                   {"text": selected["body"], "created_at": selected["created_at"]} if selected else None)
+                                                     display_notice(selected) if selected else None)
                         self.assertEqual({key: row[key] for key in expected}, expected)
                         self.assertEqual(row["notice_url"], selected["html_url"] if selected else None)
 

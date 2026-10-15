@@ -13,7 +13,7 @@ import threading
 import uuid
 
 from . import __version__
-from .attention import attention_details, waiting_time
+from .attention import attention_details, display_notice, waiting_time
 from .config import DEFAULT_CONFIG, LOCAL_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
 from .denials import denial_count
@@ -220,7 +220,7 @@ def status_rows(loop, now=None, *, plans=None):
         attention = {"notice_url": notice.get("html_url") if notice else None,
                      "waiting_since": None, "stop_labels": [], "attention_reason": None}
         attention.update(attention_details(plan, loop.config.stop_labels,
-                         {"text": notice["body"], "created_at": notice.get("created_at")} if notice else None))
+                                           display_notice(notice) if notice else None))
         active = live_leases(history, now)
         latest = latest_leases(history).get((plan.item.number, plan.agent.name))
         lease = active[0] if active else None

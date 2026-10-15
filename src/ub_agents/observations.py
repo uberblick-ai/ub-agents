@@ -9,7 +9,7 @@ import threading
 import uuid
 
 from .records import iso, seconds, timestamp
-from .attention import attention_details, latest_notice, notice_summary
+from .attention import MAX_TEXT, attention_details, display_notice, latest_notice, notice_summary
 from .notices import ACTION_MARKER
 from .github import closing_issues
 from .eligibility import AgentMatches
@@ -23,7 +23,6 @@ VERSION = 1
 MAX_PLANS = 100
 MAX_OUTCOMES = 20
 MAX_ADVISORIES = 128
-MAX_TEXT = 2048
 MAX_BYTES = 64 * 1024
 HEARTBEAT_SECONDS = 5
 STALE_SECONDS = 30
@@ -374,9 +373,7 @@ class Observations:
                 return
             notices.pop(key, None)
             body = comment["body"]
-            notices[key] = {"id": comment["id"], "text": body[:MAX_TEXT],
-                            "author": comment["user"]["login"], "created_at": comment.get("created_at"),
-                            "omitted_characters": max(0, len(body) - MAX_TEXT)}
+            notices[key] = display_notice(comment)
             while len(notices) > MAX_ADVISORIES:
                 notices.pop(next(iter(notices)))
             latest = self.state["latest_pass"] or {}
