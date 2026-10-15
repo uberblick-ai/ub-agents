@@ -223,7 +223,7 @@ Missing values are omitted. The running assignment shows `attempt N`; planned wo
 │                                                                                  │
 │  11:41:18 ▸ Read src/ub_agents/log_format.py                                     │
 │  11:41:40 Thinking blocks are rejected as unfamiliar; I'll project them…         │
-│  11:41:41 · thinking                                                             │
+│  11:41:41 · I'll check the callers before editing the shared helper.              │
 │  11:42:11 ▸ Edit src/ub_agents/log_format.py +48 -12                             │
 │  11:42:30 ▸ Bash .venv/bin/python -m unittest tests.test_log_format ✓ 41 passed  │
 │  11:44:02 ▸ Bash .venv/bin/python -m unittest discover                           │
@@ -238,9 +238,11 @@ Missing values are omitted. The running assignment shows `attempt N`; planned wo
 - Tool calls: `▸ Tool main-argument`, such as a path, command or pattern. Edit and
   Write show `+added -removed`. A successful result folds into its call. A failure
   adds one red line under it.
-- Assistant text is italic and keeps its line breaks. Thinking is a dim `· thinking`
-  line. System task records fold into their tool call. The final runtime result is
-  one line.
+- Assistant text is italic and keeps its line breaks. Thinking summaries start
+  with `· ` in dim italic, with continuation lines aligned like assistant text
+  and blank or whitespace-only lines omitted. Missing, empty or whitespace-only
+  thinking text shows one dim `· thinking` line. System task records fold into
+  their tool call. The final runtime result is one line.
 - A one-line status sits below the log: the agent and process or plan state,
   then `no outcome reported` or the reported result and acceptance. A spinner
   appears only while running; other session outcomes for the item are counted
