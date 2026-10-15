@@ -40,9 +40,17 @@ Then it shows every change and asks once before writing.
 | `.gitignore` | Keeps the launcher's local state and machine-only settings out of Git. |
 | `.mcp.json` or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects your agent to it, plus `.uberblick.json` when init creates a workspace. |
 
-Init also creates the workflow labels on GitHub, plus any extras you picked. The files go to a setup PR, which you can review and approve. Once it is merged, run [`ub-agents launch`](/docs/commands/launch.html). [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
+Init also creates the workflow labels on GitHub, plus any extras you picked. The files go to a setup PR, which you can review and approve. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
 
 Init never overwrites existing starter files, `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
+
+## Next steps
+
+- Check the agent permissions (`runtime-args`) in `ub-agents.yaml`. See [permissions](/docs/configuration/permissions.html).
+- Check the build and test commands and who may merge in `.agents/ub_agents.md`.
+- For Claude, add your test command to `--allowedTools` in `ub-agents.yaml`.
+- Merge the setup PR.
+- Run [`ub-agents launch`](/docs/commands/launch.html) from a clean checkout of your default branch.
 
 ## Add the optional steps later on
 
