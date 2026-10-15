@@ -335,10 +335,14 @@ class LogPane(ScrollbarVisibility, ScrollView):
                 self.lines.append(Strip(Segment.apply_style(line.render(self.app.console), self.rich_style), line.cell_len))
                 self.positions.append((ref.start, index / max(1, len(lines))))
         self.virtual_size = Size(width, len(self.lines))
-        self.call_after_refresh(self.restore, reading, anchor, target)
+        self.call_after_refresh(self.restore, reading, anchor, target, reading.follow if reading else False)
 
-    def restore(self, reading, anchor, target):
+    def restore(self, reading, anchor, target, was_following):
         if self.reading is not reading:
+            return
+        if reading and was_following and not reading.follow:
+            # A later pause or scroll owns the position, even while its anchor
+            # save is pending in the app's or pane's after-refresh queue.
             return
         self.held_anchor = self.held_y = None
         # After a reflow, max_scroll_y can be current while the scrollbar

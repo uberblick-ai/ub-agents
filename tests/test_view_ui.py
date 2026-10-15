@@ -23,7 +23,7 @@ from ub_agents.observations import Observations
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 from ub_agents.view_data import POINTERS_LIMIT
 
-from textual import messages
+from textual import events, messages
 from textual.geometry import Size
 from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, MilestoneNotice, RecentActivity,
@@ -1571,7 +1571,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     output.show_vertical_scrollbar = False
                     try:
                         self.assertFalse(output.allow_vertical_scroll)
-                        output.restore(app.reading, saved, target)
+                        output.restore(app.reading, saved, target, follow)
                         self.assertEqual(output.scroll_y, expected)
                         self.assertEqual(app.reading.anchor, saved)
                         if name in ('paused', 'hidden'):
@@ -1580,6 +1580,104 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(output.held_y, expected)
                     finally:
                         output.show_vertical_scrollbar = scrollbar
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_follow_reflow_restoration_preserves_a_later_pause(self):
+        self.path, self.log, self.state = fixture(self.root, count=900)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            await self.settled(app, output)
+            self.assertTrue(app.reading.follow)
+            self.assertIsNone(app.reading.anchor)
+            callbacks = []
+            with patch.object(output, 'call_after_refresh',
+                              side_effect=lambda callback, *args: callbacks.append((callback, args))):
+                output.reflow()
+                app.action_follow()
+                paused = output.anchor()
+                self.assertIsNotNone(paused)
+                self.assertGreater(output.scroll_y, 0)
+                self.assertEqual(app.reading.anchor, paused)
+                for callback, args in callbacks:
+                    callback(*args)
+            self.assertEqual(output.anchor(), paused)
+            self.assertEqual(app.reading.anchor, paused)
+            await self.settled(app, output)
+            self.assertEqual(output.anchor(), paused)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_follow_reflow_restoration_preserves_later_scrolls_before_or_after_anchor_save(self):
+        self.path, self.log, self.state = fixture(self.root, count=900)
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            await self.settled(app, output)
+            for name in ('page_up', 'up', 'home', 'wheel'):
+                for save_first in (False, True):
+                    with self.subTest(action=name, save_first=save_first):
+                        if not app.reading.follow:
+                            app.action_follow()
+                            await self.settled(app, output)
+                        self.assertEqual(output.scroll_y, output.max_scroll_y)
+                        callbacks = []
+                        capture = lambda callback, *args: callbacks.append((callback, args))
+                        with (patch.object(output, 'call_after_refresh', side_effect=capture),
+                              patch.object(app, 'call_after_refresh', side_effect=capture)):
+                            output.reflow()
+                            if name == 'up':
+                                output.action_scroll_up()
+                            elif name == 'wheel':
+                                await output._on_message(events.MouseScrollUp(
+                                    output, 1, 1, 0, -1, 0, False, False, False))
+                            else:
+                                getattr(app, 'action_' + name)()
+                            scrolled, y = output.anchor(), output.scroll_y
+                            self.assertFalse(app.reading.follow)
+                            self.assertLess(y, output.max_scroll_y)
+                            if name != 'home':
+                                self.assertGreater(y, 0)
+                            self.assertGreaterEqual(len(callbacks), 2)
+                            # Both callback orders occur across the app and pane
+                            # queues; neither may replace the user's new position.
+                            for callback, args in reversed(callbacks) if save_first else callbacks:
+                                callback(*args)
+                        self.assertEqual(output.anchor(), scrolled)
+                        self.assertEqual(app.reading.anchor, scrolled)
+                        await self.settled(app, output)
+                        self.assertEqual(output.anchor(), scrolled)
+                        self.assertEqual(app.reading.anchor, scrolled)
+                        if name != 'home':
+                            app.action_page_up()
+                            await self.settled(app, output)
+                            self.assertLess(output.scroll_y, y)
+                            self.assertEqual(app.reading.anchor, output.anchor())
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_follow_reflow_restoration_still_scrolls_to_the_bottom(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            output = app.query_one(LogPane)
+            await self.settled(app, output)
+            callbacks = []
+            with patch.object(output, 'call_after_refresh',
+                              side_effect=lambda callback, *args: callbacks.append((callback, args))):
+                output.reflow()
+                output.scroll_home(animate=False, immediate=True)
+                self.assertGreater(output.max_scroll_y, 0)
+                self.assertEqual(output.scroll_y, 0)
+            for callback, args in callbacks:
+                callback(*args)
+            self.assertTrue(app.reading.follow)
+            self.assertEqual(output.scroll_y, output.max_scroll_y)
+            await self.settled(app, output)
+            self.assertEqual(output.scroll_y, output.max_scroll_y)
             await pilot.press('q')
         app.worker.thread.join(2)
 
