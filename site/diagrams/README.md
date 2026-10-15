@@ -12,6 +12,6 @@ Check out that ablauf commit before rendering. The script fails if any diagram
 has diagnostics. Commit both the sources and rendered SVGs; `site/build.py`
 inlines the SVGs without running Node.
 
-The site's Google Fonts link loads IBM Plex Sans for ablauf's text measurements.
+The site self-hosts IBM Plex Sans (`site/fonts`) for ablauf's text measurements.
 Keep the `--ab-*` theme overrides on the `.flow` wrapper: setting them on the SVG
 itself can create a variable cycle with ablauf's own tokens and hide the strokes.
