@@ -276,9 +276,10 @@ steps in a project operations document linked from `AGENTS.md`.
 
 Each run also gets a private scratch directory at
 `$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`, exposed through
-`UB_AGENTS_SCRATCH` and `TMPDIR`. Unset, empty or relative `XDG_STATE_HOME` falls
-back to `~/.local/state`. Scratch must be outside the target checkout and its
-private worktrees; a path inside the checkout fails setup before the agent starts.
+`UB_AGENTS_SCRATCH`. The launcher leaves `TMPDIR` unchanged. Unset, empty or relative
+`XDG_STATE_HOME` falls back to `~/.local/state`. Scratch must be outside the target
+checkout and its private worktrees; a path inside the checkout fails setup before
+the agent starts.
 Use it for temporary files; the launcher removes it and its per-run directory after
 confirmed process termination while retaining run logs until the startup sweep's
 7-day retention expires, or longer while a safety condition protects them.

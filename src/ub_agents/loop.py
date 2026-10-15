@@ -1421,7 +1421,7 @@ class Loop:
                         "UB_AGENTS_CONTEXT": str(context_path),
                         "UB_AGENTS_RUN_CONFIG": str(run_config_path),
                         "UB_AGENTS_REPORT": report_command,
-                        "UB_AGENTS_SCRATCH": str(scratch.path), "TMPDIR": str(scratch.path),
+                        "UB_AGENTS_SCRATCH": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
                         "UB_AGENTS_BRANCH": lease.get("branch") or ""})
             diagnostic("started", cwd=str(cwd))

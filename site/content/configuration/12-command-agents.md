@@ -42,9 +42,12 @@ Commands and agent CLIs get the same variables.
 | `UB_AGENTS_REPOSITORY` | `owner/name` |
 | `UB_AGENTS_ASSIGNMENT` | Issue or pull request number |
 | `UB_AGENTS_RUN` | Run id |
-| `UB_AGENTS_SCRATCH` | Private scratch directory, also `TMPDIR` |
+| `UB_AGENTS_SCRATCH` | Private scratch directory |
 | `UB_AGENTS_CANDIDATE_SHA` | The pull request's head commit |
 | `UB_AGENTS_BRANCH` | The branch to work on, when known |
+
+The launcher leaves `TMPDIR` unchanged: commands and agent CLIs inherit its value,
+or no value if it is unset, so tools can use the system temporary directory.
 
 ## Scratch
 
