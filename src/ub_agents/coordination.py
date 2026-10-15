@@ -66,6 +66,7 @@ class Coordinator:
         self._lease_lock = threading.RLock()
         self._lease_revision = 0
         self._lost = {}
+        self._renewal_failures = {}
         # A failed POST may have created this record without returning its ID.
         # Keep only this launcher's uncertain claim; restarts use normal expiry.
         self.lost_claim = None
@@ -495,12 +496,14 @@ class Coordinator:
         with self._lease_lock:
             expiry = seconds(lease["expires"])
             if lease["id"] in self._lost:
-                raise LostOwnership(self._lost[lease["id"]])
+                reason = self._lost[lease["id"]]
+                cause = self._renewal_failures.get(lease["id"]) if reason == "Local lease deadline expired" else None
+                raise LostOwnership(reason) from cause
             if lease["state"] not in {"claiming", "running"}:
                 raise LostOwnership("Lease was released or withdrawn")
             if self.clock() >= expiry:
                 self._lost[lease["id"]] = "Local lease deadline expired"
-                raise LostOwnership(self._lost[lease["id"]])
+                raise LostOwnership(self._lost[lease["id"]]) from self._renewal_failures.get(lease["id"])
             return expiry
 
     def _owned(self, lease, history):
@@ -509,6 +512,7 @@ class Coordinator:
         self.deadline(lease)
         contenders = live_leases(history, self.clock())
         if not contenders or contenders[0]["id"] != lease["id"] or not same_run(contenders[0], lease):
+            self._renewal_failures.pop(lease["id"], None)
             self._lost[lease["id"]] = "Assignment ownership was lost or expired"
             raise LostOwnership(self._lost[lease["id"]])
         current = contenders[0]
@@ -555,12 +559,20 @@ class Coordinator:
                 # Only expiry belongs to renewal. Workspace preparation may have
                 # a branch staged locally while a Git command is in progress.
                 lease["expires"] = result["expires"]
+                self._renewal_failures.pop(lease["id"], None)
                 if isinstance(self.github, FinalizationReads):
                     self.github.renewed(lease)
                 return True
         except LostOwnership:
             raise
         except AgentError as exc:
+            with self._lease_lock:
+                # Preserve request classification if failed renewals exhaust
+                # the last confirmed lease, including in the supervising thread.
+                if isinstance(exc, GitHubError):
+                    self._renewal_failures[lease["id"]] = exc
+                else:
+                    self._renewal_failures.pop(lease["id"], None)
             self.output(f"Lease renewal failed; retry at the next interval: {exc}")
             return False
 

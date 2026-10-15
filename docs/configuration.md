@@ -203,8 +203,8 @@ poll-seconds: 30
 ```
 
 For the detailed rules previously covered here, see
-[Polling and GitHub requests](polling.md), including its fixed
-[retry limits](polling.md#quota-and-failure-handling) and
+[Polling and GitHub requests](polling.md), including its unlimited
+[failure retries](polling.md#quota-and-failure-handling) and
 [rate-limit waits](polling.md#quota-and-failure-handling).
 Launch logs are described in [Running launchers](operations.md#launch-output).
 Local session files have no configuration key; their format and lifecycle are in
@@ -723,6 +723,9 @@ needs explicit maintainer approval. Outside edits or feedback after approval sus
 outside PRs again. Fork PRs can be reviewed, but agents cannot revise them and
 revision runs remain blocked.
 
+The terminal view opens before setup checks, showing `checking setup`; continuous
+launch waits and retries retryable GitHub failures before any sweep or queue work.
+`launch --once` and `launch N` fail on their first setup error.
 Before its first pass, `launch` checks that the control checkout is clean, on the
 repository's default branch (not detached), and has no commits outside the local
 `origin` ref for that branch. Missing origin refs require `git fetch origin`.

@@ -330,8 +330,6 @@ class Observations:
         self.state["queue_idle"] = message
         self.emit()
 
-        self.emit()
-
     def milestone_skips(self, messages):
         self.state["milestone_skips"] = list(messages[:MAX_ADVISORIES])
         self.emit()

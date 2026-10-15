@@ -22,7 +22,7 @@ from .errors import (AgentError, CheckoutRefreshError, CheckoutSetupInterrupted,
 from .execution import repository_checks
 from .github import GitHub
 from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
-from .loop import Loop, _GracefulStop
+from .loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS, _GracefulStop
 from .init_setup import runtime_guidance
 from .launch_log import launch_output
 from .labels import configured_labels
@@ -251,6 +251,46 @@ def launch_checks(config, github, read_git=None):
                          "run ub-agents doctor for setup commands")
 
 
+def check_launch_setup(config, github, loop, *, once=False):
+    # No ownership exists yet: interrupt even a slow gh/git subprocess. The
+    # normal in-run handlers defer interruption until execution can be cleaned up.
+    def interrupt_checks(*_):
+        loop.interrupt_event.set()
+        loop.stop_event.set()
+        # subprocess.run kills and reaps on this exception. KeyboardInterrupt
+        # instead assumes the terminal also signalled the child (UI keys do not).
+        raise _GracefulStop
+
+    handlers = {sig: signal.signal(sig, interrupt_checks)
+                for sig in (signal.SIGINT, signal.SIGHUP)}
+    delay = POLL_RETRY_BASE_SECONDS
+    try:
+        while True:
+            loop._before_claim()
+            loop._observe("activity", "checking setup")
+            try:
+                launch_checks(config, github)
+            except GitHubError as exc:
+                loop._before_claim()
+                if once or not exc.retryable:
+                    raise
+                detail = " ".join(str(exc).split())
+                loop.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
+                loop._wait(loop.stop_event, delay, "setup retry")
+                delay = min(POLL_RETRY_MAX_SECONDS, delay * 2)
+            else:
+                loop._before_claim()
+                loop._observe("activity", "polling")
+                return
+    except _GracefulStop:
+        if loop.interrupt_event.is_set():
+            raise KeyboardInterrupt from None
+        raise
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+
+
 def run(args):
     if args.command == "init":
         return init_project(args)
@@ -397,11 +437,6 @@ def run(args):
     view = None
     cleanup = None
     try:
-        launch_checks(config, github)
-        from .updates import Updates
-        loop.updates = Updates(config.root)
-        if loop.updates is not None:
-            loop.updates.start()
         try:
             publisher = Publisher(config.root, output=loop.output)
             loop._before_claim()
@@ -416,15 +451,23 @@ def run(args):
                 loop.output(f"Cannot publish launcher observations: {exc}")
         loop._before_claim()
         session = loop.observer.state['session'] if loop.observer is not None else None
-        cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)
-        loop.coordinator.cleanup_control = cleanup.control
-        cleanup.start()
+        loop._observe("activity", "checking setup")
         if not stop.is_set():
             from .launch_ui import open_view
             view = open_view(config.root, session, args.launch_output, stop,
                              no_ui=args.no_ui, poll=loop.request_poll)
             if view is not None:
                 loop.enable_poll_now()
+        check_launch_setup(config, github, loop, once=args.once or args.number is not None)
+        from .updates import Updates
+        loop.updates = Updates(config.root)
+        if loop.updates is not None:
+            loop.updates.start()
+        loop._before_claim()
+        cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)
+        loop.coordinator.cleanup_control = cleanup.control
+        cleanup.start()
+        loop._before_claim()
         if args.number is not None:
             loop.refusal_output = args.launch_output.refusals
             return loop.launch(once=True, number=args.number, agent_name=args.agent)
@@ -440,6 +483,7 @@ def run(args):
             loop.updates.close()
         if view is not None:
             view.close()
+        loop._observe("close")
         if publisher is not None:
             publisher.close()
         for sig, handler in handlers.items():
@@ -463,6 +507,9 @@ def launch_error_message(exc, root):
     elif any(isinstance(error, GitHubError) for error in errors):
         detail = str(exc)
         advice = "Fix the cause and restart ub-agents launch."
+        no_retry = "ub-agents does not retry this error."
+        if any(isinstance(error, GitHubError) and not error.retryable for error in errors) and no_retry not in detail:
+            detail = f"{detail}; {no_retry} {advice}"
         if not detail.endswith(advice):
             detail = f"{detail}; {advice}"
     elif any(isinstance(error, InstructionError) for error in errors):

@@ -50,11 +50,26 @@ delay rounded to whole seconds below a minute or whole minutes otherwise.
 After work, claiming resumes immediately, subject to active rate-limit waits and
 runtime usage pauses. Idle and observation passes may wait
 longer than `poll-seconds` for request budget or low quota. Continuous launch retries
-transient discovery errors and waits out GitHub rate limits without charging item
-attempts; authentication and permission errors need operator action. `launch --once`
-and `status` fail on their first error. `doctor --verbose` shows quota and reset
-time, warning below 10% remaining. See [Polling and GitHub requests](polling.md)
-for the exact accounting, waits and failure limits.
+network and DNS failures, request timeouts and GitHub outages indefinitely, backing
+off from 5 seconds to a 60-second cap. A failed gh call without an HTTP status is
+retryable regardless of its text, except authentication required (exit 4) or a
+gh binary that cannot run. HTTP 5xx and rate limits retry; other HTTP 4xx stop.
+Each failed pass prints `Skipped GitHub poll: …; retrying in Ns` and the terminal
+view shows the launcher waiting. These waits do not charge item attempts.
+`launch --once` and `status` fail on their first error. `doctor --verbose` shows
+quota and reset time, warning below 10% remaining. See [Polling and GitHub requests](polling.md)
+for the exact accounting and waits.
+
+A retryable failure after a claim write also returns to polling, including an
+ownership check that cannot reach GitHub or lease expiry after failed renewals.
+The launcher stops its owned process and renewal and makes no further writes for
+that lease. The live lease prevents
+a second run until expiry; a stored outcome then finishes through recovery without
+rerunning the agent. An uncertain claim POST is reconciled and withdrawn before
+replanning. Authentication, other HTTP 4xx, configuration and other non-retryable
+errors stop the launcher. Fatal GitHub errors say `ub-agents does not retry this
+error. Fix the cause and restart ub-agents launch.` Resolve the cause and restart
+to recover the lease.
 
 ## Stopping and restarting
 
@@ -100,13 +115,23 @@ upgrading any.
 
 ## When things go wrong
 
-Checkout refresh failures, unconfirmed run cleanup and GitHub request failures end
-`launch` with one `ub-agents:` line naming the problem and the next step, including
+Checkout refresh failures, unconfirmed run cleanup and fatal GitHub request failures
+end `launch` with one `ub-agents:` line naming the problem and the next step, including
 `launch --once` and `launch N`. Resolve the reported problem before launching again.
 If cleanup cannot confirm termination, make `ps` usable or confirm the named process
 group has exited. Retained artifacts remain subject to
 [stale artifact cleanup](configuration.md#stale-artifact-cleanup). Failures in the
 startup artifact sweep are logged and launch continues to poll.
+
+After local configuration and repository validation, launch publishes its session
+and opens the terminal view before the setup checks, showing `checking setup`.
+In continuous launch, retryable GitHub failures during setup show `waiting` and
+retry with poll backoff from 5 seconds up to 60 seconds, without a retry limit. `--no-ui` prints one
+`Skipped GitHub poll: …; retrying in Ns` line per wait, with no setup activity line.
+The view also opens before setup for `--once` and `launch N`, which fail on their
+first error. The update watcher, startup sweep and queue begin only after setup passes. Quitting during
+setup or its retry wait exits without a claim; fatal setup errors restore the
+terminal before printing the error.
 
 Before its first pass, `launch` requires a clean control checkout on the default
 branch with no commits outside the local `origin` ref. `doctor` warns about the
@@ -192,8 +217,8 @@ lease unchanged. A kept worktree also keeps its branch. PR worktrees are detache
 
 Every `ub-agents launch` invocation sweeps private worktrees left by crashed runs
 and leftover local branches once in the background after startup checks, including
-`--agent`, `NUMBER` and `--once`. The view opens and polling starts without waiting.
-It covers all roles' registered
+`--agent`, `NUMBER` and `--once`. The terminal view opens before those setup checks,
+and polling starts without waiting for the sweep. It covers all roles' registered
 worktrees and unregistered entries under `.ub-agents/worktrees/`, plus local
 `ub-agents/<agent>/<number>/<run>` and older `ub-agent/` branches. Symlinks are removed
 as links. It keeps artifacts of live leases on this host, branches heading open

@@ -69,12 +69,13 @@ class LaunchTests(unittest.TestCase):
                         cleaner.output("removed branch old: unpushed tip recovery-sha")
 
                     def view(*args, **kwargs):
-                        self.assertTrue(entered.wait(5))
+                        self.assertEqual(workers, [])
                         self.assertFalse(release.is_set())
                         events.append("view")
                         return None
 
                     def poll(loop, *args):
+                        self.assertTrue(entered.wait(5))
                         self.assertEqual(events, ["view"])
                         self.assertFalse(release.is_set())
                         events.append("poll")

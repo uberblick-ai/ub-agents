@@ -50,8 +50,11 @@ Exit zero to let the worktree be removed. Any other exit keeps the worktree and 
 
 Every [`ub-agents launch`](/docs/commands/launch.html) invocation sweeps leftovers
 once in the background after startup checks pass, including
-`--agent`, `NUMBER` and `--once`. For every role, it covers registered worktrees
-and unregistered entries under `.ub-agents/worktrees/`, plus local
+`--agent`, `NUMBER` and `--once`.
+The terminal view opens before those setup checks, showing `checking setup` or
+`waiting` during retryable GitHub failures. No sweep starts until setup passes.
+Polling starts without waiting for the sweep. For every role, the sweep covers
+registered worktrees and unregistered entries under `.ub-agents/worktrees/`, plus local
 `ub-agents/<agent>/<number>/<run>` and older `ub-agent/` branches. Symlinks are
 removed as links without following them.
 

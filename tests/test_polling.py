@@ -1,10 +1,11 @@
-from contextlib import redirect_stderr
+from contextlib import ExitStack, redirect_stderr
 from dataclasses import replace
 import io
 import signal
 import threading
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -12,8 +13,9 @@ from unittest.mock import Mock, patch
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RecordError
+from ub_agents.execution import group_members, supervise
 from ub_agents.github import GitHub
-from ub_agents.loop import Loop, POLL_FAILURE_LIMIT, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
+from ub_agents.loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
 from ub_agents.records import attempts, iso, timestamp
 from tests.support import stub_refresh, PollGitHub, RecordingRunner, agent, config, issue, pr
 
@@ -105,23 +107,28 @@ class PollingTests(unittest.TestCase):
                 self.assertTrue(self.lines[0].startswith("Discovery pass empty:"))
                 self.assertTrue(self.lines[1].startswith("Skipped"))
 
-    def test_increasing_capped_delays_and_exhaustion_exit_one(self):
-        self.github.read_results["observe"] = [self.http_error()] * POLL_FAILURE_LIMIT
-        stderr = io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch.object(self.loop.stop_event, "wait") as waits, redirect_stderr(stderr):
-            self.assertEqual(main(["launch"]), 1)
-        self.assertEqual([call.args[0] for call in waits.call_args_list], [5, 10, 20, 40, 60])
-        self.assertEqual(len(self.lines), POLL_FAILURE_LIMIT)
+    def test_transport_failures_retry_indefinitely_with_capped_delays_then_resume(self):
+        failure = self.request_error(subprocess.CompletedProcess(
+            [], 1, "", "error connecting to api.github.com\n"
+            "check your internet connection or https://githubstatus.com"))
+        self.github.items.clear()
+        self.github.read_results["observe"] = [failure] * 9
+        delays = []
+
+        def wait(delay):
+            delays.append(delay)
+            self.assertEqual(self.github.writes, [])
+            if len(delays) == 10:
+                self.loop.stop_event.set()
+
+        with patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        self.assertEqual(delays, [5, 10, 20, 40, 60, 60, 60, 60, 60, self.config.poll_seconds])
         self.assertEqual(sum(line.startswith("Discovery pass empty:") for line in self.lines), 1)
-        self.assertEqual(self.github.writes, [])
-        self.assertIn("GET repos/org/project/issues/comments", stderr.getvalue())
-        self.assertIn("HTTP 504", stderr.getvalue())
-        self.assertIn("retries exhausted after 6", stderr.getvalue())
-        self.assertIn("Fix the cause and restart ub-agents launch", stderr.getvalue())
+        skipped = [line for line in self.lines if line.startswith("Skipped")]
+        detail = " ".join(str(failure).split())
+        self.assertEqual(skipped, [f"Skipped GitHub poll: {detail}; retrying in {delay}s" for delay in delays[:-1]])
+        self.assertTrue(any("next poll in" in line for line in self.lines))
 
     def test_completed_empty_poll_resets_failure_count(self):
         self.github.items.clear()
@@ -225,23 +232,23 @@ class PollingTests(unittest.TestCase):
         self.assertIn("GitHub rate limit reached; waiting until 1970-01-01T01:16:40Z (60 min)", self.lines)
         self.assertEqual(sum(line.startswith("GitHub rate limit reached") for line in self.lines), 2)
 
-    def test_repeated_rate_limits_never_exhaust_poll_limit(self):
+    def test_repeated_rate_limits_keep_waiting_then_resume(self):
         self.github.items.clear()
         self.github.read_results["observe"] = [GitHubError(
             "GET", "repos/org/project/issues", "HTTP 429 secondary rate limit",
             retryable=True, reset_at=1010, rate_limited=True
-        )] * (POLL_FAILURE_LIMIT + 1)
+        )] * 9
         delays = []
 
         def wait(delay):
             delays.append(delay)
-            if len(delays) == POLL_FAILURE_LIMIT + 2:
+            if len(delays) == 10:
                 self.loop.stop_event.set()
 
         self.loop.coordinator.clock = lambda: 1000
         with patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(delays, [10] * (POLL_FAILURE_LIMIT + 1) + [self.config.poll_seconds])
+        self.assertEqual(delays, [10] * 9 + [self.config.poll_seconds])
         self.assertEqual(self.github.writes, [])
 
     def test_lazy_cached_reads_wait_then_claim_without_parking(self):
@@ -350,19 +357,19 @@ class PollingTests(unittest.TestCase):
                 wait.assert_called_once_with(delay)
                 self.assertEqual(self.github.writes, [])
 
-    def test_permanent_and_unclassified_failures_stop_on_first_occurrence(self):
+    def test_permanent_and_local_failures_stop_on_first_occurrence(self):
         errors = [self.http_error(401, detail="Bad credentials"),
                   self.http_error(403, detail="Resource not accessible"),
                   self.http_error(404, detail="Not Found"),
                   self.request_error("not json"), self.request_error("{}"),
-                  self.request_error(subprocess.CompletedProcess([], 1, "", "unknown failure")),
+                  self.request_error(subprocess.CompletedProcess([], 4, "", "authentication required")),
                   self.request_error(FileNotFoundError("gh is missing")),
                   self.request_error(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"))]
         for error in errors:
             with self.subTest(error=str(error)):
                 self.github.read_results["observe"] = [error]
                 with patch.object(self.loop.stop_event, "wait") as waits, \
-                        self.assertRaisesRegex(AgentError, "not retryable; retries not exhausted"):
+                        self.assertRaisesRegex(AgentError, "ub-agents does not retry this error"):
                     self.loop.launch()
                 waits.assert_not_called()
                 self.assertEqual(self.github.writes, [])
@@ -643,18 +650,22 @@ class PollingTests(unittest.TestCase):
                 self.assertEqual(len(withdrawals), 2 if stage == "withdrawal write" else 1)
                 self.assertIsNone(self.loop.coordinator.lost_claim)
 
-    def test_retryable_claim_failures_exhaust_existing_poll_limit(self):
+    def test_retryable_claim_failures_retry_indefinitely_with_capped_delays(self):
         failure = self.claim_error()
+        delays = []
+
+        def wait(delay):
+            delays.append(delay)
+            if len(delays) == 9:
+                self.loop.stop_event.set()
+
         with patch.object(self.github, "create_comment", side_effect=failure) as posts, \
-                patch.object(self.loop.stop_event, "wait") as waits, \
-                patch("ub_agents.loop.supervise") as execute, self.assertRaises(AgentError) as raised:
+                patch.object(self.loop.stop_event, "wait", side_effect=wait), \
+                patch("ub_agents.loop.supervise") as execute, self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
-        self.assertEqual(posts.call_count, POLL_FAILURE_LIMIT)
-        self.assertEqual([call.args[0] for call in waits.call_args_list], [5, 10, 20, 40, 60])
-        self.assertIn("POST repos/org/project/issues/1/comments", str(raised.exception))
-        self.assertIn("retries exhausted after 6 consecutive failed polls", str(raised.exception))
-        self.assertIn("Fix the cause and restart ub-agents launch", str(raised.exception))
-        self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), POLL_FAILURE_LIMIT - 1)
+        self.assertEqual(posts.call_count, 9)
+        self.assertEqual(delays, [5, 10, 20, 40, 60, 60, 60, 60, 60])
+        self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), 9)
         self.assertEqual(self.github.writes, [])
         execute.assert_not_called()
 
@@ -665,14 +676,17 @@ class PollingTests(unittest.TestCase):
                 self.setUp()
                 with patch.object(self.github, "create_comment", side_effect=failure) as post, \
                         patch.object(self.loop.stop_event, "wait") as waits, \
-                        self.assertRaises(GitHubError) as raised:
+                        self.assertRaises(AgentError) as raised:
                     self.loop.launch(once=once)
-                self.assertIs(raised.exception, failure)
+                if once:
+                    self.assertIs(raised.exception, failure)
+                else:
+                    self.assertIn("ub-agents does not retry this error", str(raised.exception))
                 post.assert_called_once()
                 waits.assert_not_called()
                 self.assertFalse(any(line.startswith("Skipped") for line in self.lines))
 
-    def test_post_write_reads_keep_first_failure_handling(self):
+    def test_post_write_read_failures_skip_poll(self):
         for stage in ("election read", "after withdrawn claim"):
             with self.subTest(stage=stage):
                 self.setUp()
@@ -681,17 +695,134 @@ class PollingTests(unittest.TestCase):
                     self.github.read_results["comments"] = [None, None, None, failure]
                     failure_patch = patch("ub_agents.loop.supervise")
                 else:
-                    # A lost claim can return False and try another item in the same
-                    # tick, but its later failure must not become a skipped poll.
+                    # A lost election can try another item in the same tick.
                     self.github.items[2] = issue(2)
                     self.github.read_results["item"] = [None, failure]
                     failure_patch = patch("ub_agents.coordination.live_leases", return_value=[])
-                with failure_patch, patch.object(self.loop.stop_event, "wait") as waits, \
-                        self.assertRaises(GitHubError) as raised:
+                with failure_patch, patch.object(self.loop.stop_event, "wait",
+                        side_effect=lambda _: self.loop.stop_event.set()) as waits, \
+                        self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
-                self.assertIs(raised.exception, failure)
-                waits.assert_not_called()
-                self.assertFalse(any(line.startswith("Skipped") for line in self.lines))
+                waits.assert_called_once_with(5)
+                self.assertTrue(any(line.startswith(f"Skipped GitHub poll: {failure}") for line in self.lines))
+
+    def test_post_claim_failures_leave_live_lease_untouched_and_do_not_start_another_run(self):
+        stages = ("election", "approval item", "approval history", "approval permissions off", "ownership", "running write",
+                  "lost running response", "execution item", "process ownership", "process write")
+        cases = [(stage, False, True) for stage in stages]
+        cases += [(stage, once, retryable) for stage in ("ownership", "process write")
+                  for once, retryable in ((True, True), (False, False))]
+        for stage, once, retryable in cases:
+            with self.subTest(stage=stage, once=once, retryable=retryable):
+                self.setUp()
+                if stage == "approval permissions off":
+                    self.loop.config = replace(self.config, approvals="off")
+                    self.github.create_comment(1, "Feedback")
+                if stage.startswith("process"):
+                    # Keep the child alive until its registration fails, so this
+                    # checks termination rather than racing a natural exit.
+                    worker = replace(self.config.agents[0], command=(sys.executable, "-c", "import time; time.sleep(30)"))
+                    self.loop.config = replace(self.config, agents=(worker,))
+                self.loop.interrupt_event = threading.Event()
+                now = timestamp()
+                self.loop.coordinator.clock = lambda: now
+                failure = GitHubError("GET", stage, "GitHub unavailable", retryable=retryable)
+                failed, delays, executions, supervision_errors = [], [], [], []
+                claim, claimed = self.loop.coordinator.claim, self.loop.coordinator.on_claim
+                owned = self.loop.coordinator.assert_owned
+                update = self.github.update_comment
+                read = self.github._read
+
+                def fail_read(name):
+                    failed.append(list(self.github.writes))
+                    self.github.read_results[name] = [failure]
+
+                def read_github(name, *args):
+                    if self.github.read_results.get(name, [])[:1] == [failure]:
+                        failed[:] = [list(self.github.writes)]
+                    return read(name, *args)
+
+                def on_claim(lease):
+                    claimed(lease)
+                    if stage == "election" and not failed:
+                        fail_read("comments")
+
+                def claim_lease(*args, **kwargs):
+                    lease = claim(*args, **kwargs)
+                    if stage == "approval item" and not failed:
+                        fail_read("item")
+                    if stage == "approval history" and not failed:
+                        fail_read("comments")
+                    if stage == "approval permissions off" and not failed:
+                        fail_read("role")
+                    return lease
+
+                def check_owned(lease):
+                    if not failed and (stage == "ownership" or (stage == "process ownership" and executions)):
+                        fail_read("comments")
+                    return owned(lease)
+
+                def update_lease(*args):
+                    if not failed and ((stage in {"running write", "lost running response"}
+                                        and '"state": "running"' in args[-1])
+                                       or (stage == "process write" and executions)):
+                        if stage == "lost running response":
+                            update(*args)
+                        failed.append(list(self.github.writes))
+                        raise failure
+                    return update(*args)
+
+                def prepare(workspace):
+                    if stage == "execution item" and not failed:
+                        fail_read("item")
+                    return self.root
+
+                def execute(*args, **kwargs):
+                    executions.append(True)
+                    try:
+                        return supervise(*args, **kwargs)
+                    except BaseException as exc:
+                        supervision_errors.append(repr(exc))
+                        raise
+
+                def wait(delay):
+                    delays.append(delay)
+                    self.assertEqual(self.github.writes, failed[0], (supervision_errors, self.lines))
+                    history = self.loop.coordinator.history(1)
+                    self.assertEqual(len(history), 1)
+                    self.assertIn(history[0]["state"], {"claiming", "running"})
+                    self.assertNotIn("result", history[0])
+                    self.assertEqual(self.loop.plans()[0].state, "owned")
+                    self.assertIsNone(self.loop._renewal)
+                    pid = self.root / ".ub-agents/runs" / history[0]["run"] / "pid"
+                    if executions:
+                        self.assertEqual(group_members(int(pid.read_text())), [])
+                    if len(delays) == 2:
+                        self.loop.stop_event.set()
+
+                with ExitStack() as stack:
+                    stack.enter_context(patch.object(self.loop.coordinator, "on_claim", side_effect=on_claim))
+                    stack.enter_context(patch.object(self.loop.coordinator, "claim", side_effect=claim_lease))
+                    stack.enter_context(patch.object(self.loop.coordinator, "assert_owned", side_effect=check_owned))
+                    stack.enter_context(patch.object(self.github, "update_comment", side_effect=update_lease))
+                    stack.enter_context(patch.object(self.github, "_read", side_effect=read_github))
+                    stack.enter_context(patch("ub_agents.loop.Workspace.prepare", prepare))
+                    stack.enter_context(patch("ub_agents.loop.supervise", side_effect=execute))
+                    stack.enter_context(patch.object(self.loop.stop_event, "wait", side_effect=wait))
+                    if once or not retryable:
+                        with self.assertRaises(AgentError) as raised:
+                            self.loop.launch(once=once)
+                        self.assertIn(str(failure), str(raised.exception))
+                        if not once:
+                            self.assertIn("ub-agents does not retry this error", str(raised.exception))
+                        self.assertEqual(delays, [])
+                    else:
+                        self.loop.launch()
+                        self.assertEqual(delays, [5, self.config.poll_seconds])
+                        self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), 1)
+                self.assertEqual(self.github.writes, failed[0])
+                self.assertEqual(len(executions), int(stage.startswith("process")))
+                self.assertIsNone(self.loop._renewal)
 
     def test_cleanup_and_ownership_errors_are_never_poll_retries(self):
         for error in (CleanupError("cleanup uncertain"), LostOwnership("lease lost"), RecordError("bad record")):
@@ -777,5 +908,4 @@ class PollingTests(unittest.TestCase):
         docs = (Path(__file__).resolve().parents[1] / "docs/polling.md").read_text()
         self.assertIn(f"**{POLL_RETRY_BASE_SECONDS} seconds**", docs)
         self.assertIn(f"**{POLL_RETRY_MAX_SECONDS} seconds**", docs)
-        self.assertEqual(POLL_FAILURE_LIMIT, 6)
-        self.assertIn("**sixth consecutive failed poll**", docs)
+        self.assertIn("without a retry limit", docs)

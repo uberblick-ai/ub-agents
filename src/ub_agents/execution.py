@@ -301,7 +301,12 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
                 # The lease expires by wall clock; monotonic time pauses while a machine sleeps.
                 expiry = expires() if callable(expires) else expires
                 if expiry is not None and time.time() >= expiry:
-                    raise LostOwnership("Local lease deadline expired")
+                    # The clock can cross expiry after the callback returns.
+                    # Recheck ownership so its renewal failure cause survives,
+                    # and honour a renewal confirmed in the meantime.
+                    expiry = expires() if callable(expires) else expiry
+                    if expiry is not None and time.time() >= expiry:
+                        raise LostOwnership("Local lease deadline expired")
                 stop_event.wait(min(0.2, max(0, deadline - time.monotonic())))
             return process.returncode
         finally:

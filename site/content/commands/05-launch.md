@@ -1,5 +1,16 @@
 # ub-agents launch
 
+After local configuration and repository validation, the terminal view opens
+before the GitHub and control-checkout setup checks, showing `checking setup`.
+In continuous launch, retryable GitHub failures show `waiting` and retry with
+backoff from 5 seconds up to 60 seconds, without a retry limit. With `--no-ui`, each wait prints
+`Skipped GitHub poll: …; retrying in Ns`, with no setup activity line. This order
+applies to plain launch, `--agent`, `--once` and `launch N`; `--once` and `launch N`
+fail on their first error. The update watcher,
+startup sweep and queue start only after setup passes. Quitting during checks or
+a retry wait exits without claiming work; fatal setup errors restore the terminal
+before printing the error.
+
 Every invocation sweeps all roles' leftover worktrees and local run branches from
 this machine once in the background after startup checks. This includes `--agent`,
 `NUMBER` and `--once`; the view opens and polling starts without waiting.
@@ -253,10 +264,18 @@ Keep awake affects only the machine running the launcher. Other platforms omit
 `--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
 machine awake.
 
-Continuous launch retries transient GitHub failures with bounded waits; persistent
-failures stop the loop. A lost claim response is reconciled before retrying, without
+Continuous launch waits through network and DNS failures, timeouts and GitHub
+outages with backoff from 5 seconds to a 60-second cap and no retry limit. A gh
+failure without an HTTP status retries regardless of its text, except authentication
+required (exit 4) or a gh binary that cannot run. HTTP 5xx and rate limits retry;
+other HTTP 4xx and configuration errors stop with a message to fix the cause and restart.
+A retryable failure after claiming stops the owned process and renewal, leaves
+the lease untouched and returns to polling. Its live lease prevents another run;
+after expiry, a stored outcome finishes through recovery without rerunning the agent.
+This also applies when retryable renewal failures exhaust the lease during execution.
+A lost claim POST response is reconciled and withdrawn before replanning, without
 spending an item attempt. `launch --once` fails on its first error. See
-[polling and retry limits](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling)
+[polling and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling)
 for the exact rules.
 
 ```text

@@ -5,6 +5,13 @@ own session when stdin and stdout are terminals. `launch --no-ui` keeps plain li
 output. Pipes, CI and services remain plain. Other commands do not import the UI
 packages.
 
+The view opens after local configuration and repository validation, before the
+GitHub and control-checkout setup checks. Its activity shows `checking setup`,
+or `waiting` while retryable GitHub failures back off. Updates, the startup sweep
+and queue work start only after setup passes. Quitting during checks or a retry
+wait exits without a claim; fatal setup errors close the view and restore the
+terminal before printing the error.
+
 The view runs in its own process. It reads local files on the same macOS or Linux
 host, as the same user as the launcher, from the **control checkout** rather than
 an agent's private worktree. A launcher passes its exact session ID; it never
@@ -592,7 +599,7 @@ stays on one row without cutting the version, enabled keep-awake indicator or
 separators, or overlapping the right-side keys.
 Busy activity text shortens before the repository loses its readable prefix;
 the repository shortens further only when the remaining space requires it.
-Waiting counts down as `next poll Ns`; other activities say `polling`,
+Waiting counts down as `next poll Ns`; other activities say `checking setup`, `polling`,
 `running assignment` or `stopping`. Stale, ended and malformed snapshots are
 labelled there, including the malformed error, without a snapshot-age counter.
 In an attached view, `r` starts the next poll immediately or requests a read-only

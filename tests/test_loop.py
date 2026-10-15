@@ -10,7 +10,7 @@ from unittest.mock import patch
 from ub_agents.cli import main, status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Plan
-from ub_agents.errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
+from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.prompts import RETROSPECTIVE_PROMPT
@@ -1219,20 +1219,23 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(loop.plans()[0].state, "blocked")
         self.assertFalse(loop.coordinator.history(1)[1]["accepted"])
 
-    def test_cleanup_error_cannot_restart_writes_after_an_ownership_loss(self):
-        github = FakeGitHub(issue())
-        loop = self.loop(github)
+    def test_cleanup_error_cannot_restart_writes_after_ownership_or_github_failure(self):
+        for failure in (LostOwnership("Ownership read failed"),
+                        GitHubError("PATCH", "lease", "connection reset", retryable=True)):
+            with self.subTest(failure=failure):
+                github = FakeGitHub(issue())
+                loop = self.loop(github)
 
-        def execute(*args, **kwargs):
-            self.last_writes = list(github.writes)
-            try:
-                raise LostOwnership("Ownership read failed")
-            finally:
-                raise CleanupError("Could not verify group termination")
+                def execute(*args, **kwargs):
+                    self.last_writes = list(github.writes)
+                    try:
+                        raise failure
+                    finally:
+                        raise CleanupError("Could not verify group termination")
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), self.assertRaises(CleanupError):
-            loop.tick()
-        self.assertEqual(github.writes, self.last_writes)
+                with patch("ub_agents.loop.supervise", side_effect=execute), self.assertRaises(CleanupError):
+                    loop.tick()
+                self.assertEqual(github.writes, self.last_writes)
 
     def test_partial_acceptance_then_rejected_recovery_does_not_consume_issue(self):
         github = FakeGitHub(issue(), pr(labels=()))

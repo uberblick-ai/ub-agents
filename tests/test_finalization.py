@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from ub_agents.errors import AgentError, GitHubError, LostOwnership
 from ub_agents.github import GitHub
-from ub_agents.loop import Loop, POLL_FAILURE_LIMIT
+from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.rate_limits import READS
 from ub_agents.records import MARKER, body, payload, records, timestamp
@@ -266,20 +266,27 @@ class FinalizationTests(unittest.TestCase):
             with self.subTest(once=once):
                 result = self.scenario(fail_at='update_comment', once=once, failure=error)
                 self.assertIsInstance(result[-1], AgentError)
+                if not once:
+                    self.assertIn('ub-agents does not retry this error', str(result[-1]))
                 history = result[1].coordinator.history(296)
                 self.assertEqual(history[0]['state'], 'running')
                 self.assertNotIn('result', history[0])
                 self.assertEqual(result[5], 1)
                 self.assertFalse(any(line.startswith('Skipped') for line in result[4]))
 
-    def test_finalization_errors_count_toward_existing_poll_limit(self):
+    def test_finalization_errors_retry_indefinitely_with_capped_delays(self):
         loop = Loop(config(self.root), FakeGitHub(issue()), 'operator', output=lambda line: None)
         failure = GitHubError('PATCH', 'outcome', 'unexpected end of JSON input', retryable=True)
+        delays = []
         def tick():
             loop._poll_complete = loop._finalizing = True
             raise failure
+        def wait(delay):
+            delays.append(delay)
+            if len(delays) == 9:
+                loop.stop_event.set()
         with patch.object(loop, 'tick', side_effect=tick) as passes, \
-                patch.object(loop.stop_event, 'wait') as waits, self.assertRaisesRegex(AgentError, 'retries exhausted'):
+                patch.object(loop.stop_event, 'wait', side_effect=wait), self.assertRaises(KeyboardInterrupt):
             loop.launch()
-        self.assertEqual(passes.call_count, POLL_FAILURE_LIMIT)
-        self.assertEqual([c.args[0] for c in waits.call_args_list], [5, 10, 20, 40, 60])
+        self.assertEqual(passes.call_count, 9)
+        self.assertEqual(delays, [5, 10, 20, 40, 60, 60, 60, 60, 60])
