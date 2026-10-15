@@ -1,5 +1,15 @@
 # ub-agents launch
 
+After local configuration and repository validation, the terminal view opens
+before the GitHub and control-checkout setup checks, showing `checking setup`.
+Retryable GitHub failures show `waiting` and retry with backoff from 5 seconds up
+to 60 seconds, without a retry limit. With `--no-ui`, each wait prints
+`Skipped GitHub poll: …; retrying in Ns`, with no setup activity line. This order
+applies to plain launch, `--agent`, `--once` and `launch N`. The update watcher,
+startup sweep and queue start only after setup passes. Quitting during checks or
+a retry wait exits without claiming work; fatal setup errors restore the terminal
+before printing the error.
+
 Every invocation sweeps all roles' leftover worktrees and local run branches from
 this machine once, after startup checks and before the first poll or claim. This
 includes `--agent`, `NUMBER` and `--once`. Each `removed` or `kept` line includes

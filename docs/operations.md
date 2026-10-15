@@ -100,13 +100,23 @@ upgrading any.
 
 ## When things go wrong
 
-Checkout refresh failures, unconfirmed run cleanup and GitHub request failures end
-`launch` with one `ub-agents:` line naming the problem and the next step, including
+Checkout refresh failures, unconfirmed run cleanup and fatal GitHub request failures
+end `launch` with one `ub-agents:` line naming the problem and the next step, including
 `launch --once` and `launch N`. Resolve the reported problem before launching again.
 If cleanup cannot confirm termination, make `ps` usable or confirm the named process
 group has exited. Retained artifacts remain subject to
 [stale artifact cleanup](configuration.md#stale-artifact-cleanup). Failures in the
 startup artifact sweep are logged and launch continues to poll.
+
+After local configuration and repository validation, launch publishes its session
+and opens the terminal view before the setup checks, showing `checking setup`.
+Retryable GitHub failures during setup show `waiting` and retry with poll backoff
+from 5 seconds up to 60 seconds, without a retry limit. `--no-ui` prints one
+`Skipped GitHub poll: …; retrying in Ns` line per wait, with no setup activity line.
+This order applies to plain launch, `--agent`, `--once` and `launch N`. The update
+watcher, startup sweep and queue begin only after setup passes. Quitting during
+setup or its retry wait exits without a claim; fatal setup errors restore the
+terminal before printing the error.
 
 Before its first pass, `launch` requires a clean control checkout on the default
 branch with no commits outside the local `origin` ref. `doctor` warns about the
@@ -192,8 +202,9 @@ lease unchanged. A kept worktree also keeps its branch. PR worktrees are detache
 
 Every `ub-agents launch` invocation sweeps private worktrees left by crashed runs
 and leftover local branches once, after startup checks and before the first poll
-or claim, including `--agent`, `NUMBER` and `--once`. It covers all roles' registered
-worktrees and unregistered entries under `.ub-agents/worktrees/`, plus local
+or claim, including `--agent`, `NUMBER` and `--once`. The terminal view opens before
+those setup checks. The sweep covers all roles' registered worktrees and unregistered
+entries under `.ub-agents/worktrees/`, plus local
 `ub-agents/<agent>/<number>/<run>` and older `ub-agent/` branches. Symlinks are removed
 as links. It keeps artifacts of live leases on this host, branches heading open
 PRs or checked out in remaining worktrees, and artifacts with unconfirmed cleanup

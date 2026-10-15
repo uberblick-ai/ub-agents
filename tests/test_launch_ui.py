@@ -200,7 +200,7 @@ class LaunchSelectionTests(unittest.TestCase):
 
 HARNESS = '''
 from dataclasses import replace
-import json, os, pathlib, signal, sys, time
+import json, os, pathlib, signal, subprocess, sys, time
 from unittest.mock import patch
 sys.path.insert(0, sys.argv[1])
 from tests.support import FakeGitHub, agent, config, issue
@@ -208,7 +208,7 @@ sys.stdin = sys.__stdin__  # importing tests detaches stdin; this launcher owns 
 from ub_agents.cli import main
 from ub_agents.config import Runtime
 from ub_agents.execution import supervise
-from ub_agents.errors import AgentError
+from ub_agents.errors import AgentError, GitHubError
 from ub_agents.loop import Loop
 from ub_agents.launch_ui import ui_command
 root = pathlib.Path(sys.argv[2])
@@ -253,9 +253,20 @@ while not (root / 'finish').exists():
     if code == 0:
         loop.coordinator.report(lease, 'success', 'Captured replay finished', outcome='done')
     return code
+def check_setup(*args):
+    if mode == 'setup-error':
+        raise AgentError('Intentional setup error')
+    if mode == 'setup-retry':
+        raise GitHubError('GET', 'repos/org/project', 'Connection reset', retryable=True)
+    if mode == 'setup-slow':
+        script = ("import os,pathlib,time; "
+                  f"pathlib.Path({str(root / 'setup-pid')!r}).write_text(str(os.getpid())); "
+                  "time.sleep(30)")
+        subprocess.run([sys.executable, '-c', script], check=True, timeout=35)
+        raise AssertionError('Setup was not interrupted')
 with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop.load_config', return_value=cfg), \\
      patch('ub_agents.cli.GitHub', return_value=github), patch('ub_agents.cli.Loop', side_effect=create), \\
-     patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch_checks'), \\
+     patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch_checks', side_effect=check_setup), \\
      patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
      patch('ub_agents.loop.supervise', side_effect=run), \\
      patch('ub_agents.launch_ui.ui_command', side_effect=lambda: escape_ack_command(ui_command())):
@@ -280,6 +291,61 @@ def wait_for_observation_worker(root, timeout=5):
 
 
 class LaunchTerminalTests(unittest.TestCase):
+    def test_setup_error_restores_terminal_before_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = Path(__file__).resolve().parents[1]
+            with Terminal(HARNESS, repository, root, 'setup-error') as terminal:
+                terminal.wait_exit(1, timeout=8)
+                self.assertLess(terminal.transcript.rfind(b'\x1b[?1049l'),
+                                terminal.transcript.index(b'ub-agents: Intentional setup error'))
+                result = json.loads((root / 'result.json').read_text())
+                self.assertEqual(result, {'exit': 1, 'history': [], 'labels': ['ready']})
+                wait_for_observation_worker(root)
+
+    def test_quit_during_setup_restores_terminal_without_claim(self):
+        self.check_setup_stop('setup-slow', 'q')
+
+    def test_ctrl_c_during_setup_restores_terminal_without_claim(self):
+        self.check_setup_stop('setup-slow', 'interrupt')
+
+    def test_sigterm_during_setup_restores_terminal_without_claim(self):
+        self.check_setup_stop('setup-slow', 'drain')
+
+    def test_quit_during_setup_retry_restores_terminal_without_claim(self):
+        self.check_setup_stop('setup-retry', 'q')
+
+    def test_ctrl_c_during_setup_retry_restores_terminal_without_claim(self):
+        self.check_setup_stop('setup-retry', 'interrupt')
+
+    def test_sigterm_during_setup_retry_restores_terminal_without_claim(self):
+        self.check_setup_stop('setup-retry', 'drain')
+
+    def check_setup_stop(self, mode, action):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = Path(__file__).resolve().parents[1]
+            with Terminal(HARNESS, repository, root, mode) as terminal:
+                terminal.expect(b'checking setup', timeout=8)
+                if mode == 'setup-retry':
+                    terminal.expect(b'next poll ', timeout=3)
+                else:
+                    terminal.wait_for((root / 'setup-pid').exists)
+                if action == 'q':
+                    terminal.send(b'q')
+                elif action == 'interrupt':
+                    terminal.send(b'\x03')
+                else:
+                    terminal.process.send_signal(signal.SIGTERM)
+                code = 130 if action == 'interrupt' else 0
+                terminal.wait_exit(code, timeout=3)
+                result = json.loads((root / 'result.json').read_text())
+                self.assertEqual(result, {'exit': code, 'history': [], 'labels': ['ready']})
+                if mode == 'setup-slow':
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(int((root / 'setup-pid').read_text()), 0)
+                wait_for_observation_worker(root)
+
     # Each launch form is its own test so a parallel run spreads them over cores.
     def test_q_drains_the_active_run_through_report_and_cleanup(self):
         self.check_launch_form('q')

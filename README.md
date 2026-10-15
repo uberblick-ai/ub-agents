@@ -270,6 +270,12 @@ when its tip is reachable from a freshly fetched origin branch. Unpublished tips
 and Git failures keep the branch and log its name, reason and tip SHA. A kept
 worktree also keeps its branch.
 
+After local configuration and repository validation, launch opens its terminal
+view with `checking setup` before checking GitHub and the control checkout.
+Retryable GitHub failures wait and retry with capped poll backoff; `--no-ui`
+prints one retry line per wait. Setup must pass before update checks, cleanup
+or queue work starts. Quitting during setup exits without claiming work.
+
 Every launch sweeps all roles' leftover worktrees, unregistered folders under
 `.ub-agents/worktrees/`, and local `ub-agents/` or older `ub-agent/` run branches
 once before polling. It keeps artifacts of live leases on this host, branches
