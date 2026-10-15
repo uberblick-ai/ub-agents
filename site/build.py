@@ -17,6 +17,7 @@ SITE = 'https://agents.uberblick.ai'
 TAGLINE = 'The loop engineering framework for GitHub. Any agent, no server.'
 SECTIONS = [  # (title, content entry, kind)
     ('Installation', 'installation.md', 'page'),
+    ('How the loop works', 'how-the-loop-works.md', 'page'),
     ('Configuration', 'configuration', 'dir'),
     ('Commands', 'commands', 'dir'),
     ('Guides', 'guides', 'dir'),
@@ -25,6 +26,8 @@ SECTIONS = [  # (title, content entry, kind)
 ]
 
 # ---------- Markdown (the subset these pages use) ----------
+
+FLOW = re.compile(r'\{\{flow ([a-z0-9-]+)\}\}')
 
 def inline(text):
     codes = []
@@ -76,6 +79,10 @@ def markdown(src):
             code = '\n'.join(lines[i + 1:j])
             out.append(f'<pre class="lang-{lang}"><code>{highlight(code, lang)}</code></pre>')
             i = j + 1
+        elif m := FLOW.fullmatch(line):
+            svg = (ROOT / 'diagrams' / f'{m.group(1)}.svg').read_text()
+            out.append(f'<figure class="flow">{svg}</figure>')
+            i += 1
         elif m := re.match(r'^(#{1,3}) (.*)', line):
             level, text = len(m.group(1)), inline(m.group(2))
             if level == 1:
@@ -104,7 +111,8 @@ def markdown(src):
             out.append(f'<{tag}>' + ''.join(f'<li>{inline(t)}</li>' for t in items) + f'</{tag}>')
         elif line.strip():
             para = []
-            while i < len(lines) and lines[i].strip() and not re.match(r'^(```|#|\||- |\d+\. )', lines[i]):
+            while (i < len(lines) and lines[i].strip() and not FLOW.fullmatch(lines[i])
+                   and not re.match(r'^(```|#|\||- |\d+\. )', lines[i])):
                 para.append(lines[i])
                 i += 1
             out.append(f'<p>{inline(" ".join(para))}</p>')
@@ -177,7 +185,8 @@ def sidebar(pages, current):
         sub = ''
         if here:
             sub = '<ul>' + ''.join(
-                f'<li><a{" class=\"on\"" if p is current else ""} href="{rel(p["path"], current["path"])}">{html.escape(p["nav"])}</a></li>'
+                '<li><a' + (' class="on"' if p is current else '')
+                + f' href="{rel(p["path"], current["path"])}">{html.escape(p["nav"])}</a></li>'
                 for p in members) + '</ul>'
         out.append(f'<li><a{cls} href="{rel(first["path"], current["path"])}">{name}</a>{sub}</li>')
     return '<ul class="side-list">' + ''.join(out) + '</ul>'
@@ -203,7 +212,7 @@ HEAD = '''<!doctype html>
 <link rel="canonical" href="{canonical}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="{css}">
 </head>
 <body>
@@ -219,7 +228,7 @@ def doc_page(pages, i):
     p = pages[i]
     here = p['path']
     title = p['title'] + ' · ub-agents'
-    section_label = '' if p['section'] in ('Installation', 'Upgrading') else f'<p class="crumb">{p["section"]}</p>'
+    section_label = '' if p['section'] in ('Installation', 'How the loop works', 'Upgrading') else f'<p class="crumb">{p["section"]}</p>'
     first = re.search(r'<p>(.*?)</p>', p['body'], re.S)
     description = re.sub(r'<[^>]+>', '', first.group(1)) if first else TAGLINE
     return (HEAD.format(title=html.escape(title), description=html.escape(html.unescape(description)),

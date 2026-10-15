@@ -1,0 +1,28 @@
+flow v0
+# Approvals: whose input reaches the agents (on by default for public repositories).
+
+columns main held
+
+panel input col=main tone=muted
+  strong "An issue or PR carries a trigger label"
+panel check tone=muted
+  strong "The launcher checks the input"
+  muted "who applied the trigger"
+  muted "who edited it since"
+  muted "who approved the PR head"
+end runs "The agent runs"
+
+panel held col=held row=check tone=stop
+  pill needs-human
+  strong "Held for a maintainer"
+  muted "an authorized GitHub org member"
+  muted "must approve it"
+
+input --> check
+check --> runs : a maintainer started it
+check --> held tone=stop : outside input
+held --> input tone=stop from=top to=right label=end : maintainer acts
+
+legend
+  pill tone=done "GitHub label, like ready"
+  panel tone=stop "human involved"

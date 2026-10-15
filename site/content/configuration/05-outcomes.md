@@ -31,7 +31,9 @@ Assignment context includes `outcome_rounds`, keyed by outcome with `used` and
 `limit`. The starter limits only the PR reviewer's `changes-requested` to three.
 It marks findings P1 (must not merge as is) or P2. On the final review
 (`used >= limit`), it approves when only P2 findings remain, listing them in the
-review. Open P1 findings require `changes-requested`, named in the summary.
+review. P1 findings include unmet acceptance criteria, bugs, security or data-loss
+risks, and failing checks; their fixes always need another review. Open P1 findings
+require `changes-requested`, named in the summary.
 
 The key works on any agent's outcome. It must be a positive integer, needs at least
 one configured stop label, and cannot be used on an outcome that already adds a

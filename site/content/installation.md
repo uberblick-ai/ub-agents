@@ -83,47 +83,6 @@ Then add the `ready` label to an issue. The launcher will:
 
 In a public repository, a label added by someone with maintain or admin access starts work. See [Approvals](/docs/configuration/approvals.html).
 
-That's it. Add a reviewer for `needs-review` and an integrator for `ready-to-merge`, or keep the five starter roles `init` wrote. The starter also prepares, reviews and splits issues before implementation; see [How the loop works](#how-the-loop-works). For more machines, see [Add a launcher](/docs/guides/add-a-launcher.html).
+That's it. Add a reviewer for `needs-review` and an integrator for `ready-to-merge`, or keep the five starter roles `init` wrote. The starter also prepares, reviews and splits issues before implementation; see [How the loop works](/docs/how-the-loop-works.html). For more machines, see [Add a launcher](/docs/guides/add-a-launcher.html).
 
-## How the loop works
-
-Start the default workflow by labelling an issue `needs-preparation`.
-
-```text
-needs-preparation -> issue-preparer
-  prepared -> ready (small, bounded, clear work)
-  review   -> needs-review -> issue-reviewer
-    approved          -> ready
-    changes-requested -> needs-preparation
-  split    -> prepared sub-issues; open parent blocked by each
-  needs-human -> needs-human
-ready -> implementer -> PR with needs-review -> reviewer
-  approved          -> ready-to-merge -> integrator
-  changes-requested -> needs-changes -> implementer
-```
-
-The PR reviewer allows three `changes-requested` rounds (`max-rounds: 3`). On the
-fourth review, it approves when only P2 suggestions remain and lists them in the
-review. P1 findings mean the PR must not merge as is: unmet acceptance criteria,
-bugs, security or data-loss risks, or failing checks. These always require another
-review. A fourth `changes-requested` parks the PR with `needs-human` and an
-**Action needed** notice naming the limit and open P1 findings.
-
-Remove `needs-human` and reapply `needs-review` for one more review with the count
-kept. For a fresh set of rounds, run
-`ub-agents retry N --agent reviewer --reason TEXT`, then restore those labels.
-Retry resets the count but never restores labels. Counts come from GitHub,
-survive restarts and recovery, and exclude other agents' outcomes, including
-integrator conflict routing. A new PR starts at zero. Older launchers reject
-`max-rounds`; upgrade every launcher before enabling it in an existing project.
-
-The issue-reviewer checks scope, feasibility and acceptance criteria without editing
-the issue. Its findings reach the preparer as feedback; after applying them, the
-preparer reports `prepared` without another review. Either issue role can ask for a
-person's decision with `needs-human`. The issue-reviewer and PR reviewer share
-`needs-review`, selected by item kind. Use a different runtime for issue review;
-the starter recommends this because `different-runtime-from` requires a PR.
-
-For a split, the preparer creates native GitHub sub-issues with prepared bodies and
-no workflow labels, then records each as a blocker of the open parent. A maintainer
-labels each sub-issue before it starts.
+Start the default workflow by labelling an issue `needs-preparation`; [How the loop works](/docs/how-the-loop-works.html) explains preparation, delivery, approvals and pauses.

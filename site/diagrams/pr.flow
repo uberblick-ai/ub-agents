@@ -1,0 +1,38 @@
+flow v0
+# Delivery: implementer, reviewer and integrator pass one pull request along.
+
+columns rework main stop
+
+pill ready col=main tone=done "ready (issue)"
+box implementer "branch, code, checks, opens the PR"
+pill needs-review tone=agent
+box reviewer "reviews the exact head commit"
+pill ready-to-merge tone=done
+box integrator "updates base, checks, merges"
+end merged "Merged · issue closed"
+
+pill needs-changes col=rework row=reviewer tone=rework
+
+panel human col=stop row=implementer span=5 tone=stop
+  pill needs-human
+  strong "A person reviews or answers"
+
+ready --> implementer
+implementer --> needs-review : handed-off
+needs-review --> reviewer
+reviewer --> ready-to-merge : approved
+ready-to-merge --> integrator
+integrator --> merged : merged
+
+reviewer --> needs-changes tone=rework : changes-requested
+ready-to-merge -.-> needs-changes tone=rework to=bottom.2 : on merge conflict
+integrator --> needs-changes tone=rework to=bottom.1 : changes-requested
+needs-changes --> implementer tone=rework from=top to=left label=end : revise the same PR
+
+implementer --> human tone=stop : blocked
+reviewer --> human tone=stop : blocked
+integrator --> human tone=stop : maintainer-merge, blocked
+
+legend
+  pill tone=done "GitHub label, like ready"
+  panel tone=stop "human involved"

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 805 490" width="805" height="490" role="img" aria-label="Flow: open, needs-preparation, queue, human, issue-preparer, ready, Delivery picks it up. Legend: GitHub label, like ready, human involved">
+<style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
+.ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
+.ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
+.ab .muted{fill:var(--muted)}.ab .b{font-weight:600}
+.ab .cap{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.08em;fill:var(--muted)}
+.ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
+.ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}</style>
+<defs>
+<marker id="issue-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
+<marker id="issue-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
+</defs>
+<path d="M222,54 L222,84" class="e e-ink" marker-end="url(#issue-ink)"/>
+<path d="M222,118 L222,148" class="e e-ink" marker-end="url(#issue-ink)"/>
+<path d="M223,204 L223,248" class="e e-ink" marker-end="url(#issue-ink)"/>
+<path d="M222,294 L222,338" class="e e-ink" marker-end="url(#issue-ink)"/>
+<path d="M222,372 L222,402" class="e e-ink" marker-end="url(#issue-ink)"/>
+<path d="M428,271 L580,271" class="e e-stop" marker-end="url(#issue-stop)"/>
+<path d="M685,234 L685,101 L301,101" class="e e-stop" marker-end="url(#issue-stop)"/>
+<g><rect x="111" y="16" width="222" height="38" rx="10" class="k-muted panel"/>
+<text x="222" y="41" text-anchor="middle" class="s12 b">A team member writes an issue</text></g>
+<g><rect x="143" y="84" width="158" height="34" rx="17" class="pill"/>
+<circle cx="157" cy="101" r="5" class="t-muted"/>
+<text x="169" y="105" class="m s12">needs-preparation</text></g>
+<g><rect x="108" y="148" width="229" height="56" rx="10" class="k-muted panel"/>
+<text x="223" y="173" text-anchor="middle" class="s12 b">The loop</text>
+<text x="223" y="191" text-anchor="middle" class="s11 muted">claims eligible items in order</text></g>
+<g>
+<rect x="16" y="248" width="412" height="46" rx="8" class="k-agent"/>
+<text x="222" y="267" text-anchor="middle" class="m s13 b t-agent">issue-preparer</text>
+<text x="222" y="284" text-anchor="middle" class="s11 muted">grounds it in the code, challenges assumptions, aims for an MVP</text>
+</g>
+<g><rect x="186" y="338" width="72" height="34" rx="17" class="pill"/>
+<circle cx="200" cy="355" r="5" class="t-done"/>
+<text x="212" y="359" class="m s12">ready</text></g>
+<rect x="135" y="402" width="174" height="34" rx="17" class="k-done"/>
+<text x="222" y="423" text-anchor="middle" class="s12 b t-done">Delivery picks it up</text>
+<g><rect x="580" y="234" width="209" height="74" rx="10" class="k-stop panel"/>
+<rect x="628" y="246" width="115" height="30" rx="15" class="pill"/>
+<circle cx="642" cy="261" r="5" class="t-stop"/>
+<text x="654" y="265" class="m s12">needs-human</text>
+<text x="685" y="295" text-anchor="middle" class="s12 b">A person reviews or answers</text></g>
+<text x="232" y="73" class="m s11">someone sets it</text>
+<text x="233" y="230" class="m s11">starts the agent</text>
+<text x="232" y="320" class="m s11">successfully prepared; acceptance criteria set</text>
+<text x="438" y="264" class="m s11 t-stop">needs-human, blocked</text>
+<text x="311" y="94" class="m s11 t-stop">comment on GitHub, remove needs-human, re-add the label</text>
+<line x1="8" y1="452" x2="797" y2="452" class="rule"/>
+<g><rect x="16" y="466" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="472" r="3" class="t-done"/><text x="46" y="476" class="s11 muted">GitHub label, like ready</text></g>
+<g><rect x="212" y="466" width="24" height="12" rx="3" class="k-stop panel"/><text x="242" y="476" class="s11 muted">human involved</text></g>
+</svg>
