@@ -1,0 +1,29 @@
+flow v0
+# max-rounds: three rounds back to the implementer, then a person decides.
+
+columns rework main stop
+
+pill needs-review col=main tone=agent
+box reviewer "reviews the exact head commit"
+pill ready-to-merge tone=done
+end merge "The integrator picks it up"
+
+box implementer col=rework row=needs-review "revises the same PR"
+pill needs-changes col=rework row=reviewer tone=rework
+
+panel human col=stop row=reviewer tone=stop
+  pill needs-human
+  strong "A person decides"
+  muted "ub-agents retry resets the count"
+
+needs-review --> reviewer
+reviewer --> ready-to-merge : approved, any round
+ready-to-merge --> merge
+reviewer --> needs-changes tone=rework : rounds 1 to 3
+needs-changes --> implementer tone=rework from=top to=bottom
+implementer --> needs-review tone=rework
+reviewer --> human tone=stop : round 4
+
+legend
+  pill tone=done "GitHub label, like ready"
+  panel tone=stop "human involved"

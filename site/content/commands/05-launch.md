@@ -1,282 +1,50 @@
 # ub-agents launch
 
-After local configuration and repository validation, the terminal view opens
-before the GitHub and control-checkout setup checks, showing `checking setup`.
-In continuous launch, retryable GitHub failures show `waiting` and retry with
-backoff from 5 seconds up to 60 seconds, without a retry limit. With `--no-ui`, each wait prints
-`Skipped GitHub poll: …; retrying in Ns`, with no setup activity line. This order
-applies to plain launch, `--agent`, `--once` and `launch N`; `--once` and `launch N`
-fail on their first error. The update watcher,
-startup sweep and queue start only after setup passes. Quitting during checks or
-a retry wait exits without claiming work; fatal setup errors restore the terminal
-before printing the error.
+`ub-agents launch` runs the loop on your machine. It watches the queue, picks the next item an agent can handle and runs that agent. Start it in a clean checkout of your default branch and leave it running. Teammates can run their own launchers on the same queue.
 
-Every invocation sweeps all roles' leftover worktrees and local run branches from
-this machine once in the background after startup checks. This includes `--agent`,
-`NUMBER` and `--once`; the view opens and polling starts without waiting.
-Every decision, failure and pruning summary goes only to
-`.ub-agents/sessions/<session>.cleanup.log`, including with `--no-ui`.
-If session publication is unavailable, the sweep uses a unique `*.cleanup.log`
-in that directory. The log is created on every sweep and each line is flushed.
-Without a writable cleanup log, the sweep removes nothing. Sweep failures leave
-launch and its runs running. `ub-agents clean` keeps its usual output.
-The sweep covers registered worktrees and unregistered entries under
-`.ub-agents/worktrees/`, plus `ub-agents/<agent>/<number>/<run>` and older
-`ub-agent/` local branches. Symlinks are removed as links. It keeps live leases
-on this host, branches heading open PRs or checked out in remaining worktrees,
-and artifacts with unconfirmed cleanup or a process group not confirmed
-stopped. Expired local leases with a recorded group require its confirmed absence.
-Missing, unreadable, older-version or other-host leases, ended runs without a PR,
-dirty trees and locked trees do not prevent removal. GitHub coordination scan or
-PR lookup failures keep affected artifacts and log the reason. Removed branches
-whose tips are not reachable from fetched origin branches or merged PR heads
-include `unpushed tip SHA`, also when reachability cannot be checked; restore one
-with `git branch <name> <sha>`. Each unpushed tip is logged before deletion.
+```bash
+ub-agents launch
+```
 
-The [cleanup hook](/docs/configuration/cleanup.html) runs before each worktree
-removal with unknown context fields set to `null`; a failed hook keeps the
-worktree and branch for retry. A crashed run's local lease stays live until expiry,
-so a quick restart keeps its artifacts until a later launch start; there is no
-periodic sweep.
+Press `q` to stop after the current run, or Ctrl-C to stop right away.
 
-Runs claimed by this launcher are protected from the sweep. On any exit, including
-`q`, signals and the end of a once or targeted launch, cleanup starts no further
-hook, removal or prune. Exit waits at most for the artifact already being handled.
+## One agent or one item
 
-The startup sweep also prunes run directories whose newest file is older than
-a fixed 7 days, preserving live or uncertain runs and runs whose worktrees or
-branches were kept. Ended or stale session snapshots and orphan session files
-older than 7 days are pruned too, while live sessions and the current launcher's
-files survive. The existing cap of 20 inactive sessions remains. Pruning never
-follows symlinks and has no configuration key. One summary line reports counts
-and space freed when anything was removed, only in the cleanup log. Removal failures are logged
-once and launch continues. See [diagnostic retention](/docs/configuration/cleanup.html#diagnostic-retention).
+```bash
+ub-agents launch --agent issue-preparer   # serve only this agent
+ub-agents launch 143                      # handle only #143, then exit
+ub-agents launch --once                   # run at most one assignment, then exit
+```
 
-Before opening `.ub-agents/launch.log`, a launch rotates a log larger than a
-fixed 5 MB cap to `launch.log.1`, replacing the earlier archive. The new launcher
-writes a rotation notice and subsequent output to a fresh `launch.log`.
-Concurrent launchers keep appending through their existing handles to the
-renamed file; rotation never rewrites their lines. One archive is retained.
+`--agent` serves only that agent. This allows you to prepare all issues first, for example.
 
-Run `ub-agents launch` to watch the queue in the foreground. In a terminal it opens the terminal view. `q` stops after the current run; Ctrl-C stops right away. Give a number to handle only that item.
+A numbered launch skips the queue order, but every other check still applies: trigger and stop labels, blockers, approvals and ownership. If nothing starts, launch tells you why and what to do next.
 
-Use `ub-agents launch --agent NAME` to serve only one agent named in your
-configuration, or `launch --once --agent NAME` to observe once and run at most
-one selected assignment. Queue priority, milestone policy and all other gates
-still apply. The filter also limits recovery and notice reconciliation; other
-agents' leases, pending outcomes and notices stay untouched. Started runs keep
-normal lease renewal, stopping and process cleanup. An unknown name exits
-nonzero before observing the queue and lists configured names. If a reload
-removes the selected agent, it claims nothing and says the agent is no longer
-configured.
+## The terminal view
 
-For preparation first, run `ub-agents launch --agent issue-preparer`, substituting
-your configured preparation agent name. Watch a milestone's issues finish
-preparation or reach human decisions, stop the launcher, resolve the decisions,
-then run `ub-agents launch` for the normal queue. The filtered launcher keeps
-polling until you stop it, even when its work runs out. It does not override
-milestones, bypass blockers or automatically hand control to another agent.
+In a terminal, launch opens a live view: what is running, what needs a person, what is next and what just finished. Select an item and press Enter to see its log, the issue, earlier runs and how to unblock it. Press `?` for all keys. A few you'll use often:
 
-The terminal view and `--no-ui` output name the selected agent. When idle, the
-message distinguishes no open item with its trigger labels, naming those labels,
-from waiting work counted by state, with reasons on each item's row, such as
-blocked, parked, awaiting input approval or owned elsewhere. Items the selected
-agent parked for a human decision remain counted after their triggers are removed.
-Neither message means every issue is prepared.
+- `r` refreshes the queue now.
+- `u` switches the log between formatted and raw.
+- `c` keeps your Mac awake while the launcher runs. It starts off each time, and the display can still sleep.
 
-`launch N` skips queue priority and milestone selection, including after checkout refresh.
-It can start later-milestone or unmilestoned work. Every other gate still applies,
-including launcher trust, item state, trigger labels, stop labels, dependencies,
-input approval, ownership, attempts, backoff and runtime availability, with fresh
-checks and claim elections. Only triggered agents can act: `--agent NAME` narrows
-evaluation to that agent and still requires its trigger. Otherwise the first
-eligible agent in configuration order acts. Unnumbered `launch` and `launch --once`
-keep the queue's selection policy.
+Outside a terminal, or with `--no-ui`, launch prints plain lines instead. The [terminal view](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md) notes cover the details.
 
-The three milestone modes are `gate`, `order` and `ignore`. `gate` chooses the
-earliest milestone with eligible work for this launcher, allowing later work
-when earlier issues cannot start. Only strictly higher-priority unmilestoned
-work can precede its next eligible issue. Passed-over milestones are explained
-in the terminal view and `status`, and in `status --json` as `milestone_skips`.
-Launcher output and `launch.log` omit these routine explanations.
+## Before each run
 
-`ub-agents launch N [--agent NAME]` exits nonzero when it starts no assignment or
-recovery, leaving one short refusal line per evaluated agent visible after the
-view closes. Plain output ends with the same reasons after discovery counters.
-`--agent NAME` evaluates only that agent. Reasons name the owning role, account,
-host and lease end, including the owning item when another item's run holds the
-branch, plus stop labels or open blockers, and the next step
-where one exists. A stop label explains acting on the Action needed notice,
-removing the label and restoring a trigger, even if the trigger is already gone.
-A decline during refresh or claiming reports its final cause. GitHub read
-failures remain errors.
+Before each new run, launch pulls the default branch and starts the agent fresh. Changes to `ub-agents.yaml`, AGENTS.md and the agents' role files apply as soon as they land on the default branch. No need to restart the loop for that. A new ub-agents version does need a restart; see [Upgrading](/docs/upgrading.html).
 
-After a run or recovery finishes, continuous launch immediately checks for the
-next item, including after retry or blocked results. Rate-limit waits, runtime
-usage pauses and graceful stops still apply. With no assignment, Running shows
-`Idle · polling` during a pass, then `Idle · nothing eligible for this launcher`
-only after a complete pass with nothing claimable.
+Checkout setup provides a hook to run your own setup before an agent starts, such as installing dependencies. It runs in every new worktree, and in your checkout when watched files change; see the [checkout setup configuration](/docs/configuration/checkout-setup.html).
 
-Launch output and `.ub-agents/launch.log` report each discovery pass's kind,
-wall time, attempted `gh` calls, REST quota responses, HTTP 304 responses,
-GraphQL calls and distinct candidates reached. Consecutive identical pass counts
-print once, even if wall time differs. Observation passes measure their own client.
-The run's `events.jsonl` `released` event records the launcher's requests from
-the successful claim's fresh checks through release, including renewals and
-finalization, excluding observation-worker and agent traffic. A reached ready
-plan that is declined names the item, agent and reason; consecutive identical
-declines print once. See [launch output](https://github.com/uberblick-ai/ub-agents/blob/main/docs/operations.md#launch-output)
-for the fields and decline reasons.
+Agents with a [health check](/docs/configuration/agents.html#health-check) wait until it passes, without using up attempts. Other agents keep working meanwhile.
 
-When a supervised run's outcome lands, Work immediately refreshes that item's
-rows for every evaluated agent, even during a partial pass. A filtered queue
-refreshes only its selected agent. Rows for its next
-role appear and obsolete rows disappear before the launcher claims again. This
-display refresh reads only that item's inputs; it makes no claims or repository
-discovery, and a failed read leaves the result and next pass unchanged.
+## Leftovers from earlier runs
 
-Needs attention shows each item once and counts items. When several agents need
-attention, its second line lists each agent with its state comma-separated, then
-the distinct reasons comma-separated. A single agent keeps `agent · state · reason`.
-The row keeps its first agent's glyph and shows the longest known waiting time.
-Selection stays on the item as polls, partial passes and post-run refreshes change
-its agents and reasons. Other agents for that item can still appear in Running or
-Eligible; Issue and Unblock preserve each attention agent's reasons and resume steps.
+Each launch first clears worktrees and run branches that earlier runs left on this machine. It keeps anything still in use. If it removes a branch with unpushed commits, the cleanup log under `.ub-agents/sessions/` records its SHA, so you can restore it with `git branch <name> <sha>`. Cleanup also provides a hook if you want to run your own code after each agent run; see the [cleanup configuration](/docs/configuration/cleanup.html).
 
-Configured [agent health checks](/docs/configuration/agents.html#health-check) make otherwise-ready items wait in Eligible without spending attempts. The terminal view shows the latest failure, changed error or recovery in one line above the panes, also printed in plain launch output and `.ub-agents/launch.log`. Claiming resumes automatically when the check passes; other agents keep claiming while it fails.
+## Logs
 
-While a new run's log file has not appeared yet, Log shows `No log output yet.`
-without a read error and follows output automatically once it appears. Other read
-failures, including a log that disappears after being read, still show `Read error`.
-Press `h` in a paused Log pane to read older output while new output appends.
-Truncation, replacement or changes to the page or its validation anchor discard
-the older read.
-
-The item tab bar shows `│ Formatted  Raw (u)` on every tab. Press `u` to toggle
-the selected log's mode; the active label stays accented (Formatted underlined,
-Raw reversed). The muted shortcut shortens to `u` when space is tight, including
-the 60-column item view with all four tabs. Clicking the indicator has no effect.
-
-Claude image reads and other oversized JSON records use the normal compact Log
-formatting. Successful tool results add no payload line; errors keep their first
-line. An incomplete record shows one notice until its newline arrives, and
-malformed oversized records show a diagnostic pointing to Raw. Older pages also
-omit JSON prefixes that continue past the page's end. Raw mode and `p` keep access
-to the original record. See the
-[Log projection details](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md)
-for the bounds and fragment handling.
-
-Open Issue with `2`, a tab click, or select another item while Issue is active to
-load its missing title and description from GitHub. It shows `Loading #N…` while
-the read is pending, then caches the result. Reopening a cached item makes no read;
-press `g` to retry a failure. Descriptions are limited to 2,048 characters with a
-shortening notice. Source/age and shortening notices beneath the description use
-muted secondary text. The session snapshot carries no description text and keeps
-Running, Needs attention and the first ten Eligible items ahead of hidden plans
-and older history; Eligible's heading keeps the full count when hidden plans are
-left out to fit the size limit.
-
-Issue extracts the first Markdown `Pointers` heading before applying the
-2,048-character main-body limit. Any heading level and case count; headings in
-code fences do not. The section keeps nested subsections and ends at the next
-heading of the same or a higher level. It appears only in a collapsed **Pointers**
-fold below the main body, using the same inert Markdown and link rules. Click its
-title or focus it and press Enter to expand or collapse it. The fold has a separate
-8,192-character limit and shows any shortening notice inside it. Descriptions
-without Pointers show no fold. Item or description changes collapse it again;
-unchanged redraws and snapshot refreshes keep its state.
-
-Run context, GitHub and snapshot descriptions all use this extraction. A shortened
-snapshot warns that Pointers may be missing or incomplete, including in a partial
-fold's title. The fold adds no reads
-or load triggers and keeps the existing response limit. Run context and the issue
-text delivered to agents stay unchanged; the GitHub issue is not edited.
-
-Pane and overlay scrollbars stay hidden until you scroll. Each muted bar uses
-one reserved column, so appearing or disappearing never shifts the content.
-It hides after 1.5 seconds of inactivity; hovering or dragging keeps it visible.
-Log follow updates and automatic position changes leave the bar hidden.
-Pausing or scrolling up in Log preserves the chosen position even when a follow
-update is waiting to redraw.
-
-Recent activity fills the lower half of Work and scrolls independently of the
-live sections above it. Use the mouse wheel or trackpad to reach all 20 retained
-outcomes; arrow keys keep the cursor visible, and clicking a row selects it.
-`Enter` opens its details and local log. Selection and position survive refreshes;
-new outcomes keep older rows in view when browsing away from the top. Resizing
-keeps the selected retained outcome visible. Recent activity follows the same
-scrollbar convention as the other areas.
-
-The fixed, non-selectable header reads `Recent activity · showing N`, counting
-all listed outcomes, including those outside the viewport, up to 20. It reads
-`showing 0` when empty. Rows start directly below the header; there is no notice
-or reserved header line for older outcomes. Scrolling reaches rows outside the
-viewport, but cannot recover outcomes removed from the
-20-outcome cache.
-
-Before each new run, launch refreshes the control checkout and reloads its configuration. Optional [checkout setup](/docs/configuration/checkout-setup.html) reinstalls dependencies when watched files changed. The view names the triggering file; command output stays in the reported log. A failed setup stops launch before a claim or charged attempt and retries on the next launch, even with nothing to pull.
-
-Press `r` to refresh the queue. During a continuous launch's assignment, this
-read-only refresh shows `running assignment · polling` in the footer until it
-finishes, including when
-the view is reopened. Repeated presses during the refresh keep that label;
-presses during the 10-second cooldown show `poll now available in Ns`.
-Rate-limit waits show `rate limited until HH:MM · r unavailable`.
-`launch --once` and `launch N` do not refresh the queue during an assignment;
-pressing `r` then leaves the footer at `running assignment`.
-
-The footer shows the displayed session's repository after the version:
-`ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s`, or
-`v0.2.1 · uberblick-ai/ub-agents · poll 26s` in a narrow layout. Work, item and
-raw-access views share this footer, including standalone views. A snapshot without
-a repository, or `reading session`, omits the segment and its separator. Long names
-shorten with a trailing `…` inside the repository segment, keeping the version,
-enabled keep-awake indicator and separators intact without wrapping or
-overlapping keys.
-Busy activity text shortens before the repository loses its readable prefix,
-subject to the space left for the version and enabled keep-awake indicator.
-
-The wide follow-mode footer uses `1-3 tabs ? keys q quit`, with contextual hints
-added when needed. The narrow Work list uses `? keys q quit`; the item view adds
-`Esc back 1-3 tabs`. Arrow keys still select rows and `Enter` opens them, with
-both described in `?` help instead of the footer.
-
-On macOS, press `c` in any pane, tab or overlay of the attached view to toggle
-keep awake. It starts off at every launch. Once the launcher's built-in
-`caffeinate -i -w <launcher PID>` helper starts, the footer shows
-`ub-agents v0.2.1 · uberblick-ai/ub-agents · ☕ · next poll 26s`, or
-`v0.2.1 · uberblick-ai/ub-agents · ☕ · poll 26s` in a
-narrow layout. The state updates immediately without waiting for a queue poll.
-With keep awake off or in a standalone view, `☕` and its separator are omitted.
-The `c Stay awake` hint appears next to `r poll now` when it fits and drops first as
-space narrows; `☕` stays visible and counts as two terminal cells when fitting
-the footer to one line. `?` lists the key and its macOS-only limit.
-
-Display sleep remains allowed and no permanent power setting changes. Toggle
-off, launcher exit or closing the attached view releases only this launcher's
-assertion; the PID tie also ends the helper after SIGKILL. Separate launchers
-are independent. A failed start stays off with a brief footer reason; an
-unexpected helper exit clears `☕` with a notice. Assignments keep running.
-
-Keep awake affects only the machine running the launcher. Other platforms omit
-`c Stay awake`, mark `c` unavailable in `?` and show a brief
-`keep awake unavailable on this platform` notice when pressed. Standalone views,
-`--no-ui` and non-TTY launches neither offer nor act on `c` and never keep the
-machine awake.
-
-Continuous launch waits through network and DNS failures, timeouts and GitHub
-outages with backoff from 5 seconds to a 60-second cap and no retry limit. A gh
-failure without an HTTP status retries regardless of its text, except authentication
-required (exit 4) or a gh binary that cannot run. HTTP 5xx and rate limits retry;
-other HTTP 4xx and configuration errors stop with a message to fix the cause and restart.
-A retryable failure after claiming stops the owned process and renewal, leaves
-the lease untouched and returns to polling. Its live lease prevents another run;
-after expiry, a stored outcome finishes through recovery without rerunning the agent.
-This also applies when retryable renewal failures exhaust the lease during execution.
-A lost claim POST response is reconciled and withdrawn before replanning, without
-spending an item attempt. `launch --once` fails on its first error. See
-[polling and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling)
-for the exact rules.
+Launch writes its output to `.ub-agents/launch.log`, and each run keeps its own log under `.ub-agents/runs/`. Run logs older than 7 days are cleared automatically when launch starts. [Launch output](https://github.com/uberblick-ai/ub-agents/blob/main/docs/operations.md#launch-output) explains the lines.
 
 ```text
 {{help launch}}

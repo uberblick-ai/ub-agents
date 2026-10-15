@@ -8,7 +8,7 @@ approvals: on
 
 ## Start work on purpose
 
-A maintainer adds the trigger label. Outside edits to the issue [park it](/docs/configuration/stop-labels.html#approvals) until a maintainer re-applies a trigger label and removes the stop label.
+A maintainer adds the trigger label. Outside edits to the issue [park it](/docs/configuration/stop-labels.html#resuming) until a maintainer re-applies a trigger label and removes the stop label.
 
 ## Fork pull requests
 
