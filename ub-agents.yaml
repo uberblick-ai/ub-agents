@@ -42,10 +42,12 @@ agents:
       - "Bash(.venv/bin/*)"
       - "Bash(mise *)"
       # Shell helpers for inspecting issue context (preparer), code/check output (reviewer),
-      # and merge evidence (integrator), including plain pipelines such as `… | tail`.
-      # Arguments are unrestricted; these permissions do not enforce read-only access.
-      # Shell expansion can still be denied: see the launcher prompt's publication guidance.
+      # and merge evidence (integrator), including plain pipelines such as `… | tail`, and sed
+      # for quick edits. Claude Code keeps file paths in these to the worktree and the run's
+      # scratch directory even with a rule; read-only use there needs none.
+      # Shell expansion and loops that pipe can still be denied: see the launcher prompt.
       - "Bash(cat *)"
+      - "Bash(sed *)"
       - "Bash(grep *)"
       - "Bash(ls *)"
       - "Bash(wc *)"
