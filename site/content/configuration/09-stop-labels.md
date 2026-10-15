@@ -6,6 +6,8 @@ A stop label pauses all work on an issue or pull request until a person removes 
 stop-labels: [needs-human]
 ```
 
+{{flow stop-labels}}
+
 ## How an agent stops
 
 Give the role an [outcome](/docs/configuration/outcomes.html) that adds the stop label, and say in its instructions when to use it.
@@ -44,21 +46,17 @@ If the issue does not name the storage backend, or the change needs a
 migration, report needs-human with one --action per decision.
 ```
 
-## Blocked runs
-
-`--status blocked` also needs an ask but adds no label. The item waits for `ub-agents retry`, or for a new commit on a pull request.
-
-## Approvals
-
-With [approvals](/docs/configuration/approvals.html) on, ub-agents also adds the stop label when an item needs a maintainer, with a comment saying what to do.
-
 ## Resuming
 
-Remove the stop label, then set the workflow label you want, or run `ub-agents retry`.
+Answer the asks on GitHub, remove the stop label and re-add the trigger label you want. A blocked run adds no label; run `ub-agents retry` once the blocker is fixed, or push a new commit to the pull request.
 
 ```sh
 ub-agents retry 214 --reason "Chose local storage"
 ```
+
+With [approvals](/docs/configuration/approvals.html) on, ub-agents also adds the stop label when an item needs a maintainer, with a comment saying what to do.
+
+The [`ub-agents-unblock`](https://skills.uberblick.ai/skills/ub-agents-unblock) skill walks your own agent through every item waiting for a person, one at a time.
 
 ## Rules
 

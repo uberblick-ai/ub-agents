@@ -5,7 +5,7 @@ The committed SVGs were rendered with ablauf commit `eda0dc5` and Node `v26.11.1
 Use Node 22.18 or newer, which imports TypeScript without flags:
 
 ```sh
-node site/diagrams/render.mjs PATH/TO/ablauf issue issue-review-loop pr approvals
+node site/diagrams/render.mjs PATH/TO/ablauf issue issue-review-loop pr approvals stop-labels limit-rounds
 ```
 
 Check out that ablauf commit before rendering. The script fails if any diagram
