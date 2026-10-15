@@ -68,14 +68,17 @@ class ViewReader(LogReader):
         if generation != self.resets:
             raise FileChanged('File changed; paused page belongs to an earlier generation. Press f for latest.')
         fd = os.open(self.path, os.O_RDONLY | os.O_NONBLOCK)
-        with os.fdopen(fd, 'rb') as stream:
+        # Validation must reread disk bytes rather than a buffered copy.
+        with os.fdopen(fd, 'rb', buffering=0) as stream:
             before = os.fstat(stream.fileno())
             self._validate(stream, before)
             end = min(end, before.st_size)
             start = max(0, end - PAGE_BYTES)
-            stream.seek(max(0, start - 1))
-            preceding = stream.read(1) if start else b'\n'
-            data = stream.read(end - start)
+            read_start = max(0, start - 1)
+            stream.seek(read_start)
+            original = stream.read(end - read_start)
+            preceding = original[:1] if start else b'\n'
+            data = original[1:] if start else original
             # Keep at most 200 records, selecting from the end so older navigation
             # can continue at the first displayed byte without dropping history.
             pieces = data.rsplit(b'\n', MAX_ENTRIES + 1)
@@ -115,11 +118,15 @@ class ViewReader(LogReader):
                                   value),)
             after = os.fstat(stream.fileno())
             self._validate(stream, after)
+            # An append can publish mtime before size. Compare the page and its
+            # boundary byte directly, accepting appends but rejecting rewrites.
+            stream.seek(read_start)
+            if (after.st_size < before.st_size or len(original) != end - read_start or
+                    stream.read(len(original)) != original):
+                raise FileChanged('File changed during older read; page discarded. Press f for latest.')
             current = self.path.stat()
             if (current.st_dev, current.st_ino) != self.file_id:
                 raise FileChanged('File replaced during older read; page discarded. Press f for latest.')
-            if after.st_size == before.st_size and after.st_mtime_ns != before.st_mtime_ns:
-                raise FileChanged('File changed during older read; page discarded. Press f for latest.')
         return Page(refs, start, end, self.resets, self.total_entries, notice)
 
     def _validate(self, stream, info):
