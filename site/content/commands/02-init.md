@@ -32,10 +32,15 @@ Then it shows every change and asks once before writing.
 
 ## What you get
 
-- `ub-agents.yaml` with five starter roles: issue-preparer, issue-reviewer, implementer, reviewer and integrator. [How the loop works](/docs/how-the-loop-works.html) shows how they pass work along.
-- `.agents/ub_agents.md` with your loop policy, plus a role file per agent. See [instructions](/docs/configuration/instructions.html).
-- The workflow labels on GitHub, plus the extras you picked. [Uberblick](https://uberblick.ai) adds shared knowledge for agents and people.
-- A setup PR with the files, which you can review and approve. Once it is merged, run [`ub-agents launch`](/docs/commands/launch.html). Off the default branch, the files stay local for your own PR.
+| File | What it's for |
+|---|---|
+| `ub-agents.yaml` | The loop's configuration: agents, labels and outcomes. |
+| `.agents/ub_agents.md` | Rules every agent follows, such as who decides what and when a PR may merge. |
+| `.agents/<role>.md` | One file per starter role: issue-preparer, issue-reviewer, implementer, reviewer and integrator. They work well as they are; adjust them to your project over time. |
+| `.gitignore` | Keeps the launcher's local state and machine-only settings out of Git. |
+| `.mcp.json` or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects your agent to it, plus `.uberblick.json` when init creates a workspace. |
+
+Init also creates the workflow labels on GitHub, plus any extras you picked. The files go to a setup PR, which you can review and approve. Once it is merged, run [`ub-agents launch`](/docs/commands/launch.html). [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
 
 Init never overwrites existing starter files, `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
