@@ -30,7 +30,8 @@ class ExecutionTests(unittest.TestCase):
         configured = agent(self.root, command=(), runtime_args=("--sandbox", "read-only"))
         codex = command_for(configured, Runtime("codex", "configured-model", "high"), scratch)
         self.assertEqual(codex, ["codex", "exec", "--json", "--model", "configured-model", "--config",
-                                 'model_reasoning_effort="high"', "--sandbox", "read-only"])
+                                 'model_reasoning_effort="high"', "--config", 'model_reasoning_summary="detailed"',
+                                 "--sandbox", "read-only"])
         claude = command_for(replace(configured, runtime_args=()), Runtime("claude", "opus", "high"), scratch)
         self.assertEqual(claude, ["claude", "--print", "--output-format", "stream-json", "--verbose",
                                   "--model", "opus", "--effort", "high", "--thinking-display", "summarized"])

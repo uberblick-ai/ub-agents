@@ -130,8 +130,8 @@ class CodexFormattingTests(unittest.TestCase):
 
     def test_unknown_complete_records_and_changed_shapes_have_dim_labels(self):
         cases = [({'type': 'future', 'payload': 'private'}, '· future'),
-                 ({'type': 'item.completed', 'item': {'id': 'new', 'type': 'reasoning', 'text': 'private'}},
-                  '· item.completed · reasoning'),
+                 ({'type': 'item.completed', 'item': {'id': 'new', 'type': 'future_item', 'text': 'private'}},
+                  '· item.completed · future_item'),
                  ({'type': 'item.completed', 'item': []}, '· item.completed'),
                  ({'type': 'error', 'message': []}, '· error'),
                  ({'type': 'turn.completed', 'usage': []}, '· turn.completed'),
@@ -151,6 +151,46 @@ class CodexFormattingTests(unittest.TestCase):
                 projected = self.decode(changed)
                 self.assertTrue(projected.compact)
                 self.assertLessEqual(len(projected.text), MAX_TEXT)
+
+    def test_reasoning_summary_strips_bold_and_omits_blank_lines(self):
+        value = {'type': 'item.completed', 'item': {'id': 'summary', 'type': 'reasoning',
+                 'text': '\n \t\n**\n**Generating Anagrams and Counts**\n\n \t\n'
+                         'I am focusing on **anagrams** for "alert".\n\nCounting the results.\n\n'}}
+        with patch('ub_agents.log_format._time_column', return_value=' 11:00:17 '):
+            projected = self.decode(value)
+        self.assertEqual(projected.kind, 'reasoning')
+        self.assertEqual(projected.text.split('\n'), [
+            ' 11:00:17 · Generating Anagrams and Counts',
+            '          I am focusing on anagrams for "alert".',
+            '          Counting the results.'])
+        self.assertEqual([token for _, _, token in projected.styles], ['dim italic'] * 3)
+        for start, end, token in projected.styles:
+            self.assertTrue(projected.text[start:end].strip())
+            style = log_style(None, token)
+            self.assertTrue(style.dim)
+            self.assertTrue(style.italic)
+            self.assertEqual(style.color, log_style(None, 'dim').color)
+        self.assertIn('**Generating Anagrams and Counts**', projected.display(raw=True))
+        self.assertIn('**anagrams**', projected.display(raw=True))
+        self.assertIn('"type": "item.completed"', projected.display(raw=True))
+
+    def test_empty_reasoning_summary_keeps_dim_thinking_label(self):
+        for fields in ({}, {'text': ''}, {'text': ' \t\n\n '}, {'text': '**'},
+                       {'text': ' ** \t\n****\n '}, {'text': None}, {'text': []}):
+            with self.subTest(fields=fields):
+                value = {'type': 'item.completed', 'item': {'id': 'summary', 'type': 'reasoning', **fields}}
+                projected = self.decode(value)
+                self.assertEqual(projected.text, '          · thinking')
+                self.assertEqual(projected.styles, ((10, len(projected.text), 'dim'),))
+
+    def test_incomplete_reasoning_records_keep_dim_type_labels(self):
+        for stage in ('item.started', 'item.updated'):
+            with self.subTest(stage=stage):
+                value = {'type': stage, 'item': {'id': 'summary', 'type': 'reasoning', 'text': '**Summary**'}}
+                projected = self.decode(value)
+                self.assertEqual(projected.text, '          · ' + stage + ' · reasoning')
+                self.assertEqual(projected.styles, ((10, len(projected.text), 'dim'),))
+                self.assertIn('**Summary**', projected.display(raw=True))
 
     def test_non_json_diagnostics_stay_raw_and_unrecognized_objects_have_notices(self):
         for raw in (b'warning: owned diagnostic\x1b[2J', b'[]', b'null', b'\xff',

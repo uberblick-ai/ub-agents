@@ -46,8 +46,10 @@ The prompt, made of the assignment context and the agent's instructions, arrives
 
 ```sh
 claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT --thinking-display summarized
-codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"
+codex exec --json --model MODEL --config model_reasoning_effort="EFFORT" --config model_reasoning_summary="detailed"
 ```
+
+Codex requests detailed reasoning summaries so they appear in the run log.
 
 ## Usage limits
 

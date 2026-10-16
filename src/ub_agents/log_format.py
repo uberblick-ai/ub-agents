@@ -492,6 +492,14 @@ class CodexFormatter(StructuredFormatter):
             lines = [Line(value, "assistant", continuation=index > 0)
                      for index, value in enumerate(item["text"].split("\n"))]
             return "assistant", lines, [], None
+        if item_type == "reasoning" and kind == "item.completed":
+            text = item.get("text")
+            values = text.replace("**", "").split("\n") if isinstance(text, str) else []
+            lines = [value for value in values if value.strip()]
+            parts = [Line(("· " if index == 0 else "") + value, "dim italic",
+                          continuation=index > 0)
+                     for index, value in enumerate(lines)] if lines else [Line("· thinking", "dim")]
+            return "reasoning", parts, [], None
         if item_type not in ("command_execution", "mcp_tool_call", "file_change"):
             return "other", [self._label(data)], [], None
         completed = kind == "item.completed"

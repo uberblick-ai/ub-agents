@@ -21,7 +21,8 @@ def command_for(agent, runtime, scratch, report_command=None):
         return list(agent.command)
     if runtime.cli == "codex":
         command = ["codex", "exec", "--json", "--model", runtime.model,
-                   "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}"]
+                   "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}",
+                   "--config", 'model_reasoning_summary="detailed"']
     else:
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
                    "--model", runtime.model, "--effort", runtime.effort,
