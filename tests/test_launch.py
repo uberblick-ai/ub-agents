@@ -281,7 +281,11 @@ class LaunchTests(unittest.TestCase):
                         else:
                             self.assertIn("No open issue or PR has a trigger label", output.getvalue())
                     expected = [f"Milestone #{n} has no eligible issues for this launcher" for n in skipped]
-                    self.assertEqual(publisher.snapshots[-1]["milestone_skips"], expected)
+                    status_loop = Loop(settings, github, "operator", output=lambda *_: None)
+                    status_loop.plans()
+                    self.assertEqual(list(status_loop.milestone_skips), expected)
+                    for snapshot in publisher.snapshots:
+                        self.assertNotIn("milestone_skips", snapshot)
                     for line in expected:
                         self.assertNotIn(line, output.getvalue())
                         self.assertNotIn(line, self.log.read_text())

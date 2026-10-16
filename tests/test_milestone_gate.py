@@ -318,7 +318,9 @@ class MilestoneGateTests(unittest.TestCase):
         self.loop.observer = Observations(self.loop.config, "operator", None, memory)
         self.assertEqual(self.choice().item.number, 3)
         self.assertNotIn(expected, lines)
-        self.assertEqual(memory.snapshots[-1]["milestone_skips"], [expected])
+        self.assertEqual(self.loop.milestone_skips, (expected,))
+        for snapshot in memory.snapshots:
+            self.assertNotIn("milestone_skips", snapshot)
         with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github):
             with redirect_stdout(io.StringIO()) as output:
@@ -333,7 +335,7 @@ class MilestoneGateTests(unittest.TestCase):
                                          label={"name": "ready"}, created_at=iso(timestamp()))]
         self.assertEqual(self.choice().item.number, 1)
         self.assertEqual(self.loop.milestone_skips, ())
-        self.assertEqual(memory.snapshots[-1]["milestone_skips"], [])
+        self.assertNotIn("milestone_skips", memory.snapshots[-1])
 
     def test_only_untriggered_work_reports_all_skipped_milestones(self):
         self.add(issue(1, (), milestone=10), issue(2, (), milestone=20))
