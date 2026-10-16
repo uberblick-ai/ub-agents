@@ -780,12 +780,14 @@ Other unfinished and non-JSON fragments keep their labelled raw display.
 
 Codex's formatted Log pane uses the same time column, symbols, assistant styling,
 red failures, escaping and projection limits. It is checked against complete,
-owned `codex exec --json` recordings from **codex-cli 0.160.0** (#126):
+owned `codex exec --json` recordings from **codex-cli 0.160.0** (#126), with reasoning
+summaries checked against the **codex-cli 0.162.1** event shape (#550):
 
 | Event | Formatted projection |
 | --- | --- |
 | `thread.started`, `turn.started` | Hidden; retained in raw mode |
 | `item.completed` / `agent_message` | Assistant text with aligned line breaks |
+| `item.completed` / `reasoning` | Summary after `· ` in dim italic, with aligned continuation lines; empty text shows one dim `· thinking` line |
 | `item.started`, `item.updated`, `item.completed` / `command_execution` | `▸ Bash` and the command; failed completion adds `✗`, exit code when present and the first output line |
 | Same item events / `mcp_tool_call` | `▸ server.tool`; failed completion adds the first error message or text result line |
 | Same item events / `file_change` | `▸ file add/update/delete` and each path; a failed completion adds `✗ file change failed` |
@@ -798,13 +800,18 @@ or file paths, so near-tail attachment and history pages remain readable. A
 delayed failure includes its tool name. The recordings contain starts and
 completions; synthetic tests exercise same-shape `item.updated` records.
 
+Reasoning summaries omit `**` bold markers and blank or whitespace-only lines.
+Missing text, or text empty after removing the markers, shows one dim `· thinking`
+line. Reasoning records for `item.started` and `item.updated` keep a dim event/item-type
+label. Built-in Codex runs request detailed summaries; raw mode retains the original text.
+
 This CLI emits no producer timestamps: newly captured bytes show `~HH:MM:SS`,
 and pre-existing bytes leave the time column blank. An explicit timezone-aware
 top-level `timestamp`, if present, uses the same producer-time rules as Claude.
 No time is extracted from IDs, item fields or message text. File records carry
 operations and paths, without diffs or line counts; none are invented. MCP arguments,
 successful command/tool output, token usage and IDs remain available in raw
-mode. Reasoning, plans, web searches and other unvalidated item shapes show a
+mode. Plans, web searches and other unvalidated item shapes show a
 dim event/item-type label. Errors whose message is itself JSON stay message
 text; nested payloads are not interpreted. Changed or unfamiliar complete
 records also show a dim type label instead of assuming a newer CLI's semantics.

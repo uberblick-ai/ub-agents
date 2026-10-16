@@ -948,7 +948,7 @@ request may already have written the transition start marker.
 The [run prompt](coordination.md#run-prompt), made of the launcher contract, assignment
 context, optional shared policy and role instructions, arrives on stdin:
 
-- `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
+- `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT" --config model_reasoning_summary="detailed"`.
 - `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT --thinking-display summarized`.
 
 Top-level `runtime-args` accepts a mapping from CLI (`codex`, `claude`) to a list
@@ -982,10 +982,10 @@ session overrides, even when the agent also lists Claude, if placed in the
 `codex` mapping entry. Both forms use the same placeholder validation.
 
 `process.log` records each CLI's stdout and stderr directly. Codex runs log their
-JSON event stream. Claude runs log the JSON stream of tool calls, tool results and
-the final result, including Claude Code's `permission_denials`. The launcher does
-interpret structured usage metadata; an accepted outcome still comes only from
-`ub-agents report`.
+JSON event stream, including detailed reasoning summaries. Claude runs log the
+JSON stream of tool calls, tool results and the final result, including Claude
+Code's `permission_denials`. The launcher does interpret structured usage metadata;
+an accepted outcome still comes only from `ub-agents report`.
 
 ### Runtime usage pauses
 
