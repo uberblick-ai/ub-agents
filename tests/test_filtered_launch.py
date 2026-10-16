@@ -165,7 +165,9 @@ class FilteredLaunchTests(unittest.TestCase):
                 if policy == "gate":
                     line = "Milestone #3 has no eligible issues for this launcher"
                     self.assertNotIn(line, stdout)
-                    self.assertEqual(self.loop.observer.publisher.snapshots[-1]["milestone_skips"], [line])
+                    self.assertEqual(self.loop.milestone_skips, (line,))
+                for snapshot in self.loop.observer.publisher.snapshots:
+                    self.assertNotIn("milestone_skips", snapshot)
                 self.assertNotIn(1, self.github.store)
 
     def test_filtered_plans_keep_approval_and_ownership_gates(self):

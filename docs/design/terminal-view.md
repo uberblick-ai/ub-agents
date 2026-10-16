@@ -87,8 +87,8 @@ launcher` after a complete pass with nothing claimable. It has no item content.
 Other launchers' claims are omitted; their runs remain in an item's Runs tab.
 Parked dependency waits are omitted from rows and section counts. The three
 milestone modes are `gate`, `order` and `ignore`. `gate` selects the earliest
-milestone with eligible work here and explains passed-over
-milestones above the Work pane; it creates no milestone-wait rows.
+milestone with eligible work here; it creates no milestone-wait rows.
+Passed-over milestone explanations appear only in `ub-agents status`.
 Eligible merges plans for each item after ordering ready/recovery plans first,
 then retry backoff and paused-runtime plans, preserving planned order within
 each subgroup. Each item keeps its first plan's position, glyph and right column;

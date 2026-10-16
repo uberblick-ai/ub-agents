@@ -578,10 +578,10 @@ when inherited, such as `milestone #2 (inherited from #21)`. JSON includes
 `milestone` (the effective milestone number, or `null`) and
 `milestone_inherited_from` (the source issue number,
 or `null`). Ready new issues are listed in the order this launcher would start
-them. When `gate` passes over earlier milestones, status and the terminal view
-explain why, for example `Milestone #12 has no eligible issues for this launcher`.
+them. When `gate` passes over earlier milestones, status explains why,
+for example `Milestone #12 has no eligible issues for this launcher`.
 Status JSON includes these explanations in `milestone_skips` when nonempty.
-Launcher output and `launch.log` omit these routine explanations.
+The terminal view, launcher output and `launch.log` omit these routine explanations.
 Waiting issues name open blockers,
 using `owner/repo#N` for external blockers. Inherited priority names its origin,
 for example `priority:urgent (inherited from #21)`. JSON includes

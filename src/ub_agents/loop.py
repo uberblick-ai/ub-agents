@@ -430,7 +430,6 @@ class Loop:
         first = next((rank for rank, number in enumerate(milestones) if number in eligible), len(milestones))
         self.milestone_skips = tuple(f"Milestone #{number} has no eligible issues for this launcher"
                                      for number in milestones[:first])
-        self._observe("milestone_skips", self.milestone_skips)
 
     def queue_agents(self):
         return tuple(a for a in self.config.agents

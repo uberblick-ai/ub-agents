@@ -144,10 +144,10 @@ new issues in `order` mode, age and number.
 The three milestone modes are `gate`, `order` and `ignore`. In `gate`, new issues
 follow the earliest milestone with eligible work here, with a strictly higher-priority
 exception for unmilestoned issues. Independent later work can start when earlier
-work cannot. Above the panes, up to three lines explain passed-over milestones,
+work cannot. `ub-agents status` explains passed-over milestones,
 for example `Milestone #12 has no eligible issues for this launcher`.
-The same explanations appear in `status` and in `status --json` as `milestone_skips`.
-Launcher output and `launch.log` omit these routine explanations.
+`status --json` includes these explanations as `milestone_skips` when nonempty.
+The terminal view, launcher output and `launch.log` omit these routine explanations.
 Continuous launch refreshes the queue with complete read-only planning passes
 while an assignment runs; a failed pass keeps the previous rows.
 
