@@ -195,6 +195,23 @@ The entry contains no credentials, workspace ID or hub URL: `ub mcp serve` follo
 the project's `.uberblick.json`, including a binding added later. Next steps still
 explain how to join a hub or select a workspace for **Later** or a failed creation.
 
+## Declined or failed branch switch
+
+Interactive plain init needs the default branch to open the setup PR. Declining
+the switch stops before the next question, exits 1 and writes nothing:
+
+```text
+▲  Switch this checkout to main?
+│  No · init needs main to open the setup PR
+│  Switch to main and run ub-agents init again
+```
+
+A failed switch stops the same way, showing Git's reason in place of the `No ·`
+line. No files, labels, boards, workspace or MCP config are written. Unattended
+init still writes local files on any branch. The `--create-boards` and
+`--create-priorities` flags use the current branch without a switch question.
+An unknown current branch or default branch also leaves the existing flow unchanged.
+
 ## Local changes
 
 A checkout with local changes (untracked files included) stops after the checks:

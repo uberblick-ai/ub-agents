@@ -196,14 +196,15 @@ class MCPFlowTests(unittest.TestCase):
                 self.assertFalse(self.path.exists())
                 self.assertEqual(self.ub_writes(), [])
 
-    def test_off_default_branch_registration_stays_local(self):
+    def test_declined_switch_leaves_mcp_unwritten(self):
         self.installed.add('ub')
         self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
         code, text = self.run_flow(Script(Switch=False, Extras=['uberblick'], Set_up='later'))
-        self.assertEqual(code, 0)
-        self.assertTrue((self.root / '.codex/config.toml').exists())
-        self.assertIn('files stay local.', text)
-        self.assertIn('· registered', text)
+        self.assertEqual(code, 1)
+        self.assertFalse((self.root / '.codex/config.toml').exists())
+        self.assertIn('Switch to main and run ub-agents init again', text)
+        self.assertEqual(self.ub_writes(), [])
+        self.assertEqual(list(self.root.iterdir()), [])
         self.assertFalse([c for c, _ in self.runner.calls if c[3:4] in {('add',), ('commit',), ('push',)}])
 
     def test_unattended_skips_mcp_entirely(self):
