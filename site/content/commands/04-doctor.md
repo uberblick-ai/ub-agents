@@ -12,7 +12,7 @@ ub-agents doctor --json      # the same results for scripts
 
 Doctor groups problems by machine, configuration, GitHub and agent CLIs, each with a fix. `--verbose` lists every check. It exits with 1 when a required check fails and 0 otherwise, so warnings alone don't fail it.
 
-When workflow labels are missing, doctor offers to create them in the [same colors as init](/docs/commands/init.html). Existing labels stay as they are. With `--json`, `--offline` or outside a terminal it creates nothing.
+When workflow labels are missing, doctor offers to create them. With `--json`, `--offline` or outside a terminal it creates nothing.
 
 ## Offline
 
