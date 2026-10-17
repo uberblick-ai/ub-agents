@@ -1,4 +1,5 @@
 from contextlib import redirect_stdout, redirect_stderr
+from importlib.resources import files
 import io
 import json
 import os
@@ -941,6 +942,67 @@ launchers: [operator]
         self.assertFalse(result['ok'])
         self.assertTrue(any(c['required'] and c['status'] == 'fail' and
                             'shared-instructions is unreadable' in c['message'] for c in result['checks']))
+
+    def test_shared_policy_warns_once_per_placeholder_online_and_offline_without_failing(self):
+        policy = self.root / 'policy.md'
+        self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
+        placeholders = ('@org/maintainers', '<project build command>', '<project test command>',
+                        '<project lint or validation command>')
+        policy.write_text('\n'.join(placeholders * 2))
+        for offline in (False, True):
+            with self.subTest(offline=offline):
+                result = self.diagnose(offline=offline)
+                self.assertTrue(result['ok'])
+                checks = self.checks(result, 'policy-placeholder')
+                self.assertEqual(len(checks), 4)
+                self.assertEqual(len({c['id'] for c in checks}), 4)
+                for placeholder in placeholders:
+                    check, = [c for c in checks if placeholder in c['message']]
+                    self.assertEqual((check['status'], check['required']), ('warn', False))
+                    self.assertIn('policy.md', check['message'])
+                output = self.capture(result)
+                self.assertIn('configuration', output.lower())
+                self.assertIn('4 warnings', output)
+
+    def test_starter_merging_warns_with_any_init_owner_and_ignores_line_wrapping(self):
+        policy = self.root / 'policy.md'
+        self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
+        starter = files('ub_agents').joinpath('templates/ub_agents.md').read_text()
+        for owner in ('@org/maintainers', '@org/core.team', '@operator'):
+            for offline in (False, True):
+                with self.subTest(owner=owner, offline=offline):
+                    content = starter.replace('@org/maintainers', owner)
+                    # Reflow the section while preserving its Markdown heading boundaries.
+                    content = content.replace('by squash, once the checks above and any required CI\nchecks',
+                                              'by\n squash, once the checks above\n and any required CI checks')
+                    policy.write_text(content)
+                    result = self.diagnose(offline=offline)
+                    self.assertTrue(result['ok'])
+                    check = self.one(result, 'policy-merging')
+                    self.assertEqual((check['status'], check['required']), ('warn', False))
+                    self.assertIn('starter Merging section', check['message'])
+                    self.assertEqual(len(self.checks(result, 'policy-placeholder')), int(owner == '@org/maintainers'))
+
+    def test_customized_or_absent_merging_section_has_no_starter_warning(self):
+        policy = self.root / 'policy.md'
+        self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
+        starter = files('ub_agents').joinpath('templates/ub_agents.md').read_text().replace('@org/maintainers', '@owner')
+        project_policy = Path(__file__).resolve().parents[1] / '.agents/ub_agents.md'
+        for text in (starter.replace('any required CI\nchecks', 'the required Test result\ncheck'),
+                     project_policy.read_text(), 'Custom policy without a Merging section'):
+            with self.subTest(text=text):
+                policy.write_text(text)
+                result = self.diagnose(offline=True)
+                self.assertTrue(result['ok'])
+                self.assertEqual(self.checks(result, 'policy-merging'), [])
+                self.assertEqual(self.checks(result, 'policy-placeholder'), [])
+
+    def test_starter_checks_apply_only_to_the_configured_shared_file(self):
+        (self.root / 'instructions.md').write_text('@org/maintainers <project build command>')
+        result = self.diagnose(offline=True)
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.checks(result, 'policy-placeholder'), [])
+        self.assertEqual(self.checks(result, 'policy-merging'), [])
 
     def test_repository_root_remote_and_github_mismatches(self):
         config = load_config(self.path)

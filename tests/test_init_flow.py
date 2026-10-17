@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -19,6 +20,7 @@ from ub_agents.errors import AgentError
 from ub_agents.init_flow import Flow
 from ub_agents.init_inline import Question
 from ub_agents.init_prompts import Cancelled, LinePrompter, Option, Transcript
+from ub_agents.init_tailoring import BODY as TAILOR_BODY, TITLE as TAILOR_TITLE, command as tailoring_command
 
 
 def flat(output):
@@ -28,10 +30,13 @@ def flat(output):
 class SetupResponses(dict):
     """Answer the setup PR's git and gh commands, whose file order follows the plan."""
     PR = 'https://github.com/org/project/pull/9'
+    ISSUE = 'https://github.com/org/project/issues/10'
 
     def __missing__(self, command):
         if command[:2] == ('gh', 'pr'):
             return self.PR + '\n'
+        if command[:3] == ('gh', 'issue', 'create'):
+            return self.ISSUE + '\n'
         if command[0] == 'git' and command[3] in {'switch', 'add', 'commit', 'push'}:
             return ''
         raise KeyError(command)
@@ -147,7 +152,7 @@ class FlowTests(unittest.TestCase):
         commands = [call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] in {
             ('switch',), ('add',), ('commit',), ('push',)}]
         self.assertEqual([c[3] if c[0] == 'git' else 'gh' for c in commands],
-                         ['switch', 'add', 'commit', 'push', 'gh', 'switch'])
+                         ['switch', 'add', 'commit', 'push', 'gh', 'switch', 'gh'])
         self.assertEqual(set(commands[1][5:]), {'ub-agents.yaml', '.gitignore', *(
             f'.agents/{name}.md' for name in ('ub_agents', 'issue-preparer', 'issue-reviewer',
                                             'implementer', 'reviewer', 'integrator'))})
@@ -156,6 +161,65 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(all(agent.runtime_args for agent in config.agents))
         self.assertEqual({w[1] for w in self.github.writes if w[0] == 'create-label'},
                          {'needs-preparation', 'needs-changes', 'ready-to-merge'})
+
+    def test_default_tailoring_issue_follows_the_setup_pr_and_appears_in_preview_and_next(self):
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertIn(f'+ {TAILOR_TITLE} · ready · file after the setup PR opens', text)
+        self.assertIn(f'First loop issue: {SetupResponses.ISSUE} · {TAILOR_TITLE}', text.split('Next', 1)[1])
+        self.assertNotIn('gh issue create', text)
+        commands = [call for call, _ in self.runner.calls]
+        issues = [call for call in commands if call[:3] == ('gh', 'issue', 'create')]
+        self.assertEqual(issues, [tuple(tailoring_command('org/project'))])
+        self.assertLess(next(i for i, call in enumerate(commands) if call[:3] == ('gh', 'pr', 'create')),
+                        commands.index(issues[0]))
+        for evidence in ('agent guidance', 'README', 'CI configuration', 'setup and release', 'code and tests',
+                         'required CI check that gates merges', 'starter does not', 'one to three',
+                         'Do not repeat the starter', 'every agent', 'general review advice',
+                         'files you actually opened', 'evidence for each proposed rule in the PR body',
+                         'merge to a maintainer'):
+            self.assertIn(evidence, ' '.join(TAILOR_BODY.split()))
+
+    def assert_manual_tailoring_command(self):
+        output = self.output.getvalue()
+        command = output[output.index('gh issue create '):output.index('\n│\n', output.index('gh issue create '))]
+        self.assertEqual(shlex.split(command), tailoring_command('org/project'))
+        self.assertFalse([call for call, _ in self.runner.calls if call[:3] == ('gh', 'issue', 'create')])
+
+    def test_deselected_tailoring_extra_neither_files_nor_prints_a_command(self):
+        code, text = self.run_flow(Script(Extras=[]))
+        self.assertEqual(code, 0)
+        self.assertNotIn(TAILOR_TITLE, text)
+        self.assertNotIn('gh issue create', text)
+        self.assertFalse([call for call, _ in self.runner.calls if call[:3] == ('gh', 'issue', 'create')])
+
+    def test_missing_ready_label_prints_reason_and_command_without_attempting_to_file(self):
+        self.github.label_names.remove('ready')
+        code, text = self.run_flow(Script(Create=False))
+        self.assertEqual(code, 0)
+        self.assertIn('Setup PR opened', text)
+        self.assertIn('The ready label is missing', text)
+        self.assert_manual_tailoring_command()
+
+    def test_filing_failure_keeps_setup_and_prints_reason_and_the_same_command(self):
+        command = tuple(tailoring_command('org/project'))
+        self.runner.responses[command] = subprocess.CompletedProcess([], 1, '', 'issues are disabled')
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertIn('issues are disabled', text)
+        self.assertIn('Review and merge the setup PR:', text)
+        self.assertNotIn('First loop issue:', text)
+        self.assertEqual(sum(call == command for call, _ in self.runner.calls), 1)
+        output = self.output.getvalue()
+        start = output.index('gh issue create ')
+        self.assertEqual(shlex.split(output[start:output.index('\n│\n', start)]), list(command))
+
+    def test_no_setup_pr_prints_command_without_filing(self):
+        self.github.metadata['default_branch'] = None
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertNotIn('Setup PR opened', text)
+        self.assert_manual_tailoring_command()
 
     def test_preselects_the_logged_in_cli_and_offers_only_claude_and_codex(self):
         self.runner.responses[('codex', 'login', 'status')] = AgentError('not logged in')
@@ -428,6 +492,7 @@ class FlowTests(unittest.TestCase):
                       'open the PR yourself', text)
         self.assertIn('Open a PR with these files and merge it', text)
         self.assertTrue(text.endswith('└ Then run ub-agents launch'))
+        self.assert_manual_tailoring_command()
 
     def test_unattended_files_stay_local_off_the_default_branch(self):
         self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
@@ -479,6 +544,8 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
         self.assertIn('# runtime-updates:\n#   codex: auto\n#   gh: auto', self.path.read_text())
         self.assertIn('gh label create ready --repo org/project', text)
+        self.assertIn('Extras Tailor loop policy', text)
+        self.assert_manual_tailoring_command()
 
     def test_unattended_uses_first_maintaining_team_without_reading_actor(self):
         self.github.team_handles = ['@org/core', '@org/admins']
@@ -533,6 +600,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('Setup partly written', text)
         self.assertIn('gh label create needs-changes', text)
+        self.assert_manual_tailoring_command()
         self.assertTrue(self.path.exists())
 
 
@@ -563,6 +631,13 @@ class LinePrompterTests(unittest.TestCase):
         value, output = self.ask('multiselect', ['1,2', '1'], 'Extras', options)
         self.assertEqual(value, ['priority'])
         self.assertIn('Retrospectives is unavailable: Discussions are off in org/project', output)
+
+    def test_plain_multiselect_takes_defaults_and_can_deselect_them(self):
+        options = [Option('priority', 'Priorities'), Option('tailoring', 'Tailor loop policy')]
+        value, output = self.ask('multiselect', [''], 'Extras', options, ('tailoring',))
+        self.assertEqual(value, ['tailoring'])
+        self.assertIn('Tailor loop policy [selected]', output)
+        self.assertEqual(self.ask('multiselect', ['0'], 'Extras', options, ('tailoring',))[0], [])
 
 
 class QuestionTests(unittest.IsolatedAsyncioTestCase):

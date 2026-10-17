@@ -92,14 +92,25 @@ ub-agents init --runtime claude:claude-opus-5-5:high
 In a terminal, `init` checks your machine, preselects the detected, logged-in CLI
 (Codex when both are logged in), and asks which agent runs the loop, whether
 agents may work without asking, and which extras you want (priorities, retrospectives,
-Uberblick). It writes nothing until you confirm **Write setup?**. Agents always work
-in worktrees and branches; they never commit to main. See the
+Uberblick and tailoring the loop policy). It writes nothing until you confirm
+**Write setup?**. Agents always work in worktrees and branches; they never commit
+to main. See the
 [init command guide](https://agents.uberblick.ai/docs/commands/init.html).
+Fresh init selects **Tailor loop policy** by default. After opening the setup PR,
+it files a **Tailor `.agents/ub_agents.md` to this repository** issue labeled
+`ready` and names its URL in **Next**. This first loop issue asks agents to read
+the repository and propose its required CI check, additional maintainer merge
+rules and one to three review focus points, with file evidence for each rule.
+Without a setup PR, or if filing fails, init prints a runnable `gh issue create`
+command with the same title, body and label; failures also show the reason.
+Deselect the extra to skip both filing and the command.
+
 For an existing setup, `ub-agents init --create-boards` adds missing retrospective
 boards and Claude posting permissions; `--create-priorities` adds priority labels.
-Use either or both flags. They check the checkout and only add entries to
-`ub-agents.yaml`, opening one setup PR on the default branch or keeping the edit
-local on another branch. Default answers work with `--use-defaults` or no terminal.
+Use either or both flags; neither offers the tailoring issue. They check the
+checkout and only add entries to `ub-agents.yaml`, opening one setup PR on the
+default branch or keeping the edit local on another branch. Default answers work
+with `--use-defaults` or no terminal.
 
 Selecting Uberblick also previews and registers its project MCP server for the
 chosen CLI after confirmation: `.mcp.json` for Claude Code or `.codex/config.toml`
@@ -131,9 +142,10 @@ ub-agents init --use-defaults --repository org/project
 ```
 
 CI and non-TTY runs also use defaults without prompts. Without `--runtime`, they
-use Codex. They keep permissions and updates commented out, leave the extras off,
-print label commands and open no PR. They set who answers the agents' questions
-to the first team with maintain or admin access, or the current `gh` user if no
+use Codex. They keep permissions and updates commented out, skip the other extras,
+print label commands and the tailoring issue command, and open no PR or issue.
+They set who answers the agents' questions to the first team with maintain or
+admin access, or the current `gh` user if no
 team is readable, and print the choice and its source. If neither is readable,
 setup completes with a reminder to replace `@org/maintainers` in
 `.agents/ub_agents.md` before launch.
@@ -161,6 +173,12 @@ ub-agents launch     # runs the loop and opens the terminal view
 
 Setup success does not establish launch readiness. Launch fetches and fast-forwards
 the control checkout before runs; use a separate checkout if you also code here.
+Doctor, including `--offline`, checks the configured `shared-instructions` file
+for the starter placeholders `@org/maintainers`, `<project build command>`,
+`<project test command>` and `<project lint or validation command>`, warning once
+per remaining placeholder. It also warns if the Merging section still matches the
+starter, ignoring line wrapping and any owner handle init substituted. These
+warnings do not fail doctor; tailor the policy using repository evidence.
 
 Now add `needs-preparation` to an issue. In a public repository, a label added
 by someone with `maintain` or `admin` access starts work on an issue, and outside

@@ -144,8 +144,14 @@ class LinePrompter:
             print(message)
             for number, option in enumerate(options, 1):
                 hint = option.disabled or option.hint
-                print(f"  {number}. {option.label}" + (f" ({hint})" if hint else ""))
-            answer = self.ask("Numbers, separated by commas", "(Enter for none): ")
+                selected = " [selected]" if option.value in default and not option.disabled else ""
+                print(f"  {number}. {option.label}{selected}" + (f" ({hint})" if hint else ""))
+            answer = self.ask("Numbers, separated by commas", "(Enter for selected, 0 for none): " if default else
+                              "(Enter for none): ")
+            if not answer:
+                return [o.value for o in options if o.value in default and not o.disabled]
+            if answer == "0":
+                return []
             parts = [part.strip() for part in answer.split(",") if part.strip()]
             if not all(part.isdecimal() and 1 <= int(part) <= len(options) for part in parts):
                 continue
