@@ -251,7 +251,7 @@ prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
 ┌   ub-agents init  v0.3.1
 │
 ◇  Checks skipped
-│  Unattended setup; run ub-agents doctor before launch
+│  Unattended setup
 │
 ◇  Which agent runs the loop?
 │  Codex · gpt-6.1-sol · high

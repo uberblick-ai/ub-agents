@@ -617,7 +617,8 @@ class TerminalTests(unittest.TestCase):
                     with patch.object(stdout, 'isatty', return_value=stdout_tty):
                         self.assertEqual(main(['init', '--config', str(path), '--repository', 'org/project']), 0)
                 self.assertTrue(path.exists())
-                self.assertIn('Checks skipped', stdout.getvalue())
+                self.assertIn('◇  Checks skipped\n│  Unattended setup\n│\n', stdout.getvalue())
+                self.assertNotIn('doctor', stdout.getvalue())
                 self.assertIn('@operator · current gh user', stdout.getvalue())
                 self.assertEqual(github.reads, ['repos/org/project/teams', 'user'])
 

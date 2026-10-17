@@ -84,6 +84,8 @@ class InitTests(unittest.TestCase):
     def test_noninteractive_starter_guidance_all_commands_and_owner_reads(self):
         code, output, error, prompt = self.init(infer=True)
         self.assertEqual((code, error), (0, ''))
+        self.assertIn('◇  Checks skipped\n│  Unattended setup\n│\n', output)
+        self.assertNotIn('doctor', output)
         config = load_config(self.path)
         self.assertIsNone(config.checkout_setup)
         self.assertIn('# checkout-setup:', self.path.read_text())

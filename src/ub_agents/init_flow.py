@@ -102,7 +102,7 @@ class Flow:
         if self.unattended:
             self.repository = self.repository or infer_repository(self.path.parent)
             self.github = self.github_factory(self.repository)
-            self.t.step("Checks skipped", [Text("Unattended setup; run ub-agents doctor before launch", style=DIM)])
+            self.t.step("Checks skipped", [Text("Unattended setup", style=DIM)])
         elif self.check() is False:
             return 1
         choices = Choices(self.choose_runtime())
