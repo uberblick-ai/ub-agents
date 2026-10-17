@@ -28,7 +28,7 @@ The wizard asks:
 - who answers the agents' questions
 - which extras you want: priority labels, [retrospective boards](/docs/best-practices/retrospectives.html) and Uberblick
 
-Then it shows every change and asks once before writing.
+Then it shows every change for you to confirm.
 
 ## What you get
 
