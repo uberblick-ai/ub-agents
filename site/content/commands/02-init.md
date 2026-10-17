@@ -1,6 +1,6 @@
 # ub-agents init
 
-Run `ub-agents init` from the root of a clean checkout of your project. It checks your machine and GitHub access and asks a few questions. Nothing is written until you confirm.
+Run `ub-agents init` from the root of a clean checkout of your project. It checks your machine and GitHub access and asks a few questions. Cancel any time before you confirm, and nothing is written.
 
 ```text
 ┌   ub-agents init  v0.3.1
