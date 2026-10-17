@@ -69,7 +69,7 @@ Both show the changes first and only add what's missing.
 ub-agents init --use-defaults --repository org/project
 ```
 
-Writes the starter files without asking. Then run `ub-agents doctor`, which finds anything still missing, such as labels.
+Writes the starter files without asking, with safe defaults: Codex runs the loop (pick another with `--runtime`), agent permissions and updates stay off, and no extras are added. It opens no setup PR and creates no labels; it prints the label commands instead. Init exits with 0 when everything is written and 1 when something fails, for example when starter files already exist.
 
 ```text
 {{help init}}
