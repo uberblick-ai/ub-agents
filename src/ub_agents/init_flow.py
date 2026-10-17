@@ -103,8 +103,8 @@ class Flow:
             self.repository = self.repository or infer_repository(self.path.parent)
             self.github = self.github_factory(self.repository)
             self.t.step("Checks skipped", [Text("Unattended setup; run ub-agents doctor before launch", style=DIM)])
-        else:
-            self.check()
+        elif self.check() is False:
+            return 1
         choices = Choices(self.choose_runtime())
         choices.permissions = self.choose_permissions(choices.runtime)
         choices.updates = self.choose_updates(choices.runtime)
@@ -140,6 +140,7 @@ class Flow:
         return 0
 
     def check(self):
+        """Return False when the branch choice stops setup before files are written."""
         with self.t.spinner("Checking machine, GitHub, checkout and agents"):
             if not self.repository:
                 try:
@@ -170,7 +171,7 @@ class Flow:
             self.t.step("Checks", lines)
         if self.probes.clean is False:
             raise Cancelled("This checkout has local changes; commit or stash them, then run ub-agents init again")
-        self.choose_branch()
+        return self.choose_branch()
 
     def choose_branch(self):
         branch, default = self.probes.branch, self.probes.default_branch
@@ -180,18 +181,21 @@ class Flow:
         message = f"Switch this checkout to {default}?"
         note = [f"ub-agents only uses {default} to start fresh branches and worktrees for agents.",
                 SAFETY.replace("main", default), f"See {PERMISSIONS_GUIDE}"]
-        if not self.ask.confirm(message, True, note):
-            self.t.answered(message, f"No · switch to {default} before you launch")
-            return
-        try:
-            git(self.probes.plan.config.root, "switch", default)
-        except AgentError as exc:
-            reason = str(exc).removeprefix("Git operation failed: ").splitlines()[-1:] or [""]
-            self.t.step(message, [Text(f"Not switched: {reason[0]}", style=RED),
-                                  Text(f"Switch to {default} before you launch", style=DIM)], "▲", YELLOW)
-            return
-        self.on_default = True
-        self.t.step(message, [Text(f"Yes · now on {default}", style=DIM), Text(SAFETY.replace("main", default), style=DIM)])
+        if self.ask.confirm(message, True, note):
+            try:
+                git(self.probes.plan.config.root, "switch", default)
+            except AgentError as exc:
+                reason = str(exc).removeprefix("Git operation failed: ")
+                lines = [Text(line, style=RED) for line in f"Not switched: {reason}".splitlines()]
+            else:
+                self.on_default = True
+                self.t.step(message, [Text(f"Yes · now on {default}", style=DIM),
+                                      Text(SAFETY.replace("main", default), style=DIM)])
+                return
+        else:
+            lines = [Text(f"No · init needs {default} to open the setup PR", style=DIM)]
+        self.t.step(message, [*lines, Text(f"Switch to {default} and run ub-agents init again", style=DIM)], "▲", YELLOW)
+        return False
 
     def probe(self):
         self.github = self.github_factory(self.repository)
@@ -242,6 +246,8 @@ class Flow:
         return enabled
 
     def choose_owner(self):
+        if self.unattended:
+            return self.choose_unattended_owner()
         if not self.probes:
             return ""
         approvals = f"{self.probes.approvals}; see {APPROVALS_GUIDE}"
@@ -257,6 +263,24 @@ class Flow:
         if not owner:
             owner = self.ask.text("Which @user or @org/team?", handles[0], check_owner)
         self.t.step(message, [Text(owner, style=DIM), Text(approvals, style=DIM)])
+        return owner
+
+    def choose_unattended_owner(self):
+        try:
+            teams = self.github.teams()
+        except PROBE_ERRORS:
+            teams = []
+        if teams:
+            owner, source = teams[0], "first maintaining team"
+        else:
+            try:
+                actor = self.github.actor()
+            except PROBE_ERRORS:
+                actor = None
+            owner, source = f"@{actor}" if actor else "", "current gh user"
+        line = (f"{owner} · {source}; edit .agents/ub_agents.md to change it" if owner else
+                "Replace @org/maintainers in .agents/ub_agents.md before launch")
+        self.t.step("Who answers the agents' questions?", [Text(line, style=DIM)])
         return owner
 
     def choose_extras(self):

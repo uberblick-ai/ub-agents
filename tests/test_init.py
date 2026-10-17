@@ -81,7 +81,7 @@ class InitTests(unittest.TestCase):
         lines = [re.sub(r'\x1b\[[0-9;]*m', '', line).removeprefix('│').strip() for line in output.splitlines()]
         return [shlex.split(line) for line in lines if line.startswith('gh label create ')]
 
-    def test_noninteractive_starter_guidance_all_commands_and_only_inference_read(self):
+    def test_noninteractive_starter_guidance_all_commands_and_owner_reads(self):
         code, output, error, prompt = self.init(infer=True)
         self.assertEqual((code, error), (0, ''))
         config = load_config(self.path)
@@ -99,7 +99,7 @@ class InitTests(unittest.TestCase):
             self.assertNotIn('--force', command)
         self.assertEqual([command for command, _ in self.runner.calls],
                          [('gh', 'repo', 'view', '--json', 'nameWithOwner')])
-        self.assertEqual(self.github.reads, [])
+        self.assertEqual(self.github.reads, ['repos/org/project/teams', 'user'])
         self.assertEqual(self.github.writes, [])
         prompt.assert_not_called()
         guidance = (self.path.parent / '.agents/ub_agents.md').read_text()
@@ -169,6 +169,7 @@ class InitTests(unittest.TestCase):
         self.assertIn('implementer runtime', error)
 
     def test_starter_policy_is_neutral_and_has_no_repeated_sentences(self):
+        self.github.auth_error = AgentError('not logged in')
         for runtime in ('codex:model:high', 'claude:opus:high'):
             for guidance in (None, 'AGENTS.md', '.claude/CLAUDE.md'):
                 with self.subTest(runtime=runtime, guidance=guidance), tempfile.TemporaryDirectory() as directory:
@@ -284,6 +285,7 @@ class InitTests(unittest.TestCase):
     def test_piped_input_redirected_output_and_ci_leave_permissions_commented_without_prompting(self):
         for terminal, stdout_terminal, ci in ((False, True, ''), (True, False, ''), (True, True, 'true')):
             with self.subTest(terminal=terminal, stdout_terminal=stdout_terminal, ci=ci):
+                self.github.reads.clear()
                 if self.path.exists():
                     self.path.unlink()
                     for path in (self.path.parent / '.agents').glob('*.md'):
@@ -292,7 +294,7 @@ class InitTests(unittest.TestCase):
                                                   permissions_answer='yes')
                 self.assertEqual(code, 0)
                 self.assertEqual(len(self.commands(output)), 6)
-                self.assertEqual(self.github.reads, [])
+                self.assertEqual(self.github.reads, ['repos/org/project/teams', 'user'])
                 self.assertEqual(self.github.writes, [])
                 prompt.assert_not_called()
                 self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))

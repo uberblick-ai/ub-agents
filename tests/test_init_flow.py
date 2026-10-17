@@ -373,30 +373,41 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn('Use a dedicated agent account', text)
 
     def test_other_branch_asks_to_switch_to_the_default_branch(self):
+        self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.script.asked[0], 'Switch this checkout to main?')
+        self.assertIn('Yes · now on main', text)
+        self.assertIn('Agents always work in worktrees and branches; they never commit to main.', text)
+        self.assertIn('Setup PR opened', text)
+        self.assertTrue(self.path.exists())
+        self.assertIn(('git', '-C', str(self.root), 'switch', 'main'), [call for call, _ in self.runner.calls])
+
+    def test_declined_or_failed_switch_stops_before_the_next_question_and_writes_nothing(self):
         head = ('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')
         switch = ('git', '-C', str(self.root), 'switch', 'main')
-        for answer, outcome, expected in ((True, '', 'Yes · now on main'),
+        self.installed.add('ub')
+        for answer, outcome, expected in ((False, None, 'No · init needs main to open the setup PR'),
                                           (True, subprocess.CompletedProcess([], 1, '', 'error: local changes\nAborting'),
-                                           'Not switched: Aborting Switch to main before you launch'),
-                                          (False, None, 'No · switch to main before you launch')):
+                                           'Not switched: error: local changes\n│  Aborting')):
             with self.subTest(answer=answer, outcome=outcome):
-                for path in self.root.iterdir():
-                    if path.is_file():
-                        path.unlink()
-                    else:
-                        for child in sorted(path.rglob('*'), reverse=True):
-                            child.unlink() if child.is_file() else child.rmdir()
-                        path.rmdir()
                 self.runner.calls.clear()
                 self.runner.responses[head] = 'feature'
                 self.runner.responses[switch] = outcome
-                code, text = self.run_flow(Script(Switch=answer))
-                self.assertEqual(code, 0)
-                self.assertEqual(self.script.asked[0], 'Switch this checkout to main?')
-                self.assertIn(expected, text)
-                self.assertEqual('Agents always work in worktrees and branches; they never commit to main.' in text,
-                                 expected.startswith('Yes'))
-                self.assertEqual(switch in [call for call, _ in self.runner.calls], answer)
+                code, text = self.run_flow(Script(Switch=answer, Extras=['priority', 'retrospectives', 'uberblick'],
+                                                  Set_up='create'))
+                self.assertEqual(code, 1)
+                self.assertEqual(self.script.asked, ['Switch this checkout to main?'])
+                self.assertIn('▲  Switch this checkout to main?\n│  ' + expected +
+                              '\n│  Switch to main and run ub-agents init again\n', self.output.getvalue())
+                self.assertNotIn('Setup written', text)
+                self.assertEqual((list(self.root.iterdir()), self.github.writes), ([], []))
+                commands = [call for call, _ in self.runner.calls]
+                self.assertEqual(switch in commands, answer)
+                self.assertFalse([call for call in commands if call[:1] == ('gh',) or
+                                  call[:3] == ('ub', 'workspace', 'create') or
+                                  call[:3] == ('ub', 'mcp', 'install') or
+                                  call[3:4] in {('add',), ('commit',), ('push',)}])
 
     def test_failed_push_keeps_the_files_and_asks_for_a_manual_pr(self):
         self.runner.responses[('git', '-C', str(self.root), 'push', '--quiet', '--set-upstream', 'origin',
@@ -408,20 +419,26 @@ class FlowTests(unittest.TestCase):
         self.assertIn('Open a PR with these files and merge it', text)
         self.assertIn('Then run ub-agents launch', text)
 
-    def test_files_stay_local_off_the_default_branch_and_unattended(self):
+    def test_unattended_files_stay_local_off_the_default_branch(self):
         self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
-        for script, unattended in ((Script(Switch=False), False), (Script(), True)):
-            with self.subTest(unattended=unattended):
-                for path in [self.path, self.root / '.gitignore']:
-                    path.unlink(missing_ok=True)
-                for child in sorted(self.root.glob('.agents/*')):
-                    child.unlink()
-                self.runner.calls.clear()
-                code, text = self.run_flow(script, unattended=unattended)
-                self.assertEqual(code, 0)
-                self.assertIn('files stay local.', text)
-                self.assertNotIn('Setup PR', text)
-                self.assertFalse([call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] == ('push',)])
+        code, text = self.run_flow(unattended=True)
+        self.assertEqual(code, 0)
+        self.assertTrue(self.path.exists())
+        self.assertIn('files stay local.', text)
+        self.assertNotIn('Switch this checkout to main?', self.script.asked)
+        self.assertNotIn('Setup PR', text)
+        self.assertFalse([call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] == ('push',)])
+
+    def test_unknown_branch_or_default_branch_does_not_ask_to_switch(self):
+        for branch, default in (('', 'main'), ('feature', None)):
+            with self.subTest(branch=branch, default=default):
+                self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = branch
+                self.github.metadata['default_branch'] = default
+                code, text = self.run_flow(Script(Write=False))
+                self.assertEqual(code, 1)
+                self.assertEqual(self.script.asked[0], 'Which agent runs the loop?')
+                self.assertNotIn('Switch this checkout', text)
+                self.assertIn('Write setup?', self.script.asked)
 
     def test_local_changes_stop_before_any_question(self):
         self.runner.responses[('git', '-C', str(self.root), '--no-optional-locks', 'status', '--porcelain=v1',
@@ -437,15 +454,62 @@ class FlowTests(unittest.TestCase):
         self.run_flow()
         self.assertNotIn('Switch this checkout to main?', self.script.asked)
 
-    def test_unattended_reads_nothing_and_keeps_permissions_off(self):
+    def test_unattended_uses_gh_user_and_keeps_permissions_off(self):
         code, text = self.run_flow(unattended=True)
         self.assertEqual(code, 0)
-        self.assertEqual((self.github.reads, self.github.writes), ([], []))
+        self.assertEqual((self.github.reads, self.github.writes), (['repos/org/project/teams', 'user'], []))
         self.assertIn('Checks skipped', text)
         self.assertNotIn('Approvals:', text)
+        self.assertIn("Who answers the agents' questions? @operator · current gh user; "
+                      'edit .agents/ub_agents.md to change it', text)
+        self.assertNotIn("Who answers the agents' questions?", self.script.asked)
+        policy = (self.root / '.agents' / 'ub_agents.md').read_text()
+        self.assertIn('`@operator` answers scope and policy questions.', policy)
+        self.assertNotIn('@org/maintainers', policy)
         self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
         self.assertIn('# runtime-updates:\n#   codex: auto\n#   gh: auto', self.path.read_text())
         self.assertIn('gh label create ready --repo org/project', text)
+
+    def test_unattended_uses_first_maintaining_team_without_reading_actor(self):
+        self.github.team_handles = ['@org/core', '@org/admins']
+        self.github.auth_error = AgentError('user unreadable')
+        code, text = self.run_flow(unattended=True)
+        self.assertEqual(code, 0)
+        self.assertEqual((self.github.reads, self.github.writes), (['repos/org/project/teams'], []))
+        self.assertIn("Who answers the agents' questions? @org/core · first maintaining team; "
+                      'edit .agents/ub_agents.md to change it', text)
+        self.assertNotIn("Who answers the agents' questions?", self.script.asked)
+        policy = (self.root / '.agents' / 'ub_agents.md').read_text()
+        self.assertIn('`@org/core` answers scope and policy questions.', policy)
+        self.assertNotIn('@org/maintainers', policy)
+
+    def test_unattended_falls_back_to_gh_user_when_team_read_fails(self):
+        with patch.object(self.github, 'teams', side_effect=AgentError('teams unreadable')) as teams:
+            code, text = self.run_flow(unattended=True)
+        self.assertEqual(code, 0)
+        teams.assert_called_once_with()
+        self.assertEqual(self.github.reads, ['user'])
+        self.assertIn('@operator · current gh user; edit .agents/ub_agents.md to change it', text)
+        self.assertIn('`@operator` answers scope and policy questions.',
+                      (self.root / '.agents' / 'ub_agents.md').read_text())
+
+    def test_unattended_unreadable_owner_keeps_placeholder_and_warns_before_launch(self):
+        for error in (AgentError('not logged in'), FileNotFoundError('gh missing'),
+                      subprocess.TimeoutExpired('gh', 120), UnicodeError('unreadable response')):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                with patch.object(self.github, 'teams', side_effect=error) as teams, \
+                        patch.object(self.github, 'actor', side_effect=error) as actor:
+                    code, text = self.run_flow(unattended=True)
+                self.assertEqual(code, 0)
+                teams.assert_called_once_with()
+                actor.assert_called_once_with()
+                self.assertIn('Setup written', text)
+                self.assertIn('Replace @org/maintainers in .agents/ub_agents.md before launch', text)
+                self.assertNotIn("Who answers the agents' questions?", self.script.asked)
+                self.assertIn('`@org/maintainers` answers scope and policy questions;',
+                              (self.path.parent / '.agents' / 'ub_agents.md').read_text())
+                self.assertEqual(self.github.writes, [])
 
     def test_partial_label_failure_reports_what_is_left(self):
         create = self.github.create_label
@@ -533,7 +597,9 @@ class TerminalTests(unittest.TestCase):
         for stdin_tty, stdout_tty, ci in ((False, True, ''), (True, False, ''), (True, True, '1')):
             with self.subTest(stdin=stdin_tty, stdout=stdout_tty, ci=ci), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / 'workflow.yaml'
+                github = SetupGitHub()
                 with patch('ub_agents.cli.sys.stdin.isatty', return_value=stdin_tty), \
+                        patch('ub_agents.cli.GitHub', return_value=github), \
                         patch('ub_agents.init_prompts.InlinePrompter.run', side_effect=AssertionError('prompt')), \
                         patch('subprocess.run', side_effect=AssertionError('probe')), \
                         patch('builtins.input', side_effect=AssertionError('prompt')), \
@@ -542,6 +608,8 @@ class TerminalTests(unittest.TestCase):
                         self.assertEqual(main(['init', '--config', str(path), '--repository', 'org/project']), 0)
                 self.assertTrue(path.exists())
                 self.assertIn('Checks skipped', stdout.getvalue())
+                self.assertIn('@operator · current gh user', stdout.getvalue())
+                self.assertEqual(github.reads, ['repos/org/project/teams', 'user'])
 
     def test_inline_flow_in_a_real_terminal(self):
         with tempfile.TemporaryDirectory() as directory:

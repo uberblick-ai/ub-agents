@@ -54,8 +54,10 @@ The integrator merges only when every required review and check passes on the cu
 Setup success does not establish launch readiness. Review build/test commands,
 merge authority and decision-makers; finding an existing instruction file is not
 proof that the policy is ready. On the default branch, init opens a setup PR with
-the files: review the configuration there and merge it. Off the default branch or
-unattended, the files stay local; commit them through your project's PR workflow.
+the files: review the configuration there and merge it. If you decline the switch
+to that branch or Git cannot switch, init stops without writing anything; switch
+and run it again. In unattended setup, the files stay local; commit them through
+your project's PR workflow.
 Then start from a clean default-branch launcher checkout, without local commits
 ahead of origin:
 

@@ -40,7 +40,7 @@ Then it shows every change for you to confirm.
 | `.gitignore` | Keeps the launcher's local state and machine-only settings out of Git. |
 | `.mcp.json` or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects your agent to it, plus `.uberblick.json` when init creates a workspace. |
 
-Init offers to create the missing workflow labels, plus any extras you picked. On your default branch, the files go to a setup PR, which you can review and approve. On any other branch they stay in your checkout for you to commit. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
+Init offers to create the missing workflow labels, plus any extras you picked. The files go to a setup PR on your default branch, which you can review and approve. On another branch, init offers to switch and stops without writing anything if you decline. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
 
 If starter files already exist, init stops and changes nothing. It never touches `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
@@ -69,7 +69,7 @@ Both show the changes first and only add what's missing.
 ub-agents init --use-defaults --repository org/project
 ```
 
-Writes the starter files without asking, with safe defaults: Codex runs the loop (pick another with `--runtime`), agent permissions and updates stay off, and no extras are added. It opens no setup PR and creates no labels; it prints the label commands instead. Init exits with 0 when everything is written and 1 when something fails, for example when starter files already exist.
+Writes the starter files without asking, with safe defaults: Codex runs the loop (pick another with `--runtime`), agent permissions and updates stay off, and no extras are added. The first team that maintains the repository answers the agents' questions, or you if there is none. It opens no setup PR and creates no labels; it prints the label commands instead. CI and runs without a terminal work the same way. Init exits with 0 when everything is written and 1 when something fails, for example when starter files already exist.
 
 ```text
 {{help init}}
