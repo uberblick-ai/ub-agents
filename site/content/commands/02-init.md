@@ -23,7 +23,7 @@ Run `ub-agents init` from the root of a clean checkout of your project. It check
 The wizard asks:
 
 - which agent CLI runs the loop
-- whether agents may edit, commit and use `gh` without asking
+- whether agents may work without asking; for Codex that means [full access without a sandbox](/docs/configuration/permissions.html#codex)
 - whether to keep the agent CLI and `gh` up to date
 - who answers the agents' questions
 - which extras you want: priority labels, retrospective boards and Uberblick
