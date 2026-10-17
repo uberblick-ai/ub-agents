@@ -4,28 +4,28 @@
 
 {checks}
 
-Run the relevant checks before handoff and record the results. A check that passes
-only after changing its environment or skipping tests has not passed.
+Run the relevant checks before handoff and record the results. Keep installs inside
+your worktree; never install globally.
 
 ## Merging
 
-The integrator squash-merges only when the project's merge policy authorizes it
-and every required review and check applies to the current head. Define those gates
-before launch. Leave changes to workflow, permissions and release policy to
-`@org/maintainers`; customize this list with the project's owners.
-Never enable auto-merge, approve your own PR, change branch protection or publish
-releases. Implementation PR bodies start with `Closes #N`.
+Only the integrator merges, by squash, once the checks above and any required CI
+checks pass at the exact head it merges. No agent enables auto-merge, changes branch
+protection or publishes a release. Leave the merge to `@org/maintainers` when the PR:
+
+- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any
+  `AGENTS.md` or `CLAUDE.md`;
+- changes setup, CI or release tooling;
+- changes what users rely on, such as commands, options, public APIs or output,
+  beyond what the closing issue asks for.
 
 ## Human decisions
 
 `@org/maintainers` answers scope and policy questions; replace this handle with the
 project's person or team. An issue's author may answer only if they have write
-access. Use the responsible role's correction or handoff route when that role must
-act next.
+access.
 
 ## Review focus
-
-Defaults; adjust them to the project's priorities.
 
 - The change stays within the issue's scope; other ideas become follow-up issues.
 - New behavior has tests that fail without the change.
