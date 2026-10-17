@@ -3,7 +3,7 @@
 Run `ub-agents init` from the root of a clean checkout of your project. It checks your machine and GitHub access and asks a few questions. Cancel any time before you confirm, and nothing is written.
 
 ```text
-┌   ub-agents init  v0.3.1
+┌   ub-agents init
 │
 ◇  Checks
 │  ✓ Machine    Python 3.13 · git · gh · ps
