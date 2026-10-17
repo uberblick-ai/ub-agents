@@ -1,3 +1,1 @@
-Review `.agents/ub_agents.md` with an agent
-
 Help me finish .agents/ub_agents.md in this repository, the shared policy every ub-agents role reads. Follow https://agents.uberblick.ai/docs/best-practices/instructions-as-code#what-goes-in-the-shared-policy. Go section by section: Checks, Merging, Human decisions, Review focus. Make sure @org/maintainers is replaced with the real person or team. Keep build commands and conventions in AGENTS.md or CLAUDE.md and point there. Ask me about anything the repo doesn't answer, and show the diff before writing.

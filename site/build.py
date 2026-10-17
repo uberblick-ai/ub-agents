@@ -35,10 +35,20 @@ def inline(text):
     def stash(m):
         codes.append('<code>' + html.escape(m.group(1)) + '</code>')
         return f'\x00{len(codes) - 1}\x00'
-    s = html.escape(re.sub(r'`([^`]+)`', stash, text), quote=False)
+    def buttons(m):
+        codes.append(discuss(m.group(1)))
+        return f'\x00{len(codes) - 1}\x00'
+    s = html.escape(DISCUSS.sub(buttons, re.sub(r'`([^`]+)`', stash, text)), quote=False)
     s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
     s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', s)
     return re.sub(r'\x00(\d+)\x00', lambda m: codes[int(m.group(1))], s)
+
+def discuss(name):
+    """Buttons that open site/prompts/NAME.md in Claude Code or Codex."""
+    q = urllib.parse.quote(' '.join((ROOT / 'prompts' / f'{name}.md').read_text().split()), safe='')
+    icon = {cli: (ROOT / 'icons' / f'{cli}.svg').read_text().strip() for cli in ('claude', 'openai')}
+    return (f'<span class="discuss"><a class="claude" href="claude://code/new?q={q}">{icon["claude"]}Claude</a>'
+            f'<a href="codex://new?prompt={q}">{icon["openai"]}Codex</a></span>')
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', text).lower()).strip('-')
@@ -84,15 +94,6 @@ def markdown(src):
             svg = (ROOT / 'diagrams' / f'{m.group(1)}.svg').read_text()
             out.append(f'<figure class="flow">{svg}</figure>')
             i += 1
-        elif m := DISCUSS.fullmatch(line):
-            # site/prompts/NAME.md: a label line, a blank line, then the prompt both apps open with.
-            label, prompt = (ROOT / 'prompts' / f'{m.group(1)}.md').read_text().split('\n\n', 1)
-            q = urllib.parse.quote(' '.join(prompt.split()), safe='')
-            icon = {name: (ROOT / 'icons' / f'{name}.svg').read_text().strip() for name in ('claude', 'openai')}
-            out.append(f'<div class="discuss"><span>{inline(label)}</span>'
-                       f'<a class="claude" href="claude://code/new?q={q}">{icon["claude"]}Claude</a>'
-                       f'<a href="codex://new?prompt={q}">{icon["openai"]}Codex</a></div>')
-            i += 1
         elif m := re.match(r'^(#{1,3}) (.*)', line):
             level, text = len(m.group(1)), inline(m.group(2))
             if level == 1:
@@ -122,7 +123,6 @@ def markdown(src):
         elif line.strip():
             para = []
             while (i < len(lines) and lines[i].strip() and not FLOW.fullmatch(lines[i])
-                   and not DISCUSS.fullmatch(lines[i])
                    and not re.match(r'^(```|#|\||- |\d+\. )', lines[i])):
                 para.append(lines[i])
                 i += 1
