@@ -56,6 +56,7 @@ class Choices:
     permissions: bool = False
     updates: bool = False
     owner: str = ""
+    tailor_policy: bool = False
     priority_labels: tuple[str, ...] = ()
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)

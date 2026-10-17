@@ -26,7 +26,7 @@ The wizard asks:
 - whether agents may work without asking; for Codex that means [full access without a sandbox](/docs/configuration/permissions.html#codex)
 - whether to keep the agent CLI and `gh` up to date
 - who answers the agents' questions
-- which extras you want: priority labels, [retrospective boards](/docs/best-practices/retrospectives.html) and Uberblick
+- which extras you want: priority labels, [retrospective boards](/docs/best-practices/retrospectives.html), Uberblick and tailoring the loop policy (selected by default)
 
 Then it shows every change for you to confirm.
 
@@ -42,6 +42,10 @@ Then it shows every change for you to confirm.
 
 Init offers to create the missing workflow labels, plus any extras you picked. The files go to a setup PR on your default branch, which you can review and approve. On another branch, init offers to switch and stops without writing anything if you decline. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
 
+Fresh init selects **Tailor loop policy** by default and lists it in **Changes**. After opening the setup PR, it files **Tailor `.agents/ub_agents.md` to this repository** labeled `ready`; **Next** includes the issue's URL. The first loop issue asks the implementer to read the repository and propose its required CI check, additional maintainer merge rules and one to three review focus points. Every rule needs file evidence in the PR body; the issue says to avoid repeating the starter, agent guidance or general review advice. A maintainer merges the resulting policy PR.
+
+Without a setup PR, or if the issue cannot be filed (for example, you declined creating the missing `ready` label), init prints a runnable `gh issue create` command with the same title, body and label. A failed filing also shows its reason. Deselecting **Tailor loop policy** skips both filing and the command. In a plain numbered prompt, Enter keeps the selected extra and `0` selects none.
+
 If starter files already exist, init stops and changes nothing. It never touches `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
 ## Next steps
@@ -50,6 +54,7 @@ If starter files already exist, init stops and changes nothing. It never touches
 - Review `.agents/ub_agents.md` against [what belongs in the shared policy](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy). {{discuss shared-policy}}
 - If your project has its own check commands, such as `mise run ci`, add them to Claude's `--allowedTools` in `ub-agents.yaml`, for example `"Bash(mise run ci)"`.
 - Merge the setup PR and pull your default branch.
+- Run [`ub-agents doctor --offline`](/docs/commands/doctor.html) to check for remaining starter placeholders and an unchanged Merging section. These warnings do not fail doctor.
 - Run [`ub-agents launch`](/docs/commands/launch.html) from a clean checkout of your default branch. If you also work in this checkout yourself, clone a separate one for the launcher.
 
 ## Add the optional steps later on
@@ -61,7 +66,7 @@ ub-agents init --create-boards       # retrospective boards; turn on GitHub Disc
 ub-agents init --create-priorities   # priority labels
 ```
 
-Both show the changes first and only add what's missing.
+Both show the changes first and only add what's missing. Neither offers the tailoring issue; that extra belongs to fresh init only.
 
 ## Unattended setup
 
@@ -69,7 +74,7 @@ Both show the changes first and only add what's missing.
 ub-agents init --use-defaults --repository org/project
 ```
 
-Writes the starter files without asking, with safe defaults: Codex runs the loop (pick another with `--runtime`), agent permissions and updates stay off, and no extras are added. The first team that maintains the repository answers the agents' questions, or you if there is none. It opens no setup PR and creates no labels; it prints the label commands instead. CI and runs without a terminal work the same way. Init exits with 0 when everything is written and 1 when something fails, for example when starter files already exist.
+Writes the starter files without asking, with safe defaults: Codex runs the loop (pick another with `--runtime`), agent permissions and updates stay off, and only **Tailor loop policy** is selected. The first team that maintains the repository answers the agents' questions, or you if there is none. It opens no setup PR, files no issue and creates no labels; it prints the label commands and the tailoring issue's `gh issue create` command instead. CI and runs without a terminal work the same way. Init exits with 0 when everything is written and 1 when something fails, for example when starter files already exist.
 
 ```text
 {{help init}}

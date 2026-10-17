@@ -53,8 +53,33 @@ Hints show only on the highlighted option. Disabled extras show their reason:
 │  ◻ Priorities
 │  ◻ Retrospectives (Discussions are off in org/project)
 │  ◻ Uberblick (needs ub: brew install uberblick-ai/tap/uberblick)
+│  ◼ Tailor loop policy (first loop issue drafts repository-specific rules)
 └
 ```
+
+Fresh init selects **Tailor loop policy** by default. Deselect it with Space, or
+enter `0` in a plain numbered prompt to select no extras. Enter keeps the default.
+The extra appears in **Changes** and files **Tailor `.agents/ub_agents.md` to this
+repository** labeled `ready` only after the setup PR opens. **Next** names its URL.
+The issue asks the implementer to open agent guidance, README, CI configuration,
+setup and release tooling, and code before proposing the required CI check,
+additional maintainer-merge bullets and one to three codebase review focus points.
+It forbids repeating the starter, `AGENTS.md`/`CLAUDE.md` rules or general review
+advice, and requires evidence for each rule in the PR body, citing only opened
+files. A maintainer merges that policy PR because it changes `.agents/`.
+
+When no setup PR opens or filing fails, init files no issue and prints a runnable
+`gh issue create` command with the same title, body and `ready` label. A failure
+also shows the reason, including a missing `ready` label when label creation was
+declined. Deselecting the extra suppresses the issue and command. Existing-setup
+flags (`--create-boards`, `--create-priorities`) never offer this extra.
+
+`ub-agents doctor`, including `--offline`, warns once for each starter placeholder
+remaining in the configured `shared-instructions` file: `@org/maintainers`,
+`<project build command>`, `<project test command>` and
+`<project lint or validation command>`. It also warns when `## Merging` still
+matches the starter, ignoring line wrapping and init's substituted owner handle.
+These warnings never make doctor fail.
 
 With Uberblick selected and no `.uberblick.json` in the checkout or above it:
 
@@ -123,7 +148,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  Approvals: on (visibility (public)); see https://agents.uberblick.ai/docs/configuration/approvals
 │
 ◇  Extras
-│  Priorities, Retrospectives, Uberblick
+│  Priorities, Retrospectives, Uberblick, Tailor loop policy
 │
 ◇  Priority labels, highest first
 │  prio:urgent, prio:high, prio:medium, prio:low
@@ -141,6 +166,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  ~ .gitignore +4 lines                                                            │
 │  + 7 labels on org/project                                                        │
 │  + 5 retrospective boards (reused when the title exists)                          │
+│  + Tailor `.agents/ub_agents.md` to this repository · ready · file after the setup PR opens
 │  + .uberblick.json local Uberblick workspace                                      │
 │  Uberblick MCP · Claude Code · project scope · .mcp.json · add entry               │
 │                                                                                   │
@@ -160,6 +186,9 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  https://github.com/org/project/pull/9
 │  Back on main
 │
+◇  Tailoring issue filed
+│  https://github.com/org/project/issues/10
+│
 ◇  Next ──────────────────────────────────────────────────────────────────────────╮
 │                                                                                 │
 │  1. Review the agent permissions (runtime-args) in ub-agents.yaml on the PR;    │
@@ -170,10 +199,11 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  4. Review and merge the setup PR: https://github.com/org/project/pull/9        │
 │  5. Warning: claude loads no project guidance; add CLAUDE.md,                   │
 │     .claude/CLAUDE.md or AGENTS.md so agents know how to build and test.        │
-│  6. Use a dedicated agent account with write access; see                        │
+│  6. First loop issue: https://github.com/org/project/issues/10 · Tailor `.agents/ub_agents.md` to this repository
+│  7. Use a dedicated agent account with write access; see                        │
 │     https://agents.uberblick.ai/docs/best-practices/launcher-account            │
-│  7. Uberblick MCP · Claude Code · project scope · .mcp.json · registered         │
-│  8. Restart running agent sessions to pick up the Uberblick MCP server         │
+│  8. Uberblick MCP · Claude Code · project scope · .mcp.json · registered         │
+│  9. Restart running agent sessions to pick up the Uberblick MCP server         │
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │
@@ -241,7 +271,9 @@ A checkout with local changes (untracked files included) stops after the checks:
 
 `--use-defaults`, CI and non-TTY runs:
 
-These runs skip all extras and register no MCP server. The setup remains local-only.
+These runs select only **Tailor loop policy** and print its `gh issue create`
+command; they file no issue, open no PR, create no labels and register no MCP
+server. Setup files remain local-only.
 They set who answers the agents' questions to the first team with maintain or
 admin access, falling back to the current `gh` user, and print the choice and its
 source. If neither is readable, setup still completes, keeps the placeholder and
@@ -268,13 +300,14 @@ prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
 │  @org/maintainers · first maintaining team; edit .agents/ub_agents.md to change it
 │
 ◇  Extras
-│  None
+│  Tailor loop policy
 │
 ◇  Changes ────────────────────────────────────╮
 │                                              │
 │  + ub-agents.yaml                            │
 │  + .agents/ ub_agents.md and 5 role files    │
 │  ~ .gitignore +4 lines                       │
+│  + Tailor `.agents/ub_agents.md` to this repository · ready · print the filing command
 │                                              │
 │  The files stay local.                       │
 │                                              │
@@ -284,6 +317,11 @@ prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
 │  Yes
 │
 ◇  Setup written
+│
+◇  File the tailoring issue yourself
+│  File this issue after the setup PR merges and the ready label exists
+│
+gh issue create --repo org/project --title 'Tailor `.agents/ub_agents.md` to this repository' --label ready --body 'The starter …'
 │
 ◇  Next ──────────────────────────────────────────────────────────────────────────╮
 │                                                                                 │
@@ -306,3 +344,6 @@ prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
 │
 └  Then run ub-agents launch
 ```
+
+The command above is abbreviated for this capture; init prints the full issue
+body, quoted so the command can be copied verbatim.

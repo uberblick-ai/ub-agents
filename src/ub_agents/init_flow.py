@@ -2,6 +2,7 @@
 
 import json
 import re
+import shlex
 import subprocess
 
 from rich.text import Text
@@ -17,6 +18,7 @@ from .init_probes import ACCOUNT_GUIDANCE, PROBE_ERRORS, Probes
 from .init_prompts import DIM, GREEN, RED, YELLOW, Cancelled, Option
 from .init_setup import (PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance_summary, infer_repository, make_plan, next_steps,
                          priority_labels, recovery_content)
+from .init_tailoring import TITLE as TAILOR_TITLE, command as tailoring_command
 from .labels import configured_labels
 
 RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
@@ -110,6 +112,7 @@ class Flow:
         choices.updates = self.choose_updates(choices.runtime)
         choices.owner = self.choose_owner()
         extras = self.choose_extras()
+        choices.tailor_policy = "tailoring" in extras
         if "priority" in extras:
             value = self.ask.text("Priority labels, highest first", PRIORITIES, check_priorities)
             self.t.answered("Priority labels, highest first", value)
@@ -136,7 +139,8 @@ class Flow:
             with self.t.spinner("Registering the Uberblick MCP server"):
                 extra += self.mcp.apply()
         url = self.open_pr(plan, extra) if self.on_default else None
-        self.finish(plan, labels, extras, url)
+        issue = self.tailor_policy(plan, url) if choices.tailor_policy else None
+        self.finish(plan, labels, extras, url, issue)
         return 0
 
     def check(self):
@@ -290,8 +294,9 @@ class Flow:
                    Option("retrospectives", "Retrospectives", "agents post learnings per run; used to optimize delivery",
                           "" if available else note),
                    Option("uberblick", "Uberblick", "shared knowledge for agents and humans",
-                          "" if self.probes and self.probes.ub else f"needs ub: {UB_INSTALL}")]
-        extras = self.ask.multiselect("Extras", options)
+                          "" if self.probes and self.probes.ub else f"needs ub: {UB_INSTALL}"),
+                   Option("tailoring", "Tailor loop policy", "first loop issue drafts repository-specific rules")]
+        extras = self.ask.multiselect("Extras", options, ("tailoring",))
         self.t.answered("Extras", ", ".join(o.label for o in options if o.value in extras) or "None")
         return extras
 
@@ -365,6 +370,9 @@ class Flow:
         if plan.choices.board_requests:
             lines.append(Text.assemble(("+ ", GREEN), f"{len(plan.choices.board_requests)} retrospective boards",
                                        (" (reused when the title exists)", DIM)))
+        if plan.choices.tailor_policy:
+            action = "file after the setup PR opens" if self.on_default and not self.unattended else "print the filing command"
+            lines.append(Text.assemble(("+ ", GREEN), TAILOR_TITLE, (f" · ready · {action}", DIM)))
         if self.workspace == "create":
             lines.append(Text.assemble(("+ ", GREEN), WORKSPACE_FILE, (" local Uberblick workspace", DIM)))
         if self.mcp:
@@ -421,11 +429,35 @@ class Flow:
         self.t.step("Setup PR opened", [Text(url, style=DIM), Text(f"Back on {default}", style=DIM)])
         return url
 
-    def finish(self, plan, labels, extras, url=None):
+    def tailor_policy(self, plan, setup_url):
+        command = tailoring_command(self.repository)
+        reason = None
+        if setup_url and not self.unattended:
+            try:
+                if "ready" not in {name.casefold() for name in self.github.labels()}:
+                    raise AgentError("The ready label is missing; create it before filing the issue")
+                with self.t.spinner("Filing the tailoring issue"):
+                    url = run(plan.config.root, *command).splitlines()[-1]
+            except PROBE_ERRORS as exc:
+                reason = public(exc)
+            else:
+                self.t.step("Tailoring issue filed", [Text(url, style=DIM)])
+                return url
+        lines = [Text(reason, style=RED)] if reason else []
+        lines.append(Text("File this issue after the setup PR merges and the ready label exists", style=DIM))
+        self.t.step("File the tailoring issue yourself", lines, "▲" if reason else "◇", YELLOW if reason else GREEN)
+        # Print without transcript rails so the multiline quoted body can be copied verbatim.
+        self.t.console.print(shlex.join(command), markup=False, highlight=False, soft_wrap=True)
+        self.t.rail()
+        return None
+
+    def finish(self, plan, labels, extras, url=None, issue=None):
         steps = next_steps(plan) + guidance_summary(plan)
         if url:
             steps[steps.index("Open a PR with these files and merge it")] = f"Review and merge the setup PR: {url}"
             steps[0] = steps[0].replace(f"in {plan.path.name}", f"in {plan.path.name} on the PR")
+        if issue:
+            steps.append(f"First loop issue: {issue} · {TAILOR_TITLE}")
         account = next((g for g in self.probes.groups if g.name == "Account"), None) if self.probes else None
         if account and any(problem.id == "account" for problem in account.problems):
             steps.append(f"Use a dedicated agent account with write access; see {ACCOUNT_GUIDANCE}")
@@ -466,6 +498,8 @@ class Flow:
         content = recovery_content(plan, result)
         if content:
             self.t.console.print(content, markup=False, highlight=False)
+        if plan.choices.tailor_policy:
+            self.tailor_policy(plan, None)
         self.t.outro("Finish the rest by hand; plain init preserves existing starter files. "
                      "--create-boards and --create-priorities only add missing config entries.")
         return 1

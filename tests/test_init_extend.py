@@ -57,6 +57,8 @@ class ExistingSetupTests(unittest.TestCase):
         self.assertTrue(result['ok'], result)
         self.assertEqual(sum(write[0] == 'create-board' for write in self.github.writes), 4)
         self.assertEqual(self.script.asked, ['Write setup?'])
+        self.assertNotIn('Tailor loop policy', text)
+        self.assertNotIn('gh issue create', text)
         # Removing just the insertions recovers every byte of the original file.
         original = self.path.read_text()
         for role in configured.agents:

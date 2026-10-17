@@ -1,6 +1,7 @@
 """Prerequisite diagnostics and confirmed label setup. Probe output stays private."""
 
 from dataclasses import asdict, dataclass
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -29,7 +30,8 @@ AUTH_PROBES = {"codex": ("codex", "login", "status"),
 
 AREAS = {
     "machine": ("python", "platform", "git", "gh", "process-inspection", "local-state", "local-state-ignored"),
-    "configuration": ("config", "instructions", "repository-root", "repository-remote", "approvals",
+    "configuration": ("config", "instructions", "policy-placeholder", "policy-merging",
+                      "repository-root", "repository-remote", "approvals",
                       "control-checkout", "control-checkout-branch", "control-checkout-dirty", "control-checkout-origin"),
     "GitHub": ("github-auth", "github-repository", "github-permissions", "github-labels", "github-label",
                "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit",
@@ -96,6 +98,28 @@ class Doctor:
         self.add(name, "fail", f"{name} is not on PATH", remedy)
         return False
 
+    def shared_policy(self, text, path):
+        placeholders = {"owner": "@org/maintainers", "build": "<project build command>",
+                        "test": "<project test command>", "validation": "<project lint or validation command>"}
+        for name, placeholder in placeholders.items():
+            if placeholder in text:
+                self.add(f"policy-placeholder:{name}", "warn", f"{path} still contains {placeholder}",
+                         f"Replace {placeholder} in {path} with the repository's own guidance", required=False)
+
+        def merging(content):
+            section = re.search(r"^## Merging[ \t]*\r?\n(.*?)(?=^#{1,2} |\Z)", content, re.MULTILINE | re.DOTALL)
+            if section is None:
+                return None
+            # Init substitutes a person or team; that alone does not tailor the rules.
+            normalized = re.sub(r"`@[A-Za-z0-9-]+(?:/[A-Za-z0-9._-]+)?`", "`@org/maintainers`", section[1])
+            return " ".join(normalized.split())
+
+        starter = files("ub_agents").joinpath("templates/ub_agents.md").read_text(encoding="utf-8")
+        if merging(text) == merging(starter):
+            self.add("policy-merging", "warn", f"{path} still has the starter Merging section",
+                     f"Tailor {path} to the repository's required CI check, maintainer merge rules and review focus",
+                     required=False)
+
     def run(self, path, *, offline=False):
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
                  f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
@@ -125,8 +149,9 @@ class Doctor:
         if config:
             if config.shared_instructions is not None:
                 try:
-                    instruction_text(config.root, config.shared_instructions, "shared-instructions")
+                    text = instruction_text(config.root, config.shared_instructions, "shared-instructions")
                     self.add("instructions", "ok", "shared instruction file is readable")
+                    self.shared_policy(text, config.shared_instructions)
                 except AgentError as exc:
                     self.add("instructions", "fail", str(exc),
                              f"Restore a readable shared instruction file at {config.shared_instructions}")
