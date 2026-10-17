@@ -154,7 +154,7 @@ class LaunchSetupTests(unittest.TestCase):
                     self.assertIsNotNone(activity["until"])
                     activities.append(delay)
 
-                with patch("threading.Event.wait", side_effect=wait, autospec=True):
+                with patch("ub_agents.signals.SignalEvent.wait", side_effect=wait, autospec=True):
                     self.assertEqual(main(self.argv + arguments + ["--no-ui"]), 0)
                 self.assertEqual(activities, [5, 10, 20, 40, 60, 60, 60, 60])
                 self.assertEqual(self.checks.call_count, 9)
@@ -204,7 +204,7 @@ class LaunchSetupTests(unittest.TestCase):
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             with self.subTest(signal=sig):
                 self.checks.reset_mock()
-                with patch("threading.Event.wait", side_effect=lambda *_: signal.raise_signal(sig)):
+                with patch("ub_agents.signals.SignalEvent.wait", side_effect=lambda *_: signal.raise_signal(sig)):
                     self.assertEqual(main(self.argv), 0 if sig == signal.SIGTERM else 130)
                 self.assertEqual(self.checks.call_count, 1)
                 self.assert_no_work()

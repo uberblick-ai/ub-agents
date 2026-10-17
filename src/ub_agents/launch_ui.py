@@ -52,6 +52,7 @@ class ViewProcess:
         self.error = None
         self.modes = None
         self.winch_handler = None
+        self.resize_requested = False
         self.poll = poll
         self.awake = KeepAwake(self.publish_awake)
 
@@ -74,11 +75,9 @@ class ViewProcess:
                 pass_fds=(child.fileno(), *descriptors()), stdin=sys.stdin, stdout=self.output.stdout.terminal,
                 stderr=subprocess.DEVNULL, start_new_session=True)
             def resize(*_):
-                if self.process.poll() is None:
-                    try:
-                        os.kill(self.process.pid, signal.SIGWINCH)
-                    except ProcessLookupError:
-                        pass
+                # Popen.poll takes its waitpid lock. A signal handler must not
+                # reacquire a lock held by the interrupted main thread.
+                self.resize_requested = True
             self.winch_handler = signal.signal(signal.SIGWINCH, resize)
             self.thread = threading.Thread(target=self.monitor, name='terminal-view-supervisor')
             self.thread.start()
@@ -112,6 +111,7 @@ class ViewProcess:
         code = None
         try:
             while True:
+                self.forward_resize()
                 if select.select([self.channel], [], [], 0.05)[0]:
                     data = self.channel.recv(1024)
                     if not data:
@@ -145,6 +145,15 @@ class ViewProcess:
                 detail = self.error or f'view exited {code}'
                 print(f'Terminal view closed: {" ".join(detail.split())}; continuing with plain output')
             self.ready.set()
+
+    def forward_resize(self):
+        if self.resize_requested:
+            self.resize_requested = False
+            if self.process.poll() is None:
+                try:
+                    os.kill(self.process.pid, signal.SIGWINCH)
+                except ProcessLookupError:
+                    pass
 
     def close(self):
         self.closing.set()
