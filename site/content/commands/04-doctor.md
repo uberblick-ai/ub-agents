@@ -5,7 +5,7 @@ Run `ub-agents doctor` when a launch fails or you're unsure your setup is comple
 ```sh
 ub-agents doctor             # all checks
 ub-agents doctor --offline   # only what's on this machine
-ub-agents doctor --json      # the same results for scripts
+ub-agents doctor --json      # the same results, machine readable
 ```
 
 ## Results

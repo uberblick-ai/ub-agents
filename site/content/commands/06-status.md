@@ -5,7 +5,7 @@ Run `ub-agents status` to see the queue: what's running, what's next, what's wai
 ```sh
 ub-agents status          # the whole queue
 ub-agents status 143      # why #143 is or isn't running
-ub-agents status --json   # the same results for scripts
+ub-agents status --json   # the same results, machine readable
 ```
 
 ## One item
