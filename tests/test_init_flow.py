@@ -454,15 +454,62 @@ class FlowTests(unittest.TestCase):
         self.run_flow()
         self.assertNotIn('Switch this checkout to main?', self.script.asked)
 
-    def test_unattended_reads_nothing_and_keeps_permissions_off(self):
+    def test_unattended_uses_gh_user_and_keeps_permissions_off(self):
         code, text = self.run_flow(unattended=True)
         self.assertEqual(code, 0)
-        self.assertEqual((self.github.reads, self.github.writes), ([], []))
+        self.assertEqual((self.github.reads, self.github.writes), (['repos/org/project/teams', 'user'], []))
         self.assertIn('Checks skipped', text)
         self.assertNotIn('Approvals:', text)
+        self.assertIn("Who answers the agents' questions? @operator · current gh user; "
+                      'edit .agents/ub_agents.md to change it', text)
+        self.assertNotIn("Who answers the agents' questions?", self.script.asked)
+        policy = (self.root / '.agents' / 'ub_agents.md').read_text()
+        self.assertIn('`@operator` answers scope and policy questions.', policy)
+        self.assertNotIn('@org/maintainers', policy)
         self.assertTrue(all(not agent.runtime_args for agent in load_config(self.path).agents))
         self.assertIn('# runtime-updates:\n#   codex: auto\n#   gh: auto', self.path.read_text())
         self.assertIn('gh label create ready --repo org/project', text)
+
+    def test_unattended_uses_first_maintaining_team_without_reading_actor(self):
+        self.github.team_handles = ['@org/core', '@org/admins']
+        self.github.auth_error = AgentError('user unreadable')
+        code, text = self.run_flow(unattended=True)
+        self.assertEqual(code, 0)
+        self.assertEqual((self.github.reads, self.github.writes), (['repos/org/project/teams'], []))
+        self.assertIn("Who answers the agents' questions? @org/core · first maintaining team; "
+                      'edit .agents/ub_agents.md to change it', text)
+        self.assertNotIn("Who answers the agents' questions?", self.script.asked)
+        policy = (self.root / '.agents' / 'ub_agents.md').read_text()
+        self.assertIn('`@org/core` answers scope and policy questions.', policy)
+        self.assertNotIn('@org/maintainers', policy)
+
+    def test_unattended_falls_back_to_gh_user_when_team_read_fails(self):
+        with patch.object(self.github, 'teams', side_effect=AgentError('teams unreadable')) as teams:
+            code, text = self.run_flow(unattended=True)
+        self.assertEqual(code, 0)
+        teams.assert_called_once_with()
+        self.assertEqual(self.github.reads, ['user'])
+        self.assertIn('@operator · current gh user; edit .agents/ub_agents.md to change it', text)
+        self.assertIn('`@operator` answers scope and policy questions.',
+                      (self.root / '.agents' / 'ub_agents.md').read_text())
+
+    def test_unattended_unreadable_owner_keeps_placeholder_and_warns_before_launch(self):
+        for error in (AgentError('not logged in'), FileNotFoundError('gh missing'),
+                      subprocess.TimeoutExpired('gh', 120), UnicodeError('unreadable response')):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                with patch.object(self.github, 'teams', side_effect=error) as teams, \
+                        patch.object(self.github, 'actor', side_effect=error) as actor:
+                    code, text = self.run_flow(unattended=True)
+                self.assertEqual(code, 0)
+                teams.assert_called_once_with()
+                actor.assert_called_once_with()
+                self.assertIn('Setup written', text)
+                self.assertIn('Replace @org/maintainers in .agents/ub_agents.md before launch', text)
+                self.assertNotIn("Who answers the agents' questions?", self.script.asked)
+                self.assertIn('`@org/maintainers` answers scope and policy questions;',
+                              (self.path.parent / '.agents' / 'ub_agents.md').read_text())
+                self.assertEqual(self.github.writes, [])
 
     def test_partial_label_failure_reports_what_is_left(self):
         create = self.github.create_label
@@ -550,7 +597,9 @@ class TerminalTests(unittest.TestCase):
         for stdin_tty, stdout_tty, ci in ((False, True, ''), (True, False, ''), (True, True, '1')):
             with self.subTest(stdin=stdin_tty, stdout=stdout_tty, ci=ci), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / 'workflow.yaml'
+                github = SetupGitHub()
                 with patch('ub_agents.cli.sys.stdin.isatty', return_value=stdin_tty), \
+                        patch('ub_agents.cli.GitHub', return_value=github), \
                         patch('ub_agents.init_prompts.InlinePrompter.run', side_effect=AssertionError('prompt')), \
                         patch('subprocess.run', side_effect=AssertionError('probe')), \
                         patch('builtins.input', side_effect=AssertionError('prompt')), \
@@ -559,6 +608,8 @@ class TerminalTests(unittest.TestCase):
                         self.assertEqual(main(['init', '--config', str(path), '--repository', 'org/project']), 0)
                 self.assertTrue(path.exists())
                 self.assertIn('Checks skipped', stdout.getvalue())
+                self.assertIn('@operator · current gh user', stdout.getvalue())
+                self.assertEqual(github.reads, ['repos/org/project/teams', 'user'])
 
     def test_inline_flow_in_a_real_terminal(self):
         with tempfile.TemporaryDirectory() as directory:

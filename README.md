@@ -132,7 +132,11 @@ ub-agents init --use-defaults --repository org/project
 
 CI and non-TTY runs also use defaults without prompts. Without `--runtime`, they
 use Codex. They keep permissions and updates commented out, leave the extras off,
-keep the `@org/maintainers` placeholder, print label commands and open no PR.
+print label commands and open no PR. They set who answers the agents' questions
+to the first team with maintain or admin access, or the current `gh` user if no
+team is readable, and print the choice and its source. If neither is readable,
+setup completes with a reminder to replace `@org/maintainers` in
+`.agents/ub_agents.md` before launch.
 
 Before the first launch:
 

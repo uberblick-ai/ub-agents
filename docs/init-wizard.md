@@ -242,6 +242,10 @@ A checkout with local changes (untracked files included) stops after the checks:
 `--use-defaults`, CI and non-TTY runs:
 
 These runs skip all extras and register no MCP server. The setup remains local-only.
+They set who answers the agents' questions to the first team with maintain or
+admin access, falling back to the current `gh` user, and print the choice and its
+source. If neither is readable, setup still completes, keeps the placeholder and
+prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
 
 ```text
 ┌   ub-agents init  v0.3.1
@@ -259,6 +263,9 @@ These runs skip all extras and register no MCP server. The setup remains local-o
 │
 ◇  Keep codex and gh up to date?
 │  No
+│
+◇  Who answers the agents' questions?
+│  @org/maintainers · first maintaining team; edit .agents/ub_agents.md to change it
 │
 ◇  Extras
 │  None
