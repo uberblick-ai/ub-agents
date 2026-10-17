@@ -62,7 +62,7 @@ class SiteTests(unittest.TestCase):
             with patch.object(build, 'ROOT', root):
                 q = 'Check%20a.md%20%26%20ask%20me.'
                 self.assertEqual(build.inline('- Review `a.md`. {{discuss example}}'),
-                                 '- Review <code>a.md</code>. <span class="discuss">'
+                                 '- Review <code>a.md</code>. <span class="discuss">Discuss with:'
                                  f'<a class="claude" href="claude://code/new?q={q}"><svg>claude</svg>Claude</a>'
                                  f'<a href="codex://new?prompt={q}"><svg>openai</svg>Codex</a></span>')
                 self.assertIn('{{discuss example}}', build.markdown('```text\n{{discuss example}}\n```')[1])

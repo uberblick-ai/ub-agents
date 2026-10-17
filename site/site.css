@@ -120,7 +120,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 10px }
 .flow svg { display: block; width: 100%; min-width: 600px; height: auto }
 
 /* {{discuss NAME}}: inline buttons that open a prompt from site/prompts in Claude or Codex. */
-.discuss { display: inline-flex; gap: 6px; margin-left: 6px; vertical-align: middle }
+.discuss { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; vertical-align: middle; color: var(--muted); font-size: 13px }
 .discuss a { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: 500 12px/1.2 var(--mono); text-decoration: none }
 .discuss a:hover { border-color: var(--accent); color: var(--accent) }
 .discuss svg { width: 12px; height: 12px; fill: currentColor }
