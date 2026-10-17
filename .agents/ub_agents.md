@@ -13,9 +13,8 @@ integrator's own base merge, starts a new run: wait with `gh pr checks N --watch
 No agent enables auto-merge, changes branch protection or publishes a release.
 Leave the merge to `@uberblick-ai/maintainers` when the PR:
 
-- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any
-  `AGENTS.md` or `CLAUDE.md`;
-- changes setup, CI or release tooling;
+- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` or `AGENTS.md`;
+- changes setup, CI or release tooling: `mise.toml`, `.github/` or `scripts/`;
 - changes the `ub-agents` command line (adds, removes or renames commands or options,
   or changes what they do or print) beyond what the closing issue asks for;
 - needs every launcher of a project restarted together, because a launcher from the
