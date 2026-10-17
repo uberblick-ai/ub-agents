@@ -90,13 +90,11 @@ class InitHelpFormatter(CommentHelpFormatter):
 
 
 class HelpParser(argparse.ArgumentParser):
-    def __init__(self, *args, examples=(), overview_options=(), run_command=False,
-                 overview_hidden=False, **kwargs):
+    def __init__(self, *args, examples=(), overview_options=(), overview_hidden=False, **kwargs):
         kwargs.setdefault("formatter_class", HelpFormatter)
         super().__init__(*args, **kwargs)
         self.examples = examples
         self.overview_options = overview_options
-        self.run_command = run_command
         self.overview_hidden = overview_hidden
         # argparse registers this first; display it last in command help.
         for action in self._actions:
@@ -144,13 +142,10 @@ class HelpParser(argparse.ArgumentParser):
                             if isinstance(action, argparse._SubParsersAction)
                             for choice in action._choices_actions}
             lines = [f"{self.prog} — {self.description}", "", self.format_usage().rstrip()]
-            for run_command, title in ((False, "commands:"),
-                                       (True, "inside a run, through the launcher's report_command:")):
-                rows = [(command.overview_synopsis(name), descriptions[name])
-                        for name, command in commands.items()
-                        if command.run_command == run_command and not command.overview_hidden]
-                if rows:
-                    lines.extend(["", title, *formatter.rows(rows)])
+            rows = [(command.overview_synopsis(name), descriptions[name])
+                    for name, command in commands.items() if not command.overview_hidden]
+            if rows:
+                lines.extend(["", "commands:", *formatter.rows(rows)])
             lines.extend(["", "options:", *formatter.option_rows(self._actions)])
         else:
             lines = [self.prog] if formatter.command_heading else []

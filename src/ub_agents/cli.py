@@ -90,7 +90,7 @@ def parser():
                                  examples=("ub-agents status", "ub-agents status 143", "ub-agents status 143 --json"))
     status.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="inspect only this item (optional)")
     status.add_argument("--json", action="store_true", help="emit structured status")
-    report = commands.add_parser("report", help="record the run's outcome", run_command=True,
+    report = commands.add_parser("report", help="record the run's outcome", overview_hidden=True,
                                  description="Record a supervised run's explicit result on GitHub. "
                                  "Use inside the launcher-provided assignment environment; choose --status or --outcome (required). "
                                  "Stop reports (--status blocked or an outcome adding a configured stop label) require --action or --option.",
@@ -104,7 +104,7 @@ def parser():
     report.add_argument("--action", action="append", help="one independent ask that is needed, at most 300 characters; repeat for each ask")
     report.add_argument("--option", action="append", help="one alternative way to unblock, at most 300 characters; repeat with the recommendation first; append : `COMMAND` for a command block")
     report.add_argument("--handoff", type=int, metavar="NUMBER", help="implementation PR number; its head is recorded")
-    retrospective = commands.add_parser("retrospective", help="post to the agent's retrospective board", run_command=True,
+    retrospective = commands.add_parser("retrospective", help="post to the agent's retrospective board", overview_hidden=True,
                                         description="Post a body file as a top-level comment on the agent's configured "
                                         "retrospective discussion. Only available inside a supervised run; use the "
                                         "launcher's literal report_command. The repository and board are pinned by "
@@ -124,7 +124,7 @@ def parser():
     retry.add_argument("number", metavar="NUMBER", type=int, nargs="?", required_for_help=True,
                        help="issue or PR number")
     retry.add_argument("--number", dest="legacy_number", type=int, help=argparse.SUPPRESS)
-    read = commands.add_parser("read", help="read an issue or PR as filtered JSON", run_command=True,
+    read = commands.add_parser("read", help="read an issue or PR as filtered JSON", overview_hidden=True,
                                description="Read an open or closed issue or PR under the assignment input trust rules. "
                                "Withheld input is marked or counted; history and permission failures show no item content. "
                                "trusted-bots trusts listed GitHub bot feedback like write, without maintainer authority. "

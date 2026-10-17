@@ -29,11 +29,6 @@ commands:
                          matching work, owners, attempts and why items wait
   retry NUMBER           let stopped work run again, with a recorded reason
 
-inside a run, through the launcher's report_command:
-  report                 record the run's outcome
-  retrospective          post to the agent's retrospective board
-  read NUMBER            read an issue or PR as filtered JSON
-
 options:
   -h, --help             show this help; after a command, that command's help
   -v, --version          print the version
@@ -154,12 +149,11 @@ class HelpTests(unittest.TestCase):
             with self.subTest(argv=argv):
                 self.assertEqual(self.invoke(argv), (0, INIT_HELP, ""))
 
-    def test_every_registered_command_has_one_aligned_overview_row(self):
+    def test_every_non_hidden_registered_command_has_one_aligned_overview_row(self):
         overview = self.invoke([])[1]
         rows = [line for line in overview.splitlines() if re.match(r"^  [a-z]", line)]
-        expected = [name for run_command in (False, True)
-                    for name, command in self.command_line.commands().items()
-                    if command.run_command == run_command and not command.overview_hidden]
+        expected = [name for name, command in self.command_line.commands().items()
+                    if not command.overview_hidden]
         self.assertEqual([line.split()[0] for line in rows], expected)
         lines = overview.splitlines()
         for line in rows:
@@ -208,10 +202,7 @@ class HelpTests(unittest.TestCase):
                     self.assertEqual(result.stderr, "")
                     self.assertEqual(result.stdout, OVERVIEW)
 
-    def test_compact_report_row_preserves_detailed_choices_and_parsing(self):
-        rows = {line.split()[0]: line[2:25].strip()
-                for line in self.command_line.format_help().splitlines() if re.match(r"^  [a-z]", line)}
-        self.assertEqual(rows["report"], "report")
+    def test_report_preserves_detailed_choices_and_parsing(self):
         details = self.command_line.commands()["report"].format_help()
         self.assertIn("--status {retry,blocked}", details)
         self.assertIn("--outcome OUTCOME", details)
