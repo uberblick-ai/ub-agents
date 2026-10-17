@@ -63,8 +63,9 @@ class SiteTests(unittest.TestCase):
                 q = 'Check%20a.md%20%26%20ask%20me.'
                 self.assertEqual(build.inline('- Review `a.md`. {{discuss example}}'),
                                  '- Review <code>a.md</code>. <span class="discuss">Discuss with:'
-                                 f'<a class="claude" href="claude://code/new?q={q}"><svg>claude</svg>Claude</a>'
-                                 f'<a href="codex://new?prompt={q}"><svg>openai</svg>Codex</a></span>')
+                                 f'<a class="claude" href="claude://code/new?q={q}" title="Opens the Claude desktop app">'
+                                 '<svg>claude</svg>Claude</a>'
+                                 f'<a href="codex://new?prompt={q}" title="Opens the Codex app"><svg>openai</svg>Codex</a></span>')
                 self.assertIn('{{discuss example}}', build.markdown('```text\n{{discuss example}}\n```')[1])
 
     def test_loop_page_navigation_diagrams_and_links(self):

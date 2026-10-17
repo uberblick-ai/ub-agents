@@ -47,8 +47,8 @@ def discuss(name):
     """Buttons that open site/prompts/NAME.md in Claude Code or Codex."""
     q = urllib.parse.quote(' '.join((ROOT / 'prompts' / f'{name}.md').read_text().split()), safe='')
     icon = {cli: (ROOT / 'icons' / f'{cli}.svg').read_text().strip() for cli in ('claude', 'openai')}
-    return (f'<span class="discuss">Discuss with:<a class="claude" href="claude://code/new?q={q}">{icon["claude"]}Claude</a>'
-            f'<a href="codex://new?prompt={q}">{icon["openai"]}Codex</a></span>')
+    return (f'<span class="discuss">Discuss with:<a class="claude" href="claude://code/new?q={q}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
+            f'<a href="codex://new?prompt={q}" title="Opens the Codex app">{icon["openai"]}Codex</a></span>')
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', text).lower()).strip('-')
