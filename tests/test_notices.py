@@ -373,9 +373,7 @@ class NoticeTests(unittest.TestCase):
                     if stops:
                         steps = 'Remove the stop label(s) `needs-human`, then apply a trigger to resume worker: `ready`.'
                     else:
-                        trigger = '`ready`' if number == 1 else '`needs-changes`'
-                        steps = (f'```sh\nub-agents retry {number} --agent worker --reason "Human resolved the blocker"\n```'
-                                 f'\n\nRestore a matching trigger if absent: {trigger}; remove any stop label.')
+                        steps = f'```sh\nub-agents retry {number} --agent worker --reason "Human resolved the blocker"\n```'
                     expected = (f"{ACTION_MARKER}{lease['run']} -->\n**Action needed**\n\n"
                                 f'**Maintainer: decide.**\n\nThen resume worker:\n\n{steps}\n\n'
                                 'Use these steps only when resuming the same role (`worker`). '
@@ -460,7 +458,9 @@ class NoticeTests(unittest.TestCase):
         for evidence in ('Candidate:', 'Review decision:', 'CI for this SHA:', lease['url'], outcome['url']):
             self.assertNotIn(evidence, visible)
             self.assertIn(evidence, details)
-        for step in ('ub-agents retry', 'Restore a matching trigger', 'same role (`worker`)', 'different role'):
+        self.assertNotIn('Restore a matching trigger', comment)
+        self.assertNotIn('remove any stop label', comment)
+        for step in ('ub-agents retry', 'same role (`worker`)', 'different role'):
             self.assertIn(step, resume)
             self.assertNotIn(step, visible)
             self.assertNotIn(step, details)
@@ -491,7 +491,7 @@ class NoticeTests(unittest.TestCase):
         for evidence in (summary, 'Candidate:', 'Review decision:', 'CI for this SHA:', lease['url'], outcome['url']):
             self.assertIn(evidence, details)
         self.assertIn('```sh\nub-agents retry 2', resume)
-        self.assertIn('Restore a matching trigger', resume)
+        self.assertNotIn('Restore a matching trigger', resume)
         self.assertNotIn('ub-agents retry', details)
 
     def test_single_backtick_code_survives_and_other_markdown_is_escaped(self):
@@ -758,6 +758,8 @@ class NoticeTests(unittest.TestCase):
                                  "launcher-host", str(self.root / ".ub-agents" / "runs" / lease["run"]),
                                  lease["url"], outcome["url"], "ub-agents retry 1 --agent worker"):
                     self.assertIn(expected, notice)
+                self.assertNotIn('Restore a matching trigger', notice)
+                self.assertNotIn('remove any stop label', notice)
                 before = deepcopy(github.writes)
                 self.output.clear()
                 for _ in range(3):

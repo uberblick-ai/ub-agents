@@ -114,7 +114,7 @@ def parser():
     retrospective.add_argument("--body-file", required=True, metavar="PATH", help="path to a UTF-8 retrospective body file")
     retry = commands.add_parser("retry", help="let stopped work run again, with a recorded reason",
                                 description="Record a human-authorized reset of blocked work and attempt limits. "
-                                "Use after resolving the cause; stop labels and missing triggers still prevent pickup. "
+                                "Use after resolving the cause; on open items, remove stop labels and restore the agent's trigger. "
                                 "Without --agent, print and use the first configured agent whose kind applies to the item.",
                                 examples=('ub-agents retry 143 --reason "Blocker resolved"',
                                           'ub-agents retry 150 --agent reviewer --reason "Checks restored"'))
@@ -229,24 +229,33 @@ def status_rows(loop, now=None, *, plans=None):
     return rows
 
 
-def retry_next_step(item, agent, stop_labels):
+def retry_labels(github, item, agent, stop_labels):
     if item.state == "closed":
         return f"#{item.number} is closed."
     stops = [label for label in stop_labels if label in item.labels]
-    triggers = [label for label in agent.triggers if label in item.labels]
+    added = [] if any(label in item.labels for label in agent.triggers) else [agent.triggers[0]]
+    remaining = list(stops)
+    try:
+        for label in stops:
+            github.remove_label(item.number, label)
+            remaining.remove(label)
+        if added:
+            github.add_labels(item.number, added)
+    except AgentError as exc:
+        steps = []
+        if remaining:
+            steps.append(f"remove {', '.join(remaining)}")
+        if added:
+            steps.append(f"add {', '.join(added)}")
+        raise AgentError(f"Reset recorded, but label changes failed ({exc}). "
+                         f"By hand, {'; '.join(steps)}.") from exc
+    changes = []
     if stops:
-        plural = len(stops) > 1
-        message = (f"#{item.number} has stop label{'s' if plural else ''} {', '.join(stops)}; "
-                   f"it stays parked until {'the labels are' if plural else 'the label is'} removed.")
-        if not triggers:
-            message += (f" One of {agent.name}'s trigger labels must also be added: "
-                        f"{', '.join(agent.triggers)}.")
-        return message
-    if not triggers:
-        return (f"#{item.number} won't run until one of {agent.name}'s trigger labels is added: "
-                f"{', '.join(agent.triggers)}.")
-    return (f"#{item.number} has trigger label{'s' if len(triggers) > 1 else ''} {', '.join(triggers)}; "
-            "a running launcher picks it up on its next poll. `ub-agents status` shows its progress.")
+        changes.append(f"removed {', '.join(stops)}")
+    if added:
+        changes.append(f"added {', '.join(added)}")
+    message = ', '.join(changes) if changes else "Labels were already in place"
+    return f"{message[0].upper()}{message[1:]}. A running launcher picks it up on its next poll."
 
 
 def launch_checks(config, github, read_git=None):
@@ -364,7 +373,7 @@ def run(args):
         created = records([github.create_comment(item.number, body(record))])[0]
         coordinator.notices.resumed(item.number)
         print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
-        print(retry_next_step(item, agent, config.stop_labels))
+        print(retry_labels(github, item, agent, config.stop_labels))
         return
     stop = SignalEvent()
     interrupt = SignalEvent()

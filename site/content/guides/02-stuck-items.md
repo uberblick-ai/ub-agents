@@ -20,7 +20,7 @@ in the header. Other roles with different blockers get compact labelled sections
 with their own short reasons. Issue keeps every contributing agent's full state
 and reasons, and shows the cached notice or fallback resume steps below its description.
 
-For a PR run-outcome notice, merging or closing the PR finishes the item; nothing else is needed. To return it to the same agent instead, expand **To send it back to AGENT instead**. Issue notices and notices whose item type could not be read fold their same-role steps under **To resume AGENT**. These controls contain the retry command, label steps and same-role guidance, separate from the collapsed **Reasoning and evidence** section. The reporter's requested actions stay visible above the decision options. Both controls start collapsed; click a title or focus it and press Enter to expand it. Approval-gate notices keep their visible authorization and resume steps, and older notices display as before.
+For a PR run-outcome notice, merging or closing the PR finishes the item; nothing else is needed. To return it to the same agent instead, expand **To send it back to AGENT instead**. Issue notices and notices whose item type could not be read fold their same-role steps under **To resume AGENT**. These controls contain the retry command or manual label steps, plus same-role guidance, separate from the collapsed **Reasoning and evidence** section. The reporter's requested actions stay visible above the decision options. Both controls start collapsed; click a title or focus it and press Enter to expand it. Approval-gate notices keep their visible authorization and resume steps, and older notices display as before.
 
 If an item's comment is unavailable, Unblock labels its reason as a fallback. Blocked PRs show the completion line and fold the `ub-agents retry N --agent AGENT --reason "Human resolved the blocker"` command under **To send it back to AGENT instead**; blocked issues and unknown item types use **To resume AGENT**. A failed blocked notice post is retried on later launcher passes until the item resumes.
 Merged items keep a separate retry command for each blocked agent, together in
@@ -41,6 +41,17 @@ After [`max-attempts`](/docs/configuration/limits.html#attempts) failures in a r
 ```sh
 ub-agents retry 214 --reason "Fixed the flaky fixture"
 ```
+
+On an open item, retry records the reset, removes all configured stop labels
+present and adds the selected agent's first trigger if none of its triggers is
+present. It names the changes, or says the labels were already in place, then
+says a running launcher picks it up on its next poll. A closed item gets the reset
+without label changes. If changing labels fails, the reset stays recorded and
+retry exits nonzero with the remaining manual label steps.
+
+For a `max-rounds` stop, retry also resets the round count. To allow just one more
+round without resetting it, remove the stop label and reapply the agent's trigger
+by hand. Another limited outcome parks the item again.
 
 ## Run one item now
 

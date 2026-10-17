@@ -281,15 +281,11 @@ class Notices:
             resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
             if rounds:
                 resume += (" This allows one more run with the count kept; another limited outcome parks it again."
-                           f"\n\nFor a fresh set of {rounds['limit']} rounds, reset the count first:\n\n"
-                           f"```sh\n{retry_command(number, lease['agent'])}\n```\n\n"
-                           f"Then remove {labels} and apply a trigger: {triggers}. Retry does not restore labels.")
+                           f"\n\nFor a fresh set of {rounds['limit']} rounds, reset the count:\n\n"
+                           f"```sh\n{retry_command(number, lease['agent'])}\n```")
         else:
             command = retry_command(number, lease['agent'])
-            triggers = ", ".join(f"`{label}`" for label in lease.get("triggers", ()))
             resume = f"```sh\n{command}\n```"
-            if triggers:
-                resume += f"\n\nRestore a matching trigger if absent: {triggers}; remove any stop label."
         resume = (f"{resume}\n\n"
                   f"Use these steps only when resuming the same role (`{lease['agent']}`). "
                   "If a different role must act next, follow the project's documented correction "
@@ -304,8 +300,7 @@ class Notices:
         if rounds:
             options = [
                 f"Maintainer: remove {labels} and apply a trigger ({triggers}) for one more run; keep the round count.",
-                f"Maintainer: reset the round count with `{retry_command(number, lease['agent'])}`, "
-                f"then remove {labels} and apply a trigger ({triggers}) for a fresh set of rounds.",
+                f"Maintainer: reset the round count for a fresh set of rounds: `{retry_command(number, lease['agent'])}`",
                 *options]
         if not actions and not options:
             actions = ["Maintainer: review the blocker details and decide the next step."]

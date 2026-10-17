@@ -187,8 +187,8 @@ The starter PR reviewer allows three `changes-requested` rounds. On the fourth
 review, it approves with P2 suggestions listed when no P1 finding remains;
 otherwise it requests changes with open P1 findings and the launcher parks the PR
 with `needs-human`. Remove that label and reapply `needs-review` for one more
-review, or use `ub-agents retry N --agent reviewer --reason TEXT` to reset the count
-before restoring labels. See [outcome limits](docs/configuration.md#outcomes-and-transitions).
+review with the count kept, or use `ub-agents retry N --agent reviewer --reason TEXT`
+to reset the count and restore labels automatically. See [outcome limits](docs/configuration.md#outcomes-and-transitions).
 Older launchers reject `max-rounds`; upgrade every launcher before using it.
 
 The issue-reviewer checks scope, feasibility and acceptance criteria without editing

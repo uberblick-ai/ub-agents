@@ -88,6 +88,10 @@ class RoundTests(unittest.TestCase):
                      'one more run', 'keep the round count', 'fresh set of rounds',
                      'ub-agents retry 1 --agent reviewer --reason', '`needs-review`', '`needs-human`'):
             self.assertIn(text, notice)
+        self.assertNotIn('Retry does not restore labels', notice)
+        self.assertNotIn('Then remove', notice)
+        self.assertIn('Maintainer: reset the round count for a fresh set of rounds\n\n'
+                      '   ```sh\n   ub-agents retry 1 --agent reviewer --reason "Human resolved the blocker"\n   ```', notice)
         self.assertNotIn('needs-changes', report['transition']['add'])
         self.assertEqual(report['summary'], 'P1: lost update.\n\nP1: failing check.')
 
@@ -113,12 +117,12 @@ class RoundTests(unittest.TestCase):
                     patch('ub_agents.cli.GitHub', return_value=self.github), \
                     redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 self.assertEqual(main(['retry', '1', '--agent', role.name, '--reason', 'Findings resolved']), 0)
-            self.assertEqual(self.github.item(1).labels, {'unrelated', 'needs-human'})
+            self.assertEqual(self.github.item(1).labels,
+                             {'unrelated', 'ready'} | ({'needs-review'} if role.name == 'reviewer' else set()))
             self.assertEqual(self.count(), 0 if role.name == 'reviewer' else 5)
-        self.resume()
         lease, _ = self.run_review()
         self.assertEqual(lease['outcome_rounds']['changes-requested']['used'], 0)
-        self.assertEqual(self.github.item(1).labels, {'unrelated', 'needs-changes'})
+        self.assertEqual(self.github.item(1).labels, {'unrelated', 'ready', 'needs-changes'})
 
     def test_integrator_outcomes_including_conflicts_and_new_pr_do_not_use_reviewer_rounds(self):
         self.use_rounds(2)
