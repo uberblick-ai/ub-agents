@@ -199,6 +199,8 @@ class UnblockDataTests(unittest.TestCase):
                 self.assertIn('ub-agents retry 178 --agent worker --reason "Human resolved the blocker"', body)
                 self.assertIn('same role', body)
                 self.assertIn('different role', body)
+                self.assertNotIn('Restore a matching trigger', body)
+                self.assertNotIn('remove any stop label', body)
                 visible, title, steps = resume_section(body)
                 self.assertEqual(visible, '**Fallback: action-needed comment unavailable.**\n\n' + row.reason + '\n\n'
                                  'Merging or closing #178 finishes this item; nothing else is needed.')

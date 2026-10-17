@@ -363,7 +363,7 @@ numbered options and "(recommended)" on the first. An option's trailing
 single-backtick command after a colon and space renders in its own code block;
 other single-backtick code stays inline and other ask Markdown is escaped.
 PR run-outcome notices show "Merging or closing #N finishes this item; nothing
-else is needed." visibly. Their retry and trigger instructions, or stop-label
+else is needed." visibly. Their retry instructions, or stop-label
 and trigger steps for outcomes adding a stop label, stay in a separate collapsed
 "To send it back to AGENT instead" control. Issue notices and notices whose item
 type could not be read keep visible "Then resume AGENT:" steps. Approval-gate
@@ -375,7 +375,7 @@ prose comments still render as written.
 
 When a blocked row has no available notice, Unblock shows its published reason.
 For a PR it also shows the completion line and a collapsed "To send it back to
-AGENT instead" control with the retry command and trigger and stop-label hints.
+AGENT instead" control with the retry command, which restores labels after recording the reset.
 Issues and unknown item types keep the fallback resume steps visible. An
 available trusted notice replaces the fallback.
 

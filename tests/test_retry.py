@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator
+from ub_agents.errors import GitHubError
 from ub_agents.records import iso, records, seconds
 from tests.support import PollGitHub, agent, config, edit_lease, issue, pr
 
@@ -35,7 +36,7 @@ class RetryTests(unittest.TestCase):
                           + (["--agent", name] if name is not None else []))
         return result, output.getvalue(), errors.getvalue()
 
-    def assert_next_step(self, labels, expected, state="open"):
+    def assert_label_changes(self, labels, expected, removed=(), added=(), state="open"):
         for factory in (issue, pr):
             with self.subTest(kind=factory.__name__, state=state, labels=labels):
                 item = replace(factory(97, labels=labels), state=state)
@@ -49,46 +50,92 @@ class RetryTests(unittest.TestCase):
                 # Reset notice cleanup checks the new record author's role.
                 self.assertEqual(self.github.reads, [
                     ("comments", (97,)), ("item", (97, None)), ("comments", (97,)), ("role", ("operator",))])
-                self.assertEqual(self.github.writes, [("create", 1)])
+                self.assertEqual(self.github.writes, [("create", 1)]
+                                 + [("remove-label", 97, label) for label in removed]
+                                 + ([("add-labels", 97, added)] if added else []))
                 reset = records(self.github.store[97], "operator")[0]
                 self.assertEqual((reset["kind"], reset["agent"], reset["assignment"],
                                   reset["assignment_sha"], reset["summary"]),
                                  ("reset", "worker", 97, item.head, "Cause resolved"))
-                self.assertEqual(self.github.items[97], item)
+                self.assertEqual(self.github.items[97], replace(item, labels=item.labels.difference(removed).union(added)))
 
     def test_closed_takes_precedence_over_labels(self):
         for labels in ((), ("ready", "needs-human", "paused"), ("needs-human",)):
-            self.assert_next_step(labels, "#97 is closed.", state="closed")
+            self.assert_label_changes(labels, "#97 is closed.", state="closed")
 
-    def test_stop_labels_take_precedence_over_present_triggers(self):
-        self.assert_next_step(("needs-human", "ready"),
-                              "#97 has stop label needs-human; it stays parked until the label is removed.")
-        self.assert_next_step(("paused", "needs-human", "needs-changes"),
-                              "#97 has stop labels needs-human, paused; "
-                              "it stays parked until the labels are removed.")
+    def test_removes_only_present_stop_labels_and_keeps_existing_trigger(self):
+        self.assert_label_changes(("needs-human", "ready"),
+                                  "Removed needs-human. A running launcher picks it up on its next poll.",
+                                  removed=("needs-human",))
+        self.assert_label_changes(("paused", "needs-human", "needs-changes", "unrelated", "other-ready"),
+                                  "Removed needs-human, paused. A running launcher picks it up on its next poll.",
+                                  removed=("needs-human", "paused"))
 
-    def test_stop_labels_and_missing_triggers_both_need_attention(self):
-        self.assert_next_step(("needs-human", "other-ready"),
-                              "#97 has stop label needs-human; it stays parked until the label is removed. "
-                              "One of worker's trigger labels must also be added: ready, needs-changes.")
-        self.assert_next_step(("paused", "needs-human"),
-                              "#97 has stop labels needs-human, paused; "
-                              "it stays parked until the labels are removed. "
-                              "One of worker's trigger labels must also be added: ready, needs-changes.")
+    def test_removes_stop_labels_and_adds_first_trigger_after_reset(self):
+        self.assert_label_changes(("needs-human", "other-ready", "ready-to-merge", "unrelated"),
+                                  "Removed needs-human, added ready. A running launcher picks it up on its next poll.",
+                                  removed=("needs-human",), added=("ready",))
+        self.assert_label_changes(("paused", "needs-human"),
+                                  "Removed needs-human, paused, added ready. "
+                                  "A running launcher picks it up on its next poll.",
+                                  removed=("needs-human", "paused"), added=("ready",))
 
-    def test_missing_triggers_list_only_selected_agents_labels(self):
+    def test_missing_triggers_add_only_selected_agents_first_trigger(self):
         for labels in ((), ("other-ready", "unrelated")):
-            self.assert_next_step(labels,
-                                  "#97 won't run until one of worker's trigger labels is added: "
-                                  "ready, needs-changes.")
+            self.assert_label_changes(labels, "Added ready. A running launcher picks it up on its next poll.",
+                                      added=("ready",))
 
-    def test_present_triggers_name_each_match_and_describe_next_poll(self):
-        for labels, description in ((("ready",), "label ready"),
-                                    (("needs-changes", "unrelated"), "label needs-changes"),
-                                    (("needs-changes", "ready"), "labels ready, needs-changes")):
-            self.assert_next_step(labels, f"#97 has trigger {description}; "
-                                  "a running launcher picks it up on its next poll. "
-                                  "`ub-agents status` shows its progress.")
+    def test_present_triggers_need_no_changes(self):
+        for labels in (("ready",), ("needs-changes", "unrelated"), ("needs-changes", "ready")):
+            self.assert_label_changes(labels, "Labels were already in place. "
+                                      "A running launcher picks it up on its next poll.")
+
+    def test_output_preserves_label_case(self):
+        self.worker = replace(self.worker, triggers=("Ready",))
+        self.config = replace(config(self.root, self.worker), stop_labels=("Needs-Human",))
+        self.assert_label_changes(("Needs-Human",),
+                                  "Removed Needs-Human, added Ready. A running launcher picks it up on its next poll.",
+                                  removed=("Needs-Human",), added=("Ready",))
+
+    def test_failed_label_change_keeps_reset_and_names_remaining_manual_changes(self):
+        for operation, failed_label, remaining, removed in (
+                ("remove_label", "needs-human", "remove needs-human, paused; add ready", ()),
+                ("remove_label", "paused", "remove paused; add ready", ("needs-human",)),
+                ("add_labels", "ready", "add ready", ("needs-human", "paused"))):
+            for factory in (issue, pr):
+                with self.subTest(operation=operation, label=failed_label, kind=factory.__name__):
+                    item = factory(97, labels=("needs-human", "paused", "unrelated"))
+                    self.github = PollGitHub(item)
+                    change = getattr(self.github, operation)
+
+                    def checked_change(number, label):
+                        self.assertEqual(records(self.github.store[number], "operator")[0]["kind"], "reset")
+                        if label == failed_label or label == [failed_label]:
+                            raise GitHubError("POST", "labels", "Permission denied")
+                        return change(number, label)
+
+                    with patch.object(self.github, operation, side_effect=checked_change):
+                        result, output, errors = self.retry()
+                    self.assertEqual(result, 1)
+                    self.assertIn("Reset worker attempts on #97:", output)
+                    self.assertNotIn("next poll", output)
+                    self.assertIn("Reset recorded, but label changes failed", errors)
+                    self.assertIn("Permission denied", errors)
+                    self.assertIn(f"By hand, {remaining}.", errors)
+                    self.assertEqual([r["kind"] for r in records(self.github.store[97], "operator")], ["reset"])
+                    self.assertEqual(self.github.items[97].labels, item.labels.difference(removed))
+                    self.assertEqual(self.github.writes, [("create", 1)]
+                                     + [("remove-label", 97, label) for label in removed])
+
+    def test_failed_reset_does_not_change_labels(self):
+        item = issue(97, labels=("needs-human",))
+        self.github = PollGitHub(item)
+        with patch.object(self.github, "create_comment", side_effect=GitHubError("POST", "comments", "Unavailable")):
+            result, output, errors = self.retry()
+        self.assertEqual((result, output), (1, ""))
+        self.assertIn("Unavailable", errors)
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(self.github.items[97], item)
 
     def test_unknown_agent_and_invalid_input_refuse_without_writes(self):
         for kwargs, message in (({"name": "missing"}, "Unknown configured agent"),

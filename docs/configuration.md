@@ -822,9 +822,10 @@ requests changes with each open P1 in the summary.
 
 Removing the stop label and reapplying the agent's trigger permits one more run
 with the count kept; another limited outcome parks the item again. For a fresh
-set of rounds, use `ub-agents retry N --agent reviewer --reason TEXT`, then restore
-the trigger and remove the stop label. Retry resets both rounds and consecutive
-failures for that item and agent, without restoring labels. Accepted successes
+set of rounds, use `ub-agents retry N --agent reviewer --reason TEXT`. Retry resets
+both rounds and consecutive failures for that item and agent, then removes every
+configured stop label present and adds the agent's first trigger if none of its
+triggers is present on the open item. Accepted successes
 reset consecutive failures but keep round counts.
 
 `max-rounds` works on any agent's outcome and must be a positive integer.

@@ -25,11 +25,14 @@ configuration. Workflow labels, checks, acceptance, and merge authority stay the
 - `ub-agents retry N --reason TEXT [--agent NAME]` resets that count to 0 and
   clears its failure block and backoff, preserving history. Approval parking still
   requires maintainer approval. It refuses a live lease
-  and never revokes someone else's run. It does not restore workflow labels.
-  Its two output lines link the reset record and explain the next step from the
-  item's current state and labels: closed first, then present stop labels, then
-  missing triggers, otherwise pickup by a running launcher on its next poll.
-  If stop labels are present and triggers are missing, both need attention.
+  and never revokes someone else's run. After posting the reset record on an open
+  item, it removes every configured stop label present and adds the selected
+  agent's first trigger only if none of its triggers is present. Other labels
+  stay unchanged. Output links the reset, names the removed and added labels
+  (or says they were already in place), and says a running launcher picks the item
+  up on its next poll. Closed items get a reset without label changes. If a label
+  change fails, the reset stays recorded; retry exits nonzero and names the
+  remaining labels to remove or add by hand.
   Use `ub-agents status` for progress and other pickup gates.
 
 An outcome's optional `max-rounds` limits accepted handoffs separately from failure
@@ -55,8 +58,8 @@ and the resolved transition for recovery even if configuration later changes.
 Removing `needs-human` and reapplying `needs-review` allows one more review with
 the count kept; another `changes-requested` parks it again. To get a fresh set,
 run `ub-agents retry N --agent reviewer --reason TEXT`: it resets both rounds and
-failures for that item and agent. Then remove the stop label and reapply the
-trigger, because retry does not restore labels. Older launchers reject
+failures for that item and agent, removes stop labels and restores the reviewer's
+trigger on the open item. Older launchers reject
 `max-rounds`; upgrade every launcher before enabling it.
 
 | How a run ends | Count | Afterwards |
@@ -324,8 +327,8 @@ the old candidate. Unavailable evidence is identified in the comment.
 For a stop-label outcome, the comment names the stop label to remove and the
 agent's triggers to apply to resume work. For a blocked release, it gives an
 exact `ub-agents retry N --agent NAME --reason "Human resolved the blocker"`
-command and reminds the human to restore a matching trigger and remove stop
-labels. Exits without an agent report, zero or nonzero, retry with backoff; they
+command, which restores the labels after recording the reset. Exits without an
+agent report, zero or nonzero, retry with backoff; they
 post a notice only when they exhaust `max-attempts` and park. That notice also
 names the launcher host and run log directory. When a transition parks a handoff
 PR, the notice is posted on that PR with the same asks. Resume instructions apply

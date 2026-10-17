@@ -422,8 +422,8 @@ options with the first recommended. PR run-outcome notices then show "Merging or
 closing #N finishes this item; nothing else is needed." visibly, with resume
 steps in a separate collapsed "To send it back to AGENT instead" control.
 Issue notices and notices whose item type could not be read fold their "Then
-resume AGENT:" steps under "To resume AGENT". The retry command, label steps
-and same-role guidance stay together in that control; the reporter's asks stay
+resume AGENT:" steps under "To resume AGENT". The retry command or manual label
+steps and same-role guidance stay together in that control; the reporter's asks stay
 visible above the option list. Approval-gate notices keep their visible resume steps. Option
 commands render as separate code blocks; single-backtick inline code is preserved.
 Without options the asks keep their previous layout, followed by the same
@@ -453,8 +453,8 @@ item types use a collapsed "To resume AGENT" control. Multiple blocked roles
 keep separate commands together under "To resume these agents" (or "To send it
 back to these agents instead" for a PR).
 This fallback remains visible while loading and when GitHub finds no trusted
-notice or the read fails. It reminds the operator to restore a matching trigger
-and remove stop labels; a different next role still uses the project's correction
+notice or the read fails. Retry restores the labels after recording the reset;
+a different next role still uses the project's correction
 or handoff route. An available trusted notice replaces the fallback.
 
 The session snapshot retains comments this launcher posts or finds in the pass's

@@ -477,22 +477,20 @@ class TransitionTests(unittest.TestCase):
                         patch('ub_agents.cli.GitHub', return_value=self.github), \
                         patch('ub_agents.cli.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
                     self.assertEqual(main(['retry', '--number', '1', '--agent', self.agent.name,
-                                           '--reason', 'Restore workflow manually']), 0)
+                                           '--reason', 'Resume after interrupted transition']), 0)
                 reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
                 restarted = self.new_loop(self.agent, reviewer)
                 history = restarted.coordinator.history(1)
                 self.assertIsNone(restarted.coordinator.pending_completion(history, self.agent.name, self.now))
                 self.assertFalse(history[1]['accepted'])
-                if stage != 'remove':
-                    self.assertEqual(self.github.item(1).labels, {'unrelated'})
-                if stage == 'before-add':
-                    self.assertEqual(self.github.item(2).labels, {'unrelated'})
-                    self.assertEqual(restarted.plans(), [])
-                    with patch('ub_agents.loop.supervise', side_effect=AssertionError('idle items must not run')):
-                        self.assertFalse(restarted.tick())
-                # Remaining or manually restored triggers authorize pickup. The
-                # abandoned transition imposes no extra lock on either item.
-                self.github.add_labels(1, ['ready'])
+                self.assertEqual(self.github.item(1).labels,
+                                 {'unrelated', 'ready'} | ({'old'} if stage == 'remove' else set()))
+                self.assertEqual(self.github.item(2).labels,
+                                 {'unrelated'} | ({'needs-review'} if stage == 'after-add' else set()))
+                self.assertEqual({(p.item.number, p.state) for p in restarted.plans()},
+                                 {(1, 'ready')} | ({(2, 'ready')} if stage == 'after-add' else set()))
+                # Retry restores the source trigger without replaying the abandoned
+                # handoff. A manual target trigger still authorizes its pickup.
                 self.github.add_labels(2, ['needs-review'])
                 plans = restarted.plans()
                 source = next(p for p in plans if p.item.number == 1)

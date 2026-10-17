@@ -178,10 +178,15 @@ Crashes without a report, timeouts, exits without a report
 (zero or nonzero), setup failures and agent-reported `retry` increment it and retry
 with backoff. Invalid success reports, unconfirmed cleanup and unclassified failures
 increment it and park the item. `ub-agents retry` resets
-the count to 0 and clears the failure block and backoff. It prints the reset record's
-link, then explains whether the item is closed, needs stop labels removed or a
-trigger label added, or can be picked up by a running launcher on its next poll.
-It leaves labels unchanged; `ub-agents status` shows progress and other pickup gates.
+the count to 0 and clears the failure block and backoff. After posting the reset
+record on an open item, it removes every configured stop label present and adds
+the selected agent's first trigger if none of its triggers is present. Other
+labels stay unchanged. Output links the reset, names the removed and added labels
+(or says they were already in place), and says a running launcher picks the item
+up on its next poll. Closed items get a reset without label changes. If a label
+change fails, the reset stays recorded; retry exits nonzero and names the
+remaining labels to remove or add by hand. `ub-agents status` shows progress and
+other pickup gates.
 The issue and handoff PR keep separate counts; `ub-agents status` shows the
 consecutive failure count in `attempts`.
 Stopped rows also show their trusted Action needed notice link and waiting time.

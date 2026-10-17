@@ -14,7 +14,12 @@ outcomes:
 
 {{flow limit-rounds}}
 
-To allow one more round, remove `needs-human` and re-add `needs-review`; the count stays. To start over, run `ub-agents retry N --agent reviewer --reason TEXT` first. The count lives on GitHub, so restarts and other launchers don't reset it, and each new pull request starts at zero.
+To allow one more round without resetting the count, remove `needs-human` and
+re-add `needs-review` by hand. To start over, run
+`ub-agents retry N --agent reviewer --reason TEXT`: it records the reset, removes
+configured stop labels and restores `needs-review` if no reviewer trigger is
+present on the open item. The count lives on GitHub, so restarts and other
+launchers don't reset it, and each new pull request starts at zero.
 
 ## Add labels
 
