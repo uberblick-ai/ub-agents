@@ -114,7 +114,7 @@ def parser():
     retrospective.add_argument("--body-file", required=True, metavar="PATH", help="path to a UTF-8 retrospective body file")
     retry = commands.add_parser("retry", help="let stopped work run again, with a recorded reason",
                                 description="Record a human-authorized reset of blocked work and attempt limits. "
-                                "Use after resolving the cause; on open items, remove stop labels and restore the agent's trigger. "
+                                "Use after resolving the cause; on open items it then removes stop labels and restores the agent's trigger. "
                                 "Without --agent, print and use the first configured agent whose kind applies to the item.",
                                 examples=('ub-agents retry 143 --reason "Blocker resolved"',
                                           'ub-agents retry 150 --agent reviewer --reason "Checks restored"'))
