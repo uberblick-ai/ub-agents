@@ -177,7 +177,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │
-└  After the merge, run ub-agents launch
+└  After the merge, pull main and run ub-agents launch
 ```
 
 A failed check turns the step title into `▲  Checks · fix these before launch; setup can continue`
@@ -251,7 +251,7 @@ prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
 ┌   ub-agents init  v0.3.1
 │
 ◇  Checks skipped
-│  Unattended setup; run ub-agents doctor before launch
+│  Unattended setup
 │
 ◇  Which agent runs the loop?
 │  Codex · gpt-6.1-sol · high

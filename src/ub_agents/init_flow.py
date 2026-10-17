@@ -102,7 +102,7 @@ class Flow:
         if self.unattended:
             self.repository = self.repository or infer_repository(self.path.parent)
             self.github = self.github_factory(self.repository)
-            self.t.step("Checks skipped", [Text("Unattended setup; run ub-agents doctor before launch", style=DIM)])
+            self.t.step("Checks skipped", [Text("Unattended setup", style=DIM)])
         elif self.check() is False:
             return 1
         choices = Choices(self.choose_runtime())
@@ -454,7 +454,8 @@ class Flow:
         if pending:
             unique = {label.name.casefold(): label for label in pending}.values()
             self.t.step("Create the labels yourself", [label.command(self.repository) for label in unique])
-        self.t.outro("After the merge, run " if url else "Then run ", ("ub-agents launch", "cyan"))
+        self.t.outro(f"After the merge, pull {self.probes.default_branch} and run " if url else "Then run ",
+                     ("ub-agents launch", "cyan"))
 
     def failed(self, plan, result, labels):
         created = {name.casefold() for name in result.label_names}

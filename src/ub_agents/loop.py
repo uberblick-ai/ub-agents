@@ -321,18 +321,23 @@ class Loop:
 
     def stop_gracefully(self):
         self._observe("activity", "stopping")
+        unwind = self._request_graceful_stop()
+        self.stop_event.set()
+        if unwind:
+            raise _GracefulStop
+
+    def _request_graceful_stop(self):
+        # Called in the main thread by SIGTERM before recording the stop event.
+        # Keep this path lock-free; the signal relay wakes events and observes it.
         if self.interrupt_event.is_set():
             # SIGINT/SIGHUP already requested termination. Leave process-group
             # cleanup and durable release to finish without another exception.
-            self.stop_event.set()
-            return
+            return False
         if self._maintaining:
             self._maintenance_graceful_stop = True
-        self.stop_event.set()
-        if not self._poll_complete and not self._refreshing_checkout and not self._maintaining:
-            # Unwind even a slow discovery subprocess. Once a claim write starts,
-            # it must finish election, execution/recovery and durable completion.
-            raise _GracefulStop
+        # Unwind even a slow discovery subprocess. Once a claim write starts,
+        # it must finish election, execution/recovery and durable completion.
+        return not self._poll_complete and not self._refreshing_checkout and not self._maintaining
 
     def _before_claim(self):
         self._poll_updates()
