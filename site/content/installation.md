@@ -10,11 +10,7 @@ You also need `git`, `gh` logged in to an account with write access to the repos
 
 ## Set up your project
 
-Run [`ub-agents init`](/docs/commands/init.html) from the root of a clean checkout of your default branch. It asks a few questions, shows every change and opens a setup PR with the starter files: `ub-agents.yaml` with five roles and their instructions in `.agents/`. To pick the model and effort up front:
-
-```sh
-ub-agents init --runtime claude:claude-opus-5-5:high
-```
+Run [`ub-agents init`](/docs/commands/init.html) from the root of a clean checkout of your default branch. It asks a few questions, shows every change and opens a setup PR with the starter files: `ub-agents.yaml` with five roles and their instructions in `.agents/`.
 
 Before you merge the setup PR, go through init's [next steps](/docs/commands/init.html#next-steps): permissions, the shared policy and your check commands.
 
