@@ -52,6 +52,8 @@ If starter files already exist, init stops and changes nothing. It never touches
 - Merge the setup PR and pull your default branch.
 - Run [`ub-agents launch`](/docs/commands/launch.html) from a clean checkout of your default branch. If you also work in this checkout yourself, clone a separate one for the launcher.
 
+{{discuss shared-policy}}
+
 ## Add the optional steps later on
 
 If you skipped retrospective boards or priority labels during setup, add them later with these options:

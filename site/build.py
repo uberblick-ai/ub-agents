@@ -4,7 +4,7 @@ Standard library only, plus an installed ub-agents for the command help pages:
 
     pip install . && python3 site/build.py
 """
-import html, os, posixpath, re, shutil, subprocess, sys
+import html, os, posixpath, re, shutil, subprocess, sys, urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -28,6 +28,7 @@ SECTIONS = [  # (title, content entry, kind)
 # ---------- Markdown (the subset these pages use) ----------
 
 FLOW = re.compile(r'\{\{flow ([a-z0-9-]+)\}\}')
+DISCUSS = re.compile(r'\{\{discuss ([a-z0-9-]+)\}\}')
 
 def inline(text):
     codes = []
@@ -83,6 +84,15 @@ def markdown(src):
             svg = (ROOT / 'diagrams' / f'{m.group(1)}.svg').read_text()
             out.append(f'<figure class="flow">{svg}</figure>')
             i += 1
+        elif m := DISCUSS.fullmatch(line):
+            # site/prompts/NAME.md: a label line, a blank line, then the prompt both apps open with.
+            label, prompt = (ROOT / 'prompts' / f'{m.group(1)}.md').read_text().split('\n\n', 1)
+            q = urllib.parse.quote(' '.join(prompt.split()), safe='')
+            icon = {name: (ROOT / 'icons' / f'{name}.svg').read_text().strip() for name in ('claude', 'openai')}
+            out.append(f'<div class="discuss"><span>{inline(label)}</span>'
+                       f'<a class="claude" href="claude://code/new?q={q}">{icon["claude"]}Claude</a>'
+                       f'<a href="codex://new?prompt={q}">{icon["openai"]}Codex</a></div>')
+            i += 1
         elif m := re.match(r'^(#{1,3}) (.*)', line):
             level, text = len(m.group(1)), inline(m.group(2))
             if level == 1:
@@ -112,6 +122,7 @@ def markdown(src):
         elif line.strip():
             para = []
             while (i < len(lines) and lines[i].strip() and not FLOW.fullmatch(lines[i])
+                   and not DISCUSS.fullmatch(lines[i])
                    and not re.match(r'^(```|#|\||- |\d+\. )', lines[i])):
                 para.append(lines[i])
                 i += 1

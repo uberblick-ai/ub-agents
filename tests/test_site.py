@@ -51,6 +51,22 @@ class SiteTests(unittest.TestCase):
                 with self.assertRaises(FileNotFoundError):
                     build.markdown('{{flow missing}}')
 
+    def test_discuss_opens_the_same_prompt_in_claude_and_codex(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'prompts').mkdir()
+            (root / 'prompts/example.md').write_text('Review `a.md`\n\nCheck a.md &\nask me.\n')
+            (root / 'icons').mkdir()
+            for name in ('claude', 'openai'):
+                (root / f'icons/{name}.svg').write_text(f'<svg>{name}</svg>\n')
+            with patch.object(build, 'ROOT', root):
+                _, body = build.markdown('Before\n{{discuss example}}\nAfter')
+                q = 'Check%20a.md%20%26%20ask%20me.'
+                self.assertEqual(body, '<p>Before</p>\n<div class="discuss"><span>Review <code>a.md</code></span>'
+                                 f'<a class="claude" href="claude://code/new?q={q}"><svg>claude</svg>Claude</a>'
+                                 f'<a href="codex://new?prompt={q}"><svg>openai</svg>Codex</a></div>\n<p>After</p>')
+                self.assertNotIn('<div', build.markdown('Inline {{discuss example}}')[1])
+
     def test_loop_page_navigation_diagrams_and_links(self):
         # Help expansion is unrelated to diagram rendering and would start a CLI
         # process for every command page during each test worker's discovery.
