@@ -26,7 +26,7 @@ The wizard asks:
 - whether agents may work without asking; for Codex that means [full access without a sandbox](/docs/configuration/permissions.html#codex)
 - whether to keep the agent CLI and `gh` up to date
 - who answers the agents' questions
-- which extras you want: priority labels, retrospective boards and Uberblick
+- which extras you want: priority labels, [retrospective boards](/docs/best-practices/retrospectives.html) and Uberblick
 
 Then it shows every change and asks once before writing.
 
