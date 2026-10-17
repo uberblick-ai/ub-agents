@@ -13,6 +13,8 @@ import yaml
 from ub_agents.cli import main, runtime_guidance
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError
+from ub_agents.init_flow import PRIORITIES
+from ub_agents.init_setup import Choices, priority_labels
 from ub_agents.labels import configured_labels
 from tests.support import DoctorGitHub, RecordingRunner
 
@@ -20,6 +22,26 @@ from tests.support import DoctorGitHub, RecordingRunner
 def flat(output):
     """The transcript's words without its rails and box edges, so wrapped notes read as one line."""
     return ' '.join(re.sub(r'\x1b\[[0-9;]*m|[│╮╯├─]', ' ', output).split())
+
+
+class PriorityLabelTests(unittest.TestCase):
+    def test_colors_follow_configured_rank_for_short_and_long_lists_and_commands(self):
+        for count, colors in (
+                (0, []),
+                (1, ['e0524a']),
+                (2, ['e0524a', 'c98a86']),
+                (3, ['e0524a', 'c98a86', 'd4d4d4']),
+                (4, ['e0524a', 'c98a86', 'd4d4d4', '86a891']),
+                (5, ['e0524a', 'c98a86', 'd4d4d4', 'd4d4d4', '86a891']),
+                (6, ['e0524a', 'c98a86', 'd4d4d4', 'd4d4d4', 'd4d4d4', '86a891'])):
+            with self.subTest(count=count):
+                names = tuple(name.strip() for name in PRIORITIES.split(',')) if count == 4 else tuple(
+                    f'custom-priority-{rank}' for rank in range(count))
+                labels = priority_labels(Choices('', priority_labels=names))
+                self.assertEqual([label.name for label in labels], list(names))
+                self.assertEqual([label.color for label in labels], colors)
+                commands = [shlex.split(label.command('org/project')) for label in labels]
+                self.assertEqual([command[command.index('--color') + 1] for command in commands], colors)
 
 
 class InitTests(unittest.TestCase):
@@ -376,6 +398,8 @@ class InitTests(unittest.TestCase):
             'needs-human': 'ub-agents: parks an issue or PR until a person decides',
             'needs-changes': 'ub-agents: starts implementer on an issue or PR; added when reviewer reports changes-requested',
         }
+        colors = {'needs-preparation': 'c5def5', 'ready': '0e8a16', 'needs-review': 'fbca04',
+                  'needs-human': 'b60205', 'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db'}
         for terminal, answer in ((False, ''), (True, 'no')):
             with self.subTest(terminal=terminal, answer=answer), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'ub-agents.yaml'
@@ -386,16 +410,14 @@ class InitTests(unittest.TestCase):
                 commands = {command[3]: command for command in self.commands(output)}
                 labels = {label.name: label for label in configured_labels(load_config(self.path))}
                 self.assertEqual(len(commands), len(self.commands(output)))
+                self.assertEqual({name: command[command.index('--color') + 1]
+                                  for name, command in commands.items()}, colors)
                 for name, meaning in meanings.items():
                     self.assertEqual(labels[name].explanation, meaning)
                     description = descriptions[name]
                     self.assertLessEqual(len(description), 100)
-                    if answer == 'yes':
-                        self.assertIn(('create-label', name, description,
-                                       'd876e3' if name == 'needs-human' else '1d76db'), self.github.writes)
-                    else:
-                        command = commands[name]
-                        self.assertEqual(command[command.index('--description') + 1], description)
+                    command = commands[name]
+                    self.assertEqual(command[command.index('--description') + 1], description)
 
     def test_any_existing_starter_refuses_before_writing_guidance_or_labels(self):
         for name in ('starter.yaml', '.agents/implementer.md', '.agents/reviewer.md',

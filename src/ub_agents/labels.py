@@ -9,6 +9,15 @@ from textwrap import shorten
 from .errors import AgentError
 
 
+WORKFLOW_COLORS = {
+    "needs-preparation": "c5def5",
+    "ready": "0e8a16",
+    "needs-review": "fbca04",
+    "needs-changes": "d93f0b",
+    "ready-to-merge": "1d76db",
+}
+
+
 @dataclass(frozen=True)
 class LabelUse:
     agent: str | None
@@ -20,6 +29,7 @@ class LabelUse:
 class Label:
     name: str
     uses: tuple[LabelUse, ...]
+    color: str = "1d76db"
 
     @property
     def explanation(self):
@@ -37,10 +47,6 @@ class Label:
                 break
             description = candidate
         return description
-
-    @property
-    def color(self):
-        return "d876e3" if any(use.agent is None for use in self.uses) else "1d76db"
 
     def command(self, repository):
         return shlex.join(["gh", "label", "create", self.name, "--repo", repository,
@@ -71,7 +77,10 @@ def configured_labels(config):
                 add(name, LabelUse(agent.name, f"added to sub-issues when {agent.name} reports {outcome}"))
     for name in config.stop_labels:
         add(name, LabelUse(None, "parks an issue or PR until a person decides", required=False), effect=True)
-    return [Label(name, tuple(effects + transitions)) for name, effects, transitions in labels.values()]
+    stops = {name.casefold() for name in config.stop_labels}
+    return [Label(name, tuple(effects + transitions),
+                  color="b60205" if name.casefold() in stops else WORKFLOW_COLORS.get(name.casefold(), "1d76db"))
+            for name, effects, transitions in labels.values()]
 
 
 def print_commands(labels, repository, reason):

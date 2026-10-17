@@ -82,9 +82,13 @@ def render():
     left += [blank()] * (n - len(left)); right += [blank()] * (n - len(right))
 
     def top(title, width, focus):
-        c = 'acc' if focus else 'rule'
         t = f'─ {title} '
-        return f'<span class="{c}">╭{html.escape(t)}{"─" * (width - 2 - len(t))}╮</span>'
+        tail = "─" * (width - 2 - len(t))
+        if focus:
+            return f'<span class="acc">╭{html.escape(t)}{tail}╮</span>'
+        # The title is text, so it gets readable contrast; the frame stays dark.
+        return (f'<span class="rule">╭─ </span><span class="dim">{html.escape(title)}</span>'
+                f'<span class="rule"> {tail}╮</span>')
     def bottom(width, focus):
         c = 'acc' if focus else 'rule'
         return f'<span class="{c}">╰{"─" * (width - 2)}╯</span>'

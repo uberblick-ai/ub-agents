@@ -61,7 +61,7 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(page['path'], 'docs/how-the-loop-works.html')
         rendered = build.doc_page(pages, 1)
         self.assertNotIn('class="crumb"', rendered)
-        self.assertIn('IBM+Plex+Sans:wght@400;500;600', rendered)
+        self.assertIn('url(../assets/fonts/ibm-plex-sans.woff2)', rendered)
         self.assertIn('class="on" href="how-the-loop-works.html"', rendered)
         self.assertEqual(page['body'].count('<figure class="flow">'), 4)
         self.assertNotIn('{{flow', page['body'])

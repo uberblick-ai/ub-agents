@@ -28,13 +28,38 @@ The wizard asks:
 - who answers the agents' questions
 - which extras you want: priority labels, retrospective boards and Uberblick
 
+<<<<<<< HEAD
 Then it shows every change and asks once before writing.
+=======
+New workflow labels use these colors, matching names case-insensitively:
+
+| Label | Color |
+|---|---|
+| `needs-preparation` | `c5def5` |
+| `ready` | `0e8a16` |
+| `needs-review` | `fbca04` |
+| `needs-changes` | `d93f0b` |
+| `ready-to-merge` | `1d76db` |
+| Any configured stop label | `b60205` |
+| Any other workflow label | `1d76db` |
+
+Stop-label color takes precedence over a matching starter name. Priority labels
+use `e0524a`, `c98a86`, `d4d4d4` and `86a891` in configured order, highest first.
+Shorter lists use the first colors in that order. Longer lists use `d4d4d4` for
+every rank between the second and last, and `86a891` for the last. These colors
+apply only when creating labels; existing labels keep their colors.
+
+Init asks for the repository only when it can't infer it from the checkout. When the
+checkout is on another branch, it asks to switch to the default branch: launch uses
+that branch only to start fresh branches and worktrees for agents and never commits
+to it. If Git refuses the switch, init says why and continues.
+>>>>>>> origin/main
 
 ## What you get
 
 | File | What it's for |
 |---|---|
-| `ub-agents.yaml` | The loop's configuration: agents, labels and outcomes. |
+| `ub-agents.yaml` | The loop's configuration: agents, labels and outcomes. See [configuration](/docs/configuration/index.html). |
 | `.agents/ub_agents.md` | Rules every agent follows, such as who decides what and when a PR may merge. |
 | `.agents/<role>.md` | One file per starter role: issue-preparer, issue-reviewer, implementer, reviewer and integrator. They work well as they are; adjust them to your project over time. |
 | `.gitignore` | Keeps the launcher's local state and machine-only settings out of Git. |

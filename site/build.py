@@ -210,13 +210,28 @@ HEAD = '''<!doctype html>
 <title>{title}</title>
 <meta name="description" content="{description}">
 <link rel="canonical" href="{canonical}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
-<link rel="stylesheet" href="{css}">
+<link rel="icon" href="{favicon}" sizes="48x48">
+<link rel="icon" href="{icon}" type="image/png" sizes="512x512">
+<link rel="apple-touch-icon" href="{touch_icon}">
+<link rel="preload" href="{fonts}/ibm-plex-mono-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{fonts}/ibm-plex-mono-600.woff2" as="font" type="font/woff2" crossorigin>
+<style>{css}</style>
 </head>
 <body>
 '''
+
+# Fonts never change in place: a changed font gets a new file name.
+HEADERS = '''/assets/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+'''
+
+def head(here, **fields):
+    """The page head with site.css inlined, so the first paint needs no other request."""
+    fonts = rel('assets/fonts', here)
+    css = re.sub(r'url\(/assets/fonts', f'url({fonts}', (ROOT / 'site.css').read_text())
+    icons = {k: rel(f, here) for k, f in
+             (('favicon', 'favicon.ico'), ('icon', 'icon.png'), ('touch_icon', 'apple-touch-icon.png'))}
+    return HEAD.format(fonts=fonts, css=css, **icons, **fields)
 
 MENU_JS = '''<script>
 (function () { var d = document.querySelector('details.side'); if (!d) return;
@@ -231,8 +246,8 @@ def doc_page(pages, i):
     section_label = '' if p['section'] in ('Installation', 'How the loop works', 'Upgrading') else f'<p class="crumb">{p["section"]}</p>'
     first = re.search(r'<p>(.*?)</p>', p['body'], re.S)
     description = re.sub(r'<[^>]+>', '', first.group(1)) if first else TAGLINE
-    return (HEAD.format(title=html.escape(title), description=html.escape(html.unescape(description)),
-                        canonical=f'{SITE}/{here}', css=rel('assets/site.css', here)) + header(here) + f'''
+    return (head(here, title=html.escape(title), description=html.escape(html.unescape(description)),
+                 canonical=f'{SITE}/{here}') + header(here) + f'''
 <div class="docs">
   <details class="side"><summary>{html.escape(p["section"])} · {html.escape(p["nav"])}</summary>
     <nav aria-label="Documentation">{sidebar(pages, p)}</nav>
@@ -247,8 +262,8 @@ def doc_page(pages, i):
 
 def not_found():
     """404.html is served at any depth, so its links are root-absolute."""
-    body = (HEAD.format(title='Page not found · ub-agents', description=TAGLINE, canonical=f'{SITE}/',
-                        css='/assets/site.css') + header('index.html') + '''
+    body = (head('index.html', title='Page not found · ub-agents', description=TAGLINE, canonical=f'{SITE}/')
+            + header('index.html') + '''
 <main class="wrap">
   <section>
     <h2>Page not found</h2>
@@ -257,13 +272,15 @@ def not_found():
 </main>
 ''' + FOOTER + '\n</body>\n</html>\n')
     body = re.sub(r'<link rel="canonical"[^>]*>\n', '', body)
+    body = body.replace('url(assets/', 'url(/assets/')
     return re.sub(r'href="(?!https?:|/|#)', 'href="/', body)
 
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
-    (OUT / 'assets').mkdir(parents=True)
-    shutil.copy(ROOT / 'site.css', OUT / 'assets' / 'site.css')
+    shutil.copytree(ROOT / 'static', OUT)
+    shutil.copytree(ROOT / 'fonts', OUT / 'assets' / 'fonts')
+    (OUT / '_headers').write_text(HEADERS)
     pages = collect()
     for i, p in enumerate(pages):
         dest = OUT / p['path']
@@ -272,12 +289,11 @@ def main():
     landing = (ROOT / 'index.html').read_text()
     landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', FOOTER)
     landing = landing.replace('{{tui}}', tui.render())
-    head = HEAD.format(title='ub-agents', description=TAGLINE, canonical=f'{SITE}/', css='assets/site.css')
+    top = head('index.html', title='ub-agents', description=TAGLINE, canonical=f'{SITE}/')
     if '--artifact' in sys.argv:  # the artifact host adds its own document skeleton
-        head = head[head.index('<title>'):head.index('</head>')]
-        landing = head + landing
+        landing = top[top.index('<title>'):top.index('</head>')] + landing
     else:
-        landing = head + landing + '\n</body>\n</html>\n'
+        landing = top + landing + '\n</body>\n</html>\n'
     (OUT / 'index.html').write_text(fix_links(landing, 'index.html'))
     (OUT / '404.html').write_text(not_found())
     urls = [f'{SITE}/'] + [f'{SITE}/{p["path"]}' for p in pages]

@@ -144,10 +144,10 @@ new issues in `order` mode, age and number.
 The three milestone modes are `gate`, `order` and `ignore`. In `gate`, new issues
 follow the earliest milestone with eligible work here, with a strictly higher-priority
 exception for unmilestoned issues. Independent later work can start when earlier
-work cannot. Above the panes, up to three lines explain passed-over milestones,
+work cannot. `ub-agents status` explains passed-over milestones,
 for example `Milestone #12 has no eligible issues for this launcher`.
-The same explanations appear in `status` and in `status --json` as `milestone_skips`.
-Launcher output and `launch.log` omit these routine explanations.
+`status --json` includes these explanations as `milestone_skips` when nonempty.
+The terminal view, launcher output and `launch.log` omit these routine explanations.
 Continuous launch refreshes the queue with complete read-only planning passes
 while an assignment runs; a failed pass keeps the previous rows.
 
@@ -481,6 +481,10 @@ and excludes the filing row. For a PR with multiple local closing references,
 the lowest issue number supplies the filing row. A PR without a closing reference
 has no filing row.
 
+When a selected row becomes an earlier observation, Runs keeps updating from the
+current snapshot's history for that item. If a snapshot omits the item, Runs
+keeps its last observed history until newer history arrives or selection moves.
+
 The first table row shows who filed the issue and when, with `GitHub` and `filed`
 in the where and outcome columns. On a PR, this is the closing issue's filing,
 only when that issue's author and creation time were already read during the
@@ -697,7 +701,7 @@ Claude's formatted Log pane shows a compact transcript:
  07:41:18 ▸ Read packages/hub/src/directory.ts
  07:41:40 Both paths rebuild stubs independently.
           Moving to a shared repairStubs() in schema.
- 07:41:41 · thinking
+ 07:41:41 · I'll check the callers before editing the shared helper.
  07:42:11 ▸ Edit packages/schema/src/directory.ts +48 -0
  07:42:30 ▸ Bash pnpm test --filter schema · 1m
  07:43:31   ✗ Exit code 1
@@ -736,8 +740,10 @@ until follow resumes.
 Successful tool results add no line. Failed results show one red, indented `✗`
 line with the first error line. When another visible line has intervened, it
 includes the tool name, or `tool:` if the call is outside the retained pairing
-history. Thinking
-blocks show one dim `· thinking` line; unfamiliar blocks show a dim type label and
+history. Thinking blocks show non-empty summaries after `· ` in dim italic,
+with continuation lines aligned like assistant text and blank or whitespace-only
+lines omitted. Missing, empty or whitespace-only thinking text shows one dim
+`· thinking` line. Unfamiliar blocks show a dim type label and
 the rest of the message still renders. System records, including initialization,
 thinking-token updates and task notifications, and rate-limit events are hidden.
 Other complete JSON records show a dim type/subtype label. A final successful
@@ -774,12 +780,14 @@ Other unfinished and non-JSON fragments keep their labelled raw display.
 
 Codex's formatted Log pane uses the same time column, symbols, assistant styling,
 red failures, escaping and projection limits. It is checked against complete,
-owned `codex exec --json` recordings from **codex-cli 0.160.0** (#126):
+owned `codex exec --json` recordings from **codex-cli 0.160.0** (#126), with reasoning
+summaries checked against the **codex-cli 0.162.1** event shape (#550):
 
 | Event | Formatted projection |
 | --- | --- |
 | `thread.started`, `turn.started` | Hidden; retained in raw mode |
 | `item.completed` / `agent_message` | Assistant text with aligned line breaks |
+| `item.completed` / `reasoning` | Summary after `· ` in dim italic, with aligned continuation lines; empty text shows one dim `· thinking` line |
 | `item.started`, `item.updated`, `item.completed` / `command_execution` | `▸ Bash` and the command; failed completion adds `✗`, exit code when present and the first output line |
 | Same item events / `mcp_tool_call` | `▸ server.tool`; failed completion adds the first error message or text result line |
 | Same item events / `file_change` | `▸ file add/update/delete` and each path; a failed completion adds `✗ file change failed` |
@@ -792,13 +800,18 @@ or file paths, so near-tail attachment and history pages remain readable. A
 delayed failure includes its tool name. The recordings contain starts and
 completions; synthetic tests exercise same-shape `item.updated` records.
 
+Reasoning summaries omit `**` bold markers and blank or whitespace-only lines.
+Missing text, or text empty after removing the markers, shows one dim `· thinking`
+line. Reasoning records for `item.started` and `item.updated` keep a dim event/item-type
+label. Built-in Codex runs request detailed summaries; raw mode retains the original text.
+
 This CLI emits no producer timestamps: newly captured bytes show `~HH:MM:SS`,
 and pre-existing bytes leave the time column blank. An explicit timezone-aware
 top-level `timestamp`, if present, uses the same producer-time rules as Claude.
 No time is extracted from IDs, item fields or message text. File records carry
 operations and paths, without diffs or line counts; none are invented. MCP arguments,
 successful command/tool output, token usage and IDs remain available in raw
-mode. Reasoning, plans, web searches and other unvalidated item shapes show a
+mode. Plans, web searches and other unvalidated item shapes show a
 dim event/item-type label. Errors whose message is itself JSON stay message
 text; nested payloads are not interpreted. Changed or unfamiliar complete
 records also show a dim type label instead of assuming a newer CLI's semantics.

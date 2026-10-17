@@ -29,6 +29,8 @@ missing unattended permission arguments produce a warning.
 Missing trigger/outcome labels are required failures; stop-only labels are warnings.
 Labels match case-insensitively and count once. Interactive doctor offers to create
 missing labels (default no), then rereads them and updates its final result.
+New labels use the [same workflow colors as init](/docs/commands/init.html).
+Existing labels stay unchanged. Doctor does not check or create priority labels.
 Declining, EOF, CI, noninteractive runs and `--json` create nothing. Other checks
 are diagnostic only. It warns about elevated, unreadable or unlisted launcher
 accounts; see [launcher accounts](/docs/configuration/launchers.html).

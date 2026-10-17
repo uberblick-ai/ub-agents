@@ -173,6 +173,9 @@ class FlowTests(unittest.TestCase):
         label, = [write for write in self.github.writes
                   if write[:2] == ('create-label', 'needs-review')]
         self.assertEqual(label[2], 'ub-agents: starts issue-reviewer on an issue; starts reviewer on a PR')
+        self.assertEqual({write[1]: write[3] for write in self.github.writes if write[0] == 'create-label'},
+                         {'needs-preparation': 'c5def5', 'ready': '0e8a16', 'needs-review': 'fbca04',
+                          'needs-human': 'b60205', 'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db'})
 
     def test_declined_permissions_stay_commented(self):
         code, text = self.run_flow(Script(Let_agents=False))
@@ -185,7 +188,8 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('Priority labels, highest first', self.script.asked)
         self.assertIn('Create 5 missing labels?', self.script.asked)
-        self.assertIn('p1', {w[1] for w in self.github.writes if w[0] == 'create-label'})
+        self.assertEqual({w[1]: w[3] for w in self.github.writes if w[1] in {'p1', 'p2'}},
+                         {'p1': 'e0524a', 'p2': 'c98a86'})
         self.assertIn('p1', self.path.read_text())
 
     def test_retrospectives_create_or_reuse_a_board_per_role(self):

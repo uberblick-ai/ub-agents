@@ -17,7 +17,7 @@ from tests.terminal import Terminal
 from tests.test_view_data import event, fixture, publish_snapshot
 
 class TerminalViewTests(unittest.TestCase):
-    def test_skipped_milestone_notice_in_real_terminal_clears_on_next_selection(self):
+    def test_skipped_milestone_notice_stays_out_of_real_terminal_with_old_and_new_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path, _, state = fixture(root)
@@ -27,24 +27,28 @@ class TerminalViewTests(unittest.TestCase):
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
-from ub_agents.view_ui import MilestoneNotice, View
+from ub_agents.view_ui import View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
-        notice = self.query_one(MilestoneNotice)
-        return {'display': notice.display, 'text': notice.render().plain,
-                'selected': self.selected, 'focusable': notice.can_focus}
+        return {'ready': self.reading.page is not None,
+                'has_skips': self.session is not None and 'milestone_skips' in self.session.data,
+                'notices': len(self.query('#milestone_notice')),
+                'body_y': self.query_one('#body').region.y, 'selected': self.selected}
 ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 '''
             with Terminal(script, root, path, proof, proof=proof) as terminal:
-                shown = terminal.checkpoint(lambda value: value['display'] and value['text'] == line)
-                terminal.expect(line.encode())
-                self.assertFalse(shown['focusable'])
-                state['milestone_skips'] = []
+                older = terminal.checkpoint(lambda value: value['ready'] and value['has_skips'])
+                self.assertEqual(older['notices'], 0)
+                self.assertEqual(older['body_y'], 0)
+                del state['milestone_skips']
                 publish_snapshot(path, state)
-                cleared = terminal.checkpoint(lambda value: not value['display'])
-                self.assertEqual(cleared['selected'], shown['selected'])
+                newer = terminal.checkpoint(lambda value: value['ready'] and not value['has_skips'])
+                self.assertEqual(newer['notices'], 0)
+                self.assertEqual(newer['body_y'], 0)
+                self.assertEqual(newer['selected'], older['selected'])
                 terminal.send(b'q')
                 terminal.wait_exit()
+                self.assertNotIn(line.encode(), terminal.transcript)
 
     def test_mouse_copy_and_y_in_real_terminal_restore_after_ctrl_c(self):
         with tempfile.TemporaryDirectory() as directory:

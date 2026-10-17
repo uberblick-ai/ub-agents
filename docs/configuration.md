@@ -578,10 +578,10 @@ when inherited, such as `milestone #2 (inherited from #21)`. JSON includes
 `milestone` (the effective milestone number, or `null`) and
 `milestone_inherited_from` (the source issue number,
 or `null`). Ready new issues are listed in the order this launcher would start
-them. When `gate` passes over earlier milestones, status and the terminal view
-explain why, for example `Milestone #12 has no eligible issues for this launcher`.
+them. When `gate` passes over earlier milestones, status explains why,
+for example `Milestone #12 has no eligible issues for this launcher`.
 Status JSON includes these explanations in `milestone_skips` when nonempty.
-Launcher output and `launch.log` omit these routine explanations.
+The terminal view, launcher output and `launch.log` omit these routine explanations.
 Waiting issues name open blockers,
 using `owner/repo#N` for external blockers. Inherited priority names its origin,
 for example `priority:urgent (inherited from #21)`. JSON includes
@@ -948,8 +948,8 @@ request may already have written the transition start marker.
 The [run prompt](coordination.md#run-prompt), made of the launcher contract, assignment
 context, optional shared policy and role instructions, arrives on stdin:
 
-- `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT"`.
-- `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT`.
+- `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT" --config model_reasoning_summary="detailed"`.
+- `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT --thinking-display summarized`.
 
 Top-level `runtime-args` accepts a mapping from CLI (`codex`, `claude`) to a list
 of strings. Runtime agents inherit it when they omit their own `runtime-args`;
@@ -982,10 +982,10 @@ session overrides, even when the agent also lists Claude, if placed in the
 `codex` mapping entry. Both forms use the same placeholder validation.
 
 `process.log` records each CLI's stdout and stderr directly. Codex runs log their
-JSON event stream. Claude runs log the JSON stream of tool calls, tool results and
-the final result, including Claude Code's `permission_denials`. The launcher does
-interpret structured usage metadata; an accepted outcome still comes only from
-`ub-agents report`.
+JSON event stream, including detailed reasoning summaries. Claude runs log the
+JSON stream of tool calls, tool results and the final result, including Claude
+Code's `permission_denials`. The launcher does interpret structured usage metadata;
+an accepted outcome still comes only from `ub-agents report`.
 
 ### Runtime usage pauses
 

@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 from ub_agents.view import main
 from ub_agents.view_data import (Description, POINTERS_LIMIT, Session, choose_session, item_context, load_session,
-                                 item_header, local_description, outcome_text, outcomes_today, read_json, run_status,
-                                 text, work_pane, work_rows)
+                                 item_header, item_history, local_description, outcome_text, outcomes_today, read_json,
+                                 run_status, text, work_pane, work_rows)
 from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
 from ub_agents.view_worker import LocalWorker, Request
 from ub_agents.config import Queue
@@ -287,6 +287,65 @@ class WorkPaneTests(unittest.TestCase):
                 # A later sparse pass must not make a hidden selection live again.
                 self.data['latest_pass']['rows'] = []
                 self.assertEqual(self.pane(pane, key, True).sections, pane.sections)
+
+    def test_earlier_observation_history_follows_item_after_claim(self):
+        prepared = {'agent': 'issue-preparer', 'run': 'prepared-run', 'outcome': 'prepared'}
+        self.data['assignment'] = None
+        self.data['latest_pass']['rows'] = [{'item': 7, 'agent': 'implementer', 'state': 'ready'}]
+        self.data['histories'] = {'7': {'runs': [prepared]}}
+        pane = self.pane(selected='plan:7', chosen=True)
+        self.data['assignment'] = {'item': 7, 'agent': 'implementer', 'run': 'new-run', 'process': 'running'}
+        self.data['latest_pass']['rows'] = []
+        for runs in ([prepared, {'agent': 'implementer', 'run': 'new-run', 'state': 'running'}],
+                     [prepared, {'agent': 'implementer', 'run': 'new-run', 'outcome': 'handed-off'}]):
+            with self.subTest(runs=runs):
+                history = {'runs': runs}
+                self.data['histories'] = {'7': history}
+                pane = self.pane(pane, pane.selected, True)
+                row = next(row for row in pane.rows if row.key == pane.selected)
+                self.assertEqual(pane.selected, 'plan:7')
+                self.assertEqual(row.state, 'earlier observation')
+                self.assertEqual(item_history(row, Session(Path('launcher.json'), self.data)), history)
+                self.assertEqual(len(item_history(row, None)['runs']), 2)
+
+    def test_earlier_observation_keeps_last_observed_history_when_snapshot_omits_item(self):
+        history = {'runs': [{'run': 'first-run', 'outcome': 'prepared'}]}
+        self.data['latest_pass']['rows'][1]['history_key'] = '12:reviewer'
+        self.data['histories'] = {'12:reviewer': history}
+        pane = self.pane(selected='plan:12', chosen=True)
+        self.data['latest_pass']['rows'] = []
+        # Losing the entry on the same snapshot as the row still keeps its history.
+        self.data['histories'] = {}
+        pane = self.pane(pane, pane.selected, True)
+        row = next(row for row in pane.rows if row.key == pane.selected)
+        self.assertEqual(item_history(row, Session(Path('launcher.json'), self.data)), history)
+        updated = {'runs': [*history['runs'], {'run': 'second-run', 'state': 'running'}]}
+        self.data['histories'] = {'12': updated, '12:reviewer': history}
+        # Even a previously retained row must prefer the new snapshot's history.
+        self.assertEqual(item_history(row, Session(Path('launcher.json'), self.data)), updated)
+        pane = self.pane(pane, pane.selected, True)
+        self.data['histories'].pop('12')
+        pane = self.pane(pane, pane.selected, True)
+        row = next(row for row in pane.rows if row.key == pane.selected)
+        self.assertEqual(row.state, 'earlier observation')
+        self.assertEqual(item_history(row, Session(Path('launcher.json'), self.data)), updated)
+        self.assertEqual(item_history(row, None), updated)
+
+    def test_live_rows_keep_their_own_history_including_history_keys(self):
+        current = {'runs': [{'run': 'current-run'}]}
+        previous = {'runs': [{'run': 'previous-run'}]}
+        self.data['histories'] = {'12': current, '12:reviewer': previous}
+        for history_key in (None, '12:reviewer'):
+            with self.subTest(history_key=history_key):
+                plan = {'item': 12, 'agent': 'reviewer', 'state': 'ready'}
+                if history_key:
+                    plan['history_key'] = history_key
+                self.data['latest_pass']['rows'] = [plan]
+                pane = self.pane(selected='plan:12', chosen=True)
+                row = next(row for row in pane.rows if row.key == pane.selected)
+                refreshed = Session(Path('launcher.json'), {'histories': {'12': {'runs': []}}})
+                self.assertEqual(row.state, 'ready')
+                self.assertIs(item_history(row, refreshed), previous if history_key else current)
 
     def test_omitted_selected_agent_uses_the_same_sanitized_identity_as_work_rows(self):
         self.data['latest_pass']['rows'][1]['agent'] = 'reviewer\x1b'

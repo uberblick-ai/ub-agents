@@ -150,14 +150,14 @@ class CompactClaudeTests(unittest.TestCase):
     def test_synthetic_assistant_newlines_thinking_and_unknown_blocks_survive(self):
         controls = ''.join(chr(i) for i in (*range(32), *range(127, 160)) if i != 10)
         entry = self.decode(record(content=[{'type': 'text', 'text': 'one\n\nthree' + controls},
-                                           {'type': 'thinking', 'thinking': 'private'},
+                                           {'type': 'thinking', 'thinking': 'Checking the next step.'},
                                            {'type': 'future_block', 'payload': 'private'},
                                            {'type': 'text', 'text': 'last'}]))
         lines = entry.text.split('\n')
         self.assertEqual(lines[0], '          one')
         self.assertEqual(lines[1], ' ' * 10)
         self.assertTrue(lines[2].startswith(' ' * 10 + 'three'))
-        self.assertEqual(lines[3:], ['          · thinking', '          · future_block', '          last'])
+        self.assertEqual(lines[3:], ['          · Checking the next step.', '          · future_block', '          last'])
         self.assertNotIn('private', entry.text)
         self.assertNotIn('assistant:', entry.text)
         self.assertFalse(any(ord(char) < 32 and char != '\n' or 127 <= ord(char) <= 159 for char in entry.text))
@@ -167,10 +167,33 @@ class CompactClaudeTests(unittest.TestCase):
             style = log_style(None, token)
             marker = entry.text[start:end].startswith('· ')
             self.assertEqual(bool(style.dim), marker)
-            self.assertEqual(bool(style.italic), not marker)
+            self.assertEqual(bool(style.italic), token != 'dim')
         prompt = self.decode(record('user'))
         self.assertEqual(prompt.styles, ((10, len(prompt.text), 'italic'),))
         self.assertIsNone(log_style(None, prompt.styles[0][2]).color)
+
+    def test_synthetic_thinking_summary_continuations_drop_blank_lines(self):
+        with patch('ub_agents.log_format._time_column', return_value=' 11:00:17 '):
+            entry = self.decode(record(content=[
+                {'type': 'thinking', 'thinking': '\n \t\nChecking the workflow.\n\n \t\nReading ci.yml.\n\n'},
+                {'type': 'text', 'text': 'Next step.'}]))
+        self.assertEqual(entry.text.split('\n'), [' 11:00:17 · Checking the workflow.',
+                                                 '          Reading ci.yml.',
+                                                 ' 11:00:17 Next step.'])
+        self.assertEqual([token for _, _, token in entry.styles], ['dim italic', 'dim italic', 'assistant'])
+        for start, end, token in entry.styles[:2]:
+            self.assertTrue(entry.text[start:end].strip())
+            style = log_style(None, token)
+            self.assertTrue(style.dim)
+            self.assertTrue(style.italic)
+            self.assertEqual(style.color, log_style(None, 'dim').color)
+
+    def test_synthetic_empty_thinking_keeps_dim_label(self):
+        for fields in ({}, {'thinking': ''}, {'thinking': ' \t\n\n '}, {'thinking': None}):
+            with self.subTest(fields=fields):
+                entry = self.decode(record(content=[{'type': 'thinking', **fields}]))
+                self.assertEqual(entry.text, '          · thinking')
+                self.assertEqual(entry.styles, ((10, len(entry.text), 'dim'),))
 
     def test_synthetic_failed_results_name_tool_only_when_needed(self):
         self.decode(record(content=[tool()]))
