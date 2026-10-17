@@ -9,7 +9,6 @@ from pathlib import Path
 import signal
 import socket
 import sys
-import threading
 import uuid
 
 from . import __version__
@@ -32,6 +31,7 @@ from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases
 from .run_config import supervised_run
 from .status import lease_summary, process_details
 from .startup_cleanup import StartupCleanup
+from .signals import SignalEvent, SignalRelay
 
 
 def parser():
@@ -261,12 +261,11 @@ def launch_checks(config, github, read_git=None):
                          "run ub-agents doctor for setup commands")
 
 
-def check_launch_setup(config, github, loop, *, once=False):
+def check_launch_setup(config, github, loop, *, interrupt, once=False):
     # No ownership exists yet: interrupt even a slow gh/git subprocess. The
     # normal in-run handlers defer interruption until execution can be cleaned up.
     def interrupt_checks(*_):
-        loop.interrupt_event.set()
-        loop.stop_event.set()
+        interrupt()
         # subprocess.run kills and reaps on this exception. KeyboardInterrupt
         # instead assumes the terminal also signalled the child (UI keys do not).
         raise _GracefulStop
@@ -367,8 +366,8 @@ def run(args):
         print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
         print(retry_next_step(item, agent, config.stop_labels))
         return
-    stop = threading.Event()
-    interrupt = threading.Event()
+    stop = SignalEvent()
+    interrupt = SignalEvent()
     loop = Loop(config, github, actor, stop,
                 config_path=config.root / DEFAULT_CONFIG if args.default_config else args.config,
                 default_config=args.default_config, interrupt_event=interrupt)
@@ -435,13 +434,32 @@ def run(args):
             raise error
     local = config.root / ".ub-agents"
     local.mkdir(mode=0o700, exist_ok=True)
-    def stop_now(*_):
+
+    def wake_interrupt():
         interrupt.set()
         stop.set()
 
+    def wake_stop():
+        stop.set()
+        loop._observe("activity", "stopping")
+
+    relay = SignalRelay({"interrupt": wake_interrupt, "stop": wake_stop})
+
+    def stop_now(*_):
+        interrupt.request()
+        stop.request()
+        relay.request("interrupt")
+
+    def stop_gracefully(*_):
+        unwind = loop._request_graceful_stop()
+        stop.request()
+        relay.request("stop")
+        if unwind:
+            raise _GracefulStop
+
     handlers = {sig: signal.signal(sig, stop_now)
                 for sig in (signal.SIGINT, signal.SIGHUP)}
-    handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, lambda *_: loop.stop_gracefully())
+    handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, stop_gracefully)
     from .observations import Observations, Publisher
     publisher = None
     view = None
@@ -468,7 +486,8 @@ def run(args):
                              no_ui=args.no_ui, poll=loop.request_poll)
             if view is not None:
                 loop.enable_poll_now()
-        check_launch_setup(config, github, loop, once=args.once or args.number is not None)
+        check_launch_setup(config, github, loop, once=args.once or args.number is not None,
+                           interrupt=stop_now)
         from .updates import Updates
         loop.updates = Updates(config.root)
         if loop.updates is not None:
@@ -493,11 +512,12 @@ def run(args):
             loop.updates.close()
         if view is not None:
             view.close()
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+        relay.close()
         loop._observe("close")
         if publisher is not None:
             publisher.close()
-        for sig, handler in handlers.items():
-            signal.signal(sig, handler)
 
 
 def launch_error_message(exc, root):
