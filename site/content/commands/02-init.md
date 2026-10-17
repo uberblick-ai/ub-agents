@@ -40,7 +40,7 @@ Then it shows every change and asks once before writing.
 | `.gitignore` | Keeps the launcher's local state and machine-only settings out of Git. |
 | `.mcp.json` or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects your agent to it, plus `.uberblick.json` when init creates a workspace. |
 
-Init also creates the workflow labels on GitHub in standard colors, plus any extras you picked. Existing labels keep their colors. On your default branch, the files go to a setup PR, which you can review and approve. On any other branch they stay in your checkout for you to commit. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
+Init offers to create the missing workflow labels on GitHub, plus any extras you picked, as soon as you confirm. On your default branch, the files go to a setup PR, which you can review and approve. On any other branch they stay in your checkout for you to commit. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
 
 If starter files already exist, init stops and changes nothing. It never touches `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
