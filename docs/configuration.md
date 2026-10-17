@@ -1363,10 +1363,8 @@ from the executable rather than another manually maintained copy.
 | `launch` | [Run the queue or one item](https://agents.uberblick.ai/docs/commands/launch.html) |
 | `status` | [Inspect work, ownership and outcomes](https://agents.uberblick.ai/docs/commands/status.html) |
 | `retry` | [Reset attempts after fixing their cause](https://agents.uberblick.ai/docs/commands/retry.html) |
-| `report` | [Report a supervised outcome](https://agents.uberblick.ai/docs/commands/report.html) |
-| `retrospective` | [Post to the configured role board](https://agents.uberblick.ai/docs/commands/retrospective.html) |
-| `read` | [Read filtered issue or PR input](https://agents.uberblick.ai/docs/commands/read.html) |
-| `help` | [Help, version and usage errors](https://agents.uberblick.ai/docs/commands/help.html) |
+| `help` | [Help and version](https://agents.uberblick.ai/docs/commands/help.html) |
+| `report`, `read`, `retrospective` | [Loop internal commands, run by agents](https://agents.uberblick.ai/docs/commands/loop-internal.html) |
 
 `--config PATH` selects configuration before or after a project command, never both.
 `report`, `retrospective` and `help` accept it only before the command and read no

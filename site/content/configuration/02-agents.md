@@ -110,7 +110,7 @@ runtime-args: [--sandbox, danger-full-access]
 
 ## Retrospectives
 
-The GitHub discussion where this agent posts its [retrospectives](/docs/commands/retrospective.html).
+The GitHub discussion where this agent posts its [retrospectives](/docs/best-practices/retrospectives.html).
 
 ```yaml
 retrospectives: 203
