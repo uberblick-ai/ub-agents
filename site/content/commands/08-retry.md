@@ -1,21 +1,17 @@
 # ub-agents retry
 
-Run `ub-agents retry` after fixing why an item stopped. It resets the failure count with your reason. Labels stay as they are.
+Run `ub-agents retry` once you've fixed why an item stopped. It resets the item's failure count, records your reason on the issue or pull request, and tells you what's next. Labels stay as they are.
 
-It also resets the selected agent's `max-rounds` outcome counts on that item to
-zero. For the starter PR reviewer, use
-`ub-agents retry N --agent reviewer --reason "Findings resolved"` for a fresh set
-of three rounds, then remove `needs-human` and reapply `needs-review`.
+```sh
+ub-agents retry 143 --reason "Blocker resolved"
+ub-agents retry 150 --agent reviewer --reason "Findings resolved"
+```
 
-To allow just one more review without resetting the count, remove `needs-human`
-and reapply `needs-review` directly. Another `changes-requested` returns the PR
-to `needs-human`; an approval can still advance it. Counts come from GitHub and
-survive restarts, recovery and different launchers. A new PR starts at zero.
+Without `--agent`, retry picks the first agent that handles that kind of item. Counts live on GitHub, so restarting or switching launchers doesn't reset them. Retry refuses while a launcher is working on the item.
 
-Specify `--agent NAME` to reset a particular agent. Without it, retry selects the
-first configured agent whose kind matches the item (or `either`), independently
-of trigger labels and eligibility; no match fails without a record. The result
-links the reset and names the next step. Use status for remaining pickup gates.
+## Review rounds
+
+Retry also resets the agent's [round limit](/docs/configuration/outcomes.html#limit-rounds). To give the starter reviewer three new rounds, run `retry` with `--agent reviewer`, then replace `needs-human` with `needs-review`. To allow just one more review, only swap the labels.
 
 ```text
 {{help retry}}
