@@ -54,6 +54,8 @@ Init never overwrites existing starter files, `AGENTS.md` or `CLAUDE.md`. If som
 
 ## Add the optional steps later on
 
+If you skipped retrospective boards or priority labels during setup, add them later with these options:
+
 ```sh
 ub-agents init --create-boards       # retrospective boards; turn on GitHub Discussions first
 ub-agents init --create-priorities   # priority labels
