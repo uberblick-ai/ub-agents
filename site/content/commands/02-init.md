@@ -1,6 +1,6 @@
 # ub-agents init
 
-Run `ub-agents init` in a clean checkout of your project. It checks your machine and GitHub access, asks a few questions and shows every change before writing anything. Cancel at any point and nothing is left behind.
+Run `ub-agents init` from the root of a clean checkout of your project. It checks your machine and GitHub access and asks a few questions. Nothing is written until you confirm.
 
 ```text
 ┌   ub-agents init  v0.3.1
@@ -40,16 +40,16 @@ Then it shows every change and asks once before writing.
 | `.gitignore` | Keeps the launcher's local state and machine-only settings out of Git. |
 | `.mcp.json` or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects your agent to it, plus `.uberblick.json` when init creates a workspace. |
 
-Init also creates the workflow labels on GitHub in standard colors, plus any extras you picked. Existing labels keep their colors. The files go to a setup PR, which you can review and approve. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
+Init also creates the workflow labels on GitHub in standard colors, plus any extras you picked. Existing labels keep their colors. On your default branch, the files go to a setup PR, which you can review and approve. On any other branch they stay in your checkout for you to commit. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
 
-Init never overwrites existing starter files, `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
+If starter files already exist, init stops and changes nothing. It never touches `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
 ## Next steps
 
 - Check the agent permissions (`runtime-args`) in `ub-agents.yaml`. See [permissions](/docs/configuration/permissions.html).
 - Review `.agents/ub_agents.md` against [what belongs in the shared policy](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy).
 - If your project has its own check commands, such as `mise run ci`, add them to Claude's `--allowedTools` in `ub-agents.yaml`, for example `"Bash(mise run ci)"`.
-- Merge the setup PR.
+- Merge the setup PR and pull your default branch.
 - Run [`ub-agents launch`](/docs/commands/launch.html) from a clean checkout of your default branch. If you also work in this checkout yourself, clone a separate one for the launcher.
 
 ## Add the optional steps later on
