@@ -29,9 +29,9 @@ from .refresh import control_checkout_checks
 from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
                       record_version, records, same_run, timestamp)
 from .run_config import supervised_run
+from .signals import SignalEvent, SignalRelay
 from .status import lease_summary, process_details
 from .startup_cleanup import StartupCleanup
-from .signals import SignalEvent, SignalRelay
 
 
 def parser():
@@ -457,14 +457,16 @@ def run(args):
         if unwind:
             raise _GracefulStop
 
-    handlers = {sig: signal.signal(sig, stop_now)
-                for sig in (signal.SIGINT, signal.SIGHUP)}
-    handlers[signal.SIGTERM] = signal.signal(signal.SIGTERM, stop_gracefully)
     from .observations import Observations, Publisher
     publisher = None
     view = None
     cleanup = None
+    handlers = {sig: signal.getsignal(sig)
+                for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM)}
     try:
+        for sig in (signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, stop_now)
+        signal.signal(signal.SIGTERM, stop_gracefully)
         try:
             publisher = Publisher(config.root, output=loop.output)
             loop._before_claim()
@@ -506,18 +508,20 @@ def run(args):
     except _GracefulStop:
         return
     finally:
-        if cleanup is not None:
-            cleanup.close()
-        if loop.updates is not None:
-            loop.updates.close()
-        if view is not None:
-            view.close()
-        for sig, handler in handlers.items():
-            signal.signal(sig, handler)
-        relay.close()
-        loop._observe("close")
-        if publisher is not None:
-            publisher.close()
+        try:
+            if cleanup is not None:
+                cleanup.close()
+            if loop.updates is not None:
+                loop.updates.close()
+            if view is not None:
+                view.close()
+        finally:
+            for sig, handler in handlers.items():
+                signal.signal(sig, handler)
+            relay.close()
+            loop._observe("close")
+            if publisher is not None:
+                publisher.close()
 
 
 def launch_error_message(exc, root):

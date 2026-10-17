@@ -17,6 +17,7 @@ from unittest.mock import Mock, patch
 
 from ub_agents import __version__
 from ub_agents.cli import main
+from ub_agents.errors import AgentError
 from ub_agents.launch_ui import ViewProcess
 from ub_agents.signals import SignalRelay
 from ub_agents import view
@@ -127,6 +128,24 @@ def held_resize_signal():
             view_process.close()
 
 
+def failing_launch_cleanup():
+    case = test_launch_setup.LaunchSetupTests()
+    case.setUp()
+    handlers = {sig: signal.getsignal(sig)
+                for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM)}
+    threads = set(threading.enumerate())
+    case.view.close.side_effect = AgentError("View cleanup failed")
+    try:
+        case.assertEqual(main(case.argv), 1)
+        case.assertIn("View cleanup failed", case.stderr.getvalue())
+        for sig, handler in handlers.items():
+            case.assertEqual(signal.getsignal(sig), handler)
+        case.assertEqual(set(threading.enumerate()), threads)
+        case.assertTrue(case.publisher.snapshots[-1]["ended"])
+    finally:
+        case.doCleanups()
+
+
 class SignalHandlerTests(unittest.TestCase):
     def run_held(self, function, *args):
         script = (f"from tests.test_signal_handlers import {function}; "
@@ -157,6 +176,9 @@ class SignalHandlerTests(unittest.TestCase):
 
     def test_resize_with_process_poll_lock_held(self):
         self.run_held("held_resize_signal")
+
+    def test_cleanup_failure_still_joins_relay_and_restores_handlers(self):
+        self.run_held("failing_launch_cleanup")
 
     def test_full_relay_pipe_preserves_other_pending_signals(self):
         entered, release, stopped = threading.Event(), threading.Event(), threading.Event()

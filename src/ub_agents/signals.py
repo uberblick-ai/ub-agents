@@ -33,7 +33,9 @@ class SignalRelay:
         self.requests = dict.fromkeys(callbacks, 0)
         self.reader, self.writer = os.pipe()
         os.set_blocking(self.writer, False)
-        self.thread = threading.Thread(target=self.run, name="launcher-signals")
+        # close() joins the worker. If startup itself is interrupted before the
+        # caller owns this relay, the worker must not keep Python alive.
+        self.thread = threading.Thread(target=self.run, name="launcher-signals", daemon=True)
         self.thread.start()
 
     def request(self, key):
