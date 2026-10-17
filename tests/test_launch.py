@@ -20,6 +20,7 @@ from ub_agents.errors import AgentError, CleanupError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import iso, seconds, timestamp
+from ub_agents.startup_cleanup import StartupCleanup
 from tests.support import (AccountGitHub, FakeGitHub, PollGitHub, RecordingRunner, agent, config,
                            isolate_runtime_state, issue, pr)
 
@@ -550,6 +551,21 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
         self.now = timestamp()
         self.loop = None
+
+        def cleanup(*args, **kwargs):
+            worker = StartupCleanup(*args, **kwargs)
+
+            def join():
+                # close() requests cancellation without waiting. Keep each
+                # sweep's writes inside this fixture's directory lifetime.
+                if worker.thread.ident is not None:
+                    worker.thread.join(5)
+                self.assertFalse(worker.thread.is_alive())
+
+            self.addCleanup(join)
+            return worker
+
+        self.enterContext(patch("ub_agents.cli.StartupCleanup", side_effect=cleanup))
 
     def use_milestone_gate(self, milestone=20):
         self.config = replace(self.config, queue=replace(self.config.queue, milestones="gate"))
