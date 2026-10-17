@@ -177,7 +177,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────╯
 │
-└  After the merge, run ub-agents launch
+└  After the merge, pull main and run ub-agents launch
 ```
 
 A failed check turns the step title into `▲  Checks · fix these before launch; setup can continue`
