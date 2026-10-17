@@ -1,6 +1,6 @@
 # Agent retros
 
-Agents notice what slowed them down: a missing pointer, an unclear rule, a long search. Retros catch that while it's fresh, so the next run doesn't pay for it again.
+Agents notice what slowed them down: a missing pointer, an unclear rule, a long search. Retros catch that while it's fresh, so the next run doesn't pay for it again. Over time they also show where your documentation has gaps or contradicts itself.
 
 ## Set up a board
 
