@@ -6,9 +6,20 @@
 
 Say what the role does, which checks it runs, what a finished handoff looks like and when to stop. Leave out what the agent already knows.
 
-## Checks in one place
+## What goes in the shared policy
 
-List the loop's checks in [`.agents/ub_agents.md`](/docs/configuration/instructions.html#shared-policy), so every role runs the same ones. Keep build commands in the guidance your agent CLI already loads, such as `AGENTS.md`.
+[`.agents/ub_agents.md`](/docs/configuration/instructions.html#shared-policy) is the loop policy every role reads. Keep it to what the loop itself needs:
+
+- which checks must pass before work is handed on
+- when a pull request may merge, and which changes wait for a maintainer
+- who answers scope and policy questions
+- what reviewers look at first
+
+Leave out:
+
+- build commands, coding style and project conventions; they belong in `AGENTS.md` or `CLAUDE.md`, which your agents already read, so point there instead of copying
+- anything only one role needs; put it in that role's file
+- how to report, which input to trust and who sets workflow labels; the launcher adds those rules itself
 
 ## Say when to stop
 

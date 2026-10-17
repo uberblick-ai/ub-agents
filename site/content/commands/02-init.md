@@ -35,7 +35,7 @@ Then it shows every change and asks once before writing.
 | File | What it's for |
 |---|---|
 | `ub-agents.yaml` | The loop's configuration: agents, labels and outcomes. See [configuration](/docs/configuration/index.html). |
-| `.agents/ub_agents.md` | Rules every agent follows, such as who decides what and when a PR may merge. |
+| `.agents/ub_agents.md` | Rules every agent follows, such as who decides what and when a PR may merge. See [what belongs in it](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy). |
 | `.agents/<role>.md` | One file per starter role: issue-preparer, issue-reviewer, implementer, reviewer and integrator. They work well as they are; adjust them to your project over time. |
 | `.gitignore` | Keeps the launcher's local state and machine-only settings out of Git. |
 | `.mcp.json` or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects your agent to it, plus `.uberblick.json` when init creates a workspace. |
