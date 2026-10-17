@@ -617,8 +617,10 @@ class TerminalTests(unittest.TestCase):
                     with patch.object(stdout, 'isatty', return_value=stdout_tty):
                         self.assertEqual(main(['init', '--config', str(path), '--repository', 'org/project']), 0)
                 self.assertTrue(path.exists())
-                self.assertIn('Checks skipped', stdout.getvalue())
-                self.assertIn('@operator · current gh user', stdout.getvalue())
+                output = re.sub(r'\x1b\[[0-9;]*m', '', stdout.getvalue())
+                self.assertIn('◇  Checks skipped\n│  Unattended setup\n│\n', output)
+                self.assertNotIn('doctor', output)
+                self.assertIn('@operator · current gh user', output)
                 self.assertEqual(github.reads, ['repos/org/project/teams', 'user'])
 
     def test_inline_flow_in_a_real_terminal(self):
