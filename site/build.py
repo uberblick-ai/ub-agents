@@ -4,7 +4,7 @@ Standard library only, plus an installed ub-agents for the command help pages:
 
     pip install . && python3 site/build.py
 """
-import html, os, posixpath, re, shutil, subprocess, sys
+import html, os, posixpath, re, shutil, subprocess, sys, urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -28,16 +28,27 @@ SECTIONS = [  # (title, content entry, kind)
 # ---------- Markdown (the subset these pages use) ----------
 
 FLOW = re.compile(r'\{\{flow ([a-z0-9-]+)\}\}')
+DISCUSS = re.compile(r'\{\{discuss ([a-z0-9-]+)\}\}')
 
 def inline(text):
     codes = []
     def stash(m):
         codes.append('<code>' + html.escape(m.group(1)) + '</code>')
         return f'\x00{len(codes) - 1}\x00'
-    s = html.escape(re.sub(r'`([^`]+)`', stash, text), quote=False)
+    def buttons(m):
+        codes.append(discuss(m.group(1)))
+        return f'\x00{len(codes) - 1}\x00'
+    s = html.escape(DISCUSS.sub(buttons, re.sub(r'`([^`]+)`', stash, text)), quote=False)
     s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
     s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', s)
     return re.sub(r'\x00(\d+)\x00', lambda m: codes[int(m.group(1))], s)
+
+def discuss(name):
+    """Buttons that open site/prompts/NAME.md in Claude Code or Codex."""
+    q = urllib.parse.quote(' '.join((ROOT / 'prompts' / f'{name}.md').read_text().split()), safe='')
+    icon = {cli: (ROOT / 'icons' / f'{cli}.svg').read_text().strip() for cli in ('claude', 'openai')}
+    return (f'<span class="discuss">Discuss with:<a class="claude" href="claude://code/new?q={q}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
+            f'<a href="codex://new?prompt={q}" title="Opens the Codex app">{icon["openai"]}Codex</a></span>')
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', text).lower()).strip('-')

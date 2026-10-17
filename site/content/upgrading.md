@@ -1,6 +1,15 @@
 # Upgrading
 
-The launcher never reloads its own code. Stop it, upgrade, start it again.
+A running launcher keeps the version it started with. Instruction files and configuration update automatically while it runs, but a new version needs an explicit upgrade: stop the launcher, upgrade, start it again.
+
+Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first. If a release has an **Upgrading** note, stop every launcher before upgrading any of them.
+
+```sh
+brew update && brew upgrade ub-agents
+ub-agents launch
+```
+
+When a newer release exists, the terminal view shows a banner with the command to run.
 
 ## Stop
 
@@ -9,21 +18,6 @@ The launcher never reloads its own code. Stop it, upgrade, start it again.
 | `q` or `kill -TERM <pid>` | Claims nothing new, finishes the current run, then exits. |
 | Ctrl-C | Stops the running agent now. The item keeps its attempt count and runs again on the next launch. |
 
-## Upgrade
+## With a service
 
-Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first. An **Upgrading** note says when every launcher must stop before any upgrades.
-
-```sh
-brew update && brew upgrade ub-agents
-ub-agents launch
-```
-
-If a service such as systemd restarts the launcher for you, upgrade first, then send `SIGTERM`. The launcher finishes its run and exits, and the service starts the new version.
-
-## The update banner
-
-The terminal view shows a banner when a newer release exists, with the command to run.
-
-```text
-⬆ ub-agents 0.2.1 is available · you run 0.2.0 · brew update && brew upgrade ub-agents, then restart the launcher
-```
+If a [service](/docs/guides/add-a-launcher.html#run-it-as-a-service) restarts the launcher for you, upgrade first, then send `SIGTERM`. The launcher finishes its run and exits, and the service starts the new version.

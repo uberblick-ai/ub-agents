@@ -1,44 +1,22 @@
 # ub-agents doctor
 
-Run `ub-agents doctor` during setup or when a launch fails. It checks your machine, the configuration, GitHub access, labels and agent CLIs, and shows a fix for every warning.
+Run `ub-agents doctor` when a launch fails or you're unsure your setup is complete. It checks your machine, the configuration, GitHub access, labels and agent CLIs, and shows a fix for every problem.
 
-## Offline validation
+```sh
+ub-agents doctor             # all checks
+ub-agents doctor --offline   # only what's on this machine
+ub-agents doctor --json      # the same results, machine readable
+```
 
-Run `ub-agents doctor --offline` after editing configuration or in CI without
-GitHub credentials or agent CLIs. It checks Python, platform, Git, configuration,
-instruction files, repository root and origin, configured approvals, local state,
-the `.ub-agents/` ignore rule and process inspection. The configuration must be at
-the root of a Git checkout whose origin matches its `repository`.
+## Results
 
-GitHub checks, control-checkout readiness, agent commands and runtime checks report
-`skip` with an offline reason. It makes no GitHub, network or agent-runtime calls
-and never offers to create labels. Approvals show the configured value or say they
-come from repository visibility, without resolving visibility.
+Doctor groups problems by machine, configuration, GitHub and agent CLIs, each with a fix. `--verbose` lists every check. It exits with 1 when a required check fails and 0 otherwise, so warnings alone don't fail it.
 
-`--offline` works with `--config PATH`, `--json` and `--verbose`. Required failures
-still exit 1; warnings and skips alone exit 0.
+When workflow labels are missing, doctor offers to create them. With `--json`, `--offline` or outside a terminal it creates nothing.
 
-## Results and label setup
+## Offline
 
-Default output groups warnings, failures and remedies by machine, configuration,
-GitHub and runtimes, with passed/skipped summaries. `--verbose` lists every check.
-Required failures exit 1; warnings and skips alone exit 0. Missing configuration
-is a diagnostic failure. Runtime alternatives need at least one usable option;
-missing unattended permission arguments produce a warning.
-
-Missing trigger/outcome labels are required failures; stop-only labels are warnings.
-Labels match case-insensitively and count once. Interactive doctor offers to create
-missing labels (default no), then rereads them and updates its final result.
-New labels use the [same workflow colors as init](/docs/commands/init.html).
-Existing labels stay unchanged. Doctor does not check or create priority labels.
-Declining, EOF, CI, noninteractive runs and `--json` create nothing. Other checks
-are diagnostic only. It warns about elevated, unreadable or unlisted launcher
-accounts; see [launcher accounts](/docs/configuration/launchers.html).
-
-`--json` emits version 2 with `ok` and `checks`; `--verbose` does not alter it.
-Checks contain `id`, `status`, `required`, `agent`, `runtime`, `message`, `remedy`.
-Label checks use `github-label:NAME`, null agent/runtime and `uses` entries with
-`agent`, `meaning`, `required`; any required use makes the label required.
+`--offline` skips GitHub and the agent CLIs and checks the rest: configuration, instruction files and the checkout. Use it after editing `ub-agents.yaml`, or in CI without GitHub credentials.
 
 ```text
 {{help doctor}}

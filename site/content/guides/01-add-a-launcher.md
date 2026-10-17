@@ -55,3 +55,7 @@ set -as terminal-features ",*:RGB"    # full theme colors
 ```
 
 Hold Shift (Option in iTerm2) while dragging to use the terminal's own selection.
+
+## Run it as a service
+
+To start the launcher on its own and restart it when it exits, run `ub-agents launch --no-ui` in the launcher checkout as a user service: launchd on macOS, systemd on Linux. Your agent can set it up for you. {{discuss launcher-service}}
