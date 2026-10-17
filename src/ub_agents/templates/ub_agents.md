@@ -15,7 +15,7 @@ protection or publishes a release. Leave the merge to `@org/maintainers` when th
 
 - changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any
   `AGENTS.md` or `CLAUDE.md`;
-- changes CI or release tooling;
+- changes setup, CI or release tooling;
 - changes what users rely on, such as commands, options, public APIs or output,
   beyond what the closing issue asks for.
 
