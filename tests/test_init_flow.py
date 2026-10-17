@@ -143,7 +143,7 @@ class FlowTests(unittest.TestCase):
         self.assertIn('Setup PR opened https://github.com/org/project/pull/9 Back on main', text)
         self.assertIn('ub_agents.md and 5 role files', text)
         self.assertIn('Review and merge the setup PR: https://github.com/org/project/pull/9', text)
-        self.assertIn('After the merge, run ub-agents launch', text)
+        self.assertIn('After the merge, pull main and run ub-agents launch', text)
         commands = [call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] in {
             ('switch',), ('add',), ('commit',), ('push',)}]
         self.assertEqual([c[3] if c[0] == 'git' else 'gh' for c in commands],
@@ -383,6 +383,16 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(self.path.exists())
         self.assertIn(('git', '-C', str(self.root), 'switch', 'main'), [call for call, _ in self.runner.calls])
 
+    def test_setup_pr_closing_line_names_the_default_branch(self):
+        self.github.metadata['default_branch'] = 'trunk'
+        self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'trunk'
+        self.runner.responses[('git', '-C', str(self.root), 'rev-list', '--left-right', '--count',
+                               'HEAD...refs/remotes/origin/trunk')] = '0\t0'
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertIn('Back on trunk', text)
+        self.assertTrue(text.endswith('└ After the merge, pull trunk and run ub-agents launch'))
+
     def test_declined_or_failed_switch_stops_before_the_next_question_and_writes_nothing(self):
         head = ('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')
         switch = ('git', '-C', str(self.root), 'switch', 'main')
@@ -417,7 +427,7 @@ class FlowTests(unittest.TestCase):
         self.assertIn('Setup PR not opened remote: rejected Init created setup-ub-agents, committed the files; '
                       'open the PR yourself', text)
         self.assertIn('Open a PR with these files and merge it', text)
-        self.assertIn('Then run ub-agents launch', text)
+        self.assertTrue(text.endswith('└ Then run ub-agents launch'))
 
     def test_unattended_files_stay_local_off_the_default_branch(self):
         self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
