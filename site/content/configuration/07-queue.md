@@ -13,7 +13,7 @@ queue:
 
 ## Priority
 
-Priority labels, highest first. Items without one get the default. Pull requests take the priority of the issues they close. To add priorities to an existing setup, run [`ub-agents init --create-priorities`](/docs/commands/init.html#add-boards-or-priorities-later).
+Priority labels, highest first. Items without one get the default. Pull requests take the priority of the issues they close. To add priorities to an existing setup, run [`ub-agents init --create-priorities`](/docs/commands/init.html#add-the-optional-steps-later-on).
 
 ```yaml
 priority:
