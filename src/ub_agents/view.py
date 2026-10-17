@@ -38,6 +38,7 @@ class LauncherConnection:
         self.channel = socket.socket(fileno=descriptor)
         self.stopping = threading.Event()
         self.thread = None
+        self.exit_requested = False
 
     def send(self, value):
         try:
@@ -49,6 +50,9 @@ class LauncherConnection:
         def watch():
             pending = b''
             while not self.stopping.is_set():
+                if self.exit_requested:
+                    self.exit_app(app)
+                    return
                 if select.select([self.channel], [], [], 0.1)[0]:
                     data = self.channel.recv(1024)
                     if not data:
@@ -76,6 +80,10 @@ class LauncherConnection:
             app.call_from_thread(app.exit)
         except RuntimeError:
             pass
+
+    def request_exit(self, *_):
+        # Textual's exit path can take locks. The lifetime thread dispatches it.
+        self.exit_requested = True
 
     def interrupt(self):
         self.send('interrupt')
@@ -132,7 +140,7 @@ def main(argv=None):
             # Textual's POSIX driver draws to __stderr__. The launcher's UI
             # surface is stdout; ordinary error output stays off that surface.
             sys.__stderr__ = sys.__stdout__
-            handlers = {sig: signal.signal(sig, lambda *_: app.exit())
+            handlers = {sig: signal.signal(sig, connection.request_exit)
                         for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
         app.run()
         return app.return_code or 0

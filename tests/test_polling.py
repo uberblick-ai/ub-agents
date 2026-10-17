@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
@@ -17,6 +17,7 @@ from ub_agents.execution import group_members, supervise
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
 from ub_agents.records import attempts, iso, timestamp
+from ub_agents.signals import SignalEvent
 from tests.support import stub_refresh, PollGitHub, RecordingRunner, agent, config, issue, pr
 
 
@@ -440,13 +441,14 @@ class PollingTests(unittest.TestCase):
                 self.setUp()
                 self.github.read_results["observe"] = [self.http_error(403, "X-RateLimit-Remaining: 0\n")]
                 handler = signal.getsignal(sig)
-                interrupt = threading.Event()
+                self.loop.stop_event = SignalEvent()
+                interrupt = SignalEvent()
                 self.loop.interrupt_event = interrupt
                 with patch("ub_agents.cli.load_config", return_value=self.config), \
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch("ub_agents.cli.Loop", return_value=self.loop), \
-                        patch("ub_agents.cli.threading", Mock(Event=Mock(side_effect=[self.loop.stop_event, interrupt]))), \
+                        patch("ub_agents.cli.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
                         patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(sig)), \
                         redirect_stderr(io.StringIO()):
                     self.assertEqual(main(["launch"]), 0 if sig == signal.SIGTERM else 130)
@@ -457,14 +459,15 @@ class PollingTests(unittest.TestCase):
     def test_initial_authentication_rate_limit_waits_with_signal_handlers_installed(self):
         self.loop.coordinator.actor = None
         limited = self.http_error(403, "X-RateLimit-Remaining: 0\n")
-        interrupt = threading.Event()
+        self.loop.stop_event = SignalEvent()
+        interrupt = SignalEvent()
         self.loop.interrupt_event = interrupt
         with patch.object(self.github, "actor", side_effect=limited), \
                 patch("ub_agents.cli.load_config", return_value=self.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.threading", Mock(Event=Mock(side_effect=[self.loop.stop_event, interrupt]))), \
+                patch("ub_agents.cli.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
                 patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(signal.SIGTERM)), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(main(["launch"]), 0)
