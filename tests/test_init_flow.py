@@ -373,30 +373,41 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn('Use a dedicated agent account', text)
 
     def test_other_branch_asks_to_switch_to_the_default_branch(self):
+        self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
+        code, text = self.run_flow()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.script.asked[0], 'Switch this checkout to main?')
+        self.assertIn('Yes · now on main', text)
+        self.assertIn('Agents always work in worktrees and branches; they never commit to main.', text)
+        self.assertIn('Setup PR opened', text)
+        self.assertTrue(self.path.exists())
+        self.assertIn(('git', '-C', str(self.root), 'switch', 'main'), [call for call, _ in self.runner.calls])
+
+    def test_declined_or_failed_switch_stops_before_the_next_question_and_writes_nothing(self):
         head = ('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')
         switch = ('git', '-C', str(self.root), 'switch', 'main')
-        for answer, outcome, expected in ((True, '', 'Yes · now on main'),
+        self.installed.add('ub')
+        for answer, outcome, expected in ((False, None, 'No · init needs main to open the setup PR'),
                                           (True, subprocess.CompletedProcess([], 1, '', 'error: local changes\nAborting'),
-                                           'Not switched: Aborting Switch to main before you launch'),
-                                          (False, None, 'No · switch to main before you launch')):
+                                           'Not switched: error: local changes\n│  Aborting')):
             with self.subTest(answer=answer, outcome=outcome):
-                for path in self.root.iterdir():
-                    if path.is_file():
-                        path.unlink()
-                    else:
-                        for child in sorted(path.rglob('*'), reverse=True):
-                            child.unlink() if child.is_file() else child.rmdir()
-                        path.rmdir()
                 self.runner.calls.clear()
                 self.runner.responses[head] = 'feature'
                 self.runner.responses[switch] = outcome
-                code, text = self.run_flow(Script(Switch=answer))
-                self.assertEqual(code, 0)
-                self.assertEqual(self.script.asked[0], 'Switch this checkout to main?')
-                self.assertIn(expected, text)
-                self.assertEqual('Agents always work in worktrees and branches; they never commit to main.' in text,
-                                 expected.startswith('Yes'))
-                self.assertEqual(switch in [call for call, _ in self.runner.calls], answer)
+                code, text = self.run_flow(Script(Switch=answer, Extras=['priority', 'retrospectives', 'uberblick'],
+                                                  Set_up='create'))
+                self.assertEqual(code, 1)
+                self.assertEqual(self.script.asked, ['Switch this checkout to main?'])
+                self.assertIn('▲  Switch this checkout to main?\n│  ' + expected +
+                              '\n│  Switch to main and run ub-agents init again\n', self.output.getvalue())
+                self.assertNotIn('Setup written', text)
+                self.assertEqual((list(self.root.iterdir()), self.github.writes), ([], []))
+                commands = [call for call, _ in self.runner.calls]
+                self.assertEqual(switch in commands, answer)
+                self.assertFalse([call for call in commands if call[:1] == ('gh',) or
+                                  call[:3] == ('ub', 'workspace', 'create') or
+                                  call[:3] == ('ub', 'mcp', 'install') or
+                                  call[3:4] in {('add',), ('commit',), ('push',)}])
 
     def test_failed_push_keeps_the_files_and_asks_for_a_manual_pr(self):
         self.runner.responses[('git', '-C', str(self.root), 'push', '--quiet', '--set-upstream', 'origin',
@@ -408,20 +419,26 @@ class FlowTests(unittest.TestCase):
         self.assertIn('Open a PR with these files and merge it', text)
         self.assertIn('Then run ub-agents launch', text)
 
-    def test_files_stay_local_off_the_default_branch_and_unattended(self):
+    def test_unattended_files_stay_local_off_the_default_branch(self):
         self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
-        for script, unattended in ((Script(Switch=False), False), (Script(), True)):
-            with self.subTest(unattended=unattended):
-                for path in [self.path, self.root / '.gitignore']:
-                    path.unlink(missing_ok=True)
-                for child in sorted(self.root.glob('.agents/*')):
-                    child.unlink()
-                self.runner.calls.clear()
-                code, text = self.run_flow(script, unattended=unattended)
-                self.assertEqual(code, 0)
-                self.assertIn('files stay local.', text)
-                self.assertNotIn('Setup PR', text)
-                self.assertFalse([call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] == ('push',)])
+        code, text = self.run_flow(unattended=True)
+        self.assertEqual(code, 0)
+        self.assertTrue(self.path.exists())
+        self.assertIn('files stay local.', text)
+        self.assertNotIn('Switch this checkout to main?', self.script.asked)
+        self.assertNotIn('Setup PR', text)
+        self.assertFalse([call for call, _ in self.runner.calls if call[:1] == ('gh',) or call[3:4] == ('push',)])
+
+    def test_unknown_branch_or_default_branch_does_not_ask_to_switch(self):
+        for branch, default in (('', 'main'), ('feature', None)):
+            with self.subTest(branch=branch, default=default):
+                self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = branch
+                self.github.metadata['default_branch'] = default
+                code, text = self.run_flow(Script(Write=False))
+                self.assertEqual(code, 1)
+                self.assertEqual(self.script.asked[0], 'Which agent runs the loop?')
+                self.assertNotIn('Switch this checkout', text)
+                self.assertIn('Write setup?', self.script.asked)
 
     def test_local_changes_stop_before_any_question(self):
         self.runner.responses[('git', '-C', str(self.root), '--no-optional-locks', 'status', '--porcelain=v1',

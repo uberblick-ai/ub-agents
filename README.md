@@ -144,9 +144,10 @@ Before the first launch:
    defaults per CLI; an agent's own `runtime-args` replaces them. Claude agents
    also need your check commands in `--allowedTools`.
 3. On the default branch, interactive init opens a setup PR: review the files there
-   and merge it. Off the default branch or unattended, commit the local files
-   through your project's PR workflow. After they merge, use a clean
-   default-branch launcher checkout and launch:
+   and merge it. If you decline the switch to that branch or Git cannot switch,
+   init stops without writing anything; switch and run it again. In unattended
+   setup, commit the local files through your project's PR workflow. After they
+   merge, use a clean default-branch launcher checkout and launch:
 
 ```sh
 ub-agents doctor --offline  # local validation without GitHub or agent CLIs

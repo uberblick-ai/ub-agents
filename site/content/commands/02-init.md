@@ -88,7 +88,11 @@ apply only when creating labels; existing labels keep their colors.
 Init asks for the repository only when it can't infer it from the checkout. When the
 checkout is on another branch, it asks to switch to the default branch: launch uses
 that branch only to start fresh branches and worktrees for agents and never commits
-to it. If Git refuses the switch, init says why and continues.
+to it. If you decline or Git refuses the switch, init stops before the next question
+with exit status 1 and writes nothing: no files, labels, boards, workspace or MCP
+config. Switch to the default branch and run `ub-agents init` again. A failed switch
+shows Git's reason. When the current branch or default branch is unknown, init
+asks no switch question and continues as before.
 
 Init stops before the first question when the checkout has local changes, untracked
 files included: commit or stash them, then run it again.
@@ -124,8 +128,9 @@ The starter recommends a different runtime for issue review; it cannot enforce
 
 On the default branch, init then commits the files on a new `setup-ub-agents`
 branch, pushes it, opens the setup PR and switches back. If that fails, it says
-how far it got so you can open the PR yourself. Off the default branch and in
-unattended setup, the files stay local and uncommitted.
+how far it got so you can open the PR yourself. In unattended setup, the files
+stay local and uncommitted on any branch. They also stay local when interactive
+init cannot determine the current branch or default branch.
 This includes a project MCP config created or changed by the Uberblick extra.
 Init leaves ignored MCP config files unchanged when opening a setup PR, so private
 settings stay local and cannot block the other setup files from reaching the PR.
@@ -155,8 +160,9 @@ stay unchanged.
 labels and adds `queue.priority.labels` inside the existing queue or a new block.
 An existing `queue.priority` stays unchanged.
 
-These flags run the checks, stop on local changes, show the planned changes and
-ask once before writing. `--use-defaults`, CI and non-TTY runs take the default
+These flags run the checks without asking to switch branches, stop on local
+changes, show the planned changes and ask once before writing. `--use-defaults`,
+CI and non-TTY runs take the default
 answers, including the default priority labels. GitHub boards and labels are
 created immediately after confirmation. On the default branch, the config goes
 to one setup PR, using an unused branch name if an older setup branch remains.
