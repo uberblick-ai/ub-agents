@@ -192,6 +192,10 @@ ub-agents init --use-defaults --repository org/project
 For plain init, `--use-defaults`, a nonempty `CI` and non-TTY runs ask nothing and run no checks.
 They keep permissions and updates commented out, leave the extras off, register no
 MCP server, create no labels, open no PR and print the label commands. Without `--repository`, `gh repo view` infers it.
+They set who answers the agents' questions to the first team with maintain or
+admin access, falling back to the current `gh` user, and print the choice and its
+source. If neither is readable, setup still completes and tells you to replace
+`@org/maintainers` in `.agents/ub_agents.md` before launch.
 `TERM=dumb` asks the same questions as numbered prompts.
 
 ```text

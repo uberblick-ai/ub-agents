@@ -9,7 +9,7 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, load_config
 from ub_agents.errors import AgentError
-from tests.support import RecordingRunner
+from tests.support import DoctorGitHub, RecordingRunner
 
 
 class ConfigTests(unittest.TestCase):
@@ -634,11 +634,14 @@ agents:
                 self.load(base.replace("RUNTIME", runtime))
 
     def test_init_and_installed_template_preservation(self):
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        github = DoctorGitHub()
+        with patch("ub_agents.cli.GitHub", return_value=github), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "init", "--repository", "org/project"]), 0)
             original = self.path.read_text()
             self.assertEqual(main(["--config", str(self.path), "init", "--repository", "different/project"]), 1)
         self.assertEqual(self.path.read_text(), original)
+        self.assertEqual(github.reads, ['repos/org/project/teams', 'user'])
         agents = load_config(self.path).agents
         self.assertEqual(len(agents), 5)
         self.assertTrue(all(a.outcomes for a in agents))

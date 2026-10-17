@@ -246,6 +246,8 @@ class Flow:
         return enabled
 
     def choose_owner(self):
+        if self.unattended:
+            return self.choose_unattended_owner()
         if not self.probes:
             return ""
         approvals = f"{self.probes.approvals}; see {APPROVALS_GUIDE}"
@@ -261,6 +263,24 @@ class Flow:
         if not owner:
             owner = self.ask.text("Which @user or @org/team?", handles[0], check_owner)
         self.t.step(message, [Text(owner, style=DIM), Text(approvals, style=DIM)])
+        return owner
+
+    def choose_unattended_owner(self):
+        try:
+            teams = self.github.teams()
+        except PROBE_ERRORS:
+            teams = []
+        if teams:
+            owner, source = teams[0], "first maintaining team"
+        else:
+            try:
+                actor = self.github.actor()
+            except PROBE_ERRORS:
+                actor = None
+            owner, source = f"@{actor}" if actor else "", "current gh user"
+        line = (f"{owner} · {source}; edit .agents/ub_agents.md to change it" if owner else
+                "Replace @org/maintainers in .agents/ub_agents.md before launch")
+        self.t.step("Who answers the agents' questions?", [Text(line, style=DIM)])
         return owner
 
     def choose_extras(self):
