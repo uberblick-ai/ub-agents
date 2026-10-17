@@ -48,11 +48,20 @@ migration, report needs-human with one --action per decision.
 
 ## Resuming
 
-Answer the asks on GitHub, remove the stop label and re-add the trigger label you want. A blocked run adds no label; run `ub-agents retry` once the blocker is fixed, or push a new commit to the pull request.
+Answer the asks on GitHub, remove the stop label and re-add the trigger label you
+want. This manual label swap allows one more round without resetting the count;
+another limited outcome parks the item again. A blocked run adds no label; run
+`ub-agents retry` once the blocker is fixed, or push a new commit to the pull request.
 
 ```sh
 ub-agents retry 214 --reason "Chose local storage"
 ```
+
+Retry records the reset before removing all configured stop labels on an open
+item. It adds the selected agent's first trigger only if none of that agent's
+triggers is present, then reports the changes and pickup on a running launcher's
+next poll. Closed items keep their labels. If a label change fails, retry exits
+nonzero and names the remaining manual changes; the reset record stays.
 
 With [approvals](/docs/configuration/approvals.html) on, ub-agents also adds the stop label when an item needs a maintainer, with a comment saying what to do.
 

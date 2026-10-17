@@ -164,7 +164,6 @@ def fallback_body(row):
         context = '\n\n'.join(part for part in (context, summary) if part)
     if row and row.state == 'blocked' and needs_attention(row):
         steps = (f"```sh\n{retry_command(row.item, row.agent)}\n```\n\n"
-                 "Restore a matching trigger if absent; remove any stop label. "
                  "Use these steps only when resuming the same role; follow the project's "
                  "correction or handoff route if a different role must act next.")
         resume = outcome_resume(row.item, text(row.agent), steps, is_pr=row.data.get('kind') == 'pr')
