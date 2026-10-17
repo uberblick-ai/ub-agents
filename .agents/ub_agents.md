@@ -2,59 +2,35 @@
 
 ## Checks
 
-Install this checkout only into its own .venv.
-Run the checks in `AGENTS.md` before handoff and record the results.
-A check that passes only after changing its environment, skipping tests or adding
-extra flags has not passed. Fix repository causes in code or tests; report external
-blockers with evidence. The framework supplies no checks, acceptance rules or grants.
-
-## Handoffs
-
-Implementation PR bodies start with `Closes #N`. Agents never enable auto-merge,
-approve their own PRs, change branch protection or publish releases. Only the
-integrator merges, under the policy below.
+Run the checks in `AGENTS.md` before handoff and record the results. Keep installs
+inside your worktree; never install globally or into the launcher's installation.
 
 ## Merging
 
-The integrator squash-merges a PR once every owed review and check applies to its
-current head, with `--match-head-commit` set to the assigned SHA or the head of its
-own clean base merge. That clean base merge keeps the review and needs no new
-review. The check is a green `Test result` from the GitHub Actions `Test` workflow at
-the head it merges, which the main ruleset also requires. A push, including the
-integrator's own base merge, starts a new run: wait for it with
-`gh pr checks N --watch` and merge only when `Test result` passed at that head.
-Local `mise run ci` is optional and does not replace it. It leaves the merge
-to a maintainer, and says why, when the PR:
+Only the integrator merges, by squash, once a green `Test result` from the GitHub
+Actions `Test` workflow applies to the exact head it merges. Every push, including the
+integrator's own base merge, starts a new run: wait with `gh pr checks N --watch`.
+No agent enables auto-merge, changes branch protection or publishes a release.
+Leave the merge to `@uberblick-ai/maintainers` when the PR:
 
-- changes the `ub-agents` command-line experience without the issue it closes
-  explicitly asking for it: adds, removes or renames commands or options, or changes
-  what existing commands do or print.
-- needs all of a project's launchers stopped and restarted together. That applies to
-  any change a running launcher of the previous build would reject or misread: the
-  coordination record format, agent branch names, the config file, or a config key
-  or value that this repository's `ub-agents.yaml` starts using. Its PR body
-  carries an **Upgrading** note that says so.
-- changes this repository's own workflow: `AGENTS.md`, `.agents/`, `ub-agents.yaml`
-  or `.github/`.
+- changes `AGENTS.md`, `.agents/`, `ub-agents.yaml`, `.github/` or `mise.toml`;
+- changes the `ub-agents` command line (adds, removes or renames commands or options,
+  or changes what they do or print) beyond what the closing issue asks for;
+- needs every launcher of a project restarted together, because a launcher from the
+  previous build would reject or misread its coordination record format, agent
+  branch names, config file, or a config key or value this repository's
+  `ub-agents.yaml` starts using.
 
-Updates to `README.md`, `docs/` and the website pages in `site/content/` that describe
-what the closing issue asked for need no maintainer merge. The reviewer checks that
-they are accurate. Before merging a change to what users install, run, configure or
-see, the integrator reads the affected `site/content/` pages and, if one is now wrong
-or missing, sends the PR back with `changes-requested` naming the page.
+Docs and `site/content/` updates for what the issue asked for need no maintainer merge.
 
 ## Human decisions
 
-The maintainer team answers project policy and scope decisions. An issue's author
-may answer only if they have write access. Follow the project's authority and resume
-rules; if another role must act next, use its correction or handoff route instead of
-retrying the role that stopped.
+`@uberblick-ai/maintainers` answers scope and policy questions. An issue's author may
+answer only if they have write access.
 
 ## Review focus
 
-Scrutinize durable outcomes, lost ownership, claim races, recovery and process
-cleanup whenever a change touches coordination or execution.
-
-A maintainer reads role-board retrospectives in the `ub-agents-deliver-report`
-skill's daily report, published in [uberblick-ai/skills](https://github.com/uberblick-ai/skills).
-Install it with `npx skills@latest add uberblick-ai/skills -g`.
+When a change touches coordination or execution, scrutinize durable outcomes, lost
+ownership, claim races, recovery and process cleanup. For a change to what users
+install, run, configure or see, the affected `site/content/` pages must still be
+accurate.

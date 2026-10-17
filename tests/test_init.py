@@ -184,8 +184,7 @@ class InitTests(unittest.TestCase):
                     policy = load_config(self.path).shared_instructions.read_text()
                     customized = ' '.join(policy.replace('@org/maintainers', '@acme/core').split())
                     self.assertIn('`@acme/core` answers scope and policy questions;', customized)
-                    self.assertIn('Leave changes to workflow, permissions and release policy to `@acme/core`;',
-                                  customized)
+                    self.assertIn('Leave the merge to `@acme/core` when the PR:', customized)
                     self.assertNotIn('maintainer team', policy)
                     self.assertIn('- New behavior has tests that fail without the change.',
                                   policy.split('## Review focus\n\n')[1])
