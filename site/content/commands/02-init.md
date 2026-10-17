@@ -48,7 +48,7 @@ Init never overwrites existing starter files, `AGENTS.md` or `CLAUDE.md`. If som
 
 - Check the agent permissions (`runtime-args`) in `ub-agents.yaml`. See [permissions](/docs/configuration/permissions.html).
 - Review `.agents/ub_agents.md` against [what belongs in the shared policy](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy).
-- For Claude, add your test command to `--allowedTools` in `ub-agents.yaml`.
+- If your project has its own check commands, such as `mise run ci`, add them to Claude's `--allowedTools` in `ub-agents.yaml`, for example `"Bash(mise run ci)"`.
 - Merge the setup PR.
 - Run [`ub-agents launch`](/docs/commands/launch.html) from a clean checkout of your default branch.
 
