@@ -21,8 +21,6 @@ Leave the merge to `@uberblick-ai/maintainers` when the PR:
   branch names, config file, or a config key or value this repository's
   `ub-agents.yaml` starts using.
 
-Docs and `site/content/` updates for what the issue asked for need no maintainer merge.
-
 ## Human decisions
 
 `@uberblick-ai/maintainers` answers scope and policy questions. An issue's author may
