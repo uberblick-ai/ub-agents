@@ -423,9 +423,9 @@ class FlowTests(unittest.TestCase):
     def test_admin_account_gets_the_account_guide(self):
         self.github.roles['operator'] = 'admin'
         code, text = self.run_flow()
-        self.assertIn('! Account operator is admin on GitHub', text)
-        self.assertIn('! Account operator is admin on GitHub; use a dedicated agent account with write access See https', text)
-        self.assertIn('Use a dedicated agent account with write access; see '
+        self.assertIn('! Account operator is admin, good for setup', text)
+        self.assertIn('! Account operator is admin, good for setup; launch the loop with a write-access agent account See https', text)
+        self.assertIn('Launch the loop with a write-access agent account; see '
                       'https://agents.uberblick.ai/docs/best-practices/launcher-account', text)
 
     def test_unlisted_launcher_gets_local_config_remedy_without_account_change(self):
@@ -434,7 +434,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('! Account operator is not in local launchers; it will claim no work', text)
         self.assertIn('Review ub-agents.local.yaml: list this launcher account before launch', text)
-        self.assertNotIn('Use a dedicated agent account', text)
+        self.assertNotIn('write-access agent account', text)
 
     def test_other_branch_asks_to_switch_to_the_default_branch(self):
         self.runner.responses[('git', '-C', str(self.root), 'rev-parse', '--abbrev-ref', 'HEAD')] = 'feature'
