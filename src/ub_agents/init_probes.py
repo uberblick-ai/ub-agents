@@ -138,7 +138,7 @@ class Probes:
             except PROBE_ERRORS:
                 role = None
             if role in {"maintain", "admin"}:
-                d.add("account", "warn", f"{actor} is {role} on GitHub; use a dedicated agent account with write access",
+                d.add("account", "warn", f"{actor} is {role}, good for setup; launch the loop with a write-access agent account",
                       f"See {ACCOUNT_GUIDANCE}", required=False)
             elif role is None:
                 d.add("account", "warn", f"{actor}'s repository role can't be read", f"See {ACCOUNT_GUIDANCE}", required=False)

@@ -125,7 +125,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  ✓ GitHub     operator · org/project · labels writable
 │  ✓ Checkout   feature · clean · in sync with origin
 │  ✓ Agents     claude logged in · codex not logged in
-│  ! Account    operator is admin on GitHub; use a dedicated agent account with write access
+│  ! Account    operator is admin, good for setup; launch the loop with a write-access agent account
 │               See https://agents.uberblick.ai/docs/best-practices/launcher-account
 │
 ◇  Switch this checkout to main?
@@ -200,7 +200,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  5. Warning: claude loads no project guidance; add CLAUDE.md,                   │
 │     .claude/CLAUDE.md or AGENTS.md so agents know how to build and test.        │
 │  6. First loop issue: https://github.com/org/project/issues/10 · Tailor `.agents/ub_agents.md` to this repository
-│  7. Use a dedicated agent account with write access; see                        │
+│  7. Launch the loop with a write-access agent account; see                      │
 │     https://agents.uberblick.ai/docs/best-practices/launcher-account            │
 │  8. Uberblick MCP · Claude Code · project scope · .mcp.json · registered         │
 │  9. Restart running agent sessions to pick up the Uberblick MCP server         │

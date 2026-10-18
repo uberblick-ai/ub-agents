@@ -4,7 +4,7 @@ We recommend launching the loop with a dedicated GitHub account for your agents,
 
 ## Why not admin
 
-Write access is enough to push branches, open pull requests and set labels. With [`approvals: on`](/docs/configuration/approvals.html#on), issues and pull requests from people outside your team wait until a maintainer approves them. An agent account with maintain or admin counts as a maintainer, so it could approve that outside work itself. [`ub-agents init`](/docs/commands/init.html) and [`ub-agents doctor`](/docs/commands/doctor.html) warn about it.
+Write access is enough to push branches, open pull requests and set labels. With [`approvals: on`](/docs/configuration/approvals.html#on), issues and pull requests from people outside your team wait until a maintainer approves them. An agent account with maintain or admin counts as a maintainer, so it could approve that outside work itself. [`ub-agents init`](/docs/commands/init.html) reminds you about it and [`ub-agents doctor`](/docs/commands/doctor.html) warns.
 
 ```sh
 ub-agents doctor

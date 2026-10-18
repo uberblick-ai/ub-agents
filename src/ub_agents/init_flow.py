@@ -460,7 +460,7 @@ class Flow:
             steps.append(f"First loop issue: {issue} · {TAILOR_TITLE}")
         account = next((g for g in self.probes.groups if g.name == "Account"), None) if self.probes else None
         if account and any(problem.id == "account" for problem in account.problems):
-            steps.append(f"Use a dedicated agent account with write access; see {ACCOUNT_GUIDANCE}")
+            steps.append(f"Launch the loop with a write-access agent account; see {ACCOUNT_GUIDANCE}")
         if account and any(problem.id == "launcher-listed" for problem in account.problems):
             steps.append("Review ub-agents.local.yaml: list this launcher account before launch")
         if "uberblick" in extras:
