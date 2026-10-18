@@ -393,7 +393,7 @@ class Doctor:
                 self.add("github-permissions", "ok", "token can change labels for outcome transitions")
             else:
                 self.add("github-permissions", "fail", "token cannot change labels, so outcome transitions would fail",
-                         f"Ask a maintainer for triage or higher access to {config.repository}")
+                         f"Ask a maintainer for write access to {config.repository}")
             return raw
         except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
             self.add("github-repository", "fail", self.github_failure("repository access", exc),
