@@ -87,6 +87,8 @@ launcher` after a complete pass with nothing claimable. It has no item content.
 If usage pauses hold eligible items, it instead names those pauses, for example
 `Idle · claude paused for 1d 4h, codex paused for 35m (usage limit)`, including in
 agent queues. Pauses holding no eligible item appear only in the footer.
+When space is tight, the idle line shortens the wording to retain the CLI names
+and remaining times.
 Other launchers' claims are omitted; their runs remain in an item's Runs tab.
 Parked dependency waits are omitted from rows and section counts. The three
 milestone modes are `gate`, `order` and `ignore`. `gate` selects the earliest

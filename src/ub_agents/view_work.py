@@ -249,7 +249,7 @@ class WorkTree(ScrollbarVisibility, Tree):
                                pauses=runtime_pauses(self.app.session.data, now))[line_no != node._line]
         elif node is self.app.idle_node:
             label_style += theme_style(self.app, 'view-muted', dim=True)
-            value = node.label.copy()
+            value = self.app.idle_label(self.app.pane, width)
             value.truncate(width, overflow='ellipsis')
         else:
             label_style = theme_style(self.app, SECTION_COLORS.get(node.label.plain.split(' · ')[0], 'view-muted'))

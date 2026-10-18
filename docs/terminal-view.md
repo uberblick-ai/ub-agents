@@ -160,6 +160,7 @@ When usage pauses hold eligible items, the idle line names those CLIs and their
 remaining pauses instead, including in an agent queue: `Idle · claude paused for
 1d 4h, codex paused for 35m (usage limit)`. A pause with no eligible item appears
 only in the footer.
+The idle line shortens the wording when needed to keep CLI names and remaining times visible.
 When no row is selected, the Log status line reads
 `○ Idle · waiting for the next poll`. Plans claimed by other launchers do not
 appear in the Work pane; their runs remain in an item's Runs tab.

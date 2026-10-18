@@ -821,7 +821,7 @@ class View(App):
         else:
             tree.refresh_spinners()
 
-    def idle_label(self, pane):
+    def idle_label(self, pane, width=None):
         complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
         reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
         if self.session.data.get('queue_agent'):
@@ -837,7 +837,19 @@ class View(App):
         if held:
             reason = ', '.join(pause_status({cli: end}, now) for cli, end in pauses.items() if cli in held)
             reason += ' (usage limit)'
-        return Text(f'    Idle · {reason}', style='dim')
+        label = Text(f'    Idle · {reason}', style='dim')
+        if held and width is not None:
+            for phrase in (' paused ', ' '):
+                if label.cell_len <= width:
+                    break
+                reason = ', '.join(f'{cli}{phrase}{remaining_time(end, now)}'
+                                   for cli, end in pauses.items() if cli in held)
+                label = Text(f'    Idle · {reason} (usage limit)', style='dim')
+            if label.cell_len > width:
+                label = Text(f'Idle · {reason} (usage limit)', style='dim')
+            if label.cell_len > width:
+                label = Text(f'Idle · {reason}', style='dim')
+        return label
 
     def populate(self, pane):
         tree = self.query_one('#work', Tree)

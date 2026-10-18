@@ -98,6 +98,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
 
                     self.assertTrue(displayed(22).endswith('claude, codex paused for 35m'), displayed(22))
                     self.assertTrue(displayed(23).endswith('waiting'), displayed(23))
+                    await pilot.resize_terminal(110, 32)
+                    await pilot.pause(0.1)
+                    strips = app.screen._compositor.render_strips()
+                    y = tree.region.y + app.idle_node._line - tree.scroll_offset.y
+                    idle = strips[y].crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
+                    for part in ('Idle', 'claude', '1d 4h', 'codex', '35m'):
+                        self.assertIn(part, idle)
                     for elapsed, remaining in ((60, '34m'), (35 * 60, None), (28 * 3600, None)):
                         clock.now.return_value = row_clock.now.return_value = now + timedelta(seconds=elapsed)
                         app._tree_second = -1
