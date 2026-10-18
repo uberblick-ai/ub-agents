@@ -85,7 +85,8 @@ def load_session(path):
         data = read_json(path)
         if type(data.get('version')) is not int or data['version'] != 1:
             raise ValueError('Missing or unsupported snapshot version')
-        for key in ('assignment', 'latest_pass', 'activity', 'omitted', 'histories', 'action_needed', 'coordination_authors'):
+        for key in ('assignment', 'latest_pass', 'activity', 'omitted', 'histories', 'action_needed',
+                    'coordination_authors', 'runtime_pauses'):
             if data.get(key) is not None and not isinstance(data[key], dict):
                 raise ValueError(f'Invalid {key}')
         if 'outcomes' in data and not isinstance(data['outcomes'], list):
@@ -124,6 +125,9 @@ def load_session(path):
                 blockers = row.get('human_blocker')
                 if blockers is not None and (not isinstance(blockers, list) or not all(isinstance(b, str) for b in blockers)):
                     raise ValueError('Invalid human blockers')
+                clis = row.get('paused_clis')
+                if clis is not None and (not isinstance(clis, list) or not all(isinstance(cli, str) for cli in clis)):
+                    raise ValueError('Invalid paused CLIs')
         return Session(path, data)
     except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
         return Session(path, {}, text(str(exc)))

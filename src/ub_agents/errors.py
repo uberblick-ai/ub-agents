@@ -43,6 +43,10 @@ class RetryableExecutionError(AgentError):
 class RuntimePaused(AgentError):
     """Eligible runtimes are temporarily waiting for usage resets."""
 
+    def __init__(self, message, clis=()):
+        super().__init__(message)
+        self.clis = clis
+
 
 class LostOwnership(AgentError):
     """The launcher must terminate its execution before doing anything else."""

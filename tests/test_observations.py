@@ -59,6 +59,36 @@ class ObservationTests(unittest.TestCase):
         self.observer.poll_refresh(False)
         self.assertEqual(self.memory.snapshots[-1]['poll_now'], snapshot['poll_now'] | {'refreshing': False})
 
+    def test_runtime_pauses_publish_without_plans_and_mark_only_pause_held_plans(self):
+        github = FakeGitHub(issue())
+        loop = self.loop(github)
+        now = loop.coordinator.clock()
+        role = replace(self.cfg.agents[0], command=(),
+                       runtimes=(Runtime('claude', 'opus', 'high'), Runtime('codex', 'model', 'high')))
+        with patch('ub_agents.coordination.shutil.which', return_value='installed'):
+            loop.usage.limit('claude', now + 100)
+            loop.usage.limit('codex', now + 200)
+            expected = {'claude': iso(now + 160), 'codex': iso(now + 260)}
+            self.assertEqual(self.memory.snapshots[-1]['runtime_pauses'], expected)
+            self.assertIsNone(self.memory.snapshots[-1]['latest_pass'])
+            self.observer.begin_pass()
+            plan = loop.coordinator.plan(github.item(1), role, self.cfg.stop_labels)
+            self.assertEqual(plan.paused_clis, ('claude', 'codex'))
+            self.observer.plan(plan)
+            row = self.memory.snapshots[-1]['latest_pass']['rows'][0]
+            self.assertEqual(row['paused_clis'], ['claude', 'codex'])
+            self.observer.observation_pass(now, [])
+            self.assertEqual(self.memory.snapshots[-1]['runtime_pauses'], expected)
+            loop.coordinator.clock = lambda: now + 160
+            self.assertIsNone(loop.usage.paused('claude'))
+            self.assertEqual(self.memory.snapshots[-1]['runtime_pauses'], {'codex': iso(now + 260)})
+            available = loop.coordinator.plan(github.item(1), role, self.cfg.stop_labels)
+            self.assertEqual((available.state, available.paused_clis), ('ready', ()))
+            self.observer.plan(available)
+            self.assertEqual(self.memory.snapshots[-1]['latest_pass']['rows'][0]['paused_clis'], [])
+            loop.usage.reset()
+            self.assertEqual(self.memory.snapshots[-1]['runtime_pauses'], {})
+
     def test_action_notice_post_deduplication_and_claim_clear_snapshot(self):
         github = FakeGitHub(issue())
         co = self.loop(github).coordinator

@@ -62,12 +62,19 @@ The version 1 envelope contains:
 | `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
 | `queue_agent`, `queue_idle` | Optional filtered-queue context: the selected configured agent and its last complete idle explanation, naming trigger labels or counting waiting states. Unfiltered launches omit these fields. |
 | `poll_now` | Optional poll control: `cooldown_until` and `rate_limit_until` are UTC ISO 8601 times or `null`; `waiting: true` confirms a poll waiter is installed, allowing immediate feedback on `r` during an assignment unless cooldown or rate limits apply. Missing or false `waiting` gives no such confirmation. `refreshing: true` means an `r`-forced read-only queue refresh is running during an assignment. Missing or false `refreshing` means no forced refresh; scheduled refreshes do not set it. |
+| `runtime_pauses` | Optional mapping from CLI (`claude`, `codex`) to its usage-pause end time in UTC ISO 8601. Changes publish immediately, independently of queue planning. Consumers ignore expired or unreadable deadlines and count down locally; missing or empty means no observed pauses. |
 | `assignment` | Current item, kind, title, agent, effective priority word, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
 | `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. A supervised run's completed outcome refreshes its item's rows for every evaluated agent before the next claim (only the selected agent in a filtered queue), without completing the pass or discovering the repository. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time, without description text. `eligible_count` counts merged Eligible items before byte trimming, excluding the running agent; older snapshots may omit it. Another launcher's owner includes only actor, host and run, with no log paths. |
 | `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff when reported, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit optional header context. |
 | `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. Work's `omitted N` counts dropped plan rows; Eligible's heading uses `eligible_count` even when hidden plans were dropped. |
 
 ## State interpretation
+
+Plans held because all eligible runtimes are usage-paused carry `paused_clis`, a
+list of the affected CLIs; other plans carry an empty list, and older snapshots
+may omit it. Views combine it with `runtime_pauses` to show the cause only while
+every named CLI remains paused, using the earliest end for that row. These fields
+describe in-memory launcher state; reading a snapshot never restores a pause.
 
 Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
 `unknown`. Only a process recorded by supervision is shown as running; a lease's

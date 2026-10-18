@@ -99,7 +99,8 @@ class Loop:
         self._item_refusals = None
         self.refusal_output = None
         self._discovery_requests = None
-        self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output)
+        self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output,
+                                  on_change=lambda pauses: self._observe("runtime_pauses", pauses))
         self.health = AgentHealth(output=self._health_notice)
         self.coordinator.runtime_paused = self.usage.paused
         self.discovery = Discovery(self.github)

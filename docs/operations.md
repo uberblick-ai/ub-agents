@@ -205,7 +205,15 @@ on that CLI in memory until reset plus one minute, without charging item attempt
 An unusable reset uses a 15-minute pause. Other CLIs and their runtime alternatives
 keep working. Each pause start or changed end time prints the CLI and UTC end time
 in launch output and `.ub-agents/launch.log`. Restarting the launcher clears its
-pauses. See
+pauses. The terminal footer shows every active pause, such as `claude paused for
+1d 4h`, even with no eligible items. When idle with usage-held work, Running
+names those pauses with `(usage limit)`; held Eligible rows name the paused CLIs
+and time until the first resumes. Other waits still show `waiting`. Attached and
+reopened views use the session's published pause end times. These displays count
+down locally and clear at expiry, using at most two nonzero day/hour/minute units,
+rounded up to at least `1m`. The GitHub footer label uses the same format:
+`rate limited for 12m · r unavailable`, including alongside `running assignment`.
+See
 [runtime usage pauses](configuration.md#runtime-usage-pauses).
 
 A stop label such as `needs-human` on the assignment or its handoff PR pauses a

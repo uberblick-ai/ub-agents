@@ -1014,7 +1014,10 @@ preserved even when the run reports a limit.
 
 Runtime alternatives are tried in order, skipping paused CLIs while retaining
 `different-runtime-from` rules. An item whose eligible runtimes are all paused
-shows `waiting`, without label changes or attempts. Other CLIs and their runtime
+stays `waiting`, without label changes or attempts. In the terminal view, its row
+names the paused CLIs and time until the first pause ends, such as `claude, codex
+paused for 35m`. Other waits, including health checks, still show `waiting`.
+Other CLIs and their runtime
 alternatives keep working. Continuous launch keeps polling even when every CLI is
 paused; ordinary, idle, and empty-poll waits wake by the earliest CLI pause expiry.
 Signals interrupt these waits normally. `launch --once` still observes just once.
@@ -1023,6 +1026,17 @@ When a pause starts or its end time changes, one line in launch output names the
 CLI and its UTC end time, for example:
 `claude usage limit reached; pausing claude runs until 2026-10-04T12:01:00Z`.
 The line is also written to `.ub-agents/launch.log`.
+
+The terminal footer shows every active pause before activity, such as `claude
+paused for 1d 4h · codex paused for 35m`, even with no eligible items. With no run
+and pause-held eligible work, Running shows `Idle · claude paused for 1d 4h
+(usage limit)` instead of its usual idle or queue text. Remaining time uses at
+most two nonzero day/hour/minute units, rounded up to at least `1m`. The footer,
+idle line and row causes count down and clear at expiry on view refresh; they
+need no new snapshot. Pause end times are published in the session snapshot, so
+attached and reopened views show the same pauses. Narrow footers may shorten the
+wording while keeping each CLI and its remaining time. See the
+[terminal view](terminal-view.md) for footer and GitHub rate-limit displays.
 
 `status --json` returns an object with `assignments` (the assignment rows).
 With `status NUMBER --json`, it contains only that item's rows. If no rows apply,

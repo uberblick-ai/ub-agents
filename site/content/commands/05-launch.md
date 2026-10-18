@@ -30,6 +30,10 @@ In a terminal, launch opens a live view: what is running, what needs a person, w
 
 The Runs tab keeps updating for the selected item after it is claimed or handed over, even when its row becomes an earlier observation. If a snapshot leaves out its history, the tab keeps the last history it showed.
 
+The footer shows the repository, then any runtime usage pauses, then launcher activity: `claude paused for 1d 4h · codex paused for 35m · next poll 26s`. Pauses stay visible even with no eligible work. When idle with pause-held items, Running names the pauses with `(usage limit)`, and Eligible rows name the CLIs and time until the first resumes. Other waits still show `waiting`.
+
+Usage pauses and the GitHub label `rate limited for 12m · r unavailable` use relative remaining time, including alongside `running assignment`. Durations show at most two nonzero day/hour/minute units, rounded up to at least `1m`. They count down locally and clear at expiry without another snapshot. Attached and reopened views show the same pauses; narrow footers retain CLI names and remaining time with shorter wording.
+
 Outside a terminal, or with `--no-ui`, launch prints plain lines instead. The [terminal view](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md) notes cover the details.
 
 ## Before each run
