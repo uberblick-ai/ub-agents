@@ -1024,7 +1024,7 @@ launchers: [operator]
         self.github.metadata["permissions"] = {"pull": True}
         result = self.diagnose()
         self.assertEqual((self.one(result, "github-permissions")["status"], result["ok"]), ("fail", False))
-        self.assertIn("triage", self.one(result, "github-permissions")["remedy"])
+        self.assertIn("write access", self.one(result, "github-permissions")["remedy"])
         self.github.repository_error = AgentError("sk-repository-secret")
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "fail")
         self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "skip")
