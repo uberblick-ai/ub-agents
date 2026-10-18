@@ -156,6 +156,10 @@ while a pass is in progress, including the immediate pass after a run. It reads
 `Idle · nothing eligible for this launcher` only after a complete pass found
 nothing this launcher can claim. It is not a work item and has no log, Issue or
 Runs content. The line truncates to the pane width when needed.
+When usage pauses hold eligible items, the idle line names those CLIs and their
+remaining pauses instead, including in an agent queue: `Idle · claude paused for
+1d 4h, codex paused for 35m (usage limit)`. A pause with no eligible item appears
+only in the footer.
 When no row is selected, the Log status line reads
 `○ Idle · waiting for the next poll`. Plans claimed by other launchers do not
 appear in the Work pane; their runs remain in an item's Runs tab.
@@ -171,7 +175,12 @@ shortened with `…`, and a right column:
 | Blocked | `!` | Waiting time in red |
 | Attempt limit reached | `✗` | Waiting time in red |
 | Eligible, ready or recovery | `●` | `held` while stopping; otherwise `next` for the first ready/recovery row in planned order, then `ready` or `recover` |
-| Eligible, delayed | `◷` | `backoff` for retry backoff; `waiting` for paused runtimes; never `next` |
+| Eligible, delayed | `◷` | `backoff` for retry backoff; `claude paused for 1d 4h` for usage pauses; `waiting` for other causes; never `next` |
+
+A usage-held row names its paused CLIs and the time until the first pause ends,
+for example `claude, codex paused for 35m`. Health-check waits and declined claims
+still show `waiting`. The pause cause clears when any named CLI's pause ends,
+without waiting for another snapshot; the launcher replans normally.
 
 Needs attention's second line is `agent · state · reason`, indented and dim.
 When several agents need attention for the same item, they share one row. Its
@@ -263,7 +272,7 @@ that this launcher is finishing its current run and will claim nothing new.
 Eligible's rule reads `Eligible · N · not claimed while stopping`, adding
 ` · showing 10` before the stopping note when truncated, shortened
 with `…` at narrow widths like other headings. Ready and recovery rows show
-`held`; delayed rows keep `backoff` or `waiting`. The footer reads `stopping`.
+`held`; delayed rows keep their backoff, usage-pause cause or `waiting`. The footer reads `stopping`.
 
 Dependency waits are parked plans whose reasons start with
 `Waiting for blockers …`. They are omitted
@@ -601,6 +610,15 @@ Missing repository values and `reading session` omit the segment and its separat
 Long names shorten with a trailing `…` inside the repository segment; the footer
 stays on one row without cutting the version, enabled keep-awake indicator or
 separators, or overlapping the right-side keys.
+Each active runtime usage pause adds a segment after the repository and optional
+keep-awake indicator, before activity: `claude paused for 1d 4h · codex paused for
+35m`. These segments remain even with no eligible items. Narrow layouts may use
+`claude paused 1d 4h` or `claude 1d 4h`, retaining each CLI and its remaining time.
+The session snapshot publishes each CLI's pause end time, so attached and reopened
+views show the same pauses. All three displays count down locally and clear at
+expiry without a new snapshot. Remaining time uses at most two nonzero day, hour
+and minute units, rounded up (`1d 4h`, `1d`, `4h 12m`, `12m`, `1m`), never a clock
+time or `0m`. These remaining durations are independent of the operator's time zone.
 Busy activity text shortens before the repository loses its readable prefix;
 the repository shortens further only when the remaining space requires it.
 Waiting counts down as `next poll Ns`; other activities say `checking setup`, `polling`,
@@ -621,7 +639,7 @@ Presses during a pass are dropped; a repeated press during a forced refresh keep
 `· polling`. After the refresh ends, pressing again within 10 seconds of the
 accepted request shows
 `poll now available in Ns`; rate-limit waits show
-`rate limited until HH:MM · r unavailable`, in local time, alongside
+`rate limited for 12m · r unavailable`, using the same remaining-time format, alongside
 `running assignment` when queue planning is rate limited during a run. The key
 never shortens rate-limit waits or poll-retry backoff, and does not change attempt
 limits or the regular poll interval. Standalone views do not offer or act on `r`,
@@ -952,7 +970,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    correct counts and no Waiting section. Dependency waits must be
    absent from rows and counts. Within Eligible, ready/recovery rows keep their
    planned order, followed by backoff and paused-runtime rows with `◷` and their
-   `backoff`/`waiting` states; delayed rows never show `next`, even without any
+   backoff, usage-pause causes or other `waiting` states; delayed rows never show `next`, even without any
    ready/recovery rows. The current assignment appears once. Empty sections are
    hidden except Running. A partial pass has a dim marker on
    the pane title, which disappears when the pass completes. Confirm follow reaches
@@ -968,6 +986,10 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    GitHub request; include an item with missing filing data and omitted runs.
    Check the single footer line shows the snapshot's version, repository and activity, including
    the waiting countdown and stopping state, with readable main keys at 110 columns.
+   Check Claude and Codex usage pauses in the footer, idle line and held rows,
+   including both together, no eligible items, an attached or reopened view and
+   expiry without another snapshot. Narrow footers retain each CLI and remaining
+   time. GitHub rate limits use the same relative format, also during a run.
    Check stale, ended and malformed snapshots are labelled, with the malformed error,
    without a minimum-size hint. There is no snapshot age or
    Local files/GitHub diagnostic line. Open `?`, check every key, and close it with
@@ -1059,7 +1081,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    `stopping`, its detail changes from `attempt N` to `agent · this launcher ·
    finishing run` (shortened to fit), and Eligible's rule includes `not claimed
    while stopping`. Ready/recovery rows must show `held`, while delayed rows
-   keep `backoff`/`waiting`. Select the assignment and check
+   keep their backoff, usage-pause cause or `waiting`. Select the assignment and check
    `■ Stopping after this run (SIGTERM) · no new claims`; select another item
    and check its normal Log status. The footer must read `stopping`, and the
    launcher must stay alive until the current run finishes without claiming new

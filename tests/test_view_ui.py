@@ -35,6 +35,95 @@ from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    def test_runtime_pause_footer_keeps_each_cli_and_time_at_narrow_widths(self):
+        now = datetime.now(timezone.utc)
+        self.state['runtime_pauses'] = {'claude': (now + timedelta(hours=28)).isoformat(),
+                                        'codex': (now + timedelta(minutes=35)).isoformat()}
+        self.state['base_version'] = '0.3.2'
+        self.state['repository'] = 'owner/' + 'long-repository-name' * 4
+        app = View(self.root, self.path)
+        app.session = Session(self.path, self.state)
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now
+            for width in (60, 80, 109, 110, 160, 220):
+                with self.subTest(width=width):
+                    app.narrow = width < 110
+                    line = app.footer(width, '? keys q quit')
+                    self.assertEqual(line.cell_len, width)
+                    self.assertIn('claude', line.plain)
+                    self.assertIn('1d 4h', line.plain)
+                    self.assertIn('codex', line.plain)
+                    self.assertIn('35m', line.plain)
+                    self.assertTrue(line.plain.endswith('q quit'), line.plain)
+            app.narrow = False
+            self.assertIn('claude paused for 1d 4h · codex paused for 35m', app.footer(220, '').plain)
+
+    async def test_runtime_pause_snapshot_reopens_attached_and_counts_down_without_publication(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        self.state.update(assignment=None, activity={'state': 'waiting', 'until': (now + timedelta(seconds=26)).isoformat()},
+                          runtime_pauses={'claude': (now + timedelta(hours=28)).isoformat(),
+                                          'codex': (now + timedelta(minutes=35)).isoformat()},
+                          queue_agent='worker', queue_idle='Queue has no claimable work')
+        self.state['latest_pass'] = {'state': 'complete', 'rows': [
+            {'item': 21, 'agent': 'worker', 'state': 'waiting', 'paused_clis': ['claude']},
+            {'item': 22, 'agent': 'worker', 'state': 'waiting', 'paused_clis': ['claude', 'codex']},
+            {'item': 23, 'agent': 'worker', 'state': 'waiting', 'reason': 'Health check failed'},
+        ]}
+        publish_snapshot(self.path, self.state)
+        # Both openings use the same session file, as an attached or reopened view does.
+        for attached in (False, True):
+            app = View(self.root, self.path, launcher=Mock() if attached else None)
+            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
+                  patch('ub_agents.view_work.datetime', wraps=datetime) as row_clock):
+                clock.now.return_value = row_clock.now.return_value = now
+                async with app.run_test(size=(220, 40)) as pilot:
+                    await self.ready(app, pilot, lambda: app.idle_node is not None)
+                    status = app.query_one('#status', Static)
+                    self.assertIn('claude paused for 1d 4h · codex paused for 35m · agent worker', status.render().plain)
+                    self.assertEqual(app.idle_node.label.plain,
+                                     '    Idle · claude paused for 1d 4h, codex paused for 35m (usage limit)')
+                    # Freeze filesystem input while retaining the normal refresh path.
+                    app.worker.close()
+                    app.worker.thread.join(2)
+                    app.busy = True
+                    while not app.worker.results.empty():
+                        app.worker.results.get_nowait()
+                    tree = app.query_one('#work', Tree)
+
+                    def displayed(item):
+                        node = app.nodes[f'plan:{item}']
+                        strips = app.screen._compositor.render_strips()
+                        y = tree.region.y + node._line - tree.scroll_offset.y
+                        return strips[y].crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
+
+                    self.assertTrue(displayed(22).endswith('claude, codex paused for 35m'), displayed(22))
+                    self.assertTrue(displayed(23).endswith('waiting'), displayed(23))
+                    for elapsed, remaining in ((60, '34m'), (35 * 60, None), (28 * 3600, None)):
+                        clock.now.return_value = row_clock.now.return_value = now + timedelta(seconds=elapsed)
+                        app._tree_second = -1
+                        app.tick()
+                        await pilot.pause(0.1)
+                        if remaining:
+                            self.assertIn('codex paused for ' + remaining, status.render().plain)
+                            self.assertTrue(displayed(22).endswith(remaining), displayed(22))
+                            self.assertIn('codex paused for ' + remaining, app.idle_node.label.plain)
+                        else:
+                            self.assertNotIn('codex paused', status.render().plain)
+                            self.assertNotIn('codex paused', app.idle_node.label.plain)
+                            self.assertTrue(displayed(22).endswith('waiting'), displayed(22))
+                    self.assertNotIn('paused', status.render().plain)
+                    self.assertEqual(app.idle_node.label.plain, '    Idle · Queue has no claimable work')
+                    self.assertTrue(displayed(21).endswith('waiting'), displayed(21))
+                    # An active pause with no eligible item remains a footer segment only.
+                    clock.now.return_value = row_clock.now.return_value = now
+                    app.session.data['latest_pass']['rows'] = []
+                    app.populate(work_pane(app.session, self.root))
+                    app.update_status()
+                    self.assertIn('claude paused for 1d 4h', status.render().plain)
+                    self.assertNotIn('usage limit', app.idle_node.label.plain)
+                    await pilot.press('q')
+            app.worker.thread.join(2)
+
     async def test_awake_key_all_panes_and_overlays_waits_for_launcher_state(self):
         self.state['latest_pass']['rows'].append(
             {'item': 20, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
@@ -161,7 +250,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             ('implementer', {'state': 'running assignment'}, {'refreshing': True},
              'agent implementer · running assignment · polling'),
             ('', {'state': 'running assignment'}, {'rate_limit_until': later},
-             'running assignment · rate limited until'),
+             'running assignment · rate limited for'),
             ('', {'state': 'waiting', 'until': later}, {'cooldown_until': later},
              'next poll 300s · poll now available in 300s'),
         )
@@ -648,7 +737,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press('q')
                 app.worker.thread.join(2)
 
-    async def test_poll_footer_cooldown_countdown_and_rate_limit_in_local_time(self):
+    async def test_poll_footer_cooldown_countdown_and_relative_rate_limit(self):
         now = datetime.now(timezone.utc)
         self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=400)).isoformat()}
         self.state['poll_now'] = {'cooldown_until': (now + timedelta(seconds=8)).isoformat(),
@@ -671,11 +760,18 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.state['poll_now']['rate_limit_until'] = reset.isoformat()
                 self.state['activity'] = {'state': 'running assignment'}
                 publish_snapshot(self.path, self.state)
-                label = f'rate limited until {reset.astimezone():%H:%M} · r unavailable'
+                label = 'rate limited for 7m · r unavailable'
                 await self.ready(app, pilot, lambda: f'running assignment · {label}' in status.render().plain)
                 self.assertNotIn('poll now available', status.render().plain)
                 await pilot.press('r')
                 app.launcher.poll.assert_called_once_with()
+                clock.now.return_value = now + timedelta(seconds=69)
+                app.update_status()
+                self.assertIn('running assignment · rate limited for 6m · r unavailable', status.render().plain)
+                clock.now.return_value = reset
+                app.update_status()
+                self.assertIn('running assignment', status.render().plain)
+                self.assertNotIn('rate limited', status.render().plain)
                 await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -812,7 +908,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await self.ready(app, pilot)
                         status = app.query_one('#status', Static)
                         await pilot.press('r')
-                        label = (f'rate limited until {until.astimezone():%H:%M} · r unavailable' if limited else
+                        label = ('rate limited for 1m · r unavailable' if limited else
                                  'poll now available in 8s')
                         self.assertIn('running assignment · ' + label, status.render().plain)
                         self.assertNotIn('· polling', status.render().plain)
@@ -837,7 +933,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             await self.ready(app, pilot)
                             value = app.query_one('#status', Static).render().plain
                             if attached:
-                                self.assertIn(f'rate limited until {reset.astimezone():%H:%M} · r unavailable', value)
+                                self.assertIn('rate limited for 7m · r unavailable', value)
                             else:
                                 self.assertIn('next poll 400s', value)
                                 self.assertNotIn('rate limited', value)

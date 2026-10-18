@@ -18,12 +18,18 @@ def number(value):
 
 
 class RuntimeUsage:
-    def __init__(self, clock=timestamp, output=print):
+    def __init__(self, clock=timestamp, output=print, on_change=None):
         self.clock, self.output = clock, output
+        self.on_change = on_change
         self.pauses = {}
+
+    def changed(self):
+        if self.on_change is not None:
+            self.on_change({cli: iso(end) for cli, end in self.pauses.items()})
 
     def reset(self):
         self.pauses.clear()
+        self.changed()
 
     def paused(self, cli):
         end = self.pauses.get(cli)
@@ -31,6 +37,7 @@ class RuntimeUsage:
             return None
         if end <= self.clock():
             del self.pauses[cli]
+            self.changed()
             return None
         return {"reason": "usage limit reached", "ends_at": iso(end)}
 
@@ -46,5 +53,6 @@ class RuntimeUsage:
         previous = self.paused(cli)
         self.pauses[cli] = end
         if previous is None or previous["ends_at"] != iso(end):
+            self.changed()
             self.output(f"{cli} usage limit reached; pausing {cli} runs until {iso(end)}")
         return f"{cli} usage limit reached; resets {iso(reset if usable else end)}"

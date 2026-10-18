@@ -39,17 +39,10 @@ from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, vari
 from .updates import release_age
 from .poll_now import COOLDOWN_SECONDS
 from .log_format import inert
+from .view_time import deadline as poll_deadline, pause_status, plan_pauses, remaining_time, runtime_pauses
 
 MAX_RENDER_LINES = 400
 SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
-
-
-def poll_deadline(value, now):
-    try:
-        until = datetime.fromisoformat(value.replace('Z', '+00:00'))
-        return until if until.tzinfo is not None and until > now else None
-    except (ValueError, TypeError, AttributeError, OverflowError):
-        return None
 
 
 class UpdateBanner(Static):
@@ -819,10 +812,32 @@ class View(App):
         tree = self.query_one(WorkTree)
         second = int(time.monotonic())
         if second != self._tree_second:
+            if self.idle_node is not None:
+                label = self.idle_label(self.pane)
+                if self.idle_node.label != label:
+                    self.idle_node.set_label(label)
             tree.refresh()
             self._tree_second = second
         else:
             tree.refresh_spinners()
+
+    def idle_label(self, pane):
+        complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
+        reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
+        if self.session.data.get('queue_agent'):
+            reason = (text(self.session.data.get('queue_idle'), reason) if complete and pane.next is None
+                      else 'polling for agent ' + text(self.session.data['queue_agent']))
+        now = datetime.now(timezone.utc)
+        pauses = runtime_pauses(self.session.data, now)
+        held = {}
+        for row in pane.rows:
+            if row.group == 'Eligible' and row.state != 'earlier observation':
+                for plan in row.eligible_plans or (row.data,):
+                    held.update(plan_pauses(plan, pauses))
+        if held:
+            reason = ', '.join(pause_status({cli: end}, now) for cli, end in pauses.items() if cli in held)
+            reason += ' (usage limit)'
+        return Text(f'    Idle · {reason}', style='dim')
 
     def populate(self, pane):
         tree = self.query_one('#work', Tree)
@@ -848,7 +863,7 @@ class View(App):
             row, next_row, stopping, claimed_at = value
             return work_lines(row, tree.scrollable_content_region.width, next_row=next_row,
                               stopping=stopping, now=now, claimed_at=claimed_at,
-                              app=self)[:tree.row_height]
+                              app=self, pauses=runtime_pauses(self.session.data, now))[:tree.row_height]
 
         work_values = {}
         live = {row.key for section in pane.sections for row in section.rows}
@@ -873,12 +888,7 @@ class View(App):
                     self.idle_node.remove()
                     self.idle_node = None
                 elif section.idle:
-                    complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
-                    reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
-                    if self.session.data.get('queue_agent'):
-                        reason = (text(self.session.data.get('queue_idle'), reason) if complete and pane.next is None
-                                  else 'polling for agent ' + text(self.session.data['queue_agent']))
-                    label = Text(f'    Idle · {reason}', style='dim')
+                    label = self.idle_label(pane)
                     if self.idle_node is None:
                         self.idle_node = group.add_leaf(label)
                     elif self.idle_node.label != label:
@@ -1250,6 +1260,17 @@ class View(App):
             parts.append(repository)
         if self.launcher is not None and self.awake_enabled:
             parts.append('☕')
+        if self.session:
+            now = datetime.now(timezone.utc)
+            pauses = runtime_pauses(self.session.data, now)
+            labels = [f'{cli} paused {remaining_time(end, now)}' if self.narrow else
+                      pause_status({cli: end}, now) for cli, end in pauses.items()]
+            prefix = parts.copy()
+            if repository:
+                prefix[1] = '…'
+            if self.narrow and Text(' · '.join(prefix + labels)).cell_len + len(keys) + 1 > width:
+                labels = [f'{cli} {remaining_time(end, now)}' for cli, end in pauses.items()]
+            parts.extend(labels)
         prefix_count = len(parts)
         # Reserve an intact prefix, with at least an ellipsis for the repository.
         prefix = parts.copy()
@@ -1283,7 +1304,7 @@ class View(App):
                 except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
                     pass
             if limited is not None:
-                label = f'rate limited until {limited.astimezone():%H:%M} · r unavailable'
+                label = f'rate limited for {remaining_time(limited, now)} · r unavailable'
                 value = f'{value} · {label}' if value == 'running assignment' else label
             if value:
                 parts.append(value)
@@ -1319,7 +1340,7 @@ class View(App):
             if len(awake_keys) + left.cell_len + 1 <= width:
                 keys = awake_keys
         right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
-        if not repository and not (self.launcher is not None and self.awake_enabled):
+        if prefix_count == 1:
             reserve = 0
         right.truncate(max(0, width - reserve - 1), overflow='ellipsis')
         room = max(0, width - right.cell_len - 1)

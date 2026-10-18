@@ -55,6 +55,10 @@ Codex requests detailed reasoning summaries so they appear in the run log.
 
 Nothing to configure. When a run reports a usage limit, the launcher stops starting runs on that CLI until the limit resets, plus one minute. Other CLIs keep working, and the item spends no attempt. Restarting the launcher clears the pause.
 
+The terminal footer shows every active pause, even with no eligible work: `claude paused for 1d 4h · codex paused for 35m`. When idle with pause-held work, Running names those pauses with `(usage limit)`. Eligible rows name the paused CLIs and the time until the first resumes, such as `claude, codex paused for 35m`; health-check and other waits still show `waiting`.
+
+Remaining time counts down on view refresh and clears at expiry, using at most two nonzero day/hour/minute units rounded up to at least `1m`. Attached and reopened views use the same published pause end times. Narrow footers keep the CLI names and remaining time with shorter wording.
+
 ```text
 claude usage limit reached; pausing claude runs until 2026-10-04T12:01:00Z
 ```

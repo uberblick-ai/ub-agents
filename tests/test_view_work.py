@@ -11,6 +11,27 @@ from ub_agents.view_theme import theme_style
 
 
 class WorkLineTests(unittest.TestCase):
+    def test_pause_cause_names_clis_uses_first_expiry_and_leaves_other_waits_alone(self):
+        now = datetime(2026, 10, 18, tzinfo=timezone.utc)
+        pauses = {'claude': now + timedelta(hours=28), 'codex': now + timedelta(minutes=35)}
+        for clis, label in ((['claude'], 'claude paused for 1d 4h'),
+                            (['codex'], 'codex paused for 35m'),
+                            (['claude', 'codex'], 'claude, codex paused for 35m')):
+            row = self.row('Eligible', 'waiting', paused_clis=clis)
+            # WorkRow state and its structured plan carry the same observed state.
+            for width in (42, 80):
+                line = work_lines(row, width, now=now, pauses=pauses)[0]
+                self.assertTrue(line.plain.endswith(label), line.plain)
+                self.assertEqual(line.cell_len, width)
+            later = now + timedelta(minutes=1)
+            if 'codex' in clis:
+                self.assertTrue(work_lines(row, 80, now=later, pauses=pauses)[0].plain.endswith('34m'))
+        row = self.row('Eligible', 'waiting', paused_clis=['claude', 'codex'])
+        self.assertTrue(work_lines(row, 80, now=now, pauses={'claude': pauses['claude']})[0].plain.endswith('waiting'))
+        for state in ('waiting', 'backoff', 'ready'):
+            row = self.row('Eligible', state, reason='health check failed')
+            self.assertTrue(work_lines(row, 80, now=now, pauses=pauses)[0].plain.endswith(state))
+
     def test_priority_words_colors_and_missing_priority(self):
         expected = {'urgent': '#e0524a', 'high': '#c98a86', 'low': '#86a891'}
         for priority in ('urgent', 'high', 'medium', 'low', 'custom', None):
@@ -32,7 +53,7 @@ class WorkLineTests(unittest.TestCase):
         self.assertEqual(work_lines(row, 80)[1].plain, '  reviewer 1/3 failures, integrator · high')
 
     def row(self, group, state, **data):
-        data = {'agent': 'implementer', 'title': 'Compact work rows', 'kind': 'issue', **data}
+        data = {'agent': 'implementer', 'title': 'Compact work rows', 'kind': 'issue', 'state': state, **data}
         return WorkRow('plan:160:attention', group, 160, data['agent'], state,
                        data.pop('reason', ''), data)
 

@@ -40,6 +40,7 @@ class Plan:
     owner: dict | None = field(default=None, compare=False, repr=False)
     matches: AgentMatches | None = field(default=None, compare=False, repr=False)
     health_wait: bool = False
+    paused_clis: tuple[str, ...] = ()
     # Display-only GitHub comment, never coordination input.
     attention_notice: dict | None = field(default=None, compare=False, repr=False)
 
@@ -155,6 +156,7 @@ class Coordinator:
         attempt = len(previous) + 1
         state, reason = "ready", "Trigger matched"
         runtime = None
+        paused_clis = ()
         owner = None
         owners = live_leases(history, now)
         if owners:
@@ -195,12 +197,14 @@ class Coordinator:
                 raise  # A failed provenance read invalidates the whole discovery poll.
             except RuntimePaused as exc:
                 state, reason = "waiting", str(exc)
+                paused_clis = exc.clis
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
         if state in {"ready", "recover"} and self.actor is not None:
             if untrusted := self.trust.reason(self.actor):
                 state, reason, runtime = "blocked", untrusted, None
-        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches)
+        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches,
+                    paused_clis=paused_clis)
 
     @staticmethod
     def head_moved_since_block(item, history, lease):
@@ -256,7 +260,8 @@ class Coordinator:
                 return runtime
         if paused:
             raise RuntimePaused("Waiting for " + "; ".join(
-                f"{cli}: {pause['reason']}; pause ends {pause['ends_at']}" for cli, pause in paused.items()))
+                f"{cli}: {pause['reason']}; pause ends {pause['ends_at']}" for cli, pause in paused.items()),
+                clis=tuple(paused))
         reason = ("No eligible runtime executable is installed, usable and available"
                   if self.runtime_available else "No eligible runtime executable is installed")
         raise AgentError(reason)

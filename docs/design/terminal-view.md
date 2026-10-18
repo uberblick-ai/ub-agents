@@ -84,6 +84,9 @@ order, each with its current row count. Running always appears with only this
 launcher's assignment and a count of 0 or 1. With no assignment it shows a dim
 `Idle · polling` placeholder during a pass, or `Idle · nothing eligible for this
 launcher` after a complete pass with nothing claimable. It has no item content.
+If usage pauses hold eligible items, it instead names those pauses, for example
+`Idle · claude paused for 1d 4h, codex paused for 35m (usage limit)`, including in
+agent queues. Pauses holding no eligible item appear only in the footer.
 Other launchers' claims are omitted; their runs remain in an item's Runs tab.
 Parked dependency waits are omitted from rows and section counts. The three
 milestone modes are `gate`, `order` and `ignore`. `gate` selects the earliest
@@ -111,7 +114,11 @@ title shortened with `…`, and a right-aligned waiting time or state:
 | Needs attention, blocked | `!` | Waiting time in red |
 | Needs attention, attempt limit reached | `✗` | Waiting time in red |
 | Eligible, ready or recovery | `●` | `next` on the first ready/recovery row, otherwise `ready` or `recover` |
-| Eligible, delayed | `◷` | `backoff`, or `waiting` for paused runtimes; never `next` |
+| Eligible, delayed | `◷` | `backoff`, a usage-pause cause such as `claude paused for 1d 4h`, or `waiting` for other causes; never `next` |
+
+Usage-held rows name the paused CLIs and remaining time until the first expires,
+such as `claude, codex paused for 35m`. Only plans held by runtime usage pauses
+carry this cause; health-check waits and declined claims keep `waiting`.
 
 Needs attention's dim line 2 is `agent · state · reason` for one agent. Multiple
 agents use comma-separated `agent state` pairs, then ` · ` and distinct reasons
@@ -435,7 +442,10 @@ After r:
 
 r within the 10-second cooldown, or during a GitHub rate-limit wait:
  ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s · poll now available in 8s
- ub-agents v0.2.1 · uberblick-ai/ub-agents · rate limited until 18:02 · r unavailable
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · rate limited for 12m · r unavailable
+
+Runtime usage pauses (also when no eligible items are held):
+ ub-agents v0.2.1 · uberblick-ai/ub-agents · claude paused for 1d 4h · codex paused for 35m · next poll 26s
 
 Paused log (pill at the bottom right of the log output, above the run status;
 footer keys switch to log keys):
@@ -488,10 +498,10 @@ label. Scheduled in-run refreshes keep
 `running assignment`. Forced passes have a shared 10-second cooldown.
 `launch --once` and `launch N` have no in-run queue planning; presses during their
 assignments are dropped without local polling feedback.
-Attached views show rate-limit resets in local
-time, alongside `running assignment` when queue planning is rate limited during a
+Attached views show `rate limited for 12m · r unavailable`, alongside
+`running assignment` when queue planning is rate limited during a
 run. Rate-limit waits and poll-retry backoff cannot be shortened. Countdown text
-remains `Ns`. Narrow footers may omit `r poll now` before shortening existing keys.
+for the next poll remains `Ns`. Narrow footers may omit `r poll now` before shortening existing keys.
 Standalone views omit the key and ignore it, keeping the `next poll Ns` countdown
 during rate-limit waits; `--no-ui` launches are unaffected.
 
@@ -507,13 +517,23 @@ existing poll/reload hint. `☕` remains visible even at narrow widths and count
 as two terminal cells when fitting the footer to one line.
 
 The left footer uses the displayed snapshot's repository, as in the window title,
-after the version and before the optional `☕` indicator and existing activity or
+after the version and before the optional `☕` indicator, runtime pauses and existing activity or
 diagnostics. Work, item and raw-access footers share this order in attached and
 standalone views. A missing repository or `reading session` omits the segment and
 its separator; keep awake off and standalone views omit `☕` and its separator.
 Long repository names shorten with a trailing `…` within their segment, preserving
 the version, enabled keep-awake indicator and separators. Every footer fills its
 available terminal-cell width without wrapping or overlapping its right-side keys.
+Each paused CLI has its own footer segment before activity, regardless of whether
+it holds eligible work. Narrow segments shorten to `claude paused 1d 4h`, or
+`claude 1d 4h` when needed, retaining every CLI and remaining time. Repository
+names shorten to preserve those segments. The session snapshot carries the CLI
+pause end times beside activity and poll-now state; attached and reopened views
+use that same data. Footer, idle and row causes count down on local refresh and
+clear at expiry without a new snapshot. Usage pauses and GitHub rate limits use
+at most two nonzero day/hour/minute units, rounded up (`1d 4h`, `1d`, `4h 12m`,
+`12m`, `1m`), never `0m` or a clock time. A row's usage cause clears at its first
+CLI expiry. These display observations do not affect scheduling or pause detection.
 After the existing key fitting, the repository gets up to 24 cells before
 activity is shortened, capped by the space left after the version, keep-awake
 indicator and a separator plus activity ellipsis. Extra room expands the repository when

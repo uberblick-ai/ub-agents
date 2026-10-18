@@ -150,6 +150,7 @@ class Observations:
             "started_at": iso(clock()), "published_at": iso(clock()), "ended": False,
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
             "health_notice": None,
+            "runtime_pauses": {},
             "outcomes": [], "histories": {}, "action_needed": {}, "coordination_authors": {},
             "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
@@ -384,6 +385,10 @@ class Observations:
         self.state["health_notice"] = line[:MAX_TEXT]
         self.emit()
 
+    def runtime_pauses(self, pauses):
+        self.state["runtime_pauses"] = dict(pauses)
+        self.emit()
+
     def poll_now(self, cooldown_until, rate_limit_until, waiting=False):
         self.state.setdefault("poll_now", {}).update({
             "cooldown_until": iso(cooldown_until) if cooldown_until is not None else None,
@@ -554,6 +559,7 @@ class Observations:
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
                "priority": plan.priority.rsplit(":", 1)[-1] if plan.priority else None,
                "runtime": plan.runtime.name if plan.runtime else None,
+               "paused_clis": list(plan.paused_clis),
                "failures": plan.attempt - 1, "max_attempts": plan.agent.max_attempts,
                "observed_at": iso(self.clock()),
                "owner": None}

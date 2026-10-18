@@ -15,6 +15,7 @@ from .view_scroll import ScrollbarVisibility
 from .view_spinner import spinner_frame
 from .attention import attention_state, waiting_time
 from .view_theme import SECTION_COLORS, item_reference, theme_style
+from .view_time import pause_status, plan_pauses, runtime_pauses
 
 
 def section_rule(label, width, style):
@@ -61,12 +62,14 @@ def failure_count(data):
             if type(failures) is int and failures > 0 and type(maximum) is int else '')
 
 
-def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None):
+def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None,
+               pauses=None):
     """Two cell-bounded lines for one logical live-work row."""
     if width <= 0:
         return Text('', no_wrap=True), Text('', no_wrap=True)
     own = row.key.startswith('assignment:')
     attention = row.group == 'Needs attention' and row.state != 'earlier observation'
+    pause = ''
     if row.state == 'earlier observation':
         glyph, state = '○', row.state
     elif own:
@@ -75,6 +78,10 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
                         (spinner_frame(now.timestamp()), assignment_elapsed(row, now, claimed_at)))
     elif row.state in {'backoff', 'waiting'}:
         glyph, state = '◷', row.state
+        if row.state == 'waiting':
+            now = now or datetime.now(timezone.utc)
+            pause = pause_status(plan_pauses(row.data, pauses or {}), now)
+            state = pause or state
     elif row.group == 'Eligible':
         glyph, state = '●', 'held' if stopping else 'next' if next_row else row.state
     elif attention:
@@ -91,7 +98,7 @@ def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_
              if attention else text(state, ''))
     status = Text(right if width > 1 else '', no_wrap=True,
                   style=theme_style(app, 'view-attention') if attention else '')
-    status.truncate(max(0, width // 2), overflow='ellipsis')
+    status.truncate(max(0, width - 8 if pause else width // 2), overflow='ellipsis')
     room = width - status.cell_len - 1
     if room <= 0:
         first = Text('', no_wrap=True)
@@ -234,10 +241,12 @@ class WorkTree(ScrollbarVisibility, Tree):
         row = self.app.rows.get(node.data)
         if row:
             stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
+            now = (datetime.fromtimestamp(self.app.descriptions.clock(), timezone.utc)
+                   if row.group == 'Needs attention' else datetime.now(timezone.utc))
             value = work_lines(row, width, next_row=row.key == self.app.pane.next, stopping=stopping,
-                               now=(datetime.fromtimestamp(self.app.descriptions.clock(), timezone.utc)
-                                    if row.group == 'Needs attention' else None),
-                               claimed_at=self.claim_times.get(row.key), app=self.app)[line_no != node._line]
+                               now=now,
+                               claimed_at=self.claim_times.get(row.key), app=self.app,
+                               pauses=runtime_pauses(self.app.session.data, now))[line_no != node._line]
         elif node is self.app.idle_node:
             label_style += theme_style(self.app, 'view-muted', dim=True)
             value = node.label.copy()
