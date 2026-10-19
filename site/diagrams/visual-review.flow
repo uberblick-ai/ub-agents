@@ -15,6 +15,7 @@ panel human row=merge tone=stop
   strong "A person checks the screenshots"
   muted "or tries the branch,"
   muted "then approves or requests changes"
+pill needs-changes col=side tone=rework
 
 needs-review --> reviewer
 reviewer --> ready-to-merge : approved
@@ -22,6 +23,7 @@ ready-to-merge --> merge
 reviewer --> needs-visual-review : ui-changed
 needs-visual-review --> visual-review
 visual-review --> human tone=stop : posted
+human --> needs-changes tone=rework : changes requested
 human --> ready-to-merge tone=stop from=left to=right label=end : approved
 
 legend
