@@ -18,7 +18,6 @@ TAGLINE = 'The loop engineering framework for GitHub. Any agent, no server.'
 SECTIONS = [  # (title, content entry, kind)
     ('Installation', 'installation.md', 'page'),
     ('How the loop works', 'how-the-loop-works.md', 'page'),
-    ('How it works with Uberblick', 'with-uberblick.md', 'page'),
     ('Configuration', 'configuration', 'dir'),
     ('Commands', 'commands', 'dir'),
     ('Guides', 'guides', 'dir'),
