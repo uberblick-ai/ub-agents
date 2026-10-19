@@ -45,6 +45,8 @@ Link targets, collapsed sections and diffs can still carry unseen text.
 
 A pull request from outside the team needs a maintainer's trigger label and an approving review of its exact head commit. Accepted agent revisions from an eligible head inherit eligibility in the base repository. Agents can review fork pull requests but never push to them.
 
+For what a maintainer's start allows and how to limit its reach, see [Run the loop on a public repository](/docs/guides/public-repos.html).
+
 A PR counts as a fork when its head repository differs from the base repository
 (case-insensitively), or GitHub reports no head repository, including deleted forks.
 Its private worktree uses a detached checkout of the base branch tip from `origin`,
