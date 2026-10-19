@@ -47,13 +47,7 @@ shared-instructions: .agents/ub_agents.md
 
 ## Poll interval
 
-The minimum gap between discovery-pass starts, in seconds; defaults to 30.
-After running or recovering work, claiming resumes immediately. Idle and
-observation passes can wait longer for request budget or low quota; rate-limit
-waits and runtime usage pauses still apply. This is not an agent retry setting.
-See [polling rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md)
-for exact timing and [account capacity](/docs/best-practices/account-capacity.html)
-for sizing a shared account.
+The minimum gap between queue checks, in seconds; defaults to 30. See [polling rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md) for timing and [account capacity](/docs/best-practices/account-capacity.html) for sizing a shared account.
 
 ```yaml
 poll-seconds: 30
@@ -99,13 +93,13 @@ is never used.
 
 To change settings on one machine only, put them in `ub-agents.local.yaml` next to `ub-agents.yaml`. `init` adds it to `.gitignore`; in an existing project, add that line yourself before creating the file.
 
-Give only the keys you change; everything else stays as shared. A setting you give, such as a runtime list, replaces the shared one. To keep the shared runtime and add a local model only this machine has, repeat it:
+Give only the keys you change; everything else stays as shared. A runtime list replaces the shared one. Repeat the shared runtime to keep it alongside another supported runtime:
 
 ```yaml
 # ub-agents.local.yaml
 agents:
   implementer:
-    runtime: ["codex:gpt-6.1-sol:high", "opencode:ollama/qwen3.8:27b-mlx"]   # opencode is planned
+    runtime: ["codex:gpt-6.1-sol:high", "claude:claude-opus-5-5:high"]
 ```
 
 An agent that only exists in the local file needs a full definition. `doctor` checks both files, and `launch` picks up changes before its next run.
