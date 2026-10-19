@@ -40,4 +40,4 @@ When a role reaches a decision your instructions leave to a person, it stops and
 
 ## Take what fits
 
-Start with the defaults, change what doesn't fit, and tell us on [GitHub](https://github.com/uberblick-ai/ub-agents).
+Start with the defaults, change what doesn't fit, and tell us on [GitHub](https://github.com/uberblick-ai/ub-agents). Or fork the whole damn thing and make it yours.
