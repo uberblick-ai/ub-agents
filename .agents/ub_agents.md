@@ -15,6 +15,7 @@ Leave the merge to `@uberblick-ai/maintainers` when the PR:
 
 - changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` or `AGENTS.md`;
 - changes setup, CI or release tooling: `mise.toml`, `.github/` or `scripts/`;
+- is labelled `outside-input` (built from outside text);
 - changes the `ub-agents` command line (adds, removes or renames commands or options,
   or changes what they do or print) beyond what the closing issue asks for;
 - needs every launcher of a project restarted together, because a launcher from the
