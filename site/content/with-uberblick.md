@@ -29,7 +29,7 @@ Then add its MCP server to `.mcp.json` in your repository and commit it, so ever
 }
 ```
 
-[Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the details.
+`ub mcp install claude` writes this entry for you. [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the details.
 
 ## Let the agents use it
 
