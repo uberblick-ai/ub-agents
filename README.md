@@ -25,13 +25,13 @@ the agent reports as new labels. Then it picks the next item.
 - **Start from a working loop.** `ub-agents init` sets up an opinionated starter
   set of roles, labels and merge policy. Adjust it over time; agents' retros say
   what would have helped them.
-- **Run it anywhere.** On your laptop, or on any always-on server for a loop that
-  never sleeps. One machine can run several loops in parallel, and launchers on
-  several machines, yours and your teammates', share one queue. A claim keeps two
-  launchers off the same item.
+- **Add loops to go faster.** Every launcher, on a laptop, a teammate's machine or
+  an always-on server, works from the same queue, and a claim keeps two launchers
+  off the same item. One machine can run several loops. Ten loops serve a team of
+  20 to 30 engineers well.
 
-ub-agents is for engineers and small teams with a hacker, hands-on mentality. It
-gives you full control, without a convoluted setup or cloud infrastructure to run.
+ub-agents is for engineers and teams of up to a few dozen people with a hacker,
+hands-on mentality. It gives you full control, without a convoluted setup or cloud infrastructure to run.
 It is MIT-licensed and early stage, and it develops itself
 with its own loop.
 

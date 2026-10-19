@@ -19,8 +19,7 @@
     <p>GitHub is the only state. Claims, attempts and outcomes are comments on the issue or PR, so a restarted launcher rebuilds everything from there. Older ones are hidden as outdated, so a thread shows the latest state and stays readable. There is no database and nothing to host.</p>
     <p>Agents only take input from your team. Comments from people without write access never reach them, and on a public repository an outside issue or pull request waits until a maintainer starts it. See <a href="/docs/configuration/approvals.html">approvals</a>.</p>
     <p>Use the agents you already have. Each role names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository.</p>
-    <p>Run the launcher where it suits you. On your laptop it works while the laptop is awake. For a loop that never sleeps, use any always-on machine, such as a small cloud server. One machine can run several loops in parallel, and launchers on several machines share one queue. See <a href="/docs/guides/add-a-launcher.html">add a launcher</a>.</p>
-    <p>ub-agents is for engineers and small teams with a hacker, hands-on mentality. It gives you full control, without a convoluted setup or cloud infrastructure to run.</p>
+    <p>ub-agents is for engineers and teams of up to a few dozen people with a hacker, hands-on mentality. It gives you full control, without a convoluted setup or cloud infrastructure to run.</p>
   </section>
 </div>
 
@@ -52,6 +51,11 @@
   <span class="k">instructions</span>: .agents/implementer.md
   <span class="k">worktree</span>: true</code></pre>
     <p>Every key has a short page in the <a href="/docs/configuration/index.html">configuration docs</a>.</p>
+  </section>
+
+  <section>
+    <h2>Add loops to go faster</h2>
+    <p>Every launcher works from the same queue on GitHub, and a claim keeps two of them off the same item. There is no coordinator, so more capacity is one more <code>ub-agents launch</code>: on a teammate's laptop, a cloud server or the same machine. On a laptop a loop runs while the laptop is awake; an always-on server keeps it going overnight. Ten loops serve a team of 20 to 30 engineers well. See <a href="/docs/guides/add-a-launcher.html">add a launcher</a>.</p>
   </section>
 </div>
 {{footer}}
