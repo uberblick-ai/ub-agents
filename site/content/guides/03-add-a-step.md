@@ -43,7 +43,7 @@ visual-review:
 
 ### Tell it what you want to see
 
-In `.agents/visual-review.md`, say which changes you care about and what you need in order to judge them:
+In `.agents/visual-review.md`, say which changes you care about and what you need in order to judge them. Here, that's screenshots of each changed screen in a PR comment, and the steps to try it yourself:
 
 ```markdown
 # Visual review
@@ -53,12 +53,22 @@ styles, copy or images. Tests and refactors that leave the UI as it was don't co
 
 If nothing visible changed, report no-ui-change.
 
-Otherwise, start the app at the PR head and open each changed screen. Comment on
-the PR with what changed, where to find it and what to check, with a preview link
-if the project has one. Then report ui-changed with this action:
-"Maintainer: check the screens listed above, then approve the PR and add
-ready-to-merge, or add needs-changes with what to fix."
+Otherwise, start the app at the PR head and take a screenshot of each changed
+screen, in each state that matters. Commit them to the ui-screenshots branch
+under pr-N/ and push it; create the branch without history if it doesn't exist.
+Then comment on the PR with:
+
+- what changed and what to look out for, with each screenshot embedded as
+  ![Name](https://github.com/OWNER/REPO/blob/ui-screenshots/pr-N/NAME.png?raw=true)
+- how to try it yourself: `gh pr checkout N`, the commands that start the app,
+  and where to click to reach each screen
+
+Report ui-changed with this action: "Maintainer: check the screenshots and steps
+in the comment above, then approve the PR and add ready-to-merge, or add
+needs-changes with what to fix."
 ```
+
+GitHub doesn't let an agent attach images to a comment, so the screenshots live on a branch of their own and the comment shows them from there. Allow the agent to start your app and a browser in its [permissions](/docs/configuration/permissions.html).
 
 If a path rule is enough, for example any change under `web/`, a [command agent](/docs/configuration/command-agents.html) can make the call with a short script instead of a model.
 
@@ -76,10 +86,10 @@ Run `ub-agents doctor`. It offers to create `needs-visual-review` on GitHub. Mer
 
 ### Your part
 
-A pull request with UI changes now waits for you with `needs-human` and an **Action needed** comment that points to the screens. Once you've looked, either:
+A pull request with UI changes now waits for you with `needs-human` and an **Action needed** comment. Above it, the agent's comment shows the screenshots and how to try the change yourself. Once you've looked, review the pull request on GitHub as usual:
 
-- approve the pull request on GitHub, remove `needs-human` and add `ready-to-merge`, or
-- comment what to fix, remove `needs-human` and add `needs-changes`. The implementer revises the pull request, and it comes back through review and visual review.
+- **Approve** it, then remove `needs-human` and add `ready-to-merge`. The integrator merges it.
+- **Request changes** and say what to fix, then remove `needs-human` and add `needs-changes`. The implementer reads your review, revises the pull request, and it comes back through review and visual review.
 
 To find your visual reviews quickly on GitHub, give them their own [stop label](/docs/configuration/stop-labels.html), such as `needs-look`, and let `ui-changed` add that instead.
 
