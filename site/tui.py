@@ -1,14 +1,34 @@
 """The terminal view snapshot on the landing page, drawn as HTML from an example session."""
 import html
+import re
 
 W_L, W_R = 46, 66  # outer widths incl. borders
 CL, CR = W_L - 6, W_R - 6  # content widths (border + 2 padding each side)
 
+# The site's fonts carry no box-drawing glyphs, and fallback fonts differ in
+# width and height. Lines and corners are drawn with CSS, one cell per column,
+# and every other non-ASCII glyph is held to one column.
+LINES = {'─': 'h', '┄': 'd'}
+CELLS = {'│': 'v', '╭': 'k tl', '╮': 'k tr', '╰': 'k bl', '╯': 'k br'}
+
 def seg(t, c=None): return (t, c)
 def length(segs): return sum(len(t) for t, _ in segs)
-def esc(t):
-    return ''.join(f'<i class="g">{ch}</i>' if ord(ch) > 127 and not (0x2500 <= ord(ch) <= 0x257F) and ch not in '·…' else html.escape(ch) for ch in t)
-def spans(segs): return ''.join(esc(t) if not c else f'<span class="{c}">{esc(t)}</span>' for t, c in segs)
+
+def glyphs(t):
+    out = []
+    for run in re.findall(r'─+|┄+|.', t, re.S):
+        ch = run[0]
+        if ch in LINES:
+            out.append(f'<i class="{LINES[ch]}" style="width:{len(run)}ch"></i>')
+        elif ch in CELLS:
+            out.append(f'<i class="{CELLS[ch]}"></i>')
+        elif ord(ch) > 127 and ch not in '·…':
+            out.append(f'<i class="g">{ch}</i>')
+        else:
+            out.append(html.escape(ch))
+    return ''.join(out)
+
+def spans(segs): return ''.join(glyphs(t) if not c else f'<span class="{c}">{glyphs(t)}</span>' for t, c in segs)
 
 def fit(text, width):
     return text if len(text) <= width else text[:width-1] + '…'
@@ -26,6 +46,7 @@ def sub(text, width=CL): return [seg(fit('  ' + text, width), 'dim')]
 def heading(label, cls, width=CL):
     return [seg(label, cls), seg(' ' + '┄' * (width - len(label) - 1), 'rule')]
 def blank(): return []
+def selected(segs): return ('sel', segs)
 
 
 def render():
@@ -36,8 +57,8 @@ def render():
       sub('implementer · this launcher · attempt 1'),
       blank(),
       heading('Needs attention · 1', 'red'),
-      row('?', 'red', '#255', 'Keep run scratch outside the checkout', '19h', 'red'),
-      sub('implementer · needs-human · decide where scratch lives'),
+      selected(row('?', 'red', '#255', 'Keep run scratch outside the checkout', '19h', 'red')),
+      selected(sub('implementer · needs-human · decide where scratch lives')),
       blank(),
       heading('Eligible · 2', 'green'),
       row('●', 'green', '⌥252', 'Drop inherited agent variables in tests', 'next', 'green'),
@@ -59,51 +80,56 @@ def render():
 
     right = [
       blank(),
-      [seg(' 1 Log ', 'tab'), seg(' 2 Issue  3 Runs '), seg('│ ', 'dim'), seg('Formatted', 'acc u'), seg('  Raw', 'dim')],
+      [seg(' 1 Agent  2 Issue  3 Runs '), seg(' 4 Unblock ', 'tab'), seg(' '), seg('│ ', 'dim'),
+       seg('Formatted', 'acc u'), seg('  Raw', 'dim')],
       [seg('┄' * CR, 'rule')],
-      [seg('#248 Refresh the queue while an agent runs', 'b')],
-      sub('implementer · claude · attempt 1', CR + 2)[0:1] and [seg('implementer · claude · attempt 1', 'dim')],
+      [seg('#255 Keep run scratch outside the checkout', 'b')],
+      [seg('implementer · needs-human · waiting 19h · since 12:52', 'dim')],
       [seg('┄' * CR, 'rule')],
-      [seg('07:48:02 ', 'dim'), seg('launcher claimed #248 · lease 30m')],
-      [seg('07:48:03 ', 'dim'), seg('launcher worktree ready · start claude')],
+      [seg('Run scratch sits inside the checkout, so an agent can')],
+      [seg('commit stray files. Where should it live?')],
       blank(),
-      [seg('07:48:19 ', 'dim'), seg('▸ ', 'acc'), seg('Read src/ub_agents/view_work.py')],
-      [seg('07:48:31 ', 'dim'), seg('▸ ', 'acc'), seg('Read src/ub_agents/polling.py')],
-      [seg('07:48:52 ', 'dim'), seg(fit("The queue only refreshes between runs. I'll poll read-only while the agent works and claim nothing until it is idle.", CR - 9))],
-      [seg('07:49:40 ', 'dim'), seg('▸ ', 'acc'), seg('Edit src/ub_agents/view_work.py '), seg('+48', 'green'), seg(' '), seg('-12', 'red')],
-      [seg('07:50:12 ', 'dim'), seg('▸ ', 'acc'), seg('Edit tests/test_view_ui.py '), seg('+31', 'green')],
-      [seg('07:51:30 ', 'dim'), seg('▸ ', 'acc'), seg('Bash python -m tests '), seg('✓ passed', 'green')],
-      [seg('07:51:44 ', 'dim'), seg('▸ ', 'acc'), seg('Bash git push -u origin ub-agents/248-implementer')],
-      blank(), blank(), blank(), blank(), blank(), blank(), blank(),
-      [seg('┄' * CR, 'rule')],
-      [seg('⠹ ', 'blue'), seg('implementer running · following', 'dim')],
+      [seg('To unblock, do one of:')],
+      [seg('  1. Maintainer: move scratch to the state directory')],
+      [seg('     (recommended)', 'dim')],
+      [seg('  2. Maintainer: keep it in the worktree and ignore it')],
+      blank(),
+      [seg('▸ ', 'acc'), seg('To resume implementer')],
+      [seg('▸ ', 'acc'), seg('Reasoning and evidence')],
     ]
-    n = max(len(left), len(right))
-    left += [blank()] * (n - len(left)); right += [blank()] * (n - len(right))
+    source = [[seg('┄' * CR, 'rule')],
+              [seg('Source: action-needed comment · 12:52 · snapshot', 'dim')]]
+    right += [blank()] * (len(left) - len(right) - len(source)) + source
+    assert len(left) == len(right), (len(left), len(right))
 
     def top(title, width, focus):
         t = f'─ {title} '
         tail = "─" * (width - 2 - len(t))
         if focus:
-            return f'<span class="acc">╭{html.escape(t)}{tail}╮</span>'
+            return f'<span class="acc">{glyphs("╭" + t + tail + "╮")}</span>'
         # The title is text, so it gets readable contrast; the frame stays dark.
-        return (f'<span class="rule">╭─ </span><span class="dim">{html.escape(title)}</span>'
-                f'<span class="rule"> {tail}╮</span>')
+        return (f'<span class="rule">{glyphs("╭─ ")}</span><span class="dim">{html.escape(title)}</span>'
+                f'<span class="rule">{glyphs(" " + tail + "╮")}</span>')
     def bottom(width, focus):
         c = 'acc' if focus else 'rule'
-        return f'<span class="{c}">╰{"─" * (width - 2)}╯</span>'
+        return f'<span class="{c}">{glyphs("╰" + "─" * (width - 2) + "╯")}</span>'
     def line(segs, width, focus):
         c = 'acc' if focus else 'rule'
+        sel = isinstance(segs, tuple)
+        if sel: segs = segs[1]
         L = length(segs)
         assert L <= width - 6, (L, segs)
-        return f'<span class="{c}">│</span>  {spans(segs)}{" " * (width - 6 - L)}  <span class="{c}">│</span>'
+        body = f'{spans(segs)}{" " * (width - 6 - L)}'
+        if sel: body = f'<span class="sel">{body}</span>'
+        edge = f'<span class="{c}">{glyphs("│")}</span>'
+        return f'{edge}  {body}  {edge}'
 
-    out = [top('Work · pass complete', W_L, True) + ' ' + top('Log', W_R, False)]
+    out = [top('Work · pass complete', W_L, True) + ' ' + top('Unblock', W_R, False)]
     for a, b in zip(left, right):
         out.append(line(a, W_L, True) + ' ' + line(b, W_R, False))
     out.append(bottom(W_L, True) + ' ' + bottom(W_R, False))
     total = W_L + 1 + W_R
-    lft = 'ub-agents · running assignment'
-    rgt = '1-3 tabs ? keys q quit'
-    out.append(f'<span class="dim">{esc(lft)}{" " * (total - len(lft) - len(rgt))}{esc(rgt)}</span>')
+    lft = 'uberblick-ai/ub-agents · running assignment'
+    rgt = '1-4 tabs ? keys q quit'
+    out.append(f'<span class="dim">{glyphs(lft)}{" " * (total - len(lft) - len(rgt))}{glyphs(rgt)}</span>')
     return '\n'.join(out)
