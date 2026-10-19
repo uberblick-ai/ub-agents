@@ -1,6 +1,6 @@
 # Motivation
 
-ub-agents started because we were spending too much time managing coding agents instead of letting them work: starting sessions, waiting for an agent to reach a certain point or ask us something, passing work between implementers and reviewers, checking results, restarting failed runs.
+ub-agents started because we were spending too much time managing coding agents instead of letting them work: starting sessions, waiting for an agent to reach a certain point or ask us something, passing work between implementers and reviewers, checking results, restarting failed runs. We spent more time waiting than deciding.
 
 We wanted agents to take an issue through implementation, review and integration while we worked on something else, without running another platform to coordinate them.
 
