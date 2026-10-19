@@ -13,6 +13,7 @@ approvals: on
 ## Off
 
 Any trigger label starts work. The current title and body are input. Comments and reviews count only from people with write access or higher.
+Text is unchanged; the launcher reads no edit history and does no hidden-content cleanup.
 
 ```yaml
 approvals: off
@@ -23,6 +24,22 @@ approvals: off
 A maintainer starts an issue by adding a trigger label. Re-applying a trigger label clears earlier edits and comments from outside the team for the agents.
 
 Sub-issues can inherit their parent's start through an accepted [`sub-issues` outcome](/docs/configuration/outcomes.html). Later outside title or body edits suspend work; later outside comments wait for a maintainer to re-apply a trigger. See [inherited starts](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md#start-suspension-and-comments) and [approval reads](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md#approval-reads) for the detailed rules.
+
+Before agents receive assignment context or `read` output, each HTML comment
+(`<!-- ... -->`) and each consecutive run of Unicode format characters (category
+`Cf`, such as zero-width characters, bidi controls and tag characters) becomes
+`[hidden content removed]`. Comments are removed even inside code; an unterminated
+comment runs to the end of the text. Other text is unchanged.
+
+Cleanup applies to outside authors' titles and bodies, a title with any outside
+rename or a body with any outside edit, and cleared outside comments, reviews and
+review comments. Trusted authors' fields without outside edits and trusted or
+listed-bot feedback stay unchanged byte for byte. Withheld fields and
+`withheld_counts` are unchanged. Approval checks, parking, gates and gate keys
+still use the raw GitHub text.
+
+This cleanup does not guarantee that agents see only what a maintainer saw.
+Link targets, collapsed sections and diffs can still carry unseen text.
 
 ## Outside pull requests
 
