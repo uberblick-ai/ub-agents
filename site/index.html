@@ -19,6 +19,7 @@
     <p>GitHub is the only state. Claims, attempts and outcomes are comments on the issue or PR, so a restarted launcher rebuilds everything from there. Older ones are hidden as outdated, so a thread shows the latest state and stays readable. There is no database and nothing to host.</p>
     <p>Agents only take input from your team. Comments from people without write access never reach them, and on a public repository an outside issue or pull request waits until a maintainer starts it. See <a href="/docs/configuration/approvals.html">approvals</a>.</p>
     <p>Use the agents you already have. Each role names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository.</p>
+    <p>After a run, agents report missing context, unclear rules and avoidable rework. Use their <a href="/docs/best-practices/retrospectives.html">retros</a> to fix the instructions once, instead of repeating the same correction in every chat.</p>
     <p>ub-agents is for engineers and teams of up to a few dozen people with a hacker, hands-on mentality. It gives you full control, without a convoluted setup or cloud infrastructure to run.</p>
   </section>
 </div>
@@ -38,7 +39,7 @@
 <pre><code><span class="p">$ </span>cd your-project
 <span class="p">$ </span>ub-agents init     <span class="c"># opens the setup wizard; review before Apply</span>
 <span class="p">$ </span>ub-agents launch   <span class="c"># runs the loop; q stops after the current run</span></code></pre>
-    <p>Run <code>ub-agents init</code> in your project's checkout to set up a working loop from an opinionated starter set: five roles with their instructions, the labels and a merge policy. Launch with it as it is and adjust it over time. Agents tell you what would have helped them in <a href="/docs/best-practices/retrospectives.html">retros</a>, so you know what to change. The wizard shows every change before applying it; <code>--use-defaults</code> sets up without questions. See the <a href="/docs/commands/init.html">init command guide</a> and <a href="/docs/installation.html">installation guide</a>. Review the starter policy and merge the files before launching from a clean default-branch checkout.</p>
+    <p>Run <code>ub-agents init</code> in your project's checkout to set up a working loop from an opinionated starter set: five roles with their instructions, the labels and a merge policy. Launch with it as it is and adjust it over time. The wizard shows every change before applying it; <code>--use-defaults</code> sets up without questions. See the <a href="/docs/commands/init.html">init command guide</a> and <a href="/docs/installation.html">installation guide</a>. Review the starter policy and merge the files before launching from a clean default-branch checkout.</p>
   </section>
 
   <section>
