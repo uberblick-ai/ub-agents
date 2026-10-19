@@ -213,10 +213,11 @@ class SignalTests(unittest.TestCase):
         pid_path = self.root / "poll-pid"
 
         def observe(details=True):
-            script = ("import os,signal,time; "
+            script = ("import os,signal,sys,time; sys.stdin.read(1); "
                       f"open({str(pid_path)!r}, 'w').write(str(os.getpid())); "
                       "os.kill(os.getppid(), signal.SIGTERM); time.sleep(10)")
-            subprocess.run([sys.executable, "-c", script], check=True, timeout=15)
+            subprocess.run([sys.executable, "-c", script], input="go", text=True,
+                           check=True, timeout=15)
             self.fail("Discovery continued after SIGTERM")
 
         start = time.monotonic()

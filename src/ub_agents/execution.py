@@ -59,6 +59,10 @@ def fetched_head(root, source):
             git(root, "update-ref", "-d", ref, head)
 
 
+def fork_head_ref(run):
+    return f"refs/ub-agents/runs/{run}/head"
+
+
 def repository_remote_matches(remote, config, runner=None):
     """Match GitHub paths, resolving SSH aliases locally without connecting."""
     normalized = remote.rstrip("/").removesuffix(".git")
@@ -158,6 +162,9 @@ class Workspace:
         self.lease = lease
         self.github = github
         self.output = output
+        self.fork = item.is_fork(config.repository)
+        self.head_ref = fork_head_ref(lease["run"])
+        self.head_tip = None
         self.private = self.root / ".ub-agents" / "worktrees" / lease["run"]
         self.created = False
 
@@ -167,10 +174,20 @@ class Workspace:
         self.private.parent.mkdir(parents=True, exist_ok=True)
         self.check_private_boundary()
         if self.item.kind == "pr":
-            with fetched_head(self.root, f"refs/pull/{self.item.number}/head") as head:
-                if head != self.item.head:
-                    raise AgentError("Candidate changed while preparing its private worktree")
-                git(self.root, "worktree", "add", "--detach", str(self.private), head)
+            source = f"refs/pull/{self.item.number}/head"
+            if self.fork:
+                if not self.item.base_branch:
+                    raise AgentError("Fork PR base branch is unreadable")
+                git(self.root, "fetch", "--no-write-fetch-head", "--no-tags", "--refmap=",
+                    "origin", f"+{source}:{self.head_ref}")
+                self.head_tip = git(self.root, "rev-parse", self.head_ref)
+                self.check_head(self.head_tip)
+                with fetched_head(self.root, f"refs/heads/{self.item.base_branch}") as base:
+                    git(self.root, "worktree", "add", "--detach", str(self.private), base)
+            else:
+                with fetched_head(self.root, source) as head:
+                    self.check_head(head)
+                    git(self.root, "worktree", "add", "--detach", str(self.private), head)
         else:
             base = self.github.default_branch()
             branch = f"ub-agents/{self.agent.name}/{self.item.number}/{self.lease['run']}"
@@ -180,8 +197,13 @@ class Workspace:
         self.created = True
         return self.private
 
+    def check_head(self, head):
+        if head != self.item.head:
+            raise AgentError("Candidate changed while preparing its private worktree")
+
     def cleanup(self, before_remove=None):
         if not self.created:
+            self.cleanup_head_ref()
             return
         # Shared project directories are never passed to private cleanup.
         self.check_private_boundary()
@@ -194,8 +216,19 @@ class Workspace:
             raise CleanupError(f"Cannot remove owned private worktree {self.private}: {exc}",
                                next_step="resolve the worktree removal error") from exc
         self.created = False
+        self.cleanup_head_ref()
         # Remove remotely recoverable branches; preserve unpublished commits.
         self.cleanup_branch()
+
+    def cleanup_head_ref(self):
+        if self.head_tip is None:
+            return
+        try:
+            git(self.root, "update-ref", "-d", self.head_ref, self.head_tip)
+        except AgentError as exc:
+            raise CleanupError(f"Cannot remove owned fork head ref {self.head_ref}: {exc}",
+                               next_step="resolve the fork head ref removal error") from exc
+        self.head_tip = None
 
     def cleanup_branch(self):
         branch = self.lease.get("branch")

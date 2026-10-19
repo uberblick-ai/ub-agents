@@ -242,8 +242,11 @@ class UpdateTests(unittest.TestCase):
         pid = self.root / 'request.pid'
         shim.write_text(f'#!{sys.executable}\n' + '''
 import os, pathlib, signal, time
-pathlib.Path(__file__).with_name('request.pid').write_text(str(os.getpid()))
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
+pid = pathlib.Path(__file__).with_name('request.pid')
+temporary = pid.with_suffix('.tmp')
+temporary.write_text(str(os.getpid()))
+temporary.replace(pid)
 while True: time.sleep(1)
 ''')
         shim.chmod(0o700)
@@ -272,7 +275,10 @@ while True: time.sleep(1)
         shim, pid = self.root / 'gh', self.root / 'request.pid'
         shim.write_text(f'#!{sys.executable}\n' + '''
 import os, pathlib, time
-pathlib.Path(__file__).with_name('request.pid').write_text(str(os.getpid()))
+pid = pathlib.Path(__file__).with_name('request.pid')
+temporary = pid.with_suffix('.tmp')
+temporary.write_text(str(os.getpid()))
+temporary.replace(pid)
 while True: time.sleep(1)
 ''')
         shim.chmod(0o700)
@@ -303,7 +309,10 @@ while True: time.sleep(1)
         shim, pid = self.root / 'gh', self.root / 'request.pid'
         shim.write_text(f'#!{sys.executable}\n' + '''
 import os, pathlib, time
-pathlib.Path(__file__).with_name('request.pid').write_text(str(os.getpid()))
+pid = pathlib.Path(__file__).with_name('request.pid')
+temporary = pid.with_suffix('.tmp')
+temporary.write_text(str(os.getpid()))
+temporary.replace(pid)
 while True: time.sleep(1)
 ''')
         shim.chmod(0o700)

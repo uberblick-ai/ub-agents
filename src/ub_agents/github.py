@@ -16,6 +16,11 @@ REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
 APPROVAL_BATCH_SIZE = 50
 
 
+def is_fork(head_repository, base_repository):
+    """Deleted or missing head repositories count as forks, too."""
+    return head_repository is None or head_repository.casefold() != base_repository.casefold()
+
+
 def content_fields(issue, kind):
     """The same current-content fields for individual and discovery reads."""
     current = {key: issue[key] for key in ("title", "body", "createdAt", "lastEditedAt")}
@@ -177,6 +182,11 @@ class Item:
     # GitHub's REST merge check: False is GraphQL's CONFLICTING; None is unknown.
     mergeable: bool | None = None
     merged: bool = False
+    head_repository: str | None = None
+    base_branch: str | None = None
+
+    def is_fork(self, repository):
+        return self.kind == "pr" and is_fork(self.head_repository, repository)
 
 
 @dataclass(frozen=True)
@@ -238,6 +248,16 @@ def parse_item(data, kind, endpoint=None):
             raise ValueError("invalid work item fields")
         if kind == "pr" and type(data["draft"]) is not bool:
             raise ValueError("invalid PR draft field")
+        head_repository, base_branch = None, None
+        if kind == "pr":
+            repository = data["head"].get("repo")
+            head_repository = repository["full_name"] if repository is not None else None
+            if head_repository is not None and (not isinstance(head_repository, str)
+                                               or not re.fullmatch(REPOSITORY, head_repository)):
+                raise ValueError("invalid PR head repository")
+            base_branch = data.get("base", {}).get("ref")
+            if base_branch is not None and (not isinstance(base_branch, str) or not base_branch):
+                raise ValueError("invalid PR base branch")
         return Item(data["number"], kind, data["title"], data.get("body") or "",
                     frozenset(x["name"] for x in data["labels"]), data["state"], data["created_at"],
                     data["head"]["sha"] if kind == "pr" else None,
@@ -249,7 +269,8 @@ def parse_item(data, kind, endpoint=None):
                     data["user"].get("login") if isinstance(data.get("user"), dict)
                     and isinstance(data["user"].get("login"), str) else None,
                     data["comments"] if type(data.get("comments")) is int and data["comments"] >= 0 else None,
-                    data.get("mergeable") if kind == "pr" and type(data.get("mergeable")) is bool else None)
+                    data.get("mergeable") if kind == "pr" and type(data.get("mergeable")) is bool else None,
+                    head_repository=head_repository, base_branch=base_branch)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
             raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc

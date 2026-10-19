@@ -17,6 +17,7 @@ from .run_config import run_directory
 from .worktree_setup import confirm_worktree_setup_stopped
 
 BRANCH = re.compile(r"ub-agents?/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
+FORK_HEAD = re.compile(r"refs/ub-agents/runs/([A-Za-z0-9_-]+)/head\Z")
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,10 @@ class Cleaner:
             match = BRANCH.fullmatch(branch)
             if match:
                 artifacts.append(Artifact("branch", branch, match[3]))
+        for ref in git(self.root, "for-each-ref", "--format=%(refname)", "refs/ub-agents/runs/").splitlines():
+            match = FORK_HEAD.fullmatch(ref)
+            if match:
+                artifacts.append(Artifact("ref", ref, match[1]))
         return artifacts
 
     def history(self, number):
@@ -161,6 +166,12 @@ class Cleaner:
     def check(self, artifact):
         if artifact.run in self.blocked_runs:
             raise AgentError("Cleanup hook failed; artifacts preserved")
+        if artifact.kind == "ref":
+            path = str(self.root / ".ub-agents" / "worktrees" / artifact.run)
+            present = Path(path).exists() or any(t["worktree"] == path for t in worktrees(self.root))
+            if present and path not in self.preview_worktrees:
+                raise AgentError("Run worktree is still present")
+            return self.run_state(artifact)
         if artifact.kind == "worktree":
             path = Path(artifact.name)
             if path.parent.resolve() != path.parent:
@@ -259,7 +270,7 @@ class Cleaner:
                         with self.mutation(artifact):
                             self.intent(artifact, reason)
                             self.remove_worktree(artifact)
-                    else:
+                    elif artifact.kind == "branch":
                         with self.mutation(artifact):
                             self.intent(artifact, reason)
                             # Compare-and-delete refuses to discard a newly moved tip.
@@ -270,6 +281,11 @@ class Cleaner:
                                 self.control.checkpoint()
                             git(self.root, "update-ref", "-d", f"refs/heads/{artifact.name}",
                                 self.branch_tips[artifact.name])
+                    else:
+                        with self.mutation(artifact):
+                            self.intent(artifact, reason)
+                            tip = git(self.root, "rev-parse", artifact.name)
+                            git(self.root, "update-ref", "-d", artifact.name, tip)
                     action = "removed"
                 elif artifact.kind == "worktree":
                     self.preview_worktrees.add(artifact.name)

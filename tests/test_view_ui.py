@@ -2949,8 +2949,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         loads = DescriptionLoads(RecordingDescriptionTransport(), clock=lambda: 1000)
         loads.cooldown = 1100
         app = View(self.root, self.path, descriptions=loads)
-        # A fixed age also proves a theme change refreshes unchanged note text.
-        with patch('ub_agents.view_data.time.time', return_value=1000):
+        # Freeze both the snapshot age and display clock so note text stays fixed.
+        with (patch('ub_agents.view_data.time.time', return_value=1000),
+              patch('ub_agents.view_data.datetime', wraps=datetime) as clock):
+            clock.now.return_value = datetime.fromisoformat(self.state['published_at'])
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
                 await pilot.press('2')

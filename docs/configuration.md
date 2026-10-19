@@ -308,14 +308,18 @@ the next launch, even with nothing to pull, until it succeeds. See
 For an agent with `worktree: true`, the launcher also runs the command once in
 each private worktree immediately after creating it, before the agent starts.
 `when-changed` applies only to the control checkout; a new worktree always needs
-its own dependencies. Shared-checkout agents run no additional setup command.
+its own dependencies, except for fork PR worktrees, where setup never runs.
+Shared-checkout agents run no additional setup command.
 Private setup uses the same environment and timeout as control-checkout setup.
 The terminal view and plain output say setup is running in the worktree; its
 output goes to `checkout-setup/process.log` in the run's log directory, separately
 from the agent's `process.log`.
 
-For a PR reviewer, setup installs the PR head's lockfile, so its install scripts
-run before the agent does; the agent would run them anyway to test the PR.
+For a same-repository PR reviewer, setup installs the PR head's lockfile, so its
+install scripts run before the agent does. Fork PRs use the base branch's files
+and guidance, skip setup, and use repository CI on the exact head SHA as check
+evidence. A differing head repository (case-insensitive comparison), or a missing
+head repository, counts as a fork; see [outside PRs](approvals.md#pull-requests).
 A private-worktree setup failure counts toward the item's retry limit. Fix the hook or environment before using `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"` to reset exhausted attempts.
 
 A failure ends the run before the agent starts, cleans up the private worktree,
@@ -617,9 +621,25 @@ Each agent has exactly one of `runtime` or `command`.
 | `health-check` | Optional nonempty argv list to check a project dependency before claiming new work for this agent. |
 | `on-conflict` | A `pr` agent's declared outcome that adds no stop label. When GitHub reports the claimed PR as conflicting with its base, the launcher records that outcome with a summary naming the conflict instead of starting the agent. An unknown merge state starts the agent as usual. |
 | `different-runtime-from` | Another agent's name; requires a PR. When an accepted report identifies that agent's runtime for the current head, this agent must run on a different CLI and model; a different effort doesn't count. Wait for a pending handoff to finish. Without such a report or pending handoff, use only the first configured runtime, blocking if its CLI isn't installed. |
-| `worktree` | `true` runs in a private checkout: the PR's exact commit, or a fresh branch for an issue. |
+| `worktree` | `true` runs in a private checkout: the PR's exact commit for same-repository PRs, the base branch tip for fork PRs, or a fresh branch for an issue. |
 | `runtime-args` | Replaces all top-level runtime argument defaults: a list shared by all alternatives, or a mapping from listed CLI (`codex`, `claude`) to a list. Omit to inherit; `[]` or `{}` disables the defaults. |
 | Limit keys | Override `limits` for this agent. |
+
+### Worktree
+
+For a fork PR, the private worktree is detached at the PR's base branch tip fetched
+from `origin`. Its files, project guidance and runtime settings come from that base.
+The head is fetched from `refs/pull/N/head` into `refs/ub-agents/runs/RUN/head` and
+must match the assigned SHA. Agents can read this ref and diff it against `HEAD`,
+but must never check out or execute the head, including its install scripts and
+checks. `checkout-setup` never runs in these worktrees. Repository CI on the exact
+head SHA supplies check evidence. Run cleanup removes the head ref; the startup
+sweep also removes refs left by interrupted runs once their worktrees can be removed.
+
+With `worktree: false`, agents keep running in the control checkout; fork PRs get
+the same diff-only and CI instructions. Same-repository PRs, including agent
+revisions built from outside text, and issues keep their existing behavior.
+See [fork detection and approvals](approvals.md#pull-requests).
 
 ### Project health checks
 

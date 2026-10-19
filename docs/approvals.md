@@ -315,7 +315,20 @@ input. Only starts clear feedback,
 independently for comments, reviews and review comments. Editing cleared
 feedback removes its clearance even if its text returns to the approved body.
 
-Fork PRs may be reviewed on their approved head. Agents cannot revise fork PRs;
+For fork PRs, private worktrees contain a detached checkout of the PR's base branch
+tip fetched from `origin`, including its project guidance and runtime settings.
+A PR is a fork when its head repository differs from the base repository
+(case-insensitively), or GitHub reports no head repository, including deleted forks.
+The launcher fetches `refs/pull/N/head` into `refs/ub-agents/runs/RUN/head`, verifies
+it matches the assigned head SHA, and keeps that ref readable until run cleanup.
+Agents review the head as a diff against the base; they must never check out or
+execute the head's code, install scripts or checks. `checkout-setup` is skipped.
+The repository's CI result on the exact head SHA supplies check evidence.
+With `worktree: false`, the control checkout stays in place and the prompt gives
+the same diff-only and CI instructions. Same-repository PRs retain their existing
+head checkout and setup behavior, including agent revisions built from outside text.
+
+Agents cannot revise fork PRs;
 revision runs must report `blocked` instead of attempting a handoff through the
 base repository's branch. Every changed fork head needs explicit maintainer approval,
 including a head observed by an accepted successful run.

@@ -28,6 +28,15 @@ CONTINUATION_PROMPT = (
     "of opening another.\n"
 )
 
+FORK_PR_PROMPT = (
+    "This is a fork PR. {workspace}\n"
+    "Review the head only as a diff: {head_ref}, assigned head SHA {head}. "
+    "Do not check out the head or execute any of the head's code, including install scripts "
+    "or checks. Do not run checks at the head. The repository's CI result on this exact "
+    "head SHA is the check evidence; read the candidate-specific checks on GitHub. "
+    "checkout-setup does not run in a fork PR worktree.\n"
+)
+
 RUN_PROMPT = """You are the project-configured agent {agent}.
 This run is a single, non-interactive session that is never resumed. Ending your turn ends the run. Run checks in the foreground or wait for every background job to finish before ending your turn. End the run with {report_command} report.
 Use {report_command} report wherever project instructions say `ub-agents report`. This command runs the launcher's own installation; never report through a worktree's development copy or rely on PATH.

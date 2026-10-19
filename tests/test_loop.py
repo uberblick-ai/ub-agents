@@ -91,6 +91,32 @@ class LoopTests(unittest.TestCase):
                      'File issues without trigger labels'):
             self.assertIn(rule, prompt)
 
+    def test_only_fork_pr_prompts_require_diff_review_and_ci_evidence(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        context = {'earlier_branches': [], 'report_command': '/launcher/report'}
+        for candidate in (issue(), pr(), pr(head_repository='ORG/PROJECT'),
+                          pr(head_repository='outside/project'), pr(head_repository=None)):
+            for private in (True, False):
+                with self.subTest(candidate=candidate, private=private):
+                    current = replace(plan, item=candidate, agent=replace(self.agent, worktree=private))
+                    prompt = self.loop.prompt_for(current, lease, context, 'Role procedure')
+                    fork = candidate.kind == 'pr' and candidate.head_repository in (None, 'outside/project')
+                    self.assertEqual('This is a fork PR.' in prompt, fork)
+                    self.assertEqual('Do not check out the head' in prompt, fork)
+                    self.assertEqual('Do not run checks at the head' in prompt, fork)
+                    self.assertEqual('CI result on this exact head SHA is the check evidence' in prompt, fork)
+                    self.assertEqual('checkout-setup does not run' in prompt, fork)
+                    if fork:
+                        self.assertIn(candidate.head, prompt)
+                        if private:
+                            self.assertIn(f'refs/ub-agents/runs/{lease["run"]}/head', prompt)
+                            self.assertIn("base branch's files and project guidance", prompt)
+                        else:
+                            self.assertIn('origin refs/pull/2/head', prompt)
+                            self.assertIn('control checkout; it has not been moved', prompt)
+                    self.assertTrue(prompt.endswith('Project instructions:\nRole procedure\n'))
+
     def test_coordination_document_quotes_entire_launcher_prompt(self):
         self.loop.config = replace(self.loop.config, shared_instructions=self.root / 'policy.md')
         plan = self.loop.plans()[0]

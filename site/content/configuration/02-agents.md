@@ -49,7 +49,12 @@ instructions: .agents/reviewer.md
 
 ## Worktree
 
-Run in a private checkout: the pull request's exact commit, or a fresh branch for an issue. Without it, the agent runs in the launcher's own checkout.
+Run in a private checkout: the exact commit for a same-repository pull request,
+the base branch tip from `origin` for a fork pull request, or a fresh branch for
+an issue. Without it, the agent runs in the launcher's own checkout.
+Fork heads are reviewed only as diffs using a run-owned ref; setup is skipped and
+repository CI on the exact head SHA supplies check evidence. See
+[outside pull requests](/docs/configuration/approvals.html#outside-pull-requests).
 
 ```yaml
 worktree: true

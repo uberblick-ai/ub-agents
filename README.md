@@ -296,7 +296,10 @@ Projects can configure [checkout setup](docs/configuration.md#checkout-setup) to
 reinstall dependencies when the launcher pulls changes to a lockfile or tool
 configuration. Control-checkout setup runs before the role is claimed; a failure
 stops launch and retries on the next launch without spending an attempt. Each new
-private worktree also runs setup once before its agent starts.
+private worktree also runs setup once before its agent starts, except for fork PRs.
+Fork PR worktrees use the base branch's files and guidance; agents review the
+head only as a diff and use repository CI on its exact SHA as check evidence.
+They never check out or execute the fork head. See [outside PRs](docs/approvals.md#pull-requests).
 
 ## Day to day
 
