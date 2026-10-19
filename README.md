@@ -30,9 +30,9 @@ the agent reports as new labels. Then it picks the next item.
   several machines, yours and your teammates', share one queue. A claim keeps two
   launchers off the same item.
 
-ub-agents is for engineers and small teams who want to run their own loop. It is
-not a hosted service, and it has no enterprise features such as single sign-on or
-central administration. It is MIT-licensed and early stage, and it develops itself
+ub-agents is for engineers and small teams with a hacker, hands-on mentality. It
+gives you full control, without a convoluted setup or cloud infrastructure to run.
+It is MIT-licensed and early stage, and it develops itself
 with its own loop.
 
 `ub-agents launch` opens a live view of its own work. An example session:
