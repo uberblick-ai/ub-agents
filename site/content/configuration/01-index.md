@@ -23,6 +23,8 @@ stop-labels: [needs-human]
 
 The GitHub repository the agents work on, as `owner/name`. It must match your checkout's `origin`.
 
+Accepted remotes are `https://github.com/OWNER/REPO`, `git@github.com:OWNER/REPO` and `ssh://git@github.com/OWNER/REPO`, with an optional `.git` suffix or trailing `/`. SSH host aliases also work when `ssh -G HOST` reports `github.com` as the hostname, ignoring case. For example, `git@github-work:OWNER/REPO.git` preserves your per-account SSH key selection. This local check works in `launch`, `doctor` and `doctor --offline`; it fails if the path differs, the alias resolves elsewhere or `ssh -G` cannot run successfully.
+
 ```yaml
 repository: your-org/your-project
 ```

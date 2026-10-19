@@ -92,7 +92,7 @@ class Probes:
         if git_ready:
             read_git = lambda root, *args: d.probe(["git", "-C", str(root), *args]).strip()
             branch, clean = None, None
-            for id, error in repository_checks(config, read_git):
+            for id, error in repository_checks(config, read_git, d.runner):
                 if error:
                     d.add(id, "fail", str(error), "Run init at the root of a checkout whose origin is the repository")
             try:

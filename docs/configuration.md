@@ -106,6 +106,15 @@ ub-agents.local.yaml
 
 ## Top level
 
+The checkout's `origin` must name the configured `repository`. Accepted forms are
+`https://github.com/OWNER/REPO`, `git@github.com:OWNER/REPO` and
+`ssh://git@github.com/OWNER/REPO`, with an optional `.git` suffix or trailing `/`.
+SSH remotes may also use a host alias, such as
+`git@github-work:OWNER/REPO`, when the local `ssh -G github-work` output reports
+`hostname github.com` (case-insensitive). This resolution makes no network
+connection and also runs in `doctor --offline`. A different repository path or
+hostname, or unavailable or failing `ssh -G`, fails the remote check.
+
 | Key | Meaning |
 |---|---|
 | `repository` | GitHub `owner/name`. It must match the checkout's `origin`. |
