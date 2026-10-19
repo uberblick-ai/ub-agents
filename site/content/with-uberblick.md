@@ -1,6 +1,6 @@
 # How it works with Uberblick
 
-[Uberblick](https://uberblick.ai) is a shared workspace of documents for people and agents: what the product should do, plans and the decisions behind them. ub-agents runs the loop on GitHub. Each works without the other. Together, every issue starts from the pages that describe the product, and every pull request keeps them true. This is how Uberblick itself is built.
+[Uberblick](https://next.uberblick.ai) is a shared workspace of documents for people and agents: what the product should do, plans and the decisions behind them. ub-agents runs the loop on GitHub. Each works without the other. Together, every issue starts from the pages that describe the product, and every pull request keeps them true. This is how Uberblick itself is built.
 
 ## What changes in the loop
 
