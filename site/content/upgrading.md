@@ -4,8 +4,6 @@ A running launcher keeps the version it started with. Instruction files and conf
 
 Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first. If a release has an **Upgrading** note, stop every launcher before upgrading any of them.
 
-This site's documentation and header version follow release tags. Documentation fixes between releases appear with the next release.
-
 ```sh
 brew update && brew upgrade ub-agents
 ub-agents launch

@@ -22,9 +22,11 @@ Agents and models change every few months. Moving your workflow to a new one sho
 
 So the agent is a setting per role, and a role can list alternatives. Your roles, instructions and policy stay in your repository, and ub-agents is MIT licensed, so they stay yours.
 
+Agents run with the logins their CLIs already have, so you can use the seats your team pays for instead of setting up API keys. When a seat reaches its usage limit, only that CLI pauses until the limit resets.
+
 ## Developer machines sit idle
 
-Most developer laptops are fast machines, and much of the day they wait for their owner. We'd rather leave ours running overnight than pay a hosted agent another few dollars to fix a simple bug.
+Most developer laptops are fast machines, and much of the day they wait for their owner. We'd rather leave ours running overnight on the seats we already have than pay a hosted agent another few dollars to fix a simple bug.
 
 Your development machine already has the toolchain: language versions, dependencies, Docker and tests. A launcher can use that environment instead of requiring another one.
 
