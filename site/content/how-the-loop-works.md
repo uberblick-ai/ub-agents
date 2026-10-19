@@ -2,6 +2,8 @@
 
 ub-agents passes work between agents with GitHub labels. A label says which role works on an issue or pull request next. GitHub holds all the state, so there is no server to run.
 
+We call this loop engineering. You design the loop once: the roles, the labels and where a person steps in. Then you improve it from what the agents report in their [retros](/docs/best-practices/retrospectives.html), instead of steering each run by hand.
+
 ## Labels are the queue
 
 Each loop checks GitHub issues and pull requests for labels. It sorts them by priority and milestone, and hands the next eligible one to its agent.
