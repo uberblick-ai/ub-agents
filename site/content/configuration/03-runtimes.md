@@ -33,7 +33,7 @@ agents:
     runtime: ["codex:gpt-6.1-sol:high", "claude:claude-opus-5-5:high"]
 ```
 
-The local list replaces the shared runtime. Repeat shared alternatives you want to keep, then add supported alternatives available on this machine. Other agent settings inherit. See [machine-local overrides](/docs/configuration/index.html#machine-local-overrides).
+The local list replaces the shared runtime. Repeat shared alternatives you want to keep, then add supported alternatives available on this machine. Other agent settings inherit. See the [override reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#machine-local-overrides).
 
 ## What runs
 
