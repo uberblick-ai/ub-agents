@@ -22,7 +22,7 @@ Merge the setup PR, pull your default branch and start the launcher:
 ub-agents launch
 ```
 
-If you also work in this checkout yourself, clone a separate one for the launcher. For more machines, see [Add a launcher](/docs/guides/add-a-launcher.html).
+Run it on your own machine or on an always-on server. If you also work in this checkout yourself, clone a separate one for the launcher. For servers and more machines, see [Add a launcher](/docs/guides/add-a-launcher.html).
 
 ## Start work
 

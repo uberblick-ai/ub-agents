@@ -67,10 +67,6 @@ With [approvals on](/docs/configuration/approvals.html), the accepted parent out
 lets these labels inherit the parent's start. Later outside edits and comments
 follow the usual approval rules. Approvals off still allow any trigger to start work.
 
-**Upgrading:** Before using this key, stop and upgrade all project launchers, then
-restart them on the new version. Older launchers reject the key and would park
-inherited starts.
-
 ## Ask a person
 
 Add a stop label to park the item for a human decision.
