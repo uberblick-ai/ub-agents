@@ -46,4 +46,4 @@ Agents are good at doing the work and less good at judging what matters. Outside
 
 ## Take what fits
 
-Start with the defaults, change what doesn't fit, and tell us on [GitHub](https://github.com/uberblick-ai/ub-agents). Or fork the whole damn thing and make it yours.
+Start with the defaults. Change what doesn't fit. If the framework gets in your way, it's MIT licensed—[fork it](https://github.com/uberblick-ai/ub-agents).
