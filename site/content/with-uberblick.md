@@ -56,6 +56,6 @@ For what else belongs in the shared policy, see [What goes in the shared policy]
 
 ## More than one launcher
 
-A local workspace lives on one computer. When the loop runs on [more launchers](/docs/guides/add-a-launcher.html), share the workspace through a [hub](https://github.com/uberblick-ai/uberblick-2/blob/main/REMOTE.md), so every agent reads the same pages. Commit `.uberblick.json`, and on each launcher machine install `ub` and sign in with `ub auth login`.
+A local workspace lives on one computer. When the loop runs on [more launchers](/docs/guides/add-a-launcher.html), share the workspace through a [hub](https://next.uberblick.ai/docs/hub), so every agent reads the same pages. Commit `.uberblick.json`, and on each launcher machine install `ub` and sign in with `ub auth login`.
 
 If agents start while the workspace can't be reached, they work without the pages. A [health check](/docs/configuration/agents.html#health-check), a command of yours that checks the workspace answers, makes the launcher wait instead, and it picks up work again once the check passes.
