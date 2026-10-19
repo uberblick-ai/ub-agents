@@ -20,7 +20,9 @@ Your issues and pull requests already live on GitHub. So the loop keeps its queu
 
 Agents and models change every few months. Moving your workflow to a new one shouldn't mean starting over, and one provider's outage or usage limit shouldn't stop your work.
 
-So the agent is a setting per role, and a role can list alternatives. Agents run with the logins their CLIs already have, so you can use the seats your team pays for instead of setting up API keys. When a seat reaches its usage limit, only that CLI pauses until the limit resets. Your roles, instructions and policy stay in your repository, and ub-agents is MIT licensed, so they stay yours.
+So the agent is a setting per role, and a role can list alternatives. Your roles, instructions and policy stay in your repository, and ub-agents is MIT licensed, so they stay yours.
+
+Agents run with the logins their CLIs already have, so you can use the seats your team pays for instead of setting up API keys. When a seat reaches its usage limit, only that CLI pauses until the limit resets.
 
 ## Developer machines sit idle
 
