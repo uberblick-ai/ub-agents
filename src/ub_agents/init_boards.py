@@ -29,7 +29,11 @@ class Boards:
     def setup(self):
         repo = self.discussions()
         if repo["hasDiscussionsEnabled"] is not True:
-            raise AgentError(f"Enable GitHub Discussions in {self.repository}")
+            raise AgentError(f"GitHub Discussions are turned off in {self.repository}, "
+                             "so retrospective boards can't be created.\n"
+                             "Turn them on under Settings > General > Features > Discussions "
+                             f"(https://github.com/{self.repository}/settings; needs admin),\n"
+                             "then run ub-agents init --create-boards again.")
         return repo
 
     def discussions(self):

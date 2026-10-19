@@ -37,6 +37,7 @@ class Probes:
         self.clis = {}
         self.existing_labels = None
         self.discussions = None
+        self.discussions_off = False
         self.discussions_note = ""
         self.branch = self.default_branch = self.clean = None
         self.ub = False
@@ -174,6 +175,7 @@ class Probes:
             self.discussions_note = "Discussions can't be checked"
             return
         if repo["hasDiscussionsEnabled"] is not True:
+            self.discussions_off = True
             self.discussions_note = f"Discussions are off in {self.plan.config.repository}"
         elif repo["viewerPermission"] not in {"WRITE", "MAINTAIN", "ADMIN"}:
             self.discussions_note = "this account can't create discussions"

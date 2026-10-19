@@ -130,7 +130,7 @@ class BoardSetupTests(unittest.TestCase):
 
     def test_unavailable_discussions_account_creation_permission_and_category(self):
         self.github.discussion_metadata['hasDiscussionsEnabled'] = False
-        with self.assertRaisesRegex(AgentError, 'Enable GitHub Discussions'):
+        with self.assertRaisesRegex(AgentError, 'GitHub Discussions are turned off in org/project'):
             self.boards.setup()
         self.github.discussion_metadata['hasDiscussionsEnabled'] = True
         self.github.discussion_metadata['viewerPermission'] = 'READ'
