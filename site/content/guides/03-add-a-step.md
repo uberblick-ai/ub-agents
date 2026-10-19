@@ -29,8 +29,9 @@ reviewer:
 Then say when to use it in `.agents/reviewer.md`:
 
 ```markdown
-When you approve a PR that changes what users see (pages, components, styles,
-copy or images), report ui-changed instead of approved.
+When you approve a PR that changes what users see in a way worth a look, such as
+a new screen, a changed layout or a new component, report ui-changed instead of
+approved. Minor changes, such as a typo fix or a small spacing tweak, don't count.
 ```
 
 ### Add the agent
