@@ -30,3 +30,15 @@ A maintainer adds the trigger label. Outside edits to the issue [park it](/docs/
 ## Fork pull requests
 
 Agents can review them but never push to them ([outside pull requests](/docs/configuration/approvals.html#outside-pull-requests)). Every new fork commit needs a maintainer's approving review of that exact commit.
+
+Forks include a different head repository (compared case-insensitively) and a
+missing head repository, such as a deleted fork. Their private worktrees contain
+the base branch tip from `origin`, with its files, guidance and runtime settings.
+The verified head stays readable at `refs/ub-agents/runs/RUN/head` until cleanup.
+Agents review it as a diff and must never check out or execute the head's code,
+install scripts or checks. `checkout-setup` never runs there; use the repository's
+CI result on the exact head SHA as check evidence.
+
+Agents with `worktree: false` keep using the control checkout and receive the
+same diff-only and CI instructions. Same-repository PRs keep their current
+checkout and setup behavior, including agent revisions built from outside text.

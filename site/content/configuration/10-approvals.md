@@ -45,6 +45,19 @@ Link targets, collapsed sections and diffs can still carry unseen text.
 
 A pull request from outside the team needs a maintainer's trigger label and an approving review of its exact head commit. Accepted agent revisions from an eligible head inherit eligibility in the base repository. Agents can review fork pull requests but never push to them.
 
+A PR counts as a fork when its head repository differs from the base repository
+(case-insensitively), or GitHub reports no head repository, including deleted forks.
+Its private worktree uses a detached checkout of the base branch tip from `origin`,
+with the base's files, guidance and runtime settings. The head is fetched into
+`refs/ub-agents/runs/RUN/head`, verified against the assigned SHA and removed at
+cleanup. Agents review it only as a diff: they must never check out or execute
+its code, install scripts or checks. `checkout-setup` is skipped; repository CI
+on the exact head SHA supplies check evidence.
+
+With `worktree: false`, the control checkout stays in place and the prompt gives
+the same diff-only and CI instructions. Same-repository PR behavior is unchanged,
+including agent revisions built from outside text.
+
 ## When something needs approval
 
 The launcher adds the stop label and posts one **Action needed** comment with the steps. Follow them and remove the label.

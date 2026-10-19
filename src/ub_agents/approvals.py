@@ -8,6 +8,7 @@ import unicodedata
 
 from .bots import is_bot, listed_bot
 from .errors import AgentError, GitHubError, LostOwnership
+from .github import is_fork
 from .notices import ACTION_MARKER
 from .records import (declared_transition, lease_by_id,
                       positive_int, records, recovers, resolve_transition, same_run, seconds)
@@ -306,8 +307,7 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
                 approving_reviews.append((seconds(review["created_at"]), review["commit_id"]))
         if not eligible_head(content["head"], number, approving_reviews, starts,
                              comments, roles, actor, launchers=launchers,
-                             allow_revisions=(content["head_repository"] is not None and
-                                              content["head_repository"].casefold() == github.repository.casefold())):
+                             allow_revisions=not is_fork(content["head_repository"], github.repository)):
             return verdict(False, "PR head is not approved; a maintainer must submit an approving review of the current head",
                            "head", content["head"])
     latest = max(starts + [at for at, _ in approving_reviews])

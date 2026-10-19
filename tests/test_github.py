@@ -551,6 +551,23 @@ class GitHubTests(unittest.TestCase):
                 self.assertIs(parse_item(raw | {"mergeable": value}, "pr").mergeable, expected)
         self.assertIsNone(parse_item(raw | {"mergeable": False}, "issue").mergeable)
 
+    def test_pr_head_repository_and_base_branch_preserve_fork_classification(self):
+        raw = {"number": 2, "title": "Candidate", "body": "", "labels": [], "state": "open",
+               "created_at": iso(100), "draft": False, "base": {"ref": "release"},
+               "head": {"sha": "a" * 40, "ref": "feature/test"}}
+        for repository, fork in (("outside/project", True), (None, True), ("ORG/PROJECT", False)):
+            with self.subTest(repository=repository):
+                head = raw["head"] | {"repo": {"full_name": repository} if repository else None}
+                item = parse_item(raw | {"head": head}, "pr")
+                self.assertEqual(item.head_repository, repository)
+                self.assertEqual(item.base_branch, "release")
+                self.assertEqual(item.is_fork("org/project"), fork)
+        self.assertTrue(parse_item(raw, "pr").is_fork("org/project"))
+        self.assertFalse(parse_item(raw, "issue").is_fork("org/project"))
+        for repository in ({}, {"full_name": False}, {"full_name": "project"}):
+            with self.subTest(repository=repository), self.assertRaises(AgentError):
+                parse_item(raw | {"head": raw["head"] | {"repo": repository}}, "pr")
+
     def test_reads_all_pages_without_indexed_search(self):
         pages = [[{"id": i} for i in range(100)], [{"id": 100}]]
         results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]

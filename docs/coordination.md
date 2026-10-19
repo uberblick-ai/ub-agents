@@ -953,7 +953,11 @@ Git fetch and local checkout or instruction failures still stop immediately.
 `ub-agents.yaml` is reloaded before each new execution claim. If the refreshed
 configuration no longer plans the item for that agent, it is not claimed. New
 issue worktrees still start from the remote
-default branch. PR worktrees retain their exact candidate SHA. Agents continuing
+default branch. Same-repository PR worktrees retain their exact candidate SHA.
+Fork PR worktrees use the PR's base branch tip from `origin`, skip setup and keep
+the verified head in a run-owned ref for diff review. Their prompts forbid checking
+out or executing the head and use repository CI on the exact head SHA as check
+evidence; see [outside PRs](approvals.md#pull-requests). Agents continuing
 draft checkpoints still fetch and check out their exact heads; refresh never
 rebases them. Coordination between two launchers sharing a checkout, or a concurrent
 startup artifact sweep, is outside this serial execution boundary.

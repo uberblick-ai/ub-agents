@@ -11,7 +11,12 @@ checkout-setup:
 
 Choose an argument list for your project, such as `[npm, ci]`. Name a shell explicitly when needed. The mise example trusts each checkout's `mise.toml` before installing; every private worktree needs its own trust.
 
-`when-changed` lists repository-relative files to watch in the control checkout. When launch pulls a change to one, it runs setup before claiming work. Each new private worktree runs setup regardless of watched files. The timeout defaults to 600 seconds, up to 3600.
+`when-changed` lists repository-relative files to watch in the control checkout. When launch pulls a change to one, it runs setup before claiming work. Each new private worktree runs setup regardless of watched files, except fork PR worktrees, where setup never runs. The timeout defaults to 600 seconds, up to 3600.
+
+Fork PR worktrees contain the base branch's files and guidance. Agents review the
+head as a diff and use repository CI on the exact head SHA for check evidence;
+they must never check out or execute the head. See
+[outside pull requests](/docs/configuration/approvals.html#outside-pull-requests).
 
 Keep tracked files unchanged and install dependencies into ignored paths. The terminal view and plain output name the triggering file and setup log. Private-worktree output goes to `checkout-setup/process.log` in the run's log directory.
 

@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership
-from ub_agents.execution import Workspace, command_for, git, group_members, supervise
+from ub_agents.execution import Workspace, command_for, fork_head_ref, git, group_members, supervise
 from tests.support import agent, config, issue, pr, FakeGitHub
 
 
@@ -283,6 +283,112 @@ else:
             supervise([sys.executable, "-c", "import time; time.sleep(30)"], self.root,
                       os.environ.copy(), self.root / "failure", 3, threading.Event(), process_started=fail)
         self.assertEqual(group_members(int((self.root / "failure" / "pid").read_text())), [])
+
+
+class ForkWorkspaceTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        git(self.root, "init", "-b", "main")
+        self.files = ("file", "AGENTS.md", "CLAUDE.md", ".codex/config.toml")
+        (self.root / ".codex").mkdir()
+        self.base = self.commit("base")
+        git(self.root, "branch", "release", self.base)
+        self.head = self.commit("fork")
+        git(self.root, "update-ref", "refs/pull/2/head", self.head)
+        git(self.root, "remote", "add", "origin", str(self.root))
+        # The control checkout and default branch are different from the PR base.
+        self.control = self.commit("control")
+
+    def commit(self, content):
+        for filename in self.files:
+            (self.root / filename).write_text(content)
+        git(self.root, "add", ".")
+        git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+            "-c", "commit.gpgsign=false", "commit", "-m", content)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def workspace(self, repository, *, head=None, private=True):
+        candidate = pr(head=head or self.head, head_repository=repository, base_branch="release")
+        return Workspace(config(self.root), agent(self.root, worktree=private), candidate,
+                         {"run": "fork-test"}, FakeGitHub(candidate))
+
+    def test_fork_and_missing_repository_keep_base_files_and_readable_head_until_cleanup(self):
+        for repository in ("outside/project", None):
+            with self.subTest(repository=repository):
+                workspace = self.workspace(repository)
+                with patch("ub_agents.execution.git", wraps=git) as recording:
+                    cwd = workspace.prepare()
+                self.assertEqual(git(cwd, "rev-parse", "HEAD"), self.base)
+                self.assertEqual(git(cwd, "branch", "--show-current"), "")
+                for filename in self.files:
+                    self.assertEqual((cwd / filename).read_text(), "base")
+                ref = fork_head_ref("fork-test")
+                self.assertEqual(git(cwd, "rev-parse", ref), self.head)
+                self.assertEqual(git(cwd, "show", f"{ref}:AGENTS.md"), "fork")
+                self.assertIn("+fork", git(cwd, "diff", "HEAD", ref))
+                adds = [call.args[-1] for call in recording.call_args_list if "add" in call.args]
+                self.assertEqual(adds, [self.base])
+                self.assertEqual(git(self.root, "for-each-ref", "refs/ub-agents/fetch/"), "")
+                workspace.cleanup()
+                workspace.cleanup()
+                self.assertFalse(cwd.exists())
+                self.assertEqual(git(self.root, "for-each-ref", ref), "")
+                self.assertEqual(git(self.root, "rev-parse", "HEAD"), self.control)
+
+    def test_same_repository_case_insensitive_head_still_gets_candidate_checkout(self):
+        workspace = self.workspace("ORG/PROJECT")
+        cwd = workspace.prepare()
+        self.assertEqual(git(cwd, "rev-parse", "HEAD"), self.head)
+        self.assertEqual((cwd / "AGENTS.md").read_text(), "fork")
+        self.assertEqual(git(cwd, "for-each-ref", "refs/ub-agents/runs/"), "")
+        workspace.cleanup()
+
+    def test_head_mismatch_does_not_create_tree_and_cleanup_removes_retained_ref(self):
+        for repository in ("outside/project", None, "org/project"):
+            with self.subTest(repository=repository):
+                workspace = self.workspace(repository, head="a" * 40)
+                with self.assertRaisesRegex(AgentError, "Candidate changed"):
+                    workspace.prepare()
+                self.assertFalse(workspace.created)
+                self.assertFalse(workspace.private.exists())
+                workspace.cleanup()
+                self.assertEqual(git(self.root, "for-each-ref", "refs/ub-agents/runs/"), "")
+
+    def test_failed_base_fetch_cleans_head_ref_without_a_worktree(self):
+        workspace = self.workspace("outside/project")
+        git(self.root, "branch", "-D", "release")
+        with self.assertRaises(AgentError):
+            workspace.prepare()
+        workspace.cleanup()
+        self.assertEqual(git(self.root, "for-each-ref", "refs/ub-agents/runs/"), "")
+
+    def test_failed_cleanup_hook_preserves_ref_with_worktree(self):
+        workspace = self.workspace("outside/project")
+        cwd = workspace.prepare()
+        workspace.cleanup(before_remove=lambda: False)
+        self.assertTrue(cwd.exists())
+        self.assertEqual(git(cwd, "rev-parse", workspace.head_ref), self.head)
+        workspace.cleanup()
+
+    def test_shared_checkout_fork_does_not_fetch_or_move_control_checkout(self):
+        workspace = self.workspace("outside/project", private=False)
+        with patch("ub_agents.execution.git", side_effect=AssertionError("shared checkout Git mutation")):
+            self.assertEqual(workspace.prepare(), self.root)
+            workspace.cleanup()
+
+    def test_ref_cleanup_refuses_to_delete_a_moved_tip(self):
+        workspace = self.workspace("outside/project")
+        workspace.prepare()
+        git(self.root, "update-ref", workspace.head_ref, self.control)
+        with self.assertRaisesRegex(CleanupError, "Cannot remove owned fork head ref"):
+            workspace.cleanup()
+        self.assertFalse(workspace.created)
+        self.assertEqual(git(self.root, "rev-parse", workspace.head_ref), self.control)
+        git(self.root, "update-ref", workspace.head_ref, self.head)
+        workspace.cleanup()
+        self.assertEqual(git(self.root, "for-each-ref", workspace.head_ref), "")
 
 
 class WorkspaceCleanupTests(unittest.TestCase):

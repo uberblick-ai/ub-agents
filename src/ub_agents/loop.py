@@ -22,7 +22,7 @@ from .discovery import ApprovalInput, Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
-from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
+from .execution import ScratchDirectory, Workspace, command_for, fork_head_ref, repository_checks, supervise
 from .finalization import FinalizationReads
 from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
@@ -30,7 +30,7 @@ from .github import (APPROVAL_BATCH_SIZE, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMI
                      closing_issues, links_issue)
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .poll_now import PollNow
-from .prompts import CONTINUATION_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
+from .prompts import CONTINUATION_PROMPT, FORK_PR_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
 from .notices import ACTION_MARKER
 from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
@@ -1270,6 +1270,8 @@ class Loop:
             return True
         if plan.agent.on_conflict and fresh.mergeable is False and fresh.head == plan.item.head:
             return self._route_conflict(plan, lease, fresh)
+        plan = replace(plan, item=replace(plan.item, head_repository=fresh.head_repository,
+                                         base_branch=fresh.base_branch))
         run_dir = run_directory(self.config.root.resolve(), lease["run"])
         scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])
         preserve_scratch = False
@@ -1382,7 +1384,7 @@ class Loop:
             scratch.prepare()
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
-            if workspace.created and self.config.checkout_setup is not None:
+            if workspace.created and not workspace.fork and self.config.checkout_setup is not None:
                 run_worktree_setup(self.config, cwd, run_dir, self.interrupt_event, self.output,
                                    lambda state: self._observe("activity", state),
                                    expires=lambda: self.coordinator.deadline(lease),
@@ -1596,6 +1598,15 @@ class Loop:
                 workflow_labels.update(changes["remove"])
         shared = (f"Shared project policy:\n{shared_instructions}\n\n"
                   if self.config.shared_instructions is not None else "")
+        if plan.item.is_fork(self.config.repository):
+            workspace = ("The private worktree is a detached checkout of the PR's base branch tip "
+                         "from origin, with the base branch's files and project guidance."
+                         if plan.agent.worktree else
+                         "You are in the control checkout; it has not been moved to the PR head.")
+            head_ref = (fork_head_ref(lease["run"]) if plan.agent.worktree else
+                        f"origin refs/pull/{plan.item.number}/head (fetch only for reading the diff)")
+            shared = FORK_PR_PROMPT.format(workspace=workspace, head_ref=head_ref,
+                                          head=plan.item.head) + "\n" + shared
         return RUN_PROMPT.format(agent=plan.agent.name, report_command=report_command,
                                  outcomes=json.dumps(lease["outcomes"], sort_keys=True),
                                  labels=json.dumps(sorted(workflow_labels)), continuation=continuation,

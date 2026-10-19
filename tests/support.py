@@ -207,9 +207,11 @@ def issue(number=1, labels=("ready",), created_at="2026-01-01T00:00:00Z", milest
                 created_at, milestone=milestone)
 
 
-def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1", draft=False, milestone=None):
+def pr(number=2, labels=("needs-changes",), head="a" * 40, body="Closes #1", draft=False, milestone=None,
+       head_repository="org/project", base_branch="main"):
     return Item(number, "pr", "Candidate", body, frozenset(labels), "open",
-                "2026-01-01T00:00:00Z", head, "feature/test", milestone, draft)
+                "2026-01-01T00:00:00Z", head, "feature/test", milestone, draft,
+                head_repository=head_repository, base_branch=base_branch)
 
 
 class FakeGitHub:
@@ -265,7 +267,7 @@ class FakeGitHub:
 
     def pr_content(self, number):
         return self.issue_content(number) | {"head": self.items[number].head, "author": {"login": "operator"},
-                                            "head_repository": self.repository}
+                                            "head_repository": self.items[number].head_repository}
 
     def reviews(self, number):
         return deepcopy(self.review_store.get(number, []))

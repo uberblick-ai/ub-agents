@@ -58,6 +58,25 @@ class CleanupTests(unittest.TestCase):
         self.assertTrue(scans)
         self.assertNotIn("since", scans[0])
 
+    def test_sweep_removes_run_owned_fork_ref_after_worktree_and_orphaned_ref(self):
+        ref = f"refs/ub-agents/runs/{self.lease['run']}/head"
+        git(self.root, "update-ref", ref, self.head)
+        rows = self.actions()
+        self.assertEqual(rows['ref']['action'], 'would remove')
+        self.assertEqual(git(self.root, "rev-parse", ref), self.head)
+        rows = self.actions(True)
+        self.assertEqual(rows['ref']['action'], 'removed')
+        self.assertEqual(git(self.root, "for-each-ref", ref), "")
+        git(self.root, "update-ref", ref, self.head)
+        self.assertEqual(self.actions(True)['ref']['action'], 'removed')
+
+    def test_sweep_keeps_fork_ref_when_its_worktree_is_preserved(self):
+        ref = f"refs/ub-agents/runs/{self.lease['run']}/head"
+        git(self.root, "update-ref", ref, self.head)
+        self.hook("raise SystemExit(1)")
+        self.assertEqual(self.actions(True)['ref']['action'], 'kept')
+        self.assertEqual(git(self.root, "rev-parse", ref), self.head)
+
     def actions(self, apply=False):
         return {row["kind"]: row for row in self.cleaner.clean(apply)}
 

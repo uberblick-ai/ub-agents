@@ -124,7 +124,7 @@ class WorktreeSetupTests(unittest.TestCase):
         head = git(self.root, "rev-parse", "HEAD")
         git(self.root, "update-ref", "refs/pull/2/head", head)
         git(self.root, "reset", "--hard", base)
-        self.github = FakeGitHub(pr(head=head))
+        self.github = FakeGitHub(pr(head=head, head_repository="ORG/PROJECT"))
         self.role = replace(self.role, kind="pr")
         loop = self.loop("from pathlib import Path; Path('node_modules').mkdir(); "
                          "Path('node_modules/installed').write_text(Path('lockfile').read_text())")
@@ -133,6 +133,27 @@ class WorktreeSetupTests(unittest.TestCase):
             self.assertEqual((cwd / "node_modules/installed").read_text(), "candidate dependencies")
         self.execute(loop, installed)
         self.assertEqual((self.root / "lockfile").read_text(), "control dependencies")
+
+    def test_fork_and_missing_head_repository_skip_configured_setup(self):
+        base = git(self.root, "rev-parse", "HEAD")
+        (self.root / "lockfile").write_text("fork dependencies")
+        test_refresh.RefreshTests.commit(self, self.root)
+        head = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "update-ref", "refs/pull/2/head", head)
+        git(self.root, "reset", "--hard", base)
+        self.role = replace(self.role, kind="pr")
+        for repository in ("outside/project", None):
+            with self.subTest(repository=repository):
+                self.github = FakeGitHub(pr(head=head, head_repository=repository))
+                loop = self.loop()
+                def inspect(cwd, env, run_dir):
+                    self.assertEqual(git(cwd, "rev-parse", "HEAD"), base)
+                    self.assertEqual((cwd / "lockfile").read_text(), "control dependencies")
+                    self.assertFalse((run_dir / "checkout-setup").exists())
+                with patch("ub_agents.worktree_setup.supervise") as setup:
+                    self.execute(loop, inspect)
+                setup.assert_not_called()
+                self.assertEqual(git(self.root, "for-each-ref", "refs/ub-agents/runs/"), "")
 
     def test_nonzero_start_failure_and_timeout_end_run_before_agent_and_remove_tree(self):
         for mode, detail in (("nonzero", "exited 4"), ("start", "Cannot start configured execution"),
