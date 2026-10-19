@@ -70,7 +70,7 @@ Report posted with this action: "Maintainer: check the screenshots and steps in
 the comment above, then approve the PR or request changes."
 ```
 
-GitHub doesn't let an agent attach images to a comment, so the screenshots live on a branch of their own and the comment shows them from there. Allow the agent to start your app and a browser in its [permissions](/docs/configuration/permissions.html).
+GitHub doesn't let an agent attach images to a comment, so the screenshots live on a branch of their own and the comment shows them from there. Keep the branch as long as you want the comments to show their screenshots. Allow the agent to start your app and a browser in its [permissions](/docs/configuration/permissions.html).
 
 ### Make sure nothing skips you
 
