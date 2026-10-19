@@ -63,7 +63,30 @@ def fork_head_ref(run):
     return f"refs/ub-agents/runs/{run}/head"
 
 
-def repository_checks(config, read_git=None):
+def repository_remote_matches(remote, config, runner=None):
+    """Match GitHub paths, resolving SSH aliases locally without connecting."""
+    normalized = remote.rstrip("/").removesuffix(".git")
+    if normalized in {f"https://github.com/{config.repository}",
+                      f"git@github.com:{config.repository}",
+                      f"ssh://git@github.com/{config.repository}"}:
+        return True
+    match = re.fullmatch(r"(?:git@([^/:@\s]+):|ssh://git@([^/:@\s]+)/)(.+)", normalized)
+    if not match or match[3] != config.repository:
+        return False
+    host = match[1] or match[2]
+    try:
+        result = (runner or subprocess.run)(
+            ["ssh", "-G", "--", host], cwd=config.root, capture_output=True, text=True,
+            timeout=20, check=False, stdin=subprocess.DEVNULL)
+    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode:
+        return False
+    return any(fields[0] == "hostname" and fields[1].casefold() == "github.com"
+               for line in result.stdout.splitlines() if len(fields := line.split()) == 2)
+
+
+def repository_checks(config, read_git=None, runner=None):
     """Shared root/remote rules; consume all results to diagnose both failures."""
     read_git = read_git or git
     try:
@@ -74,10 +97,7 @@ def repository_checks(config, read_git=None):
         yield "repository-root", exc
     try:
         remote = read_git(config.root, "remote", "get-url", "origin")
-        normalized = remote.removesuffix(".git").rstrip("/")
-        if normalized not in {f"https://github.com/{config.repository}",
-                              f"git@github.com:{config.repository}",
-                              f"ssh://git@github.com/{config.repository}"}:
+        if not repository_remote_matches(remote, config, runner):
             raise AgentError("origin must point to the configured GitHub repository")
         yield "repository-remote", None
     except AgentError as exc:

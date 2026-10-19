@@ -182,6 +182,9 @@ ub-agents launch     # runs the loop and opens the terminal view
 
 Setup success does not establish launch readiness. Launch fetches and fast-forwards
 the control checkout before runs; use a separate checkout if you also code here.
+The checkout's `origin` must match `repository`. HTTPS and SSH remotes work,
+including SSH host aliases whose `ssh -G HOST` output names `github.com` as the
+hostname; this check also works offline.
 Doctor, including `--offline`, checks the configured `shared-instructions` file
 for the starter placeholders `@org/maintainers`, `<project build command>`,
 `<project test command>` and `<project lint or validation command>`, warning once

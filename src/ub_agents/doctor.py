@@ -171,8 +171,10 @@ class Doctor:
             def read_git(root, *args):
                 return self.probe(["git", "-C", str(root), *args], root).strip()
             remedies = {"repository-root": "Place the configuration at the consuming Git repository root",
-                        "repository-remote": f"Set origin to https://github.com/{config.repository}.git"}
-            for id, error in repository_checks(config, read_git):
+                        "repository-remote": f"Set origin to https://github.com/{config.repository}.git or "
+                                             f"git@github.com:{config.repository}.git "
+                                             "(an SSH host alias for github.com also works)"}
+            for id, error in repository_checks(config, read_git, self.runner):
                 self.add(id, "fail" if error else "ok", str(error) if error else
                          ("configuration is at the repository root" if id == "repository-root" else
                           f"origin matches {config.repository}"), remedies[id] if error else None)
