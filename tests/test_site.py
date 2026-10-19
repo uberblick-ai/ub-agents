@@ -78,10 +78,10 @@ class SiteTests(unittest.TestCase):
         # process for every command page during each test worker's discovery.
         with patch.object(build, 'command_help', return_value='Command help'):
             pages = build.collect()
-        page = pages[1]
-        self.assertEqual([p['title'] for p in pages[:2]], ['Installation', 'How the loop works'])
+        page = pages[2]
+        self.assertEqual([p['title'] for p in pages[:3]], ['Motivation', 'Installation', 'How the loop works'])
         self.assertEqual(page['path'], 'docs/how-the-loop-works.html')
-        rendered = build.doc_page(pages, 1)
+        rendered = build.doc_page(pages, 2)
         self.assertNotIn('class="crumb"', rendered)
         self.assertIn('url(../assets/fonts/ibm-plex-sans.woff2)', rendered)
         self.assertIn('class="on" href="how-the-loop-works.html"', rendered)
@@ -108,7 +108,7 @@ class SiteTests(unittest.TestCase):
                 if link.fragment:
                     self.assertIn(unquote(link.fragment), targets[path].ids)
 
-        installation = pages[0]['body']
+        installation = pages[1]['body']
         self.assertNotIn('id="how-the-loop-works"', installation)
         self.assertNotIn('href="#how-the-loop-works"', installation)
         self.assertIn('href="/docs/how-the-loop-works.html"', installation)
