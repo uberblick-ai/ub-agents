@@ -1,42 +1,46 @@
 # Motivation
 
-ub-agents comes from a small team that builds its own software with coding agents. We wanted agents to take an issue to a merged pull request while we work on something else, without running a platform for it. For the bigger picture, see the [Uberblick motivation](https://next.uberblick.ai/docs/motivation/).
+ub-agents started because we were spending too much time managing coding agents instead of letting them work: starting sessions, passing work between implementers and reviewers, checking results, restarting failed runs.
+
+We wanted agents to take an issue through implementation, review and integration while we worked on something else, without running another platform to coordinate them.
+
+The first version was a small script. Most of the work since then has been dealing with what happens when things go wrong. For the bigger picture, see the [Uberblick motivation](https://next.uberblick.ai/docs/motivation/).
 
 ## No platform to run
 
-Agent loops usually bring their own setup: a server, a database, a queue, webhooks and secrets in yet another place. All of it needs hosting and upkeep, and it holds part of your work.
+A loop that needs its own server, database, queue and webhooks is one more system to host, secure and debug. It also keeps part of your work somewhere other than where your team already looks.
 
-ub-agents needs a checkout, the GitHub CLI and an agent CLI. GitHub is the only state: labels are the queue, and claims and results are comments on the issue or pull request. Restart a launcher, or start one on another machine, and it picks up from there.
+Your issues and pull requests already live on GitHub. So the loop keeps its queue and its history there too, as labels and comments, and a launcher needs little more than a checkout and an agent CLI.
 
 ## No lock-in
 
-Agents and models change every few months; your workflow shouldn't have to. Each role names its agent and model, today Claude Code or Codex, or runs any program as a [command agent](/docs/configuration/command-agents.html). Give a role a list and the first available one runs, so a usage limit on one CLI doesn't stop the loop.
+Agents and models change every few months. Moving your workflow to a new one shouldn't mean starting over, and one provider's outage or usage limit shouldn't stop your work.
 
-Roles, instructions and policy are files in your repository, and ub-agents is MIT licensed. If you stop using it, you keep all of it.
+So the agent is a setting per role, and a role can list alternatives. Your roles, instructions and policy stay in your repository, and ub-agents is MIT licensed, so they stay yours.
 
 ## Developer machines sit idle
 
-A developer laptop is a fast machine with your whole toolchain, and most of the day it waits for its owner to type. A launcher puts it to work in its own checkout, and each run works in its own worktree. Agents check their work with your real language versions, Docker and test suite, not a stripped-down container.
+Most developer laptops are fast machines with the whole toolchain set up, and much of the day they wait for their owner. That setup is also where your project builds and its tests run.
 
-Teammates can do the same. Every launcher takes work from one queue on GitHub, and a claim keeps two of them off the same item. See [Add more launchers](/docs/guides/add-a-launcher.html).
+So a launcher runs on the machine you already have, next to your own checkout. Agents check their work with the same tools you use. A teammate who starts a launcher adds capacity to the same queue. See [Add more launchers](/docs/guides/add-a-launcher.html).
 
 ## One small server runs it around the clock
 
-The heavy lifting happens at the model provider. A launcher only watches GitHub, starts agents and runs your checks, so a basic Hetzner box that can run your builds and tests keeps several loops going day and night. See [How many launchers one account supports](/docs/best-practices/account-capacity.html).
+Laptops sleep, and loops are most useful when they keep going overnight. The models run at the provider, so a launcher mostly waits on GitHub, the agent and your checks. For most projects a small server, such as a basic Hetzner box that can run your builds and tests, is enough for several loops. See [How many launchers one account supports](/docs/best-practices/account-capacity.html).
 
 ## Every repository is different
 
-A web app wants a browser check before merging, a library a changelog line, and a docs repository may not need a reviewer at all.
+A web app wants a browser check before merging, a library a changelog line, and a docs repository may not need a reviewer at all. A fixed pipeline makes you work around it.
 
-A role is a few lines of YAML. Choose your roles, labels, instructions and outcomes, or run your own script as a role. Each repository can set its own [dependency install](/docs/configuration/checkout-setup.html) and [cleanup](/docs/configuration/cleanup.html). [init](/docs/commands/init.html) gives you a starter workflow; after that, it's yours.
+So the workflow is yours to define. [init](/docs/commands/init.html) gives you a starter set, and you add, drop or change roles and steps as your repositories need.
 
 ## Your process is code
 
-You change role instructions in a pull request and review them like code. When a run loses time, the agent posts a short [retro](/docs/best-practices/retrospectives.html) on what slowed it down, so you know which line to fix.
+Corrections typed into a chat are lost by the next session. Agents start fresh every run, so what they need has to be written down. Role instructions live in your repository, change through pull requests, and [retros](/docs/best-practices/retrospectives.html) show you where they fall short.
 
 ## People decide
 
-When a role reaches a decision your instructions leave to a person, it stops and asks on the issue instead of guessing. Merges your policy reserves for a maintainer wait for one. Comments from outside your team never reach the agents, and on a public repository an outside issue or pull request waits until a maintainer starts it. See [Approvals](/docs/configuration/approvals.html).
+Agents are good at doing the work and less good at judging what matters. So the loop is built to stop and ask on the issue when a decision belongs to a person, and to leave the merges you choose to a maintainer. On a public repository, outside input waits until a maintainer starts the work. See [Approvals](/docs/configuration/approvals.html).
 
 ## Take what fits
 
