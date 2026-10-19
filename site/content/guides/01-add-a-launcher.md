@@ -1,4 +1,4 @@
-# Add a launcher
+# Add more launchers
 
 A launcher runs wherever you start it: your laptop, a teammate's, or any server you like. A laptop works while it is awake. For a loop that keeps going overnight, use an always-on machine, such as a small cloud server. All launchers for a project share one queue through GitHub, and a claim keeps two of them off the same item.
 
