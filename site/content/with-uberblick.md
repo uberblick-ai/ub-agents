@@ -33,7 +33,10 @@ Then add its MCP server to `.mcp.json` in your repository and commit it, so ever
 
 ## Let the agents use it
 
-Loop runs can't answer permission prompts. Add `"mcp__uberblick__*"` to `--allowedTools` for each role that reads the workspace, next to its [other permissions](/docs/configuration/permissions.html#claude-code).
+Loop runs can't answer permission prompts, so allow the Uberblick tools for each role that reads the workspace, next to its [other permissions](/docs/configuration/permissions.html):
+
+- **Claude Code:** add `"mcp__uberblick__*"` to `--allowedTools`.
+- **Codex:** add `-c, 'mcp_servers.uberblick.default_tools_approval_mode="approve"'` to `runtime-args`.
 
 ## Tell the roles what to do
 
