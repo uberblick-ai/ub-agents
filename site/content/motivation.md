@@ -26,9 +26,9 @@ The heavy lifting happens at the model provider. A launcher only watches GitHub,
 
 ## Every repository is different
 
-A web app wants a browser check before merging, a library a changelog line, and a docs repository may not need a reviewer at all. One fixed pipeline fits none of them.
+A web app wants a browser check before merging, a library a changelog line, and a docs repository may not need a reviewer at all.
 
-A role is a few lines of YAML: the label that starts it, the agent, its instructions and what each outcome does next. Add roles, drop them, rename labels or run your own script as a step. Each repository can set its own [dependency install](/docs/configuration/checkout-setup.html) and [cleanup](/docs/configuration/cleanup.html). [init](/docs/commands/init.html) gives you a starter workflow; after that, it's yours.
+A role is a few lines of YAML. Choose your roles, labels, instructions and outcomes, or run your own script as a role. Each repository can set its own [dependency install](/docs/configuration/checkout-setup.html) and [cleanup](/docs/configuration/cleanup.html). [init](/docs/commands/init.html) gives you a starter workflow; after that, it's yours.
 
 ## Your process is code
 
@@ -40,4 +40,4 @@ When a role reaches a decision your instructions leave to a person, it stops and
 
 ## Take what fits
 
-This is what held up for us, not the one right way. Start with the defaults, change what doesn't fit, and tell us on [GitHub](https://github.com/uberblick-ai/ub-agents).
+Start with the defaults, change what doesn't fit, and tell us on [GitHub](https://github.com/uberblick-ai/ub-agents).
