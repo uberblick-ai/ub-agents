@@ -104,7 +104,8 @@ for prerequisites and completing a partially published release.
 ## Changes
 
 - Keep `README.md`, the docs under `docs/` and the website pages under `site/content/`
-  accurate for any behavior you change, and change tests with the code.
+  accurate for any behavior you change, and change tests with the code. The README
+  is an overview: put new details in `docs/` or `site/content/`, not in the README.
 - Match the surrounding code: small modules, the standard library plus PyYAML, `gh`
   as the GitHub client, `unittest` with the recording fakes in `tests/support.py`.
 - Add no runtime dependencies without maintainer agreement.
