@@ -183,10 +183,12 @@ class LaunchSetupTests(unittest.TestCase):
                 handler = signal.getsignal(sig)
 
                 def checks(*_):
-                    script = ("import os,signal,time; "
+                    script = ("import os,signal,sys,time; sys.stdin.read(1); "
                               f"open({str(pid)!r}, 'w').write(str(os.getpid())); "
                               f"os.kill(os.getppid(), {int(sig)}); time.sleep(30)")
-                    subprocess.run([sys.executable, "-c", script], check=True, timeout=35)
+                    # Signal only after run() has entered the child's cleanup context.
+                    subprocess.run([sys.executable, "-c", script], input="go", text=True,
+                                   check=True, timeout=35)
                     self.fail("Setup continued after stop signal")
 
                 self.checks.side_effect = checks
